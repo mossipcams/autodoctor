@@ -190,9 +190,22 @@ async def async_validate_all(hass: HomeAssistant) -> list:
 
     _LOGGER.info("Validating %d automations", len(automations))
 
+    # Log first automation structure for debugging
+    if automations:
+        first = automations[0]
+        _LOGGER.debug("First automation keys: %s", list(first.keys()) if isinstance(first, dict) else type(first))
+        _LOGGER.debug("First automation sample: %s", {k: type(v).__name__ for k, v in first.items()} if isinstance(first, dict) else first)
+
     all_issues = []
-    for automation in automations:
+    for idx, automation in enumerate(automations):
         auto_name = automation.get("alias", automation.get("id", "unknown"))
+        # Log trigger info for first few automations
+        if idx < 3:
+            _LOGGER.debug(
+                "Automation '%s' trigger: %s",
+                auto_name,
+                automation.get("trigger", automation.get("triggers", "NO TRIGGER KEY"))
+            )
         refs = analyzer.extract_state_references(automation)
         _LOGGER.debug("Automation '%s': extracted %d state references", auto_name, len(refs))
         issues = validator.validate_all(refs)
