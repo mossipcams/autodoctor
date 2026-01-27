@@ -49,9 +49,9 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
     if hasattr(automation_data, "entities"):
         configs = []
         for entity in automation_data.entities:
-            # Automation entities store their config in _config attribute
-            if hasattr(entity, "_config"):
-                configs.append(entity._config)
+            # Automation entities store their config in raw_config attribute
+            if hasattr(entity, "raw_config") and entity.raw_config is not None:
+                configs.append(entity.raw_config)
         return configs
 
     return []
