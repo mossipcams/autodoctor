@@ -2,7 +2,15 @@ import { LitElement, html, css, CSSResultGroup, TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type { AutodoctorCardConfig, AutodoctorData, IssueWithFix } from "./types";
+import type { AutodoctorCardConfig, AutodoctorData, IssueWithFix, ValidationIssue } from "./types";
+
+interface AutomationGroup {
+  automation_id: string;
+  automation_name: string;
+  issues: IssueWithFix[];
+  edit_url: string;
+  has_error: boolean;
+}
 
 @customElement("autodoctor-card")
 export class AutodoctorCard extends LitElement {
@@ -53,6 +61,33 @@ export class AutodoctorCard extends LitElement {
     await this._fetchData();
   }
 
+  private _groupIssuesByAutomation(issues: IssueWithFix[]): AutomationGroup[] {
+    const groups = new Map<string, AutomationGroup>();
+
+    for (const item of issues) {
+      const { issue, edit_url } = item;
+      const key = issue.automation_id;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          automation_id: issue.automation_id,
+          automation_name: issue.automation_name,
+          issues: [],
+          edit_url,
+          has_error: false,
+        });
+      }
+
+      const group = groups.get(key)!;
+      group.issues.push(item);
+      if (issue.severity === "error") {
+        group.has_error = true;
+      }
+    }
+
+    return Array.from(groups.values());
+  }
+
   protected render(): TemplateResult {
     if (this._loading) {
       return html`
@@ -78,15 +113,18 @@ export class AutodoctorCard extends LitElement {
       `;
     }
 
+    const groups = this._groupIssuesByAutomation(this._data.issues);
+    const totalIssues = this._data.issues.length;
+
     return html`
       <ha-card header="${this.config.title || "Automation Health"}">
         <div class="card-content">
-          ${this._data.issues.length > 0
+          ${totalIssues > 0
             ? html`
                 <div class="issue-count">
-                  ${this._data.issues.length} issue${this._data.issues.length > 1 ? "s" : ""} found
+                  ${totalIssues} issue${totalIssues > 1 ? "s" : ""} in ${groups.length} automation${groups.length > 1 ? "s" : ""}
                 </div>
-                ${this._data.issues.map((item) => this._renderIssue(item))}
+                ${groups.map((group) => this._renderAutomationGroup(group))}
               `
             : html`<div class="no-issues">No issues detected</div>`}
           <div class="healthy">
@@ -98,16 +136,28 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
+  private _renderAutomationGroup(group: AutomationGroup): TemplateResult {
+    return html`
+      <div class="automation-group ${group.has_error ? "has-error" : "has-warning"}">
+        <div class="automation-header">
+          <span class="severity-icon">${group.has_error ? "✕" : "!"}</span>
+          <span class="automation-name">${group.automation_name}</span>
+          <span class="issue-badge">${group.issues.length}</span>
+        </div>
+        <div class="automation-issues">
+          ${group.issues.map((item) => this._renderIssue(item))}
+        </div>
+        <a href="${group.edit_url}" class="edit-link">Edit automation</a>
+      </div>
+    `;
+  }
+
   private _renderIssue(item: IssueWithFix): TemplateResult {
-    const { issue, fix, edit_url } = item;
+    const { issue, fix } = item;
     const isError = issue.severity === "error";
 
     return html`
       <div class="issue ${isError ? "error" : "warning"}">
-        <div class="issue-header">
-          <span class="severity-icon">${isError ? "✕" : "!"}</span>
-          <span class="automation-name">${issue.automation_name}</span>
-        </div>
         <div class="issue-message">${issue.message}</div>
         ${fix
           ? html`
@@ -121,7 +171,6 @@ export class AutodoctorCard extends LitElement {
               </div>
             `
           : ""}
-        <a href="${edit_url}" class="edit-link">Edit automation</a>
       </div>
     `;
   }
@@ -153,7 +202,7 @@ export class AutodoctorCard extends LitElement {
         margin-bottom: 16px;
       }
 
-      .issue {
+      .automation-group {
         border-left: 4px solid var(--error-color);
         padding: 12px;
         margin-bottom: 12px;
@@ -161,11 +210,11 @@ export class AutodoctorCard extends LitElement {
         border-radius: 0 4px 4px 0;
       }
 
-      .issue.warning {
+      .automation-group.has-warning {
         border-left-color: var(--warning-color);
       }
 
-      .issue-header {
+      .automation-header {
         display: flex;
         align-items: center;
         gap: 8px;
@@ -177,12 +226,48 @@ export class AutodoctorCard extends LitElement {
         font-weight: bold;
       }
 
-      .issue.warning .severity-icon {
+      .automation-group.has-warning .severity-icon {
+        color: var(--warning-color);
+      }
+
+      .issue-badge {
+        background: var(--error-color);
+        color: white;
+        font-size: 0.75em;
+        padding: 2px 6px;
+        border-radius: 10px;
+        margin-left: auto;
+      }
+
+      .automation-group.has-warning .issue-badge {
+        background: var(--warning-color);
+      }
+
+      .automation-issues {
+        margin-top: 8px;
+        padding-left: 24px;
+      }
+
+      .issue {
+        padding: 8px 0;
+        border-bottom: 1px solid var(--divider-color);
+      }
+
+      .issue:last-child {
+        border-bottom: none;
+      }
+
+      .issue.error .issue-message::before {
+        content: "✕ ";
+        color: var(--error-color);
+      }
+
+      .issue.warning .issue-message::before {
+        content: "! ";
         color: var(--warning-color);
       }
 
       .issue-message {
-        margin: 8px 0;
         color: var(--secondary-text-color);
         font-size: 0.9em;
       }
