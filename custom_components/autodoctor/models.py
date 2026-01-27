@@ -87,6 +87,11 @@ class ValidationIssue:
             "valid_states": self.valid_states,
         }
 
+    def get_suppression_key(self) -> str:
+        """Generate a unique key for suppressing this issue."""
+        issue_type = self.issue_type.value if self.issue_type else "unknown"
+        return f"{self.automation_id}:{self.entity_id}:{issue_type}"
+
 
 @dataclass
 class OutcomeReport:

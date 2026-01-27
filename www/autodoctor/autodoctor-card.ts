@@ -153,9 +153,9 @@ export class AutodoctorCard extends LitElement {
     return Array.from(groups.values());
   }
 
-  private _getCounts(data: AutodoctorTabData | null): { errors: number; warnings: number; healthy: number } {
+  private _getCounts(data: AutodoctorTabData | null): { errors: number; warnings: number; healthy: number; suppressed: number } {
     if (!data) {
-      return { errors: 0, warnings: 0, healthy: 0 };
+      return { errors: 0, warnings: 0, healthy: 0, suppressed: 0 };
     }
 
     let errors = 0;
@@ -169,7 +169,7 @@ export class AutodoctorCard extends LitElement {
       }
     }
 
-    return { errors, warnings, healthy: data.healthy_count };
+    return { errors, warnings, healthy: data.healthy_count, suppressed: data.suppressed_count || 0 };
   }
 
   protected render(): TemplateResult {
@@ -300,7 +300,7 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderBadges(counts: { errors: number; warnings: number; healthy: number }): TemplateResult {
+  private _renderBadges(counts: { errors: number; warnings: number; healthy: number; suppressed: number }): TemplateResult {
     return html`
       <div class="badges-row">
         ${counts.errors > 0
@@ -319,6 +319,18 @@ export class AutodoctorCard extends LitElement {
           <span class="badge-icon" aria-hidden="true">✓</span>
           <span class="badge-count">${counts.healthy}</span>
         </span>
+        ${counts.suppressed > 0
+          ? html`<span class="badge badge-suppressed" title="${counts.suppressed} suppressed">
+              <span class="badge-icon" aria-hidden="true">⊘</span>
+              <span class="badge-count">${counts.suppressed}</span>
+              <button
+                class="clear-suppressions-btn"
+                @click=${this._clearSuppressions}
+                title="Clear all suppressions"
+                aria-label="Clear all suppressions"
+              >✕</button>
+            </span>`
+          : nothing}
       </div>
     `;
   }
@@ -372,6 +384,31 @@ export class AutodoctorCard extends LitElement {
     this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
   }
 
+  private async _suppressIssue(issue: ValidationIssue): Promise<void> {
+    try {
+      await this.hass.callWS({
+        type: "autodoctor/suppress",
+        automation_id: issue.automation_id,
+        entity_id: issue.entity_id,
+        issue_type: issue.issue_type || "unknown",
+      });
+      await this._refreshCurrentTab();
+    } catch (err) {
+      console.error("Failed to suppress issue:", err);
+    }
+  }
+
+  private async _clearSuppressions(): Promise<void> {
+    try {
+      await this.hass.callWS({
+        type: "autodoctor/clear_suppressions",
+      });
+      await this._refreshCurrentTab();
+    } catch (err) {
+      console.error("Failed to clear suppressions:", err);
+    }
+  }
+
   private _renderAutomationGroup(group: AutomationGroup): TemplateResult {
     return html`
       <div class="automation-group ${group.has_error ? 'has-error' : 'has-warning'}">
@@ -401,6 +438,12 @@ export class AutodoctorCard extends LitElement {
         <div class="issue-header">
           <span class="issue-icon" aria-hidden="true">${isError ? '✕' : '!'}</span>
           <span class="issue-message">${issue.message}</span>
+          <button
+            class="suppress-btn"
+            @click=${() => this._suppressIssue(issue)}
+            aria-label="Suppress this issue"
+            title="Don't show this issue again"
+          >⊘</button>
         </div>
         ${fix && !isDismissed
           ? html`
@@ -604,6 +647,34 @@ export class AutodoctorCard extends LitElement {
       .badge-healthy {
         background: rgba(46, 139, 87, 0.15);
         color: var(--autodoc-success);
+      }
+
+      .badge-suppressed {
+        background: rgba(127, 127, 127, 0.15);
+        color: var(--secondary-text-color);
+      }
+
+      .clear-suppressions-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        margin-left: 2px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 50%;
+        color: inherit;
+        font-size: 0.6em;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity var(--autodoc-transition-fast), background var(--autodoc-transition-fast);
+      }
+
+      .clear-suppressions-btn:hover {
+        opacity: 1;
+        background: rgba(127, 127, 127, 0.3);
       }
 
       /* Card content */
@@ -834,9 +905,43 @@ export class AutodoctorCard extends LitElement {
       }
 
       .issue-message {
+        flex: 1;
         font-size: var(--autodoc-issue-size);
         color: var(--secondary-text-color);
         line-height: 1.4;
+      }
+
+      .suppress-btn {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 50%;
+        color: var(--secondary-text-color);
+        font-size: 0.75rem;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity var(--autodoc-transition-fast), background var(--autodoc-transition-fast);
+      }
+
+      .issue:hover .suppress-btn {
+        opacity: 0.6;
+      }
+
+      .suppress-btn:hover {
+        opacity: 1;
+        background: var(--divider-color, rgba(127, 127, 127, 0.2));
+      }
+
+      .suppress-btn:focus {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 1px;
+        opacity: 1;
       }
 
       /* Fix suggestions */

@@ -33,6 +33,7 @@ from .validator import ValidationEngine
 from .simulator import SimulationEngine
 from .reporter import IssueReporter
 from .fix_engine import FixEngine
+from .suppression_store import SuppressionStore
 from .websocket_api import async_setup_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -169,6 +170,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     simulator = SimulationEngine(knowledge_base)
     reporter = IssueReporter(hass)
     fix_engine = FixEngine(hass, knowledge_base)
+    suppression_store = SuppressionStore(hass)
+    await suppression_store.async_load()
 
     hass.data[DOMAIN] = {
         "knowledge_base": knowledge_base,
@@ -177,6 +180,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "simulator": simulator,
         "reporter": reporter,
         "fix_engine": fix_engine,
+        "suppression_store": suppression_store,
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],
         "outcome_issues": [],

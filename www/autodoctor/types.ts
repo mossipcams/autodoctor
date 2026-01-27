@@ -38,4 +38,5 @@ export interface AutodoctorTabData {
   issues: IssueWithFix[];
   healthy_count: number;
   last_run: string | null;
+  suppressed_count: number;
 }
