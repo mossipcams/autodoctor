@@ -110,27 +110,27 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     if lovelace and lovelace.mode == "storage":
         resources = lovelace.resources
         if resources:
-            # Find all existing autodoctor resources (use attribute access for HA 2026+)
+            # Find all existing autodoctor resources
+            # Note: lovelace.mode/resources use attribute access (HA 2026+)
+            # but resource items from async_items() are dicts
             existing = [
                 r for r in resources.async_items()
-                if "autodoctor" in getattr(r, "url", "")
+                if "autodoctor" in r.get("url", "")
             ]
 
             # Check if current version already registered
-            current_exists = any(
-                getattr(r, "url", "") == CARD_URL for r in existing
-            )
+            current_exists = any(r.get("url") == CARD_URL for r in existing)
 
             if current_exists:
                 _LOGGER.debug("Autodoctor card already registered with current version")
             else:
                 # Remove old versions first
                 for resource in existing:
-                    resource_id = getattr(resource, "id", None)
+                    resource_id = resource.get("id")
                     if resource_id:
                         try:
                             await resources.async_delete_item(resource_id)
-                            _LOGGER.debug("Removed old autodoctor card resource")
+                            _LOGGER.debug("Removed old autodoctor card resource: %s", resource.get("url"))
                         except Exception as err:
                             _LOGGER.warning("Failed to remove old resource: %s", err)
 
