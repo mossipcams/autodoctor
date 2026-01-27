@@ -33,6 +33,10 @@
     "validation_issue": {
       "title": "Automation Issue: {automation}",
       "description": "**Entity:** `{entity}`\n\n**Problem:** {message}\n\n**Suggested fix:** {suggestion}\n\n**Valid states:** {valid_states}"
+    },
+    "automation_issues": {
+      "title": "{automation} ({count} issues)",
+      "description": "The following issues were found:\n\n{issues}"
     }
   },
   "entity": {

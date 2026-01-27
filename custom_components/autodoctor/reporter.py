@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 import logging
 from typing import TYPE_CHECKING
 
@@ -41,9 +42,9 @@ class IssueReporter:
         self.hass = hass
         self._active_issues: set[str] = set()
 
-    def _issue_id(self, issue: ValidationIssue) -> str:
-        """Generate a unique issue ID."""
-        return f"{issue.automation_id}_{issue.entity_id}_{issue.location}".replace(".", "_")
+    def _automation_issue_id(self, automation_id: str) -> str:
+        """Generate a unique issue ID for an automation."""
+        return automation_id.replace(".", "_")
 
     def _severity_to_repair(self, severity: Severity) -> str:
         """Convert our severity to HA repair severity."""
@@ -51,18 +52,25 @@ class IssueReporter:
             return ir.IssueSeverity.ERROR
         return ir.IssueSeverity.WARNING
 
+    def _format_issues_for_repair(self, issues: list[ValidationIssue]) -> str:
+        """Format multiple issues into a single repair description."""
+        lines = []
+        for issue in issues:
+            lines.append(f"• **{issue.entity_id}** ({issue.location}): {issue.message}")
+        return "\n".join(lines)
+
     async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
-        """Report validation issues."""
+        """Report validation issues grouped by automation."""
         if not issues:
             _LOGGER.info("Automation validation complete: no issues found")
             return
 
-        current_issue_ids: set[str] = set()
-
+        # Group issues by automation
+        issues_by_automation: dict[str, list[ValidationIssue]] = defaultdict(list)
         for issue in issues:
-            issue_id = self._issue_id(issue)
-            current_issue_ids.add(issue_id)
+            issues_by_automation[issue.automation_id].append(issue)
 
+            # Still log each issue individually
             log_method = _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
             log_method(
                 "Automation '%s': %s (entity: %s, location: %s)",
@@ -72,20 +80,35 @@ class IssueReporter:
                 issue.location,
             )
 
+        current_issue_ids: set[str] = set()
+
+        # Create one repair per automation
+        for automation_id, automation_issues in issues_by_automation.items():
+            issue_id = self._automation_issue_id(automation_id)
+            current_issue_ids.add(issue_id)
+
+            automation_name = automation_issues[0].automation_name
+            issue_count = len(automation_issues)
+
+            # Use highest severity among all issues for this automation
+            has_error = any(i.severity == Severity.ERROR for i in automation_issues)
+            severity = Severity.ERROR if has_error else Severity.WARNING
+
+            # Format all issues for this automation
+            issues_text = self._format_issues_for_repair(automation_issues)
+
             # Note: ir.async_create_issue is synchronous despite the name
             ir.async_create_issue(
                 self.hass,
                 DOMAIN,
                 issue_id,
                 is_fixable=False,
-                severity=self._severity_to_repair(issue.severity),
-                translation_key="validation_issue",
+                severity=self._severity_to_repair(severity),
+                translation_key="automation_issues",
                 translation_placeholders={
-                    "automation": issue.automation_name,
-                    "entity": issue.entity_id,
-                    "message": issue.message,
-                    "suggestion": issue.suggestion or "N/A",
-                    "valid_states": ", ".join(issue.valid_states) if issue.valid_states else "N/A",
+                    "automation": automation_name,
+                    "count": str(issue_count),
+                    "issues": issues_text,
                 },
             )
 
