@@ -1,7 +1,8 @@
 """Tests for SimulationEngine."""
 
 import pytest
-from unittest.mock import MagicMock
+
+from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.simulator import SimulationEngine
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
@@ -9,15 +10,9 @@ from custom_components.autodoctor.models import Verdict
 
 
 @pytest.fixture
-def mock_hass():
-    """Create a mock Home Assistant instance."""
-    return MagicMock()
-
-
-@pytest.fixture
-def knowledge_base(mock_hass):
+def knowledge_base(hass: HomeAssistant):
     """Create a knowledge base."""
-    return StateKnowledgeBase(mock_hass)
+    return StateKnowledgeBase(hass)
 
 
 @pytest.fixture
@@ -26,19 +21,15 @@ def simulator(knowledge_base):
     return SimulationEngine(knowledge_base)
 
 
-def test_simulator_initialization(simulator):
+async def test_simulator_initialization(simulator):
     """Test simulator can be initialized."""
     assert simulator is not None
 
 
-def test_verify_reachable_automation(simulator, mock_hass):
+async def test_verify_reachable_automation(simulator, hass: HomeAssistant):
     """Test verification of reachable automation."""
-    mock_state = MagicMock()
-    mock_state.entity_id = "person.matt"
-    mock_state.domain = "person"
-    mock_state.state = "home"
-    mock_state.attributes = {}
-    mock_hass.states.get = MagicMock(return_value=mock_state)
+    hass.states.async_set("person.matt", "home")
+    await hass.async_block_till_done()
 
     automation = {
         "id": "welcome_home",
@@ -63,14 +54,10 @@ def test_verify_reachable_automation(simulator, mock_hass):
     assert len(report.outcomes) > 0
 
 
-def test_verify_unreachable_contradictory_condition(simulator, mock_hass):
+async def test_verify_unreachable_contradictory_condition(simulator, hass: HomeAssistant):
     """Test detection of contradictory conditions."""
-    mock_state = MagicMock()
-    mock_state.entity_id = "person.matt"
-    mock_state.domain = "person"
-    mock_state.state = "home"
-    mock_state.attributes = {}
-    mock_hass.states.get = MagicMock(return_value=mock_state)
+    hass.states.async_set("person.matt", "home")
+    await hass.async_block_till_done()
 
     automation = {
         "id": "contradiction",
@@ -94,10 +81,8 @@ def test_verify_unreachable_contradictory_condition(simulator, mock_hass):
     assert len(report.unreachable_paths) > 0
 
 
-def test_verify_missing_trigger_entity(simulator, mock_hass):
+async def test_verify_missing_trigger_entity(simulator, hass: HomeAssistant):
     """Test detection of missing trigger entity."""
-    mock_hass.states.get = MagicMock(return_value=None)
-
     automation = {
         "id": "missing",
         "alias": "Missing",

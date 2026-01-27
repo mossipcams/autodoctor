@@ -3,22 +3,16 @@
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
+from homeassistant.core import HomeAssistant
+
 from custom_components.autodoctor.reporter import IssueReporter
 from custom_components.autodoctor.models import ValidationIssue, Severity
 
 
 @pytest.fixture
-def mock_hass():
-    """Create a mock Home Assistant instance."""
-    hass = MagicMock()
-    hass.async_create_task = MagicMock()
-    return hass
-
-
-@pytest.fixture
-def reporter(mock_hass):
+def reporter(hass: HomeAssistant):
     """Create an IssueReporter instance."""
-    return IssueReporter(mock_hass)
+    return IssueReporter(hass)
 
 
 def test_reporter_initialization(reporter):
@@ -27,7 +21,7 @@ def test_reporter_initialization(reporter):
 
 
 @pytest.mark.asyncio
-async def test_report_issues_creates_repair(mock_hass, reporter):
+async def test_report_issues_creates_repair(hass: HomeAssistant, reporter):
     """Test that reporting issues creates repair entries."""
     issues = [
         ValidationIssue(
@@ -54,7 +48,7 @@ async def test_report_issues_creates_repair(mock_hass, reporter):
 
 
 @pytest.mark.asyncio
-async def test_report_issues_creates_notification(mock_hass, reporter):
+async def test_report_issues_creates_notification(hass: HomeAssistant, reporter):
     """Test that reporting issues creates a notification."""
     issues = [
         ValidationIssue(
@@ -81,7 +75,7 @@ async def test_report_issues_creates_notification(mock_hass, reporter):
 
 
 @pytest.mark.asyncio
-async def test_clear_resolved_issues(mock_hass, reporter):
+async def test_clear_resolved_issues(hass: HomeAssistant, reporter):
     """Test clearing resolved issues."""
     with patch(
         "custom_components.autodoctor.reporter.ir.async_delete_issue",
