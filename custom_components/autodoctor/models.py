@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import IntEnum, auto
+from enum import Enum, IntEnum, auto
 
 
 class Severity(IntEnum):
@@ -21,6 +21,17 @@ class Verdict(IntEnum):
     ALL_REACHABLE = auto()
     PARTIALLY_REACHABLE = auto()
     UNREACHABLE = auto()
+
+
+class IssueType(str, Enum):
+    """Types of validation issues."""
+
+    ENTITY_NOT_FOUND = "entity_not_found"
+    ENTITY_REMOVED = "entity_removed"
+    INVALID_STATE = "invalid_state"
+    IMPOSSIBLE_CONDITION = "impossible_condition"
+    CASE_MISMATCH = "case_mismatch"
+    ATTRIBUTE_NOT_FOUND = "attribute_not_found"
 
 
 @dataclass
