@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
-from custom_components.autodoctor.models import StateReference
+from custom_components.autodoctor.models import IssueType, StateReference
 
 
 def test_extract_state_trigger_to():
@@ -195,3 +195,88 @@ def test_extract_state_attr_from_template():
     assert len(refs) == 1
     assert refs[0].entity_id == "climate.living_room"
     assert refs[0].expected_attribute == "current_temperature"
+
+
+def test_check_trigger_condition_compatibility_detects_impossible():
+    """Test detection of impossible trigger/condition combinations."""
+    analyzer = AutomationAnalyzer()
+
+    automation = {
+        "id": "test",
+        "alias": "Test Automation",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt",
+                "state": "not_home",
+            }
+        ],
+    }
+
+    issues = analyzer.check_trigger_condition_compatibility(automation)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.IMPOSSIBLE_CONDITION
+    assert "home" in issues[0].message
+    assert "not_home" in issues[0].message
+
+
+def test_check_trigger_condition_compatibility_allows_matching():
+    """Test that matching trigger/condition passes."""
+    analyzer = AutomationAnalyzer()
+
+    automation = {
+        "id": "test",
+        "alias": "Test Automation",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt",
+                "state": "home",
+            }
+        ],
+    }
+
+    issues = analyzer.check_trigger_condition_compatibility(automation)
+    assert len(issues) == 0
+
+
+def test_check_trigger_condition_compatibility_allows_list_match():
+    """Test that condition with list including trigger state passes."""
+    analyzer = AutomationAnalyzer()
+
+    automation = {
+        "id": "test",
+        "alias": "Test Automation",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt",
+                "state": ["home", "away"],
+            }
+        ],
+    }
+
+    issues = analyzer.check_trigger_condition_compatibility(automation)
+    assert len(issues) == 0

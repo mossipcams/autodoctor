@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from .models import StateReference
+from .models import IssueType, Severity, StateReference, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -243,3 +243,68 @@ class AutomationAnalyzer:
                 )
 
         return refs
+
+    def check_trigger_condition_compatibility(
+        self, automation: dict[str, Any]
+    ) -> list[ValidationIssue]:
+        """Check if triggers and conditions are compatible.
+
+        Detects impossible conditions where a trigger fires on one state
+        but the condition requires a different (incompatible) state for
+        the same entity.
+        """
+        automation_id = f"automation.{automation.get('id', 'unknown')}"
+        automation_name = automation.get("alias", automation_id)
+
+        triggers = automation.get("triggers") or automation.get("trigger", [])
+        conditions = automation.get("conditions") or automation.get("condition", [])
+
+        if not isinstance(triggers, list):
+            triggers = [triggers]
+        if not isinstance(conditions, list):
+            conditions = [conditions]
+
+        # Build map of entity_id -> trigger "to" states
+        trigger_states: dict[str, set[str]] = {}
+        for trigger in triggers:
+            platform = trigger.get("platform") or trigger.get("trigger", "")
+            if platform == "state":
+                entity_ids = trigger.get("entity_id", [])
+                if isinstance(entity_ids, str):
+                    entity_ids = [entity_ids]
+
+                to_state = trigger.get("to")
+                if to_state is not None:
+                    to_states = self._normalize_states(to_state)
+                    for entity_id in entity_ids:
+                        if entity_id not in trigger_states:
+                            trigger_states[entity_id] = set()
+                        trigger_states[entity_id].update(to_states)
+
+        issues: list[ValidationIssue] = []
+
+        for idx, condition in enumerate(conditions):
+            if condition.get("condition") == "state":
+                entity_id = condition.get("entity_id")
+                required_states = self._normalize_states(condition.get("state"))
+
+                if entity_id and entity_id in trigger_states:
+                    trigger_to_states = trigger_states[entity_id]
+                    required_set = set(required_states)
+
+                    # Check if there's any overlap
+                    if not trigger_to_states.intersection(required_set):
+                        issues.append(
+                            ValidationIssue(
+                                issue_type=IssueType.IMPOSSIBLE_CONDITION,
+                                severity=Severity.ERROR,
+                                automation_id=automation_id,
+                                automation_name=automation_name,
+                                entity_id=entity_id,
+                                location=f"condition[{idx}].state",
+                                message=f"Condition requires '{', '.join(required_states)}' but trigger fires on '{', '.join(trigger_to_states)}'",
+                                suggestion=list(trigger_to_states)[0] if trigger_to_states else None,
+                            )
+                        )
+
+        return issues
