@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from difflib import get_close_matches
 
 from .knowledge_base import StateKnowledgeBase
@@ -14,9 +15,20 @@ _LOGGER = logging.getLogger(__name__)
 class ValidationEngine:
     """Validates state references against known valid states."""
 
-    def __init__(self, knowledge_base: StateKnowledgeBase) -> None:
-        """Initialize the validation engine."""
+    def __init__(
+        self,
+        knowledge_base: StateKnowledgeBase,
+        staleness_threshold_days: int | None = None,
+    ) -> None:
+        """Initialize the validation engine.
+
+        Args:
+            knowledge_base: The state knowledge base
+            staleness_threshold_days: Days before a state is considered stale.
+                                       None disables staleness checking.
+        """
         self.knowledge_base = knowledge_base
+        self.staleness_threshold_days = staleness_threshold_days
 
     def validate_reference(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate a single state reference."""
@@ -75,6 +87,8 @@ class ValidationEngine:
         valid_states_list = list(valid_states)
 
         if expected in valid_states:
+            # State is valid - check if it's stale
+            issues.extend(self._check_staleness(ref, expected))
             return issues
 
         lower_map = {s.lower(): s for s in valid_states}
@@ -82,6 +96,7 @@ class ValidationEngine:
             correct_case = lower_map[expected.lower()]
             issues.append(
                 ValidationIssue(
+                    issue_type=IssueType.CASE_MISMATCH,
                     severity=Severity.WARNING,
                     automation_id=ref.automation_id,
                     automation_name=ref.automation_name,
@@ -97,6 +112,7 @@ class ValidationEngine:
         suggestion = self._suggest_state(expected, valid_states)
         issues.append(
             ValidationIssue(
+                issue_type=IssueType.INVALID_STATE,
                 severity=Severity.ERROR,
                 automation_id=ref.automation_id,
                 automation_name=ref.automation_name,
@@ -107,6 +123,40 @@ class ValidationEngine:
                 valid_states=valid_states_list,
             )
         )
+
+        return issues
+
+    def _check_staleness(self, ref: StateReference, state: str) -> list[ValidationIssue]:
+        """Check if a state hasn't been seen recently."""
+        issues: list[ValidationIssue] = []
+
+        if self.staleness_threshold_days is None:
+            return issues
+
+        last_seen = self.knowledge_base.get_state_last_seen(ref.entity_id, state)
+        if last_seen is None:
+            # Never seen in history - might be a new state or no history loaded
+            return issues
+
+        # Make sure we compare timezone-aware datetimes
+        now = datetime.now(timezone.utc)
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+        threshold = timedelta(days=self.staleness_threshold_days)
+        if now - last_seen > threshold:
+            days_ago = (now - last_seen).days
+            issues.append(
+                ValidationIssue(
+                    issue_type=IssueType.STALE_STATE,
+                    severity=Severity.WARNING,
+                    automation_id=ref.automation_id,
+                    automation_name=ref.automation_name,
+                    entity_id=ref.entity_id,
+                    location=ref.location,
+                    message=f"State '{state}' hasn't been seen in {days_ago} days (threshold: {self.staleness_threshold_days} days)",
+                )
+            )
 
         return issues
 

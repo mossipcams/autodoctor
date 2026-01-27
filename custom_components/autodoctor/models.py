@@ -33,6 +33,7 @@ class IssueType(str, Enum):
     IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
+    STALE_STATE = "stale_state"
 
 
 @dataclass

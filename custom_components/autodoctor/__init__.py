@@ -19,9 +19,11 @@ from .const import (
     DOMAIN,
     VERSION,
     CONF_HISTORY_DAYS,
+    CONF_STALENESS_THRESHOLD_DAYS,
     CONF_VALIDATE_ON_RELOAD,
     CONF_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_STALENESS_THRESHOLD_DAYS,
     DEFAULT_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
 )
@@ -153,12 +155,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Autodoctor from a config entry."""
     options = entry.options
     history_days = options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
+    staleness_threshold_days = options.get(
+        CONF_STALENESS_THRESHOLD_DAYS, DEFAULT_STALENESS_THRESHOLD_DAYS
+    )
     validate_on_reload = options.get(CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD)
     debounce_seconds = options.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
 
     knowledge_base = StateKnowledgeBase(hass, history_days)
     analyzer = AutomationAnalyzer()
-    validator = ValidationEngine(knowledge_base)
+    validator = ValidationEngine(knowledge_base, staleness_threshold_days)
     simulator = SimulationEngine(knowledge_base)
     reporter = IssueReporter(hass)
     fix_engine = FixEngine(hass, knowledge_base)

@@ -132,9 +132,103 @@ class SimulationEngine:
                 target = action.get("target", {})
                 entity = target.get("entity_id", "")
                 outcomes.append(f"{service}({entity})" if entity else service)
+
             elif "choose" in action:
-                outcomes.append("choose: multiple paths")
+                options = action.get("choose", [])
+                default = action.get("default", [])
+                outcomes.append(f"choose: {len(options)} option(s)")
+                for i, option in enumerate(options):
+                    sequence = option.get("sequence", [])
+                    nested = self._extract_outcomes(sequence)
+                    for item in nested:
+                        if item != "No actions defined":
+                            outcomes.append(f"  option {i + 1}: {item}")
+                if default:
+                    nested = self._extract_outcomes(default)
+                    for item in nested:
+                        if item != "No actions defined":
+                            outcomes.append(f"  default: {item}")
+
             elif "if" in action:
+                then_actions = action.get("then", [])
+                else_actions = action.get("else", [])
                 outcomes.append("if: conditional path")
+                nested = self._extract_outcomes(then_actions)
+                for item in nested:
+                    if item != "No actions defined":
+                        outcomes.append(f"  then: {item}")
+                if else_actions:
+                    nested = self._extract_outcomes(else_actions)
+                    for item in nested:
+                        if item != "No actions defined":
+                            outcomes.append(f"  else: {item}")
+
+            elif "wait_template" in action:
+                template = action["wait_template"]
+                timeout = action.get("timeout")
+                display = template[:50] + "..." if len(template) > 50 else template
+                if timeout:
+                    outcomes.append(f"wait_template: {display} (timeout: {timeout})")
+                else:
+                    outcomes.append(f"wait_template: {display}")
+
+            elif "wait_for_trigger" in action:
+                triggers = action["wait_for_trigger"]
+                if not isinstance(triggers, list):
+                    triggers = [triggers]
+                outcomes.append(f"wait_for_trigger: {len(triggers)} trigger(s)")
+
+            elif "repeat" in action:
+                repeat_config = action["repeat"]
+                sequence = repeat_config.get("sequence", [])
+                if "count" in repeat_config:
+                    outcomes.append(f"repeat: {repeat_config['count']} times")
+                elif "while" in repeat_config:
+                    outcomes.append("repeat: while condition")
+                elif "until" in repeat_config:
+                    outcomes.append("repeat: until condition")
+                elif "for_each" in repeat_config:
+                    outcomes.append("repeat: for_each")
+                else:
+                    outcomes.append("repeat")
+                nested = self._extract_outcomes(sequence)
+                for item in nested:
+                    if item != "No actions defined":
+                        outcomes.append(f"  repeat: {item}")
+
+            elif "parallel" in action:
+                branches = action["parallel"]
+                if not isinstance(branches, list):
+                    branches = [branches]
+                outcomes.append(f"parallel: {len(branches)} branch(es)")
+                for i, branch in enumerate(branches):
+                    branch_actions = branch if isinstance(branch, list) else [branch]
+                    nested = self._extract_outcomes(branch_actions)
+                    for item in nested:
+                        if item != "No actions defined":
+                            outcomes.append(f"  branch {i + 1}: {item}")
+
+            elif "delay" in action:
+                delay_val = action["delay"]
+                if isinstance(delay_val, dict):
+                    parts = []
+                    for unit in ["hours", "minutes", "seconds", "milliseconds"]:
+                        if delay_val.get(unit):
+                            parts.append(f"{delay_val[unit]} {unit}")
+                    outcomes.append(f"delay: {', '.join(parts)}" if parts else "delay")
+                else:
+                    outcomes.append(f"delay: {delay_val}")
+
+            elif "stop" in action:
+                reason = action["stop"]
+                outcomes.append(f"stop: {reason}" if reason else "stop")
+
+            elif "event" in action:
+                event_type = action["event"]
+                outcomes.append(f"event: {event_type}")
+
+            elif "variables" in action:
+                var_names = list(action["variables"].keys())
+                outcomes.append(f"variables: {', '.join(var_names)}")
 
         return outcomes if outcomes else ["No actions defined"]

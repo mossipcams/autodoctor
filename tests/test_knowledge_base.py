@@ -152,10 +152,10 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     history_states = [
-        MagicMock(state="active"),
-        MagicMock(state="idle"),
-        MagicMock(state="active"),
-        MagicMock(state="error"),
+        MagicMock(state="active", last_changed=None),
+        MagicMock(state="idle", last_changed=None),
+        MagicMock(state="active", last_changed=None),
+        MagicMock(state="error", last_changed=None),
     ]
 
     with patch(
@@ -179,9 +179,9 @@ async def test_history_excludes_unavailable_unknown(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     history_states = [
-        MagicMock(state="active"),
-        MagicMock(state="unavailable"),
-        MagicMock(state="unknown"),
+        MagicMock(state="active", last_changed=None),
+        MagicMock(state="unavailable", last_changed=None),
+        MagicMock(state="unknown", last_changed=None),
     ]
 
     with patch(
@@ -203,8 +203,8 @@ async def test_get_historical_entity_ids(hass: HomeAssistant):
 
     # Simulate loading history with entities
     history_states = [
-        MagicMock(state="on"),
-        MagicMock(state="off"),
+        MagicMock(state="on", last_changed=None),
+        MagicMock(state="off", last_changed=None),
     ]
 
     with patch(
