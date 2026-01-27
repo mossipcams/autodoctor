@@ -110,8 +110,11 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     if lovelace and lovelace.mode == "storage":
         resources = lovelace.resources
         if resources:
-            # Check if already registered
-            existing = [r for r in resources.async_items() if CARD_URL_BASE in r.get("url", "")]
+            # Check if already registered (use attribute access for HA 2026+)
+            existing = [
+                r for r in resources.async_items()
+                if CARD_URL_BASE in getattr(r, "url", "")
+            ]
             if not existing:
                 try:
                     await resources.async_create_item({"url": CARD_URL, "res_type": "module"})
@@ -121,10 +124,12 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             else:
                 # Update existing resource if version changed
                 resource = existing[0]
-                if resource.get("url") != CARD_URL:
+                resource_url = getattr(resource, "url", "")
+                resource_id = getattr(resource, "id", None)
+                if resource_url != CARD_URL and resource_id:
                     try:
                         await resources.async_update_item(
-                            resource["id"], {"url": CARD_URL, "res_type": "module"}
+                            resource_id, {"url": CARD_URL, "res_type": "module"}
                         )
                         _LOGGER.info("Updated autodoctor card resource to %s", CARD_URL)
                     except Exception as err:
