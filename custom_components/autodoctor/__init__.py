@@ -110,8 +110,10 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # Register as Lovelace resource (storage mode only)
     # In YAML mode, users must manually add the resource
     lovelace = hass.data.get("lovelace")
-    if lovelace and lovelace.mode == "storage":
-        resources = lovelace.resources
+    # Handle both dict (older HA) and object (newer HA) access patterns
+    lovelace_mode = getattr(lovelace, "mode", None) or (lovelace.get("mode") if isinstance(lovelace, dict) else None)
+    if lovelace and lovelace_mode == "storage":
+        resources = getattr(lovelace, "resources", None) or (lovelace.get("resources") if isinstance(lovelace, dict) else None)
         if resources:
             # Find all existing autodoctor resources
             # Note: lovelace.mode/resources use attribute access (HA 2026+)
