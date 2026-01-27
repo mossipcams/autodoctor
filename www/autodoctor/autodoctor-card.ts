@@ -61,6 +61,7 @@ export class AutodoctorCard extends LitElement {
   private async _fetchValidation(): Promise<void> {
     this._loading = true;
     try {
+      this._error = null;
       this._validationData = await this.hass.callWS<AutodoctorTabData>({
         type: "autodoctor/validation",
       });
@@ -74,6 +75,7 @@ export class AutodoctorCard extends LitElement {
   private async _fetchOutcomes(): Promise<void> {
     this._loading = true;
     try {
+      this._error = null;
       this._outcomesData = await this.hass.callWS<AutodoctorTabData>({
         type: "autodoctor/outcomes",
       });
@@ -241,9 +243,8 @@ export class AutodoctorCard extends LitElement {
   private _renderEmpty(title: string): TemplateResult {
     return html`
       <ha-card>
-        <div class="header">
-          <h2 class="title">${title}</h2>
-        </div>
+        ${this._renderHeader(title)}
+        ${this._renderTabs()}
         <div class="card-content empty-state">
           <span class="empty-text">No data available</span>
         </div>
