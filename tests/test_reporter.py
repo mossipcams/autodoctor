@@ -36,13 +36,17 @@ async def test_report_issues_creates_repair(hass: HomeAssistant, reporter):
         )
     ]
 
+    # Register persistent_notification service for test
+    async def mock_notification_service(call):
+        pass
+
+    hass.services.async_register(
+        "persistent_notification", "create", mock_notification_service
+    )
+
     with patch(
         "custom_components.autodoctor.reporter.ir.async_create_issue",
-        new_callable=AsyncMock,
-    ) as mock_create, patch(
-        "custom_components.autodoctor.reporter.async_create",
-        new_callable=AsyncMock,
-    ):
+    ) as mock_create:
         await reporter.async_report_issues(issues)
         mock_create.assert_called_once()
 
@@ -63,15 +67,21 @@ async def test_report_issues_creates_notification(hass: HomeAssistant, reporter)
         )
     ]
 
+    # Track notification calls
+    notification_calls = []
+
+    async def mock_notification_service(call):
+        notification_calls.append(call)
+
+    hass.services.async_register(
+        "persistent_notification", "create", mock_notification_service
+    )
+
     with patch(
         "custom_components.autodoctor.reporter.ir.async_create_issue",
-        new_callable=AsyncMock,
-    ), patch(
-        "custom_components.autodoctor.reporter.async_create",
-        new_callable=AsyncMock,
-    ) as mock_notify:
+    ):
         await reporter.async_report_issues(issues)
-        mock_notify.assert_called_once()
+        assert len(notification_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -79,8 +89,7 @@ async def test_clear_resolved_issues(hass: HomeAssistant, reporter):
     """Test clearing resolved issues."""
     with patch(
         "custom_components.autodoctor.reporter.ir.async_delete_issue",
-        new_callable=AsyncMock,
     ) as mock_delete:
         reporter._active_issues = {"issue_1", "issue_2"}
-        await reporter.async_clear_resolved({"issue_1"})
+        reporter._clear_resolved_issues({"issue_1"})
         mock_delete.assert_called_once()

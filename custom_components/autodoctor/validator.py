@@ -6,7 +6,7 @@ import logging
 from difflib import get_close_matches
 
 from .knowledge_base import StateKnowledgeBase
-from .models import StateReference, ValidationIssue, Severity
+from .models import StateReference, ValidationIssue, Severity, IssueType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,17 +23,34 @@ class ValidationEngine:
         issues: list[ValidationIssue] = []
 
         if not self.knowledge_base.entity_exists(ref.entity_id):
-            issues.append(
-                ValidationIssue(
-                    severity=Severity.ERROR,
-                    automation_id=ref.automation_id,
-                    automation_name=ref.automation_name,
-                    entity_id=ref.entity_id,
-                    location=ref.location,
-                    message=f"Entity '{ref.entity_id}' does not exist",
-                    suggestion=self._suggest_entity(ref.entity_id),
+            # Check if entity existed in history (removed/renamed vs typo)
+            historical_ids = self.knowledge_base.get_historical_entity_ids()
+            if ref.entity_id in historical_ids:
+                issues.append(
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_REMOVED,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Entity '{ref.entity_id}' existed in history but is now missing (removed or renamed)",
+                        suggestion=self._suggest_entity(ref.entity_id),
+                    )
                 )
-            )
+            else:
+                issues.append(
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Entity '{ref.entity_id}' does not exist",
+                        suggestion=self._suggest_entity(ref.entity_id),
+                    )
+                )
             return issues
 
         if ref.expected_state is not None:
