@@ -119,7 +119,18 @@ async def _async_register_card(hass: HomeAssistant) -> None:
                 except Exception as err:
                     _LOGGER.warning("Failed to register Lovelace resource: %s", err)
             else:
-                _LOGGER.debug("Autodoctor card already registered as Lovelace resource")
+                # Update existing resource if version changed
+                resource = existing[0]
+                if resource.get("url") != CARD_URL:
+                    try:
+                        await resources.async_update_item(
+                            resource["id"], {"url": CARD_URL, "res_type": "module"}
+                        )
+                        _LOGGER.info("Updated autodoctor card resource to %s", CARD_URL)
+                    except Exception as err:
+                        _LOGGER.warning("Failed to update Lovelace resource: %s", err)
+                else:
+                    _LOGGER.debug("Autodoctor card already registered with current version")
     else:
         _LOGGER.debug(
             "Lovelace in YAML mode or not available - card must be manually added as resource"
