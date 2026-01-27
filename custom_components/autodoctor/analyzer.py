@@ -31,11 +31,16 @@ class AutomationAnalyzer:
         HA configs can have states as:
         - A single string: "on"
         - A list of strings: ["on", "off"]
+        - YAML node classes that behave like lists but don't pass isinstance(list)
         """
         if value is None:
             return []
-        if isinstance(value, list):
+
+        # Handle list-like objects (including YAML NodeListClass)
+        # Check for list behavior rather than exact type
+        if hasattr(value, "__iter__") and not isinstance(value, str):
             return [str(v) for v in value]
+
         return [str(value)]
 
     def extract_state_references(self, automation: dict[str, Any]) -> list[StateReference]:
