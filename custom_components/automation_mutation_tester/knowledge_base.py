@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from .device_class_states import get_device_class_states
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+try:
+    from homeassistant.components.recorder import get_significant_states
+except ImportError:
+    async def get_significant_states(*args, **kwargs):
+        return {}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +56,7 @@ class StateKnowledgeBase:
         self.hass = hass
         self.history_days = history_days
         self._cache: dict[str, set[str]] = {}
+        self._observed_states: dict[str, set[str]] = {}
 
     def entity_exists(self, entity_id: str) -> bool:
         """Check if an entity exists.
@@ -107,6 +115,10 @@ class StateKnowledgeBase:
                 if attr_value and isinstance(attr_value, list):
                     valid_states.update(str(v) for v in attr_value)
 
+        # Add observed states from history
+        if entity_id in self._observed_states:
+            valid_states.update(self._observed_states[entity_id])
+
         # Always add unavailable/unknown as these are always valid
         valid_states.add("unavailable")
         valid_states.add("unknown")
@@ -156,3 +168,41 @@ class StateKnowledgeBase:
                 return set(str(v) for v in values)
 
         return None
+
+    async def async_load_history(self, entity_ids: list[str] | None = None) -> None:
+        """Load state history from recorder."""
+        if entity_ids is None:
+            entity_ids = [s.entity_id for s in self.hass.states.async_all()]
+
+        if not entity_ids:
+            return
+
+        start_time = datetime.now() - timedelta(days=self.history_days)
+        end_time = datetime.now()
+
+        try:
+            history = await get_significant_states(
+                self.hass,
+                start_time,
+                end_time,
+                entity_ids,
+                significant_changes_only=True,
+            )
+        except Exception as err:
+            _LOGGER.warning("Failed to load recorder history: %s", err)
+            return
+
+        for entity_id, states in history.items():
+            if entity_id not in self._observed_states:
+                self._observed_states[entity_id] = set()
+
+            for state in states:
+                state_value = state.state
+                if state_value not in ("unavailable", "unknown"):
+                    self._observed_states[entity_id].add(state_value)
+                    if entity_id in self._cache:
+                        self._cache[entity_id].add(state_value)
+
+    def get_observed_states(self, entity_id: str) -> set[str]:
+        """Get states that have been observed in history."""
+        return self._observed_states.get(entity_id, set())

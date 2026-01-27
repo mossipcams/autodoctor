@@ -1,7 +1,7 @@
 """Tests for StateKnowledgeBase."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.automation_mutation_tester.knowledge_base import (
     StateKnowledgeBase,
@@ -152,3 +152,64 @@ def test_schema_introspection_light_effect_list(mock_hass):
     attrs = kb.get_valid_attributes("light.strip", "effect")
     assert "rainbow" in attrs
     assert "strobe" in attrs
+
+
+@pytest.mark.asyncio
+async def test_load_history_adds_observed_states(mock_hass):
+    """Test that recorder history adds observed states."""
+    kb = StateKnowledgeBase(mock_hass)
+
+    mock_state = MagicMock()
+    mock_state.entity_id = "sensor.custom"
+    mock_state.domain = "sensor"
+    mock_state.attributes = {}
+    mock_hass.states.get = MagicMock(return_value=mock_state)
+
+    history_states = [
+        MagicMock(state="active"),
+        MagicMock(state="idle"),
+        MagicMock(state="active"),
+        MagicMock(state="error"),
+    ]
+
+    with patch(
+        "custom_components.automation_mutation_tester.knowledge_base.get_significant_states",
+        new_callable=AsyncMock,
+        return_value={"sensor.custom": history_states},
+    ):
+        await kb.async_load_history(["sensor.custom"])
+
+    states = kb.get_valid_states("sensor.custom")
+    assert "active" in states
+    assert "idle" in states
+    assert "error" in states
+
+
+@pytest.mark.asyncio
+async def test_history_excludes_unavailable_unknown(mock_hass):
+    """Test that history loading excludes unavailable/unknown from observed."""
+    kb = StateKnowledgeBase(mock_hass)
+
+    mock_state = MagicMock()
+    mock_state.entity_id = "sensor.custom"
+    mock_state.domain = "sensor"
+    mock_state.attributes = {}
+    mock_hass.states.get = MagicMock(return_value=mock_state)
+
+    history_states = [
+        MagicMock(state="active"),
+        MagicMock(state="unavailable"),
+        MagicMock(state="unknown"),
+    ]
+
+    with patch(
+        "custom_components.automation_mutation_tester.knowledge_base.get_significant_states",
+        new_callable=AsyncMock,
+        return_value={"sensor.custom": history_states},
+    ):
+        await kb.async_load_history(["sensor.custom"])
+
+    observed = kb.get_observed_states("sensor.custom")
+    assert "active" in observed
+    assert "unavailable" not in observed
+    assert "unknown" not in observed
