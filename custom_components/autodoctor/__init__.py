@@ -8,7 +8,6 @@ from typing import Any
 
 from pathlib import Path
 
-from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
@@ -97,12 +96,34 @@ async def _async_register_card(hass: HomeAssistant) -> None:
         return
 
     # Register static path for the card (base URL without version query string)
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(CARD_URL_BASE, str(CARD_PATH), cache_headers=False)]
-    )
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL_BASE, str(CARD_PATH), cache_headers=False)]
+        )
+    except ValueError:
+        # Path already registered from previous setup
+        _LOGGER.debug("Static path %s already registered", CARD_URL_BASE)
 
-    # Add to frontend extra module url (with version for cache busting)
-    hass.data.setdefault("frontend_extra_module_url", set()).add(CARD_URL)
+    # Register as Lovelace resource (storage mode only)
+    # In YAML mode, users must manually add the resource
+    lovelace = hass.data.get("lovelace")
+    if lovelace and lovelace.get("mode") == "storage":
+        resources = lovelace.get("resources")
+        if resources:
+            # Check if already registered
+            existing = [r for r in resources.async_items() if CARD_URL_BASE in r.get("url", "")]
+            if not existing:
+                try:
+                    await resources.async_create_item({"url": CARD_URL, "res_type": "module"})
+                    _LOGGER.info("Registered autodoctor card as Lovelace resource")
+                except Exception as err:
+                    _LOGGER.warning("Failed to register Lovelace resource: %s", err)
+            else:
+                _LOGGER.debug("Autodoctor card already registered as Lovelace resource")
+    else:
+        _LOGGER.debug(
+            "Lovelace in YAML mode or not available - card must be manually added as resource"
+        )
 
     _LOGGER.debug("Registered autodoctor card at %s", CARD_URL)
 
