@@ -12,13 +12,18 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 try:
-    from homeassistant.helpers.recorder import get_significant_states
+    # Current HA location (2021+)
+    from homeassistant.components.recorder.history import get_significant_states
 except ImportError:
     try:
-        # Fallback for older HA versions
-        from homeassistant.components.recorder import get_significant_states
+        # Alternative location
+        from homeassistant.helpers.recorder import get_significant_states
     except ImportError:
-        get_significant_states = None
+        try:
+            # Legacy fallback
+            from homeassistant.components.recorder import get_significant_states
+        except ImportError:
+            get_significant_states = None
 
 _LOGGER = logging.getLogger(__name__)
 
