@@ -10,6 +10,8 @@ from custom_components.autodoctor.websocket_api import (
     websocket_get_issues,
     websocket_get_validation,
     websocket_get_outcomes,
+    websocket_run_validation,
+    websocket_run_outcomes,
 )
 from custom_components.autodoctor.const import DOMAIN
 
@@ -101,3 +103,63 @@ async def test_websocket_get_outcomes(hass: HomeAssistant):
     result = call_args[0][1]
     assert result["issues"] == []
     assert result["last_run"] == "2026-01-27T12:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_validation(hass: HomeAssistant):
+    """Test running validation and getting results."""
+    hass.data[DOMAIN] = {
+        "validation_issues": [],
+        "validation_last_run": "2026-01-27T12:00:00+00:00",
+        "fix_engine": None,
+    }
+
+    connection = MagicMock()
+    connection.send_result = MagicMock()
+
+    msg = {"id": 1, "type": "autodoctor/validation/run"}
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        await websocket_run_validation.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    call_args = connection.send_result.call_args
+    assert call_args[0][0] == 1  # message id
+    result = call_args[0][1]
+    assert "issues" in result
+    assert "healthy_count" in result
+    assert "last_run" in result
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_outcomes(hass: HomeAssistant):
+    """Test running outcome simulation and getting results."""
+    hass.data[DOMAIN] = {
+        "outcome_issues": [],
+        "outcomes_last_run": "2026-01-27T12:00:00+00:00",
+        "fix_engine": None,
+    }
+
+    connection = MagicMock()
+    connection.send_result = MagicMock()
+
+    msg = {"id": 1, "type": "autodoctor/outcomes/run"}
+
+    with patch(
+        "custom_components.autodoctor.async_simulate_all",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        await websocket_run_outcomes.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    call_args = connection.send_result.call_args
+    assert call_args[0][0] == 1  # message id
+    result = call_args[0][1]
+    assert "issues" in result
+    assert "healthy_count" in result
+    assert "last_run" in result

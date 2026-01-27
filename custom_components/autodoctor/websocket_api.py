@@ -158,7 +158,7 @@ async def websocket_run_validation(
     issues = await async_validate_all(hass)
     issues_with_fixes = _format_issues_with_fixes(issues, fix_engine)
     healthy_count = _get_healthy_count(hass, issues)
-    last_run = hass.data[DOMAIN].get("validation_last_run")
+    last_run = hass.data.get(DOMAIN, {}).get("validation_last_run")
 
     connection.send_result(
         msg["id"],
@@ -220,7 +220,7 @@ async def websocket_run_outcomes(
     issues = await async_simulate_all(hass)
     issues_with_fixes = _format_issues_with_fixes(issues, fix_engine)
     healthy_count = _get_healthy_count(hass, issues)
-    last_run = hass.data[DOMAIN].get("outcomes_last_run")
+    last_run = hass.data.get(DOMAIN, {}).get("outcomes_last_run")
 
     connection.send_result(
         msg["id"],
