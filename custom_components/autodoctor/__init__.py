@@ -31,6 +31,32 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 
+def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
+    """Get automation configurations from Home Assistant.
+
+    The automation component stores data as an EntityComponent, not a plain dict.
+    This helper properly extracts the configs from automation entities.
+    """
+    automation_data = hass.data.get("automation")
+    if automation_data is None:
+        return []
+
+    # If it's a dict with "config" key (older HA versions or test mocks)
+    if isinstance(automation_data, dict):
+        return automation_data.get("config", [])
+
+    # EntityComponent - get configs from entities
+    if hasattr(automation_data, "entities"):
+        configs = []
+        for entity in automation_data.entities:
+            # Automation entities store their config in _config attribute
+            if hasattr(entity, "_config"):
+                configs.append(entity._config)
+        return configs
+
+    return []
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Autodoctor component."""
     hass.data.setdefault(DOMAIN, {})
@@ -142,7 +168,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     if not all([analyzer, validator, reporter]):
         return []
 
-    automations = hass.data.get("automation", {}).get("config", [])
+    automations = _get_automation_configs(hass)
     if not automations:
         _LOGGER.debug("No automations found to validate")
         return []
@@ -167,7 +193,7 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
     if not all([analyzer, validator, reporter]):
         return []
 
-    automations = hass.data.get("automation", {}).get("config", [])
+    automations = _get_automation_configs(hass)
     automation = next(
         (a for a in automations if f"automation.{a.get('id')}" == automation_id),
         None,
@@ -191,7 +217,7 @@ async def async_simulate_all(hass: HomeAssistant) -> list:
     if not simulator:
         return []
 
-    automations = hass.data.get("automation", {}).get("config", [])
+    automations = _get_automation_configs(hass)
     reports = []
     for automation in automations:
         report = simulator.verify_outcomes(automation)
@@ -208,7 +234,7 @@ async def async_simulate_automation(hass: HomeAssistant, automation_id: str) -> 
     if not simulator:
         return None
 
-    automations = hass.data.get("automation", {}).get("config", [])
+    automations = _get_automation_configs(hass)
     automation = next(
         (a for a in automations if f"automation.{a.get('id')}" == automation_id),
         None,
