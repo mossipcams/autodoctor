@@ -104,12 +104,20 @@ class StateKnowledgeBase:
         domain = self.get_domain(entity_id)
 
         # Start with device class defaults
-        valid_states = get_device_class_states(domain)
-        if valid_states is not None:
-            valid_states = valid_states.copy()
+        device_class_defaults = get_device_class_states(domain)
+        if device_class_defaults is not None:
+            valid_states = device_class_defaults.copy()
+            _LOGGER.debug(
+                "Entity %s (domain=%s): device class defaults = %s",
+                entity_id, domain, device_class_defaults
+            )
         else:
             # Unknown domain - return empty set (will be populated by history)
             valid_states = set()
+            _LOGGER.debug(
+                "Entity %s (domain=%s): no device class defaults",
+                entity_id, domain
+            )
 
         # Schema introspection - after getting device class defaults
         if domain in SCHEMA_ATTRIBUTES:
@@ -132,6 +140,11 @@ class StateKnowledgeBase:
 
         # Cache the result
         self._cache[entity_id] = valid_states
+
+        _LOGGER.debug(
+            "Entity %s: final valid states = %s",
+            entity_id, valid_states
+        )
 
         return valid_states
 
