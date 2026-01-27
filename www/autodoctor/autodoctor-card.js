@@ -128,11 +128,11 @@ const dt=t=>(e,o)=>{void 0!==o?o.addInitializer(()=>{customElements.define(t,e)}
           <span class="badge-count">${t.healthy}</span>
         </span>
       </div>
-    `}_renderTabFooter(){const t="validation"===this._activeTab,e=t?this._runningValidation:this._runningOutcomes,o=t?this._validationData?.last_run:this._outcomesData?.last_run,i=t?this._runValidation:this._runOutcomes;return B`
+    `}_renderTabFooter(){const t="validation"===this._activeTab,e=t?this._runningValidation:this._runningOutcomes,o=t?this._validationData?.last_run:this._outcomesData?.last_run;return B`
       <div class="footer">
         <button
           class="run-btn ${e?"running":""}"
-          @click=${i}
+          @click=${()=>t?this._runValidation():this._runOutcomes()}
           ?disabled=${e}
         >
           <span class="run-icon" aria-hidden="true">${e?"↻":"▶"}</span>

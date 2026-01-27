@@ -26,6 +26,7 @@ export class AutodoctorCard extends LitElement {
   @state() private _outcomesData: AutodoctorTabData | null = null;
   @state() private _runningValidation = false;
   @state() private _runningOutcomes = false;
+  @state() private _isRefreshing = false;
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -106,8 +107,6 @@ export class AutodoctorCard extends LitElement {
     }
     this._runningOutcomes = false;
   }
-
-  @state() private _isRefreshing = false;
 
   private async _refreshCurrentTab(): Promise<void> {
     this._isRefreshing = true;
@@ -329,14 +328,13 @@ export class AutodoctorCard extends LitElement {
       ? this._validationData?.last_run
       : this._outcomesData?.last_run;
 
-    const runHandler = isValidation ? this._runValidation : this._runOutcomes;
     const buttonText = isValidation ? "Run Validation" : "Run Outcomes";
 
     return html`
       <div class="footer">
         <button
           class="run-btn ${isRunning ? 'running' : ''}"
-          @click=${runHandler}
+          @click=${() => isValidation ? this._runValidation() : this._runOutcomes()}
           ?disabled=${isRunning}
         >
           <span class="run-icon" aria-hidden="true">${isRunning ? '↻' : '▶'}</span>
