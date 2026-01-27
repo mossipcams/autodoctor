@@ -43,8 +43,12 @@ async def test_report_issues_creates_repair(mock_hass, reporter):
     ]
 
     with patch(
-        "custom_components.automation_mutation_tester.reporter.ir.async_create_issue"
-    ) as mock_create:
+        "custom_components.automation_mutation_tester.reporter.ir.async_create_issue",
+        new_callable=AsyncMock,
+    ) as mock_create, patch(
+        "custom_components.automation_mutation_tester.reporter.async_create",
+        new_callable=AsyncMock,
+    ):
         await reporter.async_report_issues(issues)
         mock_create.assert_called_once()
 
@@ -66,9 +70,11 @@ async def test_report_issues_creates_notification(mock_hass, reporter):
     ]
 
     with patch(
-        "custom_components.automation_mutation_tester.reporter.ir.async_create_issue"
+        "custom_components.automation_mutation_tester.reporter.ir.async_create_issue",
+        new_callable=AsyncMock,
     ), patch(
-        "custom_components.automation_mutation_tester.reporter.async_create"
+        "custom_components.automation_mutation_tester.reporter.async_create",
+        new_callable=AsyncMock,
     ) as mock_notify:
         await reporter.async_report_issues(issues)
         mock_notify.assert_called_once()
@@ -78,7 +84,8 @@ async def test_report_issues_creates_notification(mock_hass, reporter):
 async def test_clear_resolved_issues(mock_hass, reporter):
     """Test clearing resolved issues."""
     with patch(
-        "custom_components.automation_mutation_tester.reporter.ir.async_delete_issue"
+        "custom_components.automation_mutation_tester.reporter.ir.async_delete_issue",
+        new_callable=AsyncMock,
     ) as mock_delete:
         reporter._active_issues = {"issue_1", "issue_2"}
         await reporter.async_clear_resolved({"issue_1"})
