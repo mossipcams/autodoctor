@@ -23,11 +23,11 @@ except ImportError:
             WARNING = "warning"
 
         @staticmethod
-        async def async_create_issue(*args, **kwargs):
+        def async_create_issue(*args, **kwargs):
             pass
 
         @staticmethod
-        async def async_delete_issue(*args, **kwargs):
+        def async_delete_issue(*args, **kwargs):
             pass
 
     async def async_create(*args, **kwargs):
@@ -73,7 +73,8 @@ class IssueReporter:
                 issue.location,
             )
 
-            await ir.async_create_issue(
+            # Note: ir.async_create_issue is synchronous despite the name
+            ir.async_create_issue(
                 self.hass,
                 DOMAIN,
                 issue_id,
@@ -108,10 +109,12 @@ class IssueReporter:
         """Clear issues that have been resolved."""
         resolved = self._active_issues - current_ids
         for issue_id in resolved:
-            await ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            # Note: ir.async_delete_issue is synchronous despite the name
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     async def async_clear_all(self) -> None:
         """Clear all issues."""
         for issue_id in self._active_issues:
-            await ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            # Note: ir.async_delete_issue is synchronous despite the name
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
         self._active_issues.clear()
