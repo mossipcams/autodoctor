@@ -107,8 +107,8 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # Register as Lovelace resource (storage mode only)
     # In YAML mode, users must manually add the resource
     lovelace = hass.data.get("lovelace")
-    if lovelace and lovelace.get("mode") == "storage":
-        resources = lovelace.get("resources")
+    if lovelace and lovelace.mode == "storage":
+        resources = lovelace.resources
         if resources:
             # Check if already registered
             existing = [r for r in resources.async_items() if CARD_URL_BASE in r.get("url", "")]
