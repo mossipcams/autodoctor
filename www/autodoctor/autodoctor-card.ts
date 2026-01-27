@@ -2,7 +2,7 @@ import { LitElement, html, css, CSSResultGroup, TemplateResult, nothing } from "
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type { AutodoctorCardConfig, AutodoctorData, IssueWithFix, ValidationIssue } from "./types";
+import type { AutodoctorCardConfig, IssueWithFix, ValidationIssue, TabType, AutodoctorTabData } from "./types";
 
 interface AutomationGroup {
   automation_id: string;
@@ -19,10 +19,13 @@ export class AutodoctorCard extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @property({ attribute: false }) public config!: AutodoctorCardConfig;
 
-  @state() private _data: AutodoctorData | null = null;
   @state() private _loading = true;
   @state() private _error: string | null = null;
-  @state() private _refreshing = false;
+  @state() private _activeTab: TabType = "validation";
+  @state() private _validationData: AutodoctorTabData | null = null;
+  @state() private _outcomesData: AutodoctorTabData | null = null;
+  @state() private _runningValidation = false;
+  @state() private _runningOutcomes = false;
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -40,33 +43,82 @@ export class AutodoctorCard extends LitElement {
   }
 
   protected async firstUpdated(): Promise<void> {
-    await this._fetchData();
+    await this._fetchValidation();
   }
 
-  private async _fetchData(): Promise<void> {
-    this._loading = true;
-    this._error = null;
+  private _switchTab(tab: TabType): void {
+    this._activeTab = tab;
 
+    // Fetch data if not loaded
+    if (tab === "validation" && !this._validationData) {
+      this._fetchValidation();
+    } else if (tab === "outcomes" && !this._outcomesData) {
+      this._fetchOutcomes();
+    }
+  }
+
+  private async _fetchValidation(): Promise<void> {
+    this._loading = true;
     try {
-      this._data = await this.hass.callWS<AutodoctorData>({
-        type: "autodoctor/issues",
+      this._validationData = await this.hass.callWS<AutodoctorTabData>({
+        type: "autodoctor/validation",
       });
     } catch (err) {
-      console.error("Failed to fetch autodoctor data:", err);
-      this._error = "Failed to load automation health data";
+      console.error("Failed to fetch validation data:", err);
+      this._error = "Failed to load validation data";
     }
-
     this._loading = false;
   }
 
-  private async _refresh(): Promise<void> {
-    this._refreshing = true;
+  private async _fetchOutcomes(): Promise<void> {
+    this._loading = true;
     try {
-      await this.hass.callWS({ type: "autodoctor/refresh" });
-      await this._fetchData();
-    } finally {
-      this._refreshing = false;
+      this._outcomesData = await this.hass.callWS<AutodoctorTabData>({
+        type: "autodoctor/outcomes",
+      });
+    } catch (err) {
+      console.error("Failed to fetch outcomes data:", err);
+      this._error = "Failed to load outcomes data";
     }
+    this._loading = false;
+  }
+
+  private async _runValidation(): Promise<void> {
+    this._runningValidation = true;
+    try {
+      this._validationData = await this.hass.callWS<AutodoctorTabData>({
+        type: "autodoctor/validation/run",
+      });
+    } catch (err) {
+      console.error("Failed to run validation:", err);
+    }
+    this._runningValidation = false;
+  }
+
+  private async _runOutcomes(): Promise<void> {
+    this._runningOutcomes = true;
+    try {
+      this._outcomesData = await this.hass.callWS<AutodoctorTabData>({
+        type: "autodoctor/outcomes/run",
+      });
+    } catch (err) {
+      console.error("Failed to run outcomes:", err);
+    }
+    this._runningOutcomes = false;
+  }
+
+  // Temporary refresh method for compatibility - will be updated in Task 6
+  private async _refresh(): Promise<void> {
+    if (this._activeTab === "validation") {
+      await this._runValidation();
+    } else {
+      await this._runOutcomes();
+    }
+  }
+
+  // Getter for refresh button state - will be updated in Task 6
+  private get _refreshing(): boolean {
+    return this._runningValidation || this._runningOutcomes;
   }
 
   private _groupIssuesByAutomation(issues: IssueWithFix[]): AutomationGroup[] {
@@ -101,15 +153,15 @@ export class AutodoctorCard extends LitElement {
     return Array.from(groups.values());
   }
 
-  private _getCounts(): { errors: number; warnings: number; healthy: number } {
-    if (!this._data) {
+  private _getCounts(data: AutodoctorTabData | null): { errors: number; warnings: number; healthy: number } {
+    if (!data) {
       return { errors: 0, warnings: 0, healthy: 0 };
     }
 
     let errors = 0;
     let warnings = 0;
 
-    for (const item of this._data.issues) {
+    for (const item of data.issues) {
       if (item.issue.severity === "error") {
         errors++;
       } else {
@@ -117,11 +169,12 @@ export class AutodoctorCard extends LitElement {
       }
     }
 
-    return { errors, warnings, healthy: this._data.healthy_count };
+    return { errors, warnings, healthy: data.healthy_count };
   }
 
   protected render(): TemplateResult {
     const title = this.config.title || "Autodoctor";
+    const currentData = this._activeTab === "validation" ? this._validationData : this._outcomesData;
 
     if (this._loading) {
       return this._renderLoading(title);
@@ -131,13 +184,13 @@ export class AutodoctorCard extends LitElement {
       return this._renderError(title);
     }
 
-    if (!this._data) {
+    if (!currentData) {
       return this._renderEmpty(title);
     }
 
-    const groups = this._groupIssuesByAutomation(this._data.issues);
-    const counts = this._getCounts();
-    const hasIssues = this._data.issues.length > 0;
+    const groups = this._groupIssuesByAutomation(currentData.issues);
+    const counts = this._getCounts(currentData);
+    const hasIssues = currentData.issues.length > 0;
 
     return html`
       <ha-card>
