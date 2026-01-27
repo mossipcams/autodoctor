@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, IntEnum, auto
+from typing import Any
 
 
 class Severity(IntEnum):
@@ -63,12 +64,27 @@ class ValidationIssue:
     entity_id: str
     location: str
     message: str
+    issue_type: IssueType | None = None
     suggestion: str | None = None
     valid_states: list[str] = field(default_factory=list)
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
         return hash((self.automation_id, self.entity_id, self.location, self.message))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to serializable dictionary."""
+        return {
+            "issue_type": self.issue_type.value if self.issue_type else None,
+            "severity": self.severity.name.lower(),
+            "automation_id": self.automation_id,
+            "automation_name": self.automation_name,
+            "entity_id": self.entity_id,
+            "location": self.location,
+            "message": self.message,
+            "suggestion": self.suggestion,
+            "valid_states": self.valid_states,
+        }
 
 
 @dataclass
