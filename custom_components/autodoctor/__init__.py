@@ -39,21 +39,36 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
     """
     automation_data = hass.data.get("automation")
     if automation_data is None:
+        _LOGGER.debug("No automation data in hass.data")
         return []
+
+    _LOGGER.debug("automation_data type: %s", type(automation_data).__name__)
 
     # If it's a dict with "config" key (older HA versions or test mocks)
     if isinstance(automation_data, dict):
-        return automation_data.get("config", [])
+        configs = automation_data.get("config", [])
+        _LOGGER.debug("Dict mode: found %d configs", len(configs))
+        return configs
 
     # EntityComponent - get configs from entities
     if hasattr(automation_data, "entities"):
         configs = []
+        entity_count = 0
         for entity in automation_data.entities:
+            entity_count += 1
+            _LOGGER.debug(
+                "Entity %s: has raw_config=%s, raw_config type=%s",
+                getattr(entity, "entity_id", "unknown"),
+                hasattr(entity, "raw_config"),
+                type(getattr(entity, "raw_config", None)).__name__,
+            )
             # Automation entities store their config in raw_config attribute
             if hasattr(entity, "raw_config") and entity.raw_config is not None:
                 configs.append(entity.raw_config)
+        _LOGGER.debug("EntityComponent mode: %d entities, %d configs extracted", entity_count, len(configs))
         return configs
 
+    _LOGGER.debug("automation_data has no 'entities' attribute")
     return []
 
 
@@ -173,12 +188,18 @@ async def async_validate_all(hass: HomeAssistant) -> list:
         _LOGGER.debug("No automations found to validate")
         return []
 
+    _LOGGER.info("Validating %d automations", len(automations))
+
     all_issues = []
     for automation in automations:
+        auto_name = automation.get("alias", automation.get("id", "unknown"))
         refs = analyzer.extract_state_references(automation)
+        _LOGGER.debug("Automation '%s': extracted %d state references", auto_name, len(refs))
         issues = validator.validate_all(refs)
+        _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
         all_issues.extend(issues)
 
+    _LOGGER.info("Validation complete: %d total issues across %d automations", len(all_issues), len(automations))
     await reporter.async_report_issues(all_issues)
     return all_issues
 
