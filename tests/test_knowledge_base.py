@@ -160,7 +160,6 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.get_significant_states",
-        new_callable=AsyncMock,
         return_value={"sensor.custom": history_states},
     ):
         await kb.async_load_history(["sensor.custom"])
@@ -187,7 +186,6 @@ async def test_history_excludes_unavailable_unknown(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.get_significant_states",
-        new_callable=AsyncMock,
         return_value={"sensor.custom": history_states},
     ):
         await kb.async_load_history(["sensor.custom"])
