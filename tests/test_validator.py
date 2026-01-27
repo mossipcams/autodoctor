@@ -7,7 +7,7 @@ from homeassistant.const import STATE_ON
 
 from custom_components.autodoctor.validator import ValidationEngine
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-from custom_components.autodoctor.models import StateReference, Severity
+from custom_components.autodoctor.models import StateReference, Severity, IssueType
 
 
 @pytest.fixture
@@ -99,3 +99,29 @@ async def test_validate_valid_state(hass: HomeAssistant, knowledge_base):
     issues = validator.validate_reference(ref)
 
     assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_validate_detects_removed_entity(hass: HomeAssistant):
+    """Test that validator detects entities that existed in history but are now gone."""
+    kb = StateKnowledgeBase(hass)
+
+    # Simulate that this entity was seen in history
+    kb._observed_states["sensor.old_sensor"] = {"on", "off"}
+
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.old_sensor",
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_REMOVED
+    assert "existed in history" in issues[0].message.lower() or "removed" in issues[0].message.lower()
