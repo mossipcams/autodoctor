@@ -13,11 +13,13 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Import issue registry with fallback
 try:
     from homeassistant.helpers import issue_registry as ir
-    from homeassistant.components.persistent_notification import async_create
+    HAS_ISSUE_REGISTRY = True
 except ImportError:
-    class ir:
+    HAS_ISSUE_REGISTRY = False
+    class ir:  # type: ignore
         class IssueSeverity:
             ERROR = "error"
             WARNING = "warning"
@@ -29,9 +31,6 @@ except ImportError:
         @staticmethod
         def async_delete_issue(*args, **kwargs):
             pass
-
-    async def async_create(*args, **kwargs):
-        pass
 
 
 class IssueReporter:
@@ -95,24 +94,28 @@ class IssueReporter:
 
         message = f"Found {len(issues)} issue(s): {error_count} errors, {warning_count} warnings. Check Settings > Repairs for details."
 
-        await async_create(
-            self.hass,
-            message,
-            title="Automation Validation",
-            notification_id=f"{DOMAIN}_results",
+        # Use service call for notification (more reliable than direct import)
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "message": message,
+                "title": "Automation Validation",
+                "notification_id": f"{DOMAIN}_results",
+            },
         )
 
-        await self.async_clear_resolved(current_issue_ids)
+        self._clear_resolved_issues(current_issue_ids)
         self._active_issues = current_issue_ids
 
-    async def async_clear_resolved(self, current_ids: set[str]) -> None:
+    def _clear_resolved_issues(self, current_ids: set[str]) -> None:
         """Clear issues that have been resolved."""
         resolved = self._active_issues - current_ids
         for issue_id in resolved:
             # Note: ir.async_delete_issue is synchronous despite the name
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
-    async def async_clear_all(self) -> None:
+    def clear_all_issues(self) -> None:
         """Clear all issues."""
         for issue_id in self._active_issues:
             # Note: ir.async_delete_issue is synchronous despite the name
