@@ -98,3 +98,24 @@ class OutcomeReport:
     outcomes: list[str]
     unreachable_paths: list[str]
     verdict: Verdict
+
+
+def outcome_report_to_issues(report: OutcomeReport) -> list[ValidationIssue]:
+    """Convert an OutcomeReport to a list of ValidationIssue objects."""
+    if report.verdict == Verdict.ALL_REACHABLE:
+        return []
+
+    issues = []
+    for path in report.unreachable_paths:
+        issues.append(
+            ValidationIssue(
+                severity=Severity.WARNING,
+                automation_id=report.automation_id,
+                automation_name=report.automation_name,
+                entity_id="",
+                location=path,
+                message=f"Unreachable outcome: {path}",
+                issue_type=IssueType.IMPOSSIBLE_CONDITION,
+            )
+        )
+    return issues
