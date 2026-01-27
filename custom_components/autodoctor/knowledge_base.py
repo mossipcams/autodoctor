@@ -124,6 +124,25 @@ class StateKnowledgeBase:
                 entity_id, domain
             )
 
+        # For zone-aware entities, add all zone names as valid states
+        # Device trackers and person entities can report zone names as their state
+        # Also handle area sensors (e.g., Bermuda BLE area sensors)
+        is_area_sensor = (
+            domain == "sensor" and
+            ("_area" in entity_id or "_room" in entity_id or "bermuda" in entity_id.lower())
+        )
+        if domain in ("device_tracker", "person") or is_area_sensor:
+            for zone_state in self.hass.states.async_all("zone"):
+                # Use friendly_name if available, otherwise use zone ID
+                zone_name = zone_state.attributes.get(
+                    "friendly_name", zone_state.entity_id.split(".")[1]
+                )
+                valid_states.add(zone_name)
+            _LOGGER.debug(
+                "Entity %s: added zone names to valid states",
+                entity_id
+            )
+
         # Schema introspection - after getting device class defaults
         if domain in SCHEMA_ATTRIBUTES:
             for attr_name in SCHEMA_ATTRIBUTES[domain]:
