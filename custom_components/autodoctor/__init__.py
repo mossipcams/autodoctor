@@ -179,9 +179,15 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     analyzer = data.get("analyzer")
     validator = data.get("validator")
     reporter = data.get("reporter")
+    knowledge_base = data.get("knowledge_base")
 
     if not all([analyzer, validator, reporter]):
         return []
+
+    # Ensure history is loaded before validation
+    if knowledge_base and not knowledge_base._observed_states:
+        _LOGGER.debug("Loading entity history before validation...")
+        await knowledge_base.async_load_history()
 
     automations = _get_automation_configs(hass)
     if not automations:

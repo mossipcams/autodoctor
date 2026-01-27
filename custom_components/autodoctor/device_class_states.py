@@ -6,6 +6,8 @@ from __future__ import annotations
 DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "binary_sensor": {"on", "off"},
     "person": {"home", "not_home"},
+    # device_tracker: home/not_home are defaults, but BLE trackers can have
+    # area names - those come from entity history
     "device_tracker": {"home", "not_home"},
     "lock": {"locked", "unlocked", "locking", "unlocking", "jammed", "opening", "open"},
     "cover": {"open", "closed", "opening", "closing"},
@@ -21,6 +23,10 @@ DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "input_boolean": {"on", "off"},
     "script": {"on", "off"},
     "automation": {"on", "off"},
+    # update entities: on = update available, off = up to date
+    "update": {"on", "off"},
+    # schedule entities: on = active (within time block), off = inactive
+    "schedule": {"on", "off"},
 }
 
 
