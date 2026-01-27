@@ -1,7 +1,7 @@
 """Tests for StateKnowledgeBase."""
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 from custom_components.automation_mutation_tester.knowledge_base import (
     StateKnowledgeBase,
@@ -17,16 +17,14 @@ def mock_hass():
     return hass
 
 
-@pytest.mark.asyncio
-async def test_knowledge_base_initialization(mock_hass):
+def test_knowledge_base_initialization(mock_hass):
     """Test knowledge base can be created."""
     kb = StateKnowledgeBase(mock_hass)
     assert kb is not None
     assert kb.hass == mock_hass
 
 
-@pytest.mark.asyncio
-async def test_get_valid_states_for_known_domain(mock_hass):
+def test_get_valid_states_for_known_domain(mock_hass):
     """Test getting valid states for known domain entity."""
     kb = StateKnowledgeBase(mock_hass)
 
@@ -42,8 +40,7 @@ async def test_get_valid_states_for_known_domain(mock_hass):
     assert "off" in states
 
 
-@pytest.mark.asyncio
-async def test_get_valid_states_unknown_entity(mock_hass):
+def test_get_valid_states_unknown_entity(mock_hass):
     """Test getting valid states for unknown entity."""
     kb = StateKnowledgeBase(mock_hass)
     mock_hass.states.get = MagicMock(return_value=None)
@@ -52,8 +49,7 @@ async def test_get_valid_states_unknown_entity(mock_hass):
     assert states is None
 
 
-@pytest.mark.asyncio
-async def test_is_valid_state(mock_hass):
+def test_is_valid_state(mock_hass):
     """Test checking if a state is valid."""
     kb = StateKnowledgeBase(mock_hass)
 
@@ -67,8 +63,7 @@ async def test_is_valid_state(mock_hass):
     assert kb.is_valid_state("binary_sensor.motion", "maybe") is False
 
 
-@pytest.mark.asyncio
-async def test_entity_exists(mock_hass):
+def test_entity_exists(mock_hass):
     """Test checking if entity exists."""
     kb = StateKnowledgeBase(mock_hass)
 
@@ -79,3 +74,27 @@ async def test_entity_exists(mock_hass):
 
     mock_hass.states.get = MagicMock(return_value=None)
     assert kb.entity_exists("binary_sensor.missing") is False
+
+
+def test_get_domain(mock_hass):
+    """Test domain extraction from entity ID."""
+    kb = StateKnowledgeBase(mock_hass)
+    assert kb.get_domain("binary_sensor.motion") == "binary_sensor"
+    assert kb.get_domain("light.living_room") == "light"
+    assert kb.get_domain("invalid") == ""
+
+
+def test_clear_cache(mock_hass):
+    """Test cache clearing."""
+    kb = StateKnowledgeBase(mock_hass)
+
+    mock_state = MagicMock()
+    mock_hass.states.get = MagicMock(return_value=mock_state)
+
+    # Populate cache
+    kb.get_valid_states("binary_sensor.motion")
+    assert "binary_sensor.motion" in kb._cache
+
+    # Clear cache
+    kb.clear_cache()
+    assert len(kb._cache) == 0
