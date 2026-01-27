@@ -98,3 +98,57 @@ def test_clear_cache(mock_hass):
     # Clear cache
     kb.clear_cache()
     assert len(kb._cache) == 0
+
+
+def test_schema_introspection_climate_hvac_modes(mock_hass):
+    """Test extracting hvac_modes from climate entity."""
+    kb = StateKnowledgeBase(mock_hass)
+
+    mock_state = MagicMock()
+    mock_state.entity_id = "climate.living_room"
+    mock_state.domain = "climate"
+    mock_state.attributes = {"hvac_modes": ["off", "heat", "cool", "auto"]}
+    mock_hass.states.get = MagicMock(return_value=mock_state)
+
+    states = kb.get_valid_states("climate.living_room")
+    assert "off" in states
+    assert "heat" in states
+    assert "cool" in states
+    assert "auto" in states
+
+
+def test_schema_introspection_select_options(mock_hass):
+    """Test extracting options from select entity."""
+    kb = StateKnowledgeBase(mock_hass)
+
+    mock_state = MagicMock()
+    mock_state.entity_id = "select.speed"
+    mock_state.domain = "select"
+    mock_state.attributes = {"options": ["low", "medium", "high"]}
+    mock_hass.states.get = MagicMock(return_value=mock_state)
+
+    states = kb.get_valid_states("select.speed")
+    assert "low" in states
+    assert "medium" in states
+    assert "high" in states
+
+
+def test_schema_introspection_light_effect_list(mock_hass):
+    """Test extracting effect_list from light entity."""
+    kb = StateKnowledgeBase(mock_hass)
+
+    mock_state = MagicMock()
+    mock_state.entity_id = "light.strip"
+    mock_state.domain = "light"
+    mock_state.attributes = {"effect_list": ["rainbow", "strobe", "solid"]}
+    mock_hass.states.get = MagicMock(return_value=mock_state)
+
+    # Light states are still on/off
+    states = kb.get_valid_states("light.strip")
+    assert "on" in states
+    assert "off" in states
+
+    # But we should be able to get valid attributes
+    attrs = kb.get_valid_attributes("light.strip", "effect")
+    assert "rainbow" in attrs
+    assert "strobe" in attrs

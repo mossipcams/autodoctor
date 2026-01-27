@@ -12,6 +12,23 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Schema introspection attribute mappings
+SCHEMA_ATTRIBUTES: dict[str, list[str]] = {
+    "climate": ["hvac_modes", "preset_modes", "fan_modes", "swing_modes"],
+    "fan": ["preset_modes"],
+    "select": ["options"],
+    "input_select": ["options"],
+}
+
+# Attribute value mappings (for attribute checking)
+ATTRIBUTE_VALUE_SOURCES: dict[str, str] = {
+    "effect": "effect_list",
+    "preset_mode": "preset_modes",
+    "hvac_mode": "hvac_modes",
+    "fan_mode": "fan_modes",
+    "swing_mode": "swing_modes",
+}
+
 
 class StateKnowledgeBase:
     """Builds and maintains the valid states map for all entities.
@@ -83,6 +100,13 @@ class StateKnowledgeBase:
             # Unknown domain - return empty set (will be populated by history)
             valid_states = set()
 
+        # Schema introspection - after getting device class defaults
+        if domain in SCHEMA_ATTRIBUTES:
+            for attr_name in SCHEMA_ATTRIBUTES[domain]:
+                attr_value = state.attributes.get(attr_name)
+                if attr_value and isinstance(attr_value, list):
+                    valid_states.update(str(v) for v in attr_value)
+
         # Always add unavailable/unknown as these are always valid
         valid_states.add("unavailable")
         valid_states.add("unknown")
@@ -110,3 +134,25 @@ class StateKnowledgeBase:
     def clear_cache(self) -> None:
         """Clear the state cache."""
         self._cache.clear()
+
+    def get_valid_attributes(self, entity_id: str, attribute: str) -> set[str] | None:
+        """Get valid values for an entity attribute.
+
+        Args:
+            entity_id: The entity ID
+            attribute: The attribute name to get valid values for
+
+        Returns:
+            Set of valid attribute values, or None if not available
+        """
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return None
+
+        source_attr = ATTRIBUTE_VALUE_SOURCES.get(attribute)
+        if source_attr:
+            values = state.attributes.get(source_attr)
+            if values and isinstance(values, list):
+                return set(str(v) for v in values)
+
+        return None
