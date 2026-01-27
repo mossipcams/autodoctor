@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from pathlib import Path
@@ -169,7 +170,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "simulator": simulator,
         "reporter": reporter,
         "fix_engine": fix_engine,
-        "issues": [],
+        "issues": [],  # Keep for backwards compatibility
+        "validation_issues": [],
+        "outcome_issues": [],
+        "validation_last_run": None,
+        "outcomes_last_run": None,
         "entry": entry,
         "debounce_task": None,
     }
@@ -299,7 +304,9 @@ async def async_validate_all(hass: HomeAssistant) -> list:
 
     _LOGGER.info("Validation complete: %d total issues across %d automations", len(all_issues), len(automations))
     await reporter.async_report_issues(all_issues)
-    hass.data[DOMAIN]["issues"] = all_issues
+    hass.data[DOMAIN]["issues"] = all_issues  # Keep for backwards compatibility
+    hass.data[DOMAIN]["validation_issues"] = all_issues
+    hass.data[DOMAIN]["validation_last_run"] = datetime.now(timezone.utc).isoformat()
     return all_issues
 
 
@@ -330,7 +337,9 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
 
 
 async def async_simulate_all(hass: HomeAssistant) -> list:
-    """Simulate all automations."""
+    """Simulate all automations and return issues."""
+    from .models import outcome_report_to_issues
+
     data = hass.data.get(DOMAIN, {})
     simulator = data.get("simulator")
 
@@ -338,12 +347,15 @@ async def async_simulate_all(hass: HomeAssistant) -> list:
         return []
 
     automations = _get_automation_configs(hass)
-    reports = []
+    all_issues = []
     for automation in automations:
         report = simulator.verify_outcomes(automation)
-        reports.append(report)
+        issues = outcome_report_to_issues(report)
+        all_issues.extend(issues)
 
-    return reports
+    hass.data[DOMAIN]["outcome_issues"] = all_issues
+    hass.data[DOMAIN]["outcomes_last_run"] = datetime.now(timezone.utc).isoformat()
+    return all_issues
 
 
 async def async_simulate_automation(hass: HomeAssistant, automation_id: str) -> Any:
