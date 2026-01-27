@@ -121,7 +121,7 @@ export class AutodoctorCard extends LitElement {
   }
 
   protected render(): TemplateResult {
-    const title = this.config.title || "Autodoc";
+    const title = this.config.title || "Autodoctor";
 
     if (this._loading) {
       return this._renderLoading(title);

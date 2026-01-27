@@ -11,6 +11,8 @@ from .device_class_states import get_device_class_states
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from homeassistant.helpers import area_registry as ar
+
 try:
     # Current HA location (2021+)
     from homeassistant.components.recorder.history import get_significant_states
@@ -146,8 +148,22 @@ class StateKnowledgeBase:
                 entity_id
             )
 
+        # For Bermuda BLE entities, add HA area names (lowercase) from area registry
+        # Bermuda sensors report lowercase area names matching HA area IDs
+        if is_area_sensor or is_bermuda_tracker:
+            area_registry = ar.async_get(self.hass)
+            for area in area_registry.async_list_areas():
+                # Add both the normalized name (lowercase with underscores) and the original name
+                valid_states.add(area.name)
+                # Also add lowercase version in case Bermuda normalizes differently
+                valid_states.add(area.name.lower())
+            _LOGGER.debug(
+                "Entity %s: added HA area names to valid states",
+                entity_id
+            )
+
         # For Bermuda BLE device_trackers, also add area names from Bermuda sensors
-        # Bermuda uses BLE areas (like "Bedroom") which are different from HA zones
+        # Bermuda uses BLE areas which may differ from HA zones
         if is_bermuda_tracker:
             for sensor_state in self.hass.states.async_all("sensor"):
                 sensor_id = sensor_state.entity_id
