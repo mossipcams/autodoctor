@@ -131,6 +131,9 @@ class StateKnowledgeBase:
             domain == "sensor" and
             ("_area" in entity_id or "_room" in entity_id or "bermuda" in entity_id.lower())
         )
+        is_bermuda_tracker = (
+            domain == "device_tracker" and "bermuda" in entity_id.lower()
+        )
         if domain in ("device_tracker", "person") or is_area_sensor:
             for zone_state in self.hass.states.async_all("zone"):
                 # Use friendly_name if available, otherwise use zone ID
@@ -140,6 +143,19 @@ class StateKnowledgeBase:
                 valid_states.add(zone_name)
             _LOGGER.debug(
                 "Entity %s: added zone names to valid states",
+                entity_id
+            )
+
+        # For Bermuda BLE device_trackers, also add area names from Bermuda sensors
+        # Bermuda uses BLE areas (like "Bedroom") which are different from HA zones
+        if is_bermuda_tracker:
+            for sensor_state in self.hass.states.async_all("sensor"):
+                sensor_id = sensor_state.entity_id
+                if "_area" in sensor_id or "bermuda" in sensor_id.lower():
+                    if sensor_state.state not in ("unavailable", "unknown"):
+                        valid_states.add(sensor_state.state)
+            _LOGGER.debug(
+                "Entity %s: added Bermuda area sensor states to valid states",
                 entity_id
             )
 
