@@ -32,8 +32,8 @@ class AutomationAnalyzer:
         automation_id = f"automation.{automation.get('id', 'unknown')}"
         automation_name = automation.get("alias", automation_id)
 
-        # Extract from triggers
-        triggers = automation.get("trigger", [])
+        # Extract from triggers (support both 'trigger' and 'triggers' keys)
+        triggers = automation.get("triggers") or automation.get("trigger", [])
         if not isinstance(triggers, list):
             triggers = [triggers]
 
@@ -42,8 +42,8 @@ class AutomationAnalyzer:
                 self._extract_from_trigger(trigger, idx, automation_id, automation_name)
             )
 
-        # Extract from conditions
-        conditions = automation.get("condition", [])
+        # Extract from conditions (support both 'condition' and 'conditions' keys)
+        conditions = automation.get("conditions") or automation.get("condition", [])
         if not isinstance(conditions, list):
             conditions = [conditions]
 
@@ -63,7 +63,8 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a trigger."""
         refs: list[StateReference] = []
-        platform = trigger.get("platform", "")
+        # Support both 'platform' (old format) and 'trigger' (new format) keys
+        platform = trigger.get("platform") or trigger.get("trigger", "")
 
         if platform == "state":
             entity_ids = trigger.get("entity_id", [])
@@ -136,6 +137,7 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
+        # Support both 'condition' key (used in both old and new formats for condition type)
         cond_type = condition.get("condition", "")
 
         if cond_type == "state":
