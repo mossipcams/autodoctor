@@ -196,9 +196,26 @@ class ValidationEngine:
 
     def _suggest_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID."""
-        all_entities = [s.entity_id for s in self.knowledge_base.hass.states.async_all()]
-        matches = get_close_matches(invalid, all_entities, n=1, cutoff=0.6)
-        return matches[0] if matches else None
+        if "." not in invalid:
+            return None
+
+        domain, name = invalid.split(".", 1)
+
+        # Only consider entities in the same domain
+        all_entities = self.knowledge_base.hass.states.async_all()
+        same_domain = [
+            e.entity_id for e in all_entities
+            if e.entity_id.startswith(f"{domain}.")
+        ]
+
+        if not same_domain:
+            return None
+
+        # Match on name portion only with higher threshold
+        names = {eid.split(".", 1)[1]: eid for eid in same_domain}
+        matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
+
+        return names[matches[0]] if matches else None
 
     def _suggest_attribute(self, invalid: str, valid_attrs: list[str]) -> str | None:
         """Suggest a correction for an invalid attribute."""

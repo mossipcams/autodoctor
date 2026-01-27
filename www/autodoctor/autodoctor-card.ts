@@ -27,6 +27,7 @@ export class AutodoctorCard extends LitElement {
   @state() private _runningValidation = false;
   @state() private _runningOutcomes = false;
   @state() private _isRefreshing = false;
+  @state() private _dismissedSuggestions = new Set<string>();
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -362,6 +363,15 @@ export class AutodoctorCard extends LitElement {
     return `${diffDays}d ago`;
   }
 
+  private _getSuggestionKey(issue: ValidationIssue): string {
+    return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
+  }
+
+  private _dismissSuggestion(issue: ValidationIssue): void {
+    const key = this._getSuggestionKey(issue);
+    this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
+  }
+
   private _renderAutomationGroup(group: AutomationGroup): TemplateResult {
     return html`
       <div class="automation-group ${group.has_error ? 'has-error' : 'has-warning'}">
@@ -384,6 +394,7 @@ export class AutodoctorCard extends LitElement {
   private _renderIssue(item: IssueWithFix): TemplateResult {
     const { issue, fix } = item;
     const isError = issue.severity === "error";
+    const isDismissed = this._dismissedSuggestions.has(this._getSuggestionKey(issue));
 
     return html`
       <div class="issue ${isError ? 'error' : 'warning'}">
@@ -391,7 +402,7 @@ export class AutodoctorCard extends LitElement {
           <span class="issue-icon" aria-hidden="true">${isError ? '✕' : '!'}</span>
           <span class="issue-message">${issue.message}</span>
         </div>
-        ${fix
+        ${fix && !isDismissed
           ? html`
               <div class="fix-suggestion">
                 <span class="fix-icon" aria-hidden="true">💡</span>
@@ -399,6 +410,11 @@ export class AutodoctorCard extends LitElement {
                   <span class="fix-description">${fix.description}</span>
                   ${this._renderConfidencePill(fix.confidence)}
                 </div>
+                <button
+                  class="dismiss-btn"
+                  @click=${() => this._dismissSuggestion(issue)}
+                  aria-label="Dismiss suggestion"
+                >✕</button>
               </div>
             `
           : nothing}
@@ -840,6 +856,7 @@ export class AutodoctorCard extends LitElement {
       }
 
       .fix-content {
+        flex: 1;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -868,6 +885,35 @@ export class AutodoctorCard extends LitElement {
       .confidence-pill.medium {
         background: rgba(196, 144, 8, 0.15);
         color: var(--autodoc-warning);
+      }
+
+      .dismiss-btn {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 50%;
+        color: var(--secondary-text-color);
+        font-size: 0.7rem;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity var(--autodoc-transition-fast), background var(--autodoc-transition-fast);
+      }
+
+      .dismiss-btn:hover {
+        opacity: 1;
+        background: var(--divider-color, rgba(127, 127, 127, 0.2));
+      }
+
+      .dismiss-btn:focus {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 1px;
+        opacity: 1;
       }
 
       /* Edit link */

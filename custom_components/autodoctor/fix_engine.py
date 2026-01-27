@@ -66,15 +66,32 @@ class FixEngine:
 
     def _suggest_entity_fix(self, issue: ValidationIssue) -> FixSuggestion | None:
         """Suggest fix for missing entity."""
-        all_entities = [s.entity_id for s in self.hass.states.async_all()]
-        matches = get_close_matches(issue.entity_id, all_entities, n=1, cutoff=0.6)
+        if "." not in issue.entity_id:
+            return None
+
+        domain, name = issue.entity_id.split(".", 1)
+
+        # Only consider entities in the same domain
+        all_entities = self.hass.states.async_all()
+        same_domain = [
+            e.entity_id for e in all_entities
+            if e.entity_id.startswith(f"{domain}.")
+        ]
+
+        if not same_domain:
+            return None
+
+        # Match on name portion only with higher threshold
+        names = {eid.split(".", 1)[1]: eid for eid in same_domain}
+        matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
 
         if matches:
-            similarity = self._calculate_similarity(issue.entity_id, matches[0])
+            matched_entity = names[matches[0]]
+            similarity = self._calculate_similarity(name, matches[0])
             return FixSuggestion(
-                description=f"Did you mean '{matches[0]}'?",
+                description=f"Did you mean '{matched_entity}'?",
                 confidence=similarity,
-                fix_value=matches[0],
+                fix_value=matched_entity,
                 field_path="entity_id",
             )
         return None
