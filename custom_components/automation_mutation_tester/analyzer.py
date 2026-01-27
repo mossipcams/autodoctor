@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from .models import StateReference
 
 _LOGGER = logging.getLogger(__name__)
+
+# Regex patterns for template parsing
+IS_STATE_PATTERN = re.compile(
+    r"is_state\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)"
+)
+STATE_ATTR_PATTERN = re.compile(
+    r"state_attr\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)"
+)
+STATES_OBJECT_PATTERN = re.compile(
+    r"states\.([a-z_]+)\.([a-z0-9_]+)(?:\.state)?"
+)
 
 
 class AutomationAnalyzer:
@@ -105,6 +117,14 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif platform == "template":
+            value_template = trigger.get("value_template", "")
+            refs.extend(
+                self._extract_from_template(
+                    value_template, f"trigger[{index}]", automation_id, automation_name
+                )
+            )
+
         return refs
 
     def _extract_from_condition(
@@ -139,5 +159,69 @@ class AutomationAnalyzer:
                                 location=f"condition[{index}].state",
                             )
                         )
+
+        elif cond_type == "template":
+            value_template = condition.get("value_template", "")
+            refs.extend(
+                self._extract_from_template(
+                    value_template, f"condition[{index}]", automation_id, automation_name
+                )
+            )
+
+        return refs
+
+    def _extract_from_template(
+        self,
+        template: str,
+        location: str,
+        automation_id: str,
+        automation_name: str,
+    ) -> list[StateReference]:
+        """Extract state references from a Jinja2 template."""
+        refs: list[StateReference] = []
+
+        # Extract is_state() calls
+        for match in IS_STATE_PATTERN.finditer(template):
+            entity_id, state = match.groups()
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=entity_id,
+                    expected_state=state,
+                    expected_attribute=None,
+                    location=f"{location}.is_state",
+                )
+            )
+
+        # Extract state_attr() calls
+        for match in STATE_ATTR_PATTERN.finditer(template):
+            entity_id, attribute = match.groups()
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=entity_id,
+                    expected_state=None,
+                    expected_attribute=attribute,
+                    location=f"{location}.state_attr",
+                )
+            )
+
+        # Extract states.domain.entity references
+        for match in STATES_OBJECT_PATTERN.finditer(template):
+            domain, entity_name = match.groups()
+            entity_id = f"{domain}.{entity_name}"
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.states_object",
+                    )
+                )
 
         return refs
