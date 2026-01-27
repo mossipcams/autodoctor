@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Automation Mutation Tester",
+        "title": "Autodoctor",
         "description": "Set up automation validation to detect state-related issues."
       }
     },
@@ -25,7 +25,7 @@
   },
   "issues": {
     "validation_issue": {
-      "title": "Automation Validation Issue: {automation}",
+      "title": "Automation Issue: {automation}",
       "description": "**Entity:** {entity}\n\n**Issue:** {message}\n\n**Suggestion:** {suggestion}\n\n**Valid states:** {valid_states}"
     }
   }

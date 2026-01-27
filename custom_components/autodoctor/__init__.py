@@ -1,4 +1,4 @@
-"""Automation Mutation Tester integration."""
+"""Autodoctor integration."""
 
 from __future__ import annotations
 
@@ -32,13 +32,13 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Automation Mutation Tester component."""
+    """Set up the Autodoctor component."""
     hass.data.setdefault(DOMAIN, {})
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Automation Mutation Tester from a config entry."""
+    """Set up Autodoctor from a config entry."""
     options = entry.options
     history_days = options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
     validate_on_reload = options.get(CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD)

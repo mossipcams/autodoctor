@@ -1,4 +1,4 @@
-"""Sensor platform for Automation Mutation Tester."""
+"""Sensor platform for Autodoctor."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class ValidationIssuesSensor(SensorEntity):
     """Sensor showing count of validation issues."""
 
     _attr_has_entity_name = True
-    _attr_name = "Automation Validation Issues"
+    _attr_name = "Autodoctor Issues"
     _attr_icon = "mdi:alert-circle"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:

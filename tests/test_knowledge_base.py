@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from custom_components.automation_mutation_tester.knowledge_base import (
+from custom_components.autodoctor.knowledge_base import (
     StateKnowledgeBase,
 )
 
@@ -173,7 +173,7 @@ async def test_load_history_adds_observed_states(mock_hass):
     ]
 
     with patch(
-        "custom_components.automation_mutation_tester.knowledge_base.get_significant_states",
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
         new_callable=AsyncMock,
         return_value={"sensor.custom": history_states},
     ):
@@ -203,7 +203,7 @@ async def test_history_excludes_unavailable_unknown(mock_hass):
     ]
 
     with patch(
-        "custom_components.automation_mutation_tester.knowledge_base.get_significant_states",
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
         new_callable=AsyncMock,
         return_value={"sensor.custom": history_states},
     ):

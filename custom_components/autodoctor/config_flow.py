@@ -1,4 +1,4 @@
-"""Config flow for Automation Mutation Tester."""
+"""Config flow for Autodoctor."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from .const import (
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Automation Mutation Tester."""
+    """Handle a config flow for Autodoctor."""
 
     VERSION = 1
 
@@ -37,7 +37,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             return self.async_create_entry(
-                title="Automation Mutation Tester",
+                title="Autodoctor",
                 data={},
             )
 

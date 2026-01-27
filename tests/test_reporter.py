@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
-from custom_components.automation_mutation_tester.reporter import IssueReporter
-from custom_components.automation_mutation_tester.models import ValidationIssue, Severity
+from custom_components.autodoctor.reporter import IssueReporter
+from custom_components.autodoctor.models import ValidationIssue, Severity
 
 
 @pytest.fixture
@@ -43,10 +43,10 @@ async def test_report_issues_creates_repair(mock_hass, reporter):
     ]
 
     with patch(
-        "custom_components.automation_mutation_tester.reporter.ir.async_create_issue",
+        "custom_components.autodoctor.reporter.ir.async_create_issue",
         new_callable=AsyncMock,
     ) as mock_create, patch(
-        "custom_components.automation_mutation_tester.reporter.async_create",
+        "custom_components.autodoctor.reporter.async_create",
         new_callable=AsyncMock,
     ):
         await reporter.async_report_issues(issues)
@@ -70,10 +70,10 @@ async def test_report_issues_creates_notification(mock_hass, reporter):
     ]
 
     with patch(
-        "custom_components.automation_mutation_tester.reporter.ir.async_create_issue",
+        "custom_components.autodoctor.reporter.ir.async_create_issue",
         new_callable=AsyncMock,
     ), patch(
-        "custom_components.automation_mutation_tester.reporter.async_create",
+        "custom_components.autodoctor.reporter.async_create",
         new_callable=AsyncMock,
     ) as mock_notify:
         await reporter.async_report_issues(issues)
@@ -84,7 +84,7 @@ async def test_report_issues_creates_notification(mock_hass, reporter):
 async def test_clear_resolved_issues(mock_hass, reporter):
     """Test clearing resolved issues."""
     with patch(
-        "custom_components.automation_mutation_tester.reporter.ir.async_delete_issue",
+        "custom_components.autodoctor.reporter.ir.async_delete_issue",
         new_callable=AsyncMock,
     ) as mock_delete:
         reporter._active_issues = {"issue_1", "issue_2"}

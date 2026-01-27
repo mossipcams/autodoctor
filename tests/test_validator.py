@@ -3,9 +3,9 @@
 import pytest
 from unittest.mock import MagicMock
 
-from custom_components.automation_mutation_tester.validator import ValidationEngine
-from custom_components.automation_mutation_tester.knowledge_base import StateKnowledgeBase
-from custom_components.automation_mutation_tester.models import StateReference, Severity
+from custom_components.autodoctor.validator import ValidationEngine
+from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+from custom_components.autodoctor.models import StateReference, Severity
 
 
 @pytest.fixture

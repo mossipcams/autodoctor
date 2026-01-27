@@ -1,4 +1,4 @@
-"""Binary sensor platform for Automation Mutation Tester."""
+"""Binary sensor platform for Autodoctor."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class ValidationOkSensor(BinarySensorEntity):
     """Binary sensor indicating if validation passed."""
 
     _attr_has_entity_name = True
-    _attr_name = "Automation Validation OK"
+    _attr_name = "Autodoctor OK"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:

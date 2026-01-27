@@ -3,7 +3,7 @@
 import pytest
 from datetime import datetime
 
-from custom_components.automation_mutation_tester.models import (
+from custom_components.autodoctor.models import (
     StateReference,
     ValidationIssue,
     OutcomeReport,

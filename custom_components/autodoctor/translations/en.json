@@ -2,18 +2,18 @@
   "config": {
     "step": {
       "user": {
-        "title": "Automation Mutation Tester",
+        "title": "Autodoctor",
         "description": "Set up automation validation to detect state-related issues before they cause failures."
       }
     },
     "abort": {
-      "single_instance_allowed": "Only a single instance of Automation Mutation Tester is allowed."
+      "single_instance_allowed": "Only a single instance of Autodoctor is allowed."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Automation Mutation Tester Options",
+        "title": "Autodoctor Options",
         "data": {
           "history_days": "History lookback period (days)",
           "staleness_threshold_days": "Staleness warning threshold (days)",
@@ -37,13 +37,13 @@
   },
   "entity": {
     "sensor": {
-      "automation_validation_issues": {
-        "name": "Automation Validation Issues"
+      "autodoctor_issues": {
+        "name": "Autodoctor Issues"
       }
     },
     "binary_sensor": {
-      "automation_validation_ok": {
-        "name": "Automation Validation OK"
+      "autodoctor_ok": {
+        "name": "Autodoctor OK"
       }
     }
   },

@@ -1,6 +1,6 @@
-"""Constants for Automation Mutation Tester."""
+"""Constants for Autodoctor."""
 
-DOMAIN = "automation_mutation_tester"
+DOMAIN = "autodoctor"
 
 # Defaults
 DEFAULT_HISTORY_DAYS = 30

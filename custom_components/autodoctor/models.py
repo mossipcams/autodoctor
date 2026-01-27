@@ -1,4 +1,4 @@
-"""Data models for Automation Mutation Tester."""
+"""Data models for Autodoctor."""
 
 from __future__ import annotations
 
