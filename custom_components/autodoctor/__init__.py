@@ -110,32 +110,36 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     if lovelace and lovelace.mode == "storage":
         resources = lovelace.resources
         if resources:
-            # Check if already registered (use attribute access for HA 2026+)
+            # Find all existing autodoctor resources (use attribute access for HA 2026+)
             existing = [
                 r for r in resources.async_items()
-                if CARD_URL_BASE in getattr(r, "url", "")
+                if "autodoctor" in getattr(r, "url", "")
             ]
-            if not existing:
+
+            # Check if current version already registered
+            current_exists = any(
+                getattr(r, "url", "") == CARD_URL for r in existing
+            )
+
+            if current_exists:
+                _LOGGER.debug("Autodoctor card already registered with current version")
+            else:
+                # Remove old versions first
+                for resource in existing:
+                    resource_id = getattr(resource, "id", None)
+                    if resource_id:
+                        try:
+                            await resources.async_delete_item(resource_id)
+                            _LOGGER.debug("Removed old autodoctor card resource")
+                        except Exception as err:
+                            _LOGGER.warning("Failed to remove old resource: %s", err)
+
+                # Create new resource with current version
                 try:
                     await resources.async_create_item({"url": CARD_URL, "res_type": "module"})
-                    _LOGGER.info("Registered autodoctor card as Lovelace resource")
+                    _LOGGER.info("Registered autodoctor card as Lovelace resource: %s", CARD_URL)
                 except Exception as err:
                     _LOGGER.warning("Failed to register Lovelace resource: %s", err)
-            else:
-                # Update existing resource if version changed
-                resource = existing[0]
-                resource_url = getattr(resource, "url", "")
-                resource_id = getattr(resource, "id", None)
-                if resource_url != CARD_URL and resource_id:
-                    try:
-                        await resources.async_update_item(
-                            resource_id, {"url": CARD_URL, "res_type": "module"}
-                        )
-                        _LOGGER.info("Updated autodoctor card resource to %s", CARD_URL)
-                    except Exception as err:
-                        _LOGGER.warning("Failed to update Lovelace resource: %s", err)
-                else:
-                    _LOGGER.debug("Autodoctor card already registered with current version")
     else:
         _LOGGER.debug(
             "Lovelace in YAML mode or not available - card must be manually added as resource"

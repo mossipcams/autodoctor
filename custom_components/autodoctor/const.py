@@ -1,7 +1,7 @@
 """Constants for Autodoctor."""
 
 DOMAIN = "autodoctor"
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 # Defaults
 DEFAULT_HISTORY_DAYS = 30
