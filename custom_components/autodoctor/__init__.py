@@ -87,10 +87,6 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Autodoctor component."""
     hass.data.setdefault(DOMAIN, {})
-
-    # Register frontend card once per integration (not per config entry)
-    await _async_register_card(hass)
-
     return True
 
 
@@ -143,6 +139,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_setup_websocket_api(hass)
+
+    # Register frontend card once (not per config entry reload)
+    if not hass.data[DOMAIN].get("card_registered"):
+        await _async_register_card(hass)
+        hass.data[DOMAIN]["card_registered"] = True
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
