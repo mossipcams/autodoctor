@@ -107,18 +107,16 @@ export class AutodoctorCard extends LitElement {
     this._runningOutcomes = false;
   }
 
-  // Temporary refresh method for compatibility - will be updated in Task 6
-  private async _refresh(): Promise<void> {
-    if (this._activeTab === "validation") {
-      await this._runValidation();
-    } else {
-      await this._runOutcomes();
-    }
-  }
+  @state() private _isRefreshing = false;
 
-  // Getter for refresh button state - will be updated in Task 6
-  private get _refreshing(): boolean {
-    return this._runningValidation || this._runningOutcomes;
+  private async _refreshCurrentTab(): Promise<void> {
+    this._isRefreshing = true;
+    if (this._activeTab === "validation") {
+      await this._fetchValidation();
+    } else {
+      await this._fetchOutcomes();
+    }
+    this._isRefreshing = false;
   }
 
   private _groupIssuesByAutomation(issues: IssueWithFix[]): AutomationGroup[] {
@@ -174,7 +172,6 @@ export class AutodoctorCard extends LitElement {
 
   protected render(): TemplateResult {
     const title = this.config.title || "Autodoctor";
-    const currentData = this._activeTab === "validation" ? this._validationData : this._outcomesData;
 
     if (this._loading) {
       return this._renderLoading(title);
@@ -184,23 +181,29 @@ export class AutodoctorCard extends LitElement {
       return this._renderError(title);
     }
 
-    if (!currentData) {
+    const data = this._activeTab === "validation"
+      ? this._validationData
+      : this._outcomesData;
+
+    if (!data) {
       return this._renderEmpty(title);
     }
 
-    const groups = this._groupIssuesByAutomation(currentData.issues);
-    const counts = this._getCounts(currentData);
-    const hasIssues = currentData.issues.length > 0;
+    const groups = this._groupIssuesByAutomation(data.issues);
+    const counts = this._getCounts(data);
+    const hasIssues = data.issues.length > 0;
 
     return html`
       <ha-card>
-        ${this._renderHeader(title, counts)}
+        ${this._renderHeader(title)}
+        ${this._renderTabs()}
         <div class="card-content">
+          ${this._renderBadges(counts)}
           ${hasIssues
             ? groups.map((group) => this._renderAutomationGroup(group))
             : this._renderAllHealthy(counts.healthy)}
         </div>
-        ${this._renderFooter()}
+        ${this._renderTabFooter()}
       </ha-card>
     `;
   }
@@ -228,7 +231,7 @@ export class AutodoctorCard extends LitElement {
         <div class="card-content error-state">
           <div class="error-icon" aria-hidden="true">⚠</div>
           <span class="error-text">${this._error}</span>
-          <button class="retry-btn" @click=${this._refresh}>
+          <button class="retry-btn" @click=${this._refreshCurrentTab}>
             Try again
           </button>
         </div>
@@ -249,28 +252,18 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderHeader(title: string, counts: { errors: number; warnings: number; healthy: number }): TemplateResult {
+  private _renderHeader(title: string): TemplateResult {
     return html`
       <div class="header">
         <h2 class="title">${title}</h2>
-        <div class="badges">
-          ${counts.errors > 0
-            ? html`<span class="badge badge-error" title="${counts.errors} error${counts.errors !== 1 ? 's' : ''}">
-                <span class="badge-icon" aria-hidden="true">✕</span>
-                <span class="badge-count">${counts.errors}</span>
-              </span>`
-            : nothing}
-          ${counts.warnings > 0
-            ? html`<span class="badge badge-warning" title="${counts.warnings} warning${counts.warnings !== 1 ? 's' : ''}">
-                <span class="badge-icon" aria-hidden="true">!</span>
-                <span class="badge-count">${counts.warnings}</span>
-              </span>`
-            : nothing}
-          <span class="badge badge-healthy" title="${counts.healthy} healthy">
-            <span class="badge-icon" aria-hidden="true">✓</span>
-            <span class="badge-count">${counts.healthy}</span>
-          </span>
-        </div>
+        <button
+          class="refresh-btn ${this._isRefreshing ? 'refreshing' : ''}"
+          @click=${this._refreshCurrentTab}
+          ?disabled=${this._isRefreshing}
+          aria-label="Refresh"
+        >
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+        </button>
       </div>
     `;
   }
@@ -287,20 +280,87 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderFooter(): TemplateResult {
+  private _renderTabs(): TemplateResult {
     return html`
-      <div class="footer">
+      <div class="tabs">
         <button
-          class="refresh-btn ${this._refreshing ? 'refreshing' : ''}"
-          @click=${this._refresh}
-          ?disabled=${this._refreshing}
-          aria-label="Refresh automation health data"
+          class="tab ${this._activeTab === 'validation' ? 'active' : ''}"
+          @click=${() => this._switchTab('validation')}
         >
-          <span class="refresh-icon" aria-hidden="true">↻</span>
-          <span class="refresh-text">${this._refreshing ? 'Refreshing...' : 'Refresh'}</span>
+          Validation
+        </button>
+        <button
+          class="tab ${this._activeTab === 'outcomes' ? 'active' : ''}"
+          @click=${() => this._switchTab('outcomes')}
+        >
+          Outcomes
         </button>
       </div>
     `;
+  }
+
+  private _renderBadges(counts: { errors: number; warnings: number; healthy: number }): TemplateResult {
+    return html`
+      <div class="badges-row">
+        ${counts.errors > 0
+          ? html`<span class="badge badge-error" title="${counts.errors} error${counts.errors !== 1 ? 's' : ''}">
+              <span class="badge-icon" aria-hidden="true">✕</span>
+              <span class="badge-count">${counts.errors}</span>
+            </span>`
+          : nothing}
+        ${counts.warnings > 0
+          ? html`<span class="badge badge-warning" title="${counts.warnings} warning${counts.warnings !== 1 ? 's' : ''}">
+              <span class="badge-icon" aria-hidden="true">!</span>
+              <span class="badge-count">${counts.warnings}</span>
+            </span>`
+          : nothing}
+        <span class="badge badge-healthy" title="${counts.healthy} healthy">
+          <span class="badge-icon" aria-hidden="true">✓</span>
+          <span class="badge-count">${counts.healthy}</span>
+        </span>
+      </div>
+    `;
+  }
+
+  private _renderTabFooter(): TemplateResult {
+    const isValidation = this._activeTab === "validation";
+    const isRunning = isValidation ? this._runningValidation : this._runningOutcomes;
+    const lastRun = isValidation
+      ? this._validationData?.last_run
+      : this._outcomesData?.last_run;
+
+    const runHandler = isValidation ? this._runValidation : this._runOutcomes;
+    const buttonText = isValidation ? "Run Validation" : "Run Outcomes";
+
+    return html`
+      <div class="footer">
+        <button
+          class="run-btn ${isRunning ? 'running' : ''}"
+          @click=${runHandler}
+          ?disabled=${isRunning}
+        >
+          <span class="run-icon" aria-hidden="true">${isRunning ? '↻' : '▶'}</span>
+          <span class="run-text">${isRunning ? 'Running...' : buttonText}</span>
+        </button>
+        ${lastRun ? html`
+          <span class="last-run">Last run: ${this._formatLastRun(lastRun)}</span>
+        ` : nothing}
+      </div>
+    `;
+  }
+
+  private _formatLastRun(isoString: string): string {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return "just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
   }
 
   private _renderAutomationGroup(group: AutomationGroup): TemplateResult {
@@ -416,10 +476,84 @@ export class AutodoctorCard extends LitElement {
         color: var(--primary-text-color);
       }
 
-      /* Badges */
-      .badges {
+      /* Header refresh button */
+      .header .refresh-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        background: transparent;
+        color: var(--secondary-text-color);
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        transition: background var(--autodoc-transition-fast), color var(--autodoc-transition-fast);
+      }
+
+      .header .refresh-btn:hover:not(:disabled) {
+        background: var(--divider-color, rgba(127, 127, 127, 0.2));
+        color: var(--primary-color);
+      }
+
+      .header .refresh-btn:focus {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+      }
+
+      .header .refresh-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+
+      .header .refresh-btn .refresh-icon {
+        font-size: 1.1rem;
+      }
+
+      .header .refresh-btn.refreshing .refresh-icon {
+        animation: rotate 1s linear infinite;
+      }
+
+      /* Tabs */
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+      }
+
+      .tab {
+        flex: 1;
+        padding: var(--autodoc-spacing-md) var(--autodoc-spacing-lg);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--secondary-text-color);
+        font-family: var(--autodoc-font-family);
+        font-size: var(--autodoc-issue-size);
+        font-weight: 500;
+        cursor: pointer;
+        transition: color var(--autodoc-transition-fast), border-color var(--autodoc-transition-fast);
+      }
+
+      .tab:hover {
+        color: var(--primary-text-color);
+      }
+
+      .tab.active {
+        color: var(--primary-color);
+        border-bottom-color: var(--primary-color);
+      }
+
+      .tab:focus {
+        outline: none;
+        background: var(--divider-color, rgba(127, 127, 127, 0.1));
+      }
+
+      /* Badges row (in content area) */
+      .badges-row {
         display: flex;
         gap: var(--autodoc-spacing-sm);
+        margin-bottom: var(--autodoc-spacing-md);
       }
 
       .badge {
@@ -771,55 +905,64 @@ export class AutodoctorCard extends LitElement {
 
       /* Footer */
       .footer {
+        display: flex;
+        align-items: center;
+        gap: var(--autodoc-spacing-md);
         padding: var(--autodoc-spacing-md) var(--autodoc-spacing-lg);
         border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
       }
 
-      .refresh-btn {
+      .run-btn {
         display: inline-flex;
         align-items: center;
         gap: var(--autodoc-spacing-sm);
         padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
-        background: transparent;
-        color: var(--secondary-text-color);
-        border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+        border: none;
         border-radius: 6px;
+        font-family: var(--autodoc-font-family);
         font-size: var(--autodoc-issue-size);
+        font-weight: 500;
         cursor: pointer;
-        transition: border-color var(--autodoc-transition-fast), color var(--autodoc-transition-fast);
+        transition: opacity var(--autodoc-transition-fast), transform var(--autodoc-transition-fast);
       }
 
-      .refresh-btn:hover:not(:disabled) {
-        border-color: var(--primary-color);
-        color: var(--primary-color);
+      .run-btn:hover:not(:disabled) {
+        opacity: 0.9;
+        transform: translateY(-1px);
       }
 
-      .refresh-btn:focus {
+      .run-btn:focus {
         outline: 2px solid var(--primary-color);
         outline-offset: 2px;
       }
 
-      .refresh-btn:disabled {
+      .run-btn:disabled {
         cursor: not-allowed;
-        opacity: 0.6;
+        opacity: 0.7;
       }
 
-      .refresh-icon {
-        font-size: 1rem;
-        transition: transform var(--autodoc-transition-normal);
+      .run-icon {
+        font-size: 0.8rem;
       }
 
-      .refresh-btn.refreshing .refresh-icon {
+      .run-btn.running .run-icon {
         animation: rotate 1s linear infinite;
+      }
+
+      .run-text {
+        font-family: var(--autodoc-font-family);
+      }
+
+      .last-run {
+        color: var(--secondary-text-color);
+        font-size: var(--autodoc-meta-size);
       }
 
       @keyframes rotate {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
-      }
-
-      .refresh-text {
-        font-family: var(--autodoc-font-family);
       }
     `;
   }
