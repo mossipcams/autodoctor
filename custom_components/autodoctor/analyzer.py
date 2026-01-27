@@ -25,6 +25,19 @@ STATES_OBJECT_PATTERN = re.compile(
 class AutomationAnalyzer:
     """Parses automation configs and extracts all state references."""
 
+    def _normalize_states(self, value: Any) -> list[str]:
+        """Normalize state value(s) to a list of strings.
+
+        HA configs can have states as:
+        - A single string: "on"
+        - A list of strings: ["on", "off"]
+        """
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(v) for v in value]
+        return [str(value)]
+
     def extract_state_references(self, automation: dict[str, Any]) -> list[StateReference]:
         """Extract all state references from an automation."""
         refs: list[StateReference] = []
@@ -71,29 +84,29 @@ class AutomationAnalyzer:
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
-            to_state = trigger.get("to")
-            from_state = trigger.get("from")
+            to_states = self._normalize_states(trigger.get("to"))
+            from_states = self._normalize_states(trigger.get("from"))
 
             for entity_id in entity_ids:
-                if to_state is not None:
+                for state in to_states:
                     refs.append(
                         StateReference(
                             automation_id=automation_id,
                             automation_name=automation_name,
                             entity_id=entity_id,
-                            expected_state=str(to_state),
+                            expected_state=state,
                             expected_attribute=None,
                             location=f"trigger[{index}].to",
-                            transition_from=str(from_state) if from_state else None,
+                            transition_from=from_states[0] if from_states else None,
                         )
                     )
-                if from_state is not None:
+                for state in from_states:
                     refs.append(
                         StateReference(
                             automation_id=automation_id,
                             automation_name=automation_name,
                             entity_id=entity_id,
-                            expected_state=str(from_state),
+                            expected_state=state,
                             expected_attribute=None,
                             location=f"trigger[{index}].from",
                         )
@@ -145,22 +158,20 @@ class AutomationAnalyzer:
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
-            state = condition.get("state")
+            states = self._normalize_states(condition.get("state"))
 
             for entity_id in entity_ids:
-                if state is not None:
-                    states = state if isinstance(state, list) else [state]
-                    for s in states:
-                        refs.append(
-                            StateReference(
-                                automation_id=automation_id,
-                                automation_name=automation_name,
-                                entity_id=entity_id,
-                                expected_state=str(s),
-                                expected_attribute=None,
-                                location=f"condition[{index}].state",
-                            )
+                for state in states:
+                    refs.append(
+                        StateReference(
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            entity_id=entity_id,
+                            expected_state=state,
+                            expected_attribute=None,
+                            location=f"condition[{index}].state",
                         )
+                    )
 
         elif cond_type == "template":
             value_template = condition.get("value_template", "")
