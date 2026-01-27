@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Automation Mutation Tester",
+        "description": "Set up automation validation to detect state-related issues."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single instance is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "history_days": "History lookback (days)",
+          "staleness_threshold_days": "Staleness warning threshold (days)",
+          "validate_on_reload": "Validate on automation reload",
+          "debounce_seconds": "Debounce delay (seconds)"
+        }
+      }
+    }
+  },
+  "issues": {
+    "validation_issue": {
+      "title": "Automation Validation Issue: {automation}",
+      "description": "**Entity:** {entity}\n\n**Issue:** {message}\n\n**Suggestion:** {suggestion}\n\n**Valid states:** {valid_states}"
+    }
+  }
+}
