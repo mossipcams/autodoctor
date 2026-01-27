@@ -25,6 +25,8 @@ from .analyzer import AutomationAnalyzer
 from .validator import ValidationEngine
 from .simulator import SimulationEngine
 from .reporter import IssueReporter
+from .fix_engine import FixEngine
+from .websocket_api import async_setup_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,6 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     validator = ValidationEngine(knowledge_base)
     simulator = SimulationEngine(knowledge_base)
     reporter = IssueReporter(hass)
+    fix_engine = FixEngine(hass, knowledge_base)
 
     hass.data[DOMAIN] = {
         "knowledge_base": knowledge_base,
@@ -97,6 +100,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "validator": validator,
         "simulator": simulator,
         "reporter": reporter,
+        "fix_engine": fix_engine,
+        "issues": [],
         "entry": entry,
         "debounce_task": None,
     }
@@ -106,6 +111,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await _async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_setup_websocket_api(hass)
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
@@ -220,6 +226,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
 
     _LOGGER.info("Validation complete: %d total issues across %d automations", len(all_issues), len(automations))
     await reporter.async_report_issues(all_issues)
+    hass.data[DOMAIN]["issues"] = all_issues
     return all_issues
 
 
