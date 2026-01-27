@@ -17,6 +17,17 @@ export class AutodoctorCard extends LitElement {
     this.config = config;
   }
 
+  public static getStubConfig(): AutodoctorCardConfig {
+    return {
+      type: "custom:autodoctor-card",
+    };
+  }
+
+  public static async getConfigElement(): Promise<HTMLElement> {
+    await import("./autodoctor-card-editor");
+    return document.createElement("autodoctor-card-editor");
+  }
+
   protected async firstUpdated(): Promise<void> {
     await this._fetchData();
   }
@@ -251,4 +262,6 @@ export class AutodoctorCard extends LitElement {
   type: "autodoctor-card",
   name: "Autodoctor Card",
   description: "Shows automation health and validation issues",
+  preview: false,
+  documentationURL: "https://github.com/mossipcams/autodoctor",
 });

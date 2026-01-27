@@ -3,7 +3,7 @@
   "name": "Autodoctor",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["automation", "recorder"],
+  "dependencies": ["automation", "recorder", "frontend", "http"],
   "after_dependencies": ["automation"],
   "documentation": "https://github.com/mossipcams/autodoctor",
   "iot_class": "local_polling",

@@ -7,6 +7,7 @@ export default {
   output: {
     file: "autodoctor-card.js",
     format: "es",
+    inlineDynamicImports: true,
   },
   plugins: [
     resolve(),

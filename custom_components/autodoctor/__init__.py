@@ -17,6 +17,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
+    VERSION,
     CONF_HISTORY_DAYS,
     CONF_VALIDATE_ON_RELOAD,
     CONF_DEBOUNCE_SECONDS,
@@ -37,7 +38,8 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 # Frontend card
-CARD_URL = "/autodoctor/autodoctor-card.js"
+CARD_URL_BASE = "/autodoctor/autodoctor-card.js"
+CARD_URL = f"{CARD_URL_BASE}?v={VERSION}"
 CARD_PATH = Path(__file__).parent / "www" / "autodoctor-card.js"
 
 
@@ -85,6 +87,10 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Autodoctor component."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Register frontend card once per integration (not per config entry)
+    await _async_register_card(hass)
+
     return True
 
 
@@ -94,15 +100,12 @@ async def _async_register_card(hass: HomeAssistant) -> None:
         _LOGGER.warning("Autodoctor card not found at %s", CARD_PATH)
         return
 
-    # Register static path for the card
+    # Register static path for the card (base URL without version query string)
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=False)]
+        [StaticPathConfig(CARD_URL_BASE, str(CARD_PATH), cache_headers=False)]
     )
 
-    # Register as a Lovelace resource
-    await hass.components.lovelace.async_get_mode()  # Ensure lovelace is loaded
-
-    # Add to frontend extra module url
+    # Add to frontend extra module url (with version for cache busting)
     hass.data.setdefault("frontend_extra_module_url", set()).add(CARD_URL)
 
     _LOGGER.debug("Registered autodoctor card at %s", CARD_URL)
@@ -140,9 +143,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_setup_websocket_api(hass)
-
-    # Register frontend card
-    await _async_register_card(hass)
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
