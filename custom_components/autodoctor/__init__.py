@@ -106,7 +106,7 @@ async def _async_register_card(hass: HomeAssistant) -> None:
         await hass.http.async_register_static_paths(
             [StaticPathConfig(CARD_URL_BASE, str(CARD_PATH), cache_headers=False)]
         )
-    except ValueError:
+    except (ValueError, RuntimeError):
         # Path already registered from previous setup
         _LOGGER.debug("Static path %s already registered", CARD_URL_BASE)
 
