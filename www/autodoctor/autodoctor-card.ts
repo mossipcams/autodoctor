@@ -686,8 +686,16 @@ export class AutodoctorCard extends LitElement {
         }
       }
 
+      :host {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
       ha-card {
         overflow: hidden;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       /* Header */
@@ -748,13 +756,17 @@ export class AutodoctorCard extends LitElement {
       /* Tabs */
       .tabs {
         display: flex;
+        flex-wrap: nowrap;
+        width: 100%;
+        box-sizing: border-box;
         border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
       }
 
       .tab {
-        flex: 1;
+        flex: 1 1 0%;
         min-width: 0;
-        padding: var(--autodoc-spacing-md) var(--autodoc-spacing-sm);
+        max-width: 100%;
+        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-xs);
         background: transparent;
         border: none;
         border-bottom: 2px solid transparent;
@@ -767,6 +779,7 @@ export class AutodoctorCard extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        box-sizing: border-box;
       }
 
       .tab:hover {
