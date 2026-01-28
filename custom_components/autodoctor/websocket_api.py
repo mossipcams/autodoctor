@@ -142,7 +142,6 @@ async def websocket_refresh(
     from . import async_validate_all
 
     issues = await async_validate_all(hass)
-    hass.data[DOMAIN]["issues"] = issues
 
     connection.send_result(msg["id"], {"success": True, "issue_count": len(issues)})
 
@@ -302,21 +301,13 @@ async def websocket_run_conflicts(
     """Run conflict detection and return results."""
     from datetime import datetime
 
+    from . import _get_automation_configs
+
     data = hass.data.get(DOMAIN, {})
     suppression_store = data.get("suppression_store")
 
     # Get automation configs
-    automation_data = hass.data.get("automation", {})
-    if isinstance(automation_data, dict):
-        automations = automation_data.get("config", [])
-    elif hasattr(automation_data, "entities"):
-        automations = [
-            e.raw_config
-            for e in automation_data.entities
-            if hasattr(e, "raw_config") and e.raw_config
-        ]
-    else:
-        automations = []
+    automations = _get_automation_configs(hass)
 
     # Detect conflicts
     detector = ConflictDetector()

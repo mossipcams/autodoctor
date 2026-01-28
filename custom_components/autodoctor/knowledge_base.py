@@ -395,3 +395,7 @@ class StateKnowledgeBase:
     def get_historical_entity_ids(self) -> set[str]:
         """Get entity IDs that have been observed in history."""
         return set(self._observed_states.keys())
+
+    def has_history_loaded(self) -> bool:
+        """Check if history has been loaded."""
+        return bool(self._observed_states)

@@ -375,3 +375,15 @@ async def test_load_history_uses_executor(hass: HomeAssistant):
 
     # Should have called async_add_executor_job
     assert hass.async_add_executor_job.called
+
+
+async def test_has_history_loaded(hass: HomeAssistant):
+    """Test has_history_loaded public method."""
+    kb = StateKnowledgeBase(hass)
+
+    # Initially empty
+    assert kb.has_history_loaded() is False
+
+    # After adding observed states
+    kb._observed_states["light.test"] = {"on", "off"}
+    assert kb.has_history_loaded() is True

@@ -359,7 +359,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
         return []
 
     # Ensure history is loaded before validation
-    if knowledge_base and not knowledge_base._observed_states:
+    if knowledge_base and not knowledge_base.has_history_loaded():
         _LOGGER.debug("Loading entity history before validation...")
         await knowledge_base.async_load_history()
 
