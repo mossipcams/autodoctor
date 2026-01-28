@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
@@ -20,30 +22,38 @@ class SuppressionStore:
             STORAGE_KEY,
         )
         self._suppressions: set[str] = set()
+        self._lock = asyncio.Lock()
 
     async def async_load(self) -> None:
         """Load suppressions from storage."""
-        data = await self._store.async_load()
-        if data:
-            self._suppressions = set(data.get("suppressions", []))
+        async with self._lock:
+            data = await self._store.async_load()
+            if data:
+                self._suppressions = set(data.get("suppressions", []))
 
     async def async_save(self) -> None:
-        """Save suppressions to storage."""
+        """Save suppressions to storage.
+
+        Note: Caller must hold _lock when calling this method.
+        """
         await self._store.async_save({"suppressions": list(self._suppressions)})
 
     def is_suppressed(self, key: str) -> bool:
         """Check if an issue is suppressed."""
+        # Reading from set is atomic in CPython, no lock needed
         return key in self._suppressions
 
     async def async_suppress(self, key: str) -> None:
         """Add a suppression."""
-        self._suppressions.add(key)
-        await self.async_save()
+        async with self._lock:
+            self._suppressions.add(key)
+            await self.async_save()
 
     async def async_clear_all(self) -> None:
         """Clear all suppressions."""
-        self._suppressions.clear()
-        await self.async_save()
+        async with self._lock:
+            self._suppressions.clear()
+            await self.async_save()
 
     @property
     def count(self) -> int:

@@ -26,3 +26,7 @@ htmlcov/
 
 # Worktrees
 .worktrees/
+
+# Generated files
+index.md
+allowed-commands.md

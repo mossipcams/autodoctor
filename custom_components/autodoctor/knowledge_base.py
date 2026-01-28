@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -67,6 +68,7 @@ class StateKnowledgeBase:
         self.history_days = history_days
         self._cache: dict[str, set[str]] = {}
         self._observed_states: dict[str, set[str]] = {}
+        self._lock = asyncio.Lock()
 
     def entity_exists(self, entity_id: str) -> bool:
         """Check if an entity exists.
@@ -99,9 +101,9 @@ class StateKnowledgeBase:
         Returns:
             Set of valid states, or None if entity doesn't exist
         """
-        # Check cache first
+        # Check cache first - return a copy to prevent external mutation
         if entity_id in self._cache:
-            return self._cache[entity_id]
+            return self._cache[entity_id].copy()
 
         # Check if entity exists
         state = self.hass.states.get(entity_id)
@@ -109,6 +111,11 @@ class StateKnowledgeBase:
             return None
 
         domain = self.get_domain(entity_id)
+
+        # Sensors are too free-form to validate - skip state validation
+        # They can have numeric values, battery states, text, etc.
+        if domain == "sensor":
+            return None
 
         # Start with device class defaults
         device_class_defaults = get_device_class_states(domain)
@@ -182,9 +189,10 @@ class StateKnowledgeBase:
                 if attr_value and isinstance(attr_value, list):
                     valid_states.update(str(v) for v in attr_value)
 
-        # Add observed states from history
-        if entity_id in self._observed_states:
-            valid_states.update(self._observed_states[entity_id])
+        # Add observed states from history (take snapshot to avoid race)
+        observed = self._observed_states.get(entity_id)
+        if observed:
+            valid_states.update(observed)
 
         # Always include current state as valid
         if state.state not in ("unavailable", "unknown"):
@@ -194,15 +202,19 @@ class StateKnowledgeBase:
         valid_states.add("unavailable")
         valid_states.add("unknown")
 
-        # Cache the result
-        self._cache[entity_id] = valid_states
+        # Cache the result atomically - merge with any existing cache entry
+        # to avoid losing states added by async_load_history()
+        if entity_id in self._cache:
+            self._cache[entity_id].update(valid_states)
+        else:
+            self._cache[entity_id] = valid_states
 
         _LOGGER.debug(
             "Entity %s: final valid states = %s",
             entity_id, valid_states
         )
 
-        return valid_states
+        return valid_states.copy()
 
     def is_valid_state(self, entity_id: str, state: str) -> bool:
         """Check if a state is valid for an entity.
@@ -246,58 +258,77 @@ class StateKnowledgeBase:
         return None
 
     async def async_load_history(self, entity_ids: list[str] | None = None) -> None:
-        """Load state history from recorder."""
+        """Load state history from recorder.
+
+        Uses a lock to prevent concurrent history loads from racing.
+        """
         if get_significant_states is None:
             _LOGGER.warning("Recorder history not available - get_significant_states not found")
             return
 
-        if entity_ids is None:
-            entity_ids = [s.entity_id for s in self.hass.states.async_all()]
+        # Serialize history loading to prevent races
+        async with self._lock:
+            if entity_ids is None:
+                entity_ids = [s.entity_id for s in self.hass.states.async_all()]
 
-        if not entity_ids:
-            return
+            if not entity_ids:
+                return
 
-        start_time = datetime.now() - timedelta(days=self.history_days)
-        end_time = datetime.now()
+            start_time = datetime.now() - timedelta(days=self.history_days)
+            end_time = datetime.now()
 
-        try:
-            # get_significant_states is synchronous, call it directly
-            history = get_significant_states(
-                self.hass,
-                start_time,
-                end_time,
-                entity_ids,
-                significant_changes_only=True,
-            )
-        except Exception as err:
-            _LOGGER.warning("Failed to load recorder history: %s", err)
-            return
+            try:
+                # get_significant_states is synchronous, call it directly
+                history = get_significant_states(
+                    self.hass,
+                    start_time,
+                    end_time,
+                    entity_ids,
+                    significant_changes_only=True,
+                )
+            except Exception as err:
+                _LOGGER.warning("Failed to load recorder history: %s", err)
+                return
 
-        loaded_count = 0
-        for entity_id, states in history.items():
-            if entity_id not in self._observed_states:
-                self._observed_states[entity_id] = set()
+            # Build updates in temporary structures first
+            new_observed: dict[str, set[str]] = {}
+            loaded_count = 0
 
-            for state in states:
-                # Handle both State objects and dict formats
-                if hasattr(state, "state"):
-                    state_value = state.state
-                elif isinstance(state, dict):
-                    state_value = state.get("state")
+            for entity_id, states in history.items():
+                entity_states: set[str] = set()
+
+                for state in states:
+                    # Handle both State objects and dict formats
+                    if hasattr(state, "state"):
+                        state_value = state.state
+                    elif isinstance(state, dict):
+                        state_value = state.get("state")
+                    else:
+                        continue
+
+                    if state_value and state_value not in ("unavailable", "unknown"):
+                        entity_states.add(state_value)
+                        loaded_count += 1
+
+                if entity_states:
+                    new_observed[entity_id] = entity_states
+
+            # Apply updates atomically - merge with existing data
+            for entity_id, states in new_observed.items():
+                if entity_id in self._observed_states:
+                    self._observed_states[entity_id].update(states)
                 else:
-                    continue
+                    self._observed_states[entity_id] = states
 
-                if state_value and state_value not in ("unavailable", "unknown"):
-                    self._observed_states[entity_id].add(state_value)
-                    loaded_count += 1
-                    if entity_id in self._cache:
-                        self._cache[entity_id].add(state_value)
+                # Also update cache if entry exists
+                if entity_id in self._cache:
+                    self._cache[entity_id].update(states)
 
-        _LOGGER.debug(
-            "Loaded %d historical states for %d entities",
-            loaded_count,
-            len(self._observed_states),
-        )
+            _LOGGER.debug(
+                "Loaded %d historical states for %d entities",
+                loaded_count,
+                len(new_observed),
+            )
 
     def get_observed_states(self, entity_id: str) -> set[str]:
         """Get states that have been observed in history."""

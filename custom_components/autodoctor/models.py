@@ -24,6 +24,7 @@ class IssueType(str, Enum):
     IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
+    TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
 
 
 @dataclass
@@ -53,7 +54,7 @@ class EntityAction:
     entity_id: str
     action: str  # "turn_on", "turn_off", "toggle", "set"
     value: Any  # For set actions (brightness, temperature, etc.)
-    conditions: list[str]  # Human-readable condition summary
+    conditions: list[ConditionInfo]  # Conditions that must be true for this action
 
 
 @dataclass
@@ -63,6 +64,8 @@ class Conflict:
     entity_id: str
     automation_a: str
     automation_b: str
+    automation_a_name: str
+    automation_b_name: str
     action_a: str
     action_b: str
     severity: Severity
@@ -75,6 +78,8 @@ class Conflict:
             "entity_id": self.entity_id,
             "automation_a": self.automation_a,
             "automation_b": self.automation_b,
+            "automation_a_name": self.automation_a_name,
+            "automation_b_name": self.automation_b_name,
             "action_a": self.action_a,
             "action_b": self.action_b,
             "severity": self.severity.name.lower(),

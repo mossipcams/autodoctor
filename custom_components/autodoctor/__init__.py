@@ -31,6 +31,7 @@ from .validator import ValidationEngine
 from .reporter import IssueReporter
 from .suppression_store import SuppressionStore
 from .websocket_api import async_setup_websocket_api
+from .jinja_validator import JinjaValidator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     knowledge_base = StateKnowledgeBase(hass, history_days)
     analyzer = AutomationAnalyzer()
     validator = ValidationEngine(knowledge_base)
+    jinja_validator = JinjaValidator(hass)
     reporter = IssueReporter(hass)
 
     suppression_store = SuppressionStore(hass)
@@ -180,6 +182,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "knowledge_base": knowledge_base,
         "analyzer": analyzer,
         "validator": validator,
+        "jinja_validator": jinja_validator,
         "reporter": reporter,
         "suppression_store": suppression_store,
         "issues": [],  # Keep for backwards compatibility
@@ -224,14 +227,23 @@ def _setup_reload_listener(hass: HomeAssistant, debounce_seconds: int) -> None:
     @callback
     def _handle_automation_reload(_: Event) -> None:
         data = hass.data.get(DOMAIN, {})
-        if data.get("debounce_task"):
-            data["debounce_task"].cancel()
+
+        # Cancel existing task if present - capture reference first to avoid race
+        existing_task = data.get("debounce_task")
+        if existing_task is not None and not existing_task.done():
+            existing_task.cancel()
 
         async def _debounced_validate() -> None:
-            await asyncio.sleep(debounce_seconds)
-            await async_validate_all(hass)
+            try:
+                await asyncio.sleep(debounce_seconds)
+                await async_validate_all(hass)
+            except asyncio.CancelledError:
+                # Task was cancelled by a newer reload event - this is expected
+                pass
 
-        data["debounce_task"] = hass.async_create_task(_debounced_validate())
+        # Create and store new task atomically
+        new_task = hass.async_create_task(_debounced_validate())
+        data["debounce_task"] = new_task
 
     hass.bus.async_listen("automation_reloaded", _handle_automation_reload)
 
@@ -264,6 +276,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
     validator = data.get("validator")
+    jinja_validator = data.get("jinja_validator")
     reporter = data.get("reporter")
     knowledge_base = data.get("knowledge_base")
 
@@ -289,6 +302,14 @@ async def async_validate_all(hass: HomeAssistant) -> list:
         _LOGGER.debug("First automation sample: %s", {k: type(v).__name__ for k, v in first.items()} if isinstance(first, dict) else first)
 
     all_issues = []
+
+    # Run Jinja template validation first
+    if jinja_validator:
+        jinja_issues = jinja_validator.validate_automations(automations)
+        _LOGGER.debug("Jinja validation: found %d template syntax issues", len(jinja_issues))
+        all_issues.extend(jinja_issues)
+
+    # Run state reference validation
     for idx, automation in enumerate(automations):
         auto_name = automation.get("alias", automation.get("id", "unknown"))
         # Log trigger info for first few automations
@@ -306,9 +327,14 @@ async def async_validate_all(hass: HomeAssistant) -> list:
 
     _LOGGER.info("Validation complete: %d total issues across %d automations", len(all_issues), len(automations))
     await reporter.async_report_issues(all_issues)
-    hass.data[DOMAIN]["issues"] = all_issues  # Keep for backwards compatibility
-    hass.data[DOMAIN]["validation_issues"] = all_issues
-    hass.data[DOMAIN]["validation_last_run"] = datetime.now(timezone.utc).isoformat()
+
+    # Update all validation state atomically to prevent partial reads
+    timestamp = datetime.now(timezone.utc).isoformat()
+    hass.data[DOMAIN].update({
+        "issues": all_issues,  # Keep for backwards compatibility
+        "validation_issues": all_issues,
+        "validation_last_run": timestamp,
+    })
     return all_issues
 
 
@@ -317,6 +343,7 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
     validator = data.get("validator")
+    jinja_validator = data.get("jinja_validator")
     reporter = data.get("reporter")
 
     if not all([analyzer, validator, reporter]):
@@ -332,8 +359,17 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
         _LOGGER.warning("Automation %s not found", automation_id)
         return []
 
+    issues = []
+
+    # Run Jinja validation
+    if jinja_validator:
+        jinja_issues = jinja_validator.validate_automations([automation])
+        issues.extend(jinja_issues)
+
+    # Run state reference validation
     refs = analyzer.extract_state_references(automation)
-    issues = validator.validate_all(refs)
+    issues.extend(validator.validate_all(refs))
+
     await reporter.async_report_issues(issues)
     return issues
 

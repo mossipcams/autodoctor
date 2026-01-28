@@ -5,12 +5,13 @@ from __future__ import annotations
 from difflib import get_close_matches
 
 STATE_SYNONYMS: dict[str, str] = {
-    # Common mistakes
+    # Common presence mistakes
     "away": "not_home",
     "gone": "not_home",
     "absent": "not_home",
     "present": "home",
     "arrived": "home",
+    # Boolean variations
     "true": "on",
     "false": "off",
     "yes": "on",
@@ -21,6 +22,7 @@ STATE_SYNONYMS: dict[str, str] = {
     "disabled": "off",
     "active": "on",
     "inactive": "off",
+    # Alarm panel
     "armed": "armed_away",
     "disarmed": "disarmed",
     # Cover states
@@ -28,9 +30,30 @@ STATE_SYNONYMS: dict[str, str] = {
     "closed": "closed",
     "opening": "opening",
     "closing": "closing",
+    "shut": "closed",
     # Lock states
     "locked": "locked",
     "unlocked": "unlocked",
+    "lock": "locked",
+    "unlock": "unlocked",
+    # Climate/HVAC variations
+    "heating": "heat",
+    "cooling": "cool",
+    "auto_heat_cool": "heat_cool",
+    "hvac_off": "off",
+    # Media player variations
+    "play": "playing",
+    "pause": "paused",
+    "stop": "idle",
+    "stopped": "idle",
+    # Vacuum/lawn mower variations
+    "vacuuming": "cleaning",
+    "charging": "docked",
+    "returning_home": "returning",
+    # Weather variations
+    "partly_cloudy": "partlycloudy",
+    "partly-cloudy": "partlycloudy",
+    "clear": "sunny",
 }
 
 

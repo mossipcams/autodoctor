@@ -172,7 +172,7 @@ class AutomationAnalyzer:
 
     def _extract_from_condition(
         self,
-        condition: dict[str, Any],
+        condition: dict[str, Any] | str,
         index: int,
         automation_id: str,
         automation_name: str,
@@ -180,6 +180,20 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
+
+        # Handle string conditions (template shorthand)
+        if isinstance(condition, str):
+            refs.extend(
+                self._extract_from_template(
+                    condition, f"{location_prefix}[{index}]", automation_id, automation_name
+                )
+            )
+            return refs
+
+        # Skip if not a dict
+        if not isinstance(condition, dict):
+            return refs
+
         # Support both 'condition' key (used in both old and new formats for condition type)
         cond_type = condition.get("condition", "")
 
@@ -451,9 +465,12 @@ class AutomationAnalyzer:
         self,
         action_list: list[dict[str, Any]],
         automation_id: str,
+        parent_conditions: list[ConditionInfo] | None = None,
     ) -> list[EntityAction]:
         """Recursively extract EntityActions from action blocks."""
         results: list[EntityAction] = []
+        if parent_conditions is None:
+            parent_conditions = []
 
         for action in action_list:
             if not isinstance(action, dict):
@@ -461,29 +478,61 @@ class AutomationAnalyzer:
 
             # Direct service call (supports both "service" and "action" keys)
             if "service" in action or "action" in action:
-                results.extend(self._parse_service_call(action, automation_id))
+                results.extend(self._parse_service_call(action, automation_id, parent_conditions))
 
             # Choose block
             if "choose" in action:
                 for option in action.get("choose", []):
+                    # Extract conditions from this option
+                    option_conditions = list(parent_conditions)
+                    for cond in option.get("conditions", []):
+                        cond_info = self._condition_to_condition_info(cond)
+                        if cond_info:
+                            option_conditions.append(cond_info)
+
                     sequence = option.get("sequence", [])
-                    results.extend(self._extract_actions_recursive(sequence, automation_id))
+                    results.extend(self._extract_actions_recursive(sequence, automation_id, option_conditions))
+
+                # Default has no additional conditions
                 default = action.get("default", [])
                 if default:
-                    results.extend(self._extract_actions_recursive(default, automation_id))
+                    results.extend(self._extract_actions_recursive(default, automation_id, parent_conditions))
 
             # If/then/else block
             if "if" in action:
+                # Extract conditions from if
+                if_conditions = list(parent_conditions)
+                for cond in action.get("if", []):
+                    cond_info = self._condition_to_condition_info(cond)
+                    if cond_info:
+                        if_conditions.append(cond_info)
+
                 then_actions = action.get("then", [])
                 else_actions = action.get("else", [])
-                results.extend(self._extract_actions_recursive(then_actions, automation_id))
+                results.extend(self._extract_actions_recursive(then_actions, automation_id, if_conditions))
+                # Else branch: can't represent NOT condition, pass parent unchanged
                 if else_actions:
-                    results.extend(self._extract_actions_recursive(else_actions, automation_id))
+                    results.extend(self._extract_actions_recursive(else_actions, automation_id, parent_conditions))
 
             # Repeat block
             if "repeat" in action:
-                sequence = action["repeat"].get("sequence", [])
-                results.extend(self._extract_actions_recursive(sequence, automation_id))
+                repeat_config = action["repeat"]
+                repeat_conditions = list(parent_conditions)
+
+                # Extract while conditions
+                for cond in repeat_config.get("while", []):
+                    cond_info = self._condition_to_condition_info(cond)
+                    if cond_info:
+                        repeat_conditions.append(cond_info)
+
+                # Extract until conditions
+                for cond in repeat_config.get("until", []):
+                    cond_info = self._condition_to_condition_info(cond)
+                    if cond_info:
+                        repeat_conditions.append(cond_info)
+
+                sequence = repeat_config.get("sequence", [])
+                results.extend(self._extract_actions_recursive(sequence, automation_id, repeat_conditions))
 
             # Parallel block
             if "parallel" in action:
@@ -492,7 +541,7 @@ class AutomationAnalyzer:
                     branches = [branches]
                 for branch in branches:
                     branch_actions = branch if isinstance(branch, list) else [branch]
-                    results.extend(self._extract_actions_recursive(branch_actions, automation_id))
+                    results.extend(self._extract_actions_recursive(branch_actions, automation_id, parent_conditions))
 
         return results
 
@@ -605,13 +654,52 @@ class AutomationAnalyzer:
 
         return conditions
 
+    def _condition_to_condition_info(
+        self, condition: dict[str, Any] | str
+    ) -> ConditionInfo | None:
+        """Extract ConditionInfo from a condition dict if possible.
+
+        Returns None for conditions that can't be represented as ConditionInfo
+        (template conditions, time conditions, etc.).
+        """
+        if isinstance(condition, str):
+            # Template shorthand - can't extract structured info
+            return None
+
+        if not isinstance(condition, dict):
+            return None
+
+        cond_type = condition.get("condition", "")
+
+        # Handle state conditions (explicit or implicit)
+        is_state_condition = cond_type == "state" or (
+            not cond_type and "entity_id" in condition and "state" in condition
+        )
+
+        if not is_state_condition:
+            return None
+
+        entity_id = condition.get("entity_id")
+        if not isinstance(entity_id, str):
+            # Multiple entity_ids not supported for ConditionInfo
+            return None
+
+        states = self._normalize_states(condition.get("state"))
+        if not states:
+            return None
+
+        return ConditionInfo(entity_id=entity_id, required_states=set(states))
+
     def _parse_service_call(
         self,
         action: dict[str, Any],
         automation_id: str,
+        parent_conditions: list[ConditionInfo] | None = None,
     ) -> list[EntityAction]:
         """Parse a service call action into EntityAction objects."""
         results: list[EntityAction] = []
+        if parent_conditions is None:
+            parent_conditions = []
 
         # Support both "service" (old format) and "action" (HA 2024+ format)
         service = action.get("service") or action.get("action", "")
@@ -672,7 +760,7 @@ class AutomationAnalyzer:
                     entity_id=entity_id,
                     action=action_type,
                     value=value,
-                    conditions=[],
+                    conditions=list(parent_conditions),
                 )
             )
 

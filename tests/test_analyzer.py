@@ -867,3 +867,230 @@ def test_extract_implicit_state_condition_in_repeat_until():
     refs = analyzer.extract_state_references(automation)
 
     assert any(r.entity_id == "lock.front_door" and r.expected_state == "locked" for r in refs)
+
+
+def test_condition_to_condition_info():
+    """Test extraction of ConditionInfo from a condition dict."""
+    analyzer = AutomationAnalyzer()
+
+    # Explicit state condition
+    condition = {
+        "condition": "state",
+        "entity_id": "input_boolean.mode",
+        "state": "night",
+    }
+    result = analyzer._condition_to_condition_info(condition)
+    assert result is not None
+    assert result.entity_id == "input_boolean.mode"
+    assert result.required_states == {"night"}
+
+
+def test_condition_to_condition_info_implicit():
+    """Test extraction of ConditionInfo from implicit condition (HA 2024+)."""
+    analyzer = AutomationAnalyzer()
+
+    # Implicit state condition (no "condition" key)
+    condition = {
+        "entity_id": "binary_sensor.motion",
+        "state": "on",
+    }
+    result = analyzer._condition_to_condition_info(condition)
+    assert result is not None
+    assert result.entity_id == "binary_sensor.motion"
+    assert result.required_states == {"on"}
+
+
+def test_condition_to_condition_info_list_states():
+    """Test extraction with list of states."""
+    analyzer = AutomationAnalyzer()
+
+    condition = {
+        "condition": "state",
+        "entity_id": "input_select.mode",
+        "state": ["home", "away"],
+    }
+    result = analyzer._condition_to_condition_info(condition)
+    assert result is not None
+    assert result.required_states == {"home", "away"}
+
+
+def test_condition_to_condition_info_template_returns_none():
+    """Test that template conditions return None (can't extract ConditionInfo)."""
+    analyzer = AutomationAnalyzer()
+
+    condition = {
+        "condition": "template",
+        "value_template": "{{ is_state('sensor.x', 'on') }}",
+    }
+    result = analyzer._condition_to_condition_info(condition)
+    assert result is None
+
+
+def test_extract_entity_actions_with_choose_conditions():
+    """Test that actions inside choose blocks inherit conditions."""
+    from custom_components.autodoctor.models import ConditionInfo
+
+    automation = {
+        "id": "night_mode",
+        "alias": "Night Mode",
+        "trigger": [{"platform": "time", "at": "22:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "input_boolean.mode",
+                                "state": "night",
+                            }
+                        ],
+                        "sequence": [
+                            {
+                                "service": "light.turn_off",
+                                "target": {"entity_id": "light.kitchen"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].entity_id == "light.kitchen"
+    assert len(actions[0].conditions) == 1
+    assert actions[0].conditions[0].entity_id == "input_boolean.mode"
+    assert actions[0].conditions[0].required_states == {"night"}
+
+
+def test_extract_entity_actions_with_if_conditions():
+    """Test that actions inside if blocks inherit conditions."""
+    from custom_components.autodoctor.models import ConditionInfo
+
+    automation = {
+        "id": "if_test",
+        "alias": "If Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "if": [
+                    {
+                        "condition": "state",
+                        "entity_id": "person.matt",
+                        "state": "home",
+                    }
+                ],
+                "then": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living_room"},
+                    }
+                ],
+                "else": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living_room"},
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 2
+
+    # Then branch should have the condition
+    then_action = next(a for a in actions if a.action == "turn_on")
+    assert len(then_action.conditions) == 1
+    assert then_action.conditions[0].entity_id == "person.matt"
+
+    # Else branch should NOT have the condition (can't represent NOT)
+    else_action = next(a for a in actions if a.action == "turn_off")
+    assert len(else_action.conditions) == 0
+
+
+def test_extract_entity_actions_with_repeat_while_conditions():
+    """Test that actions inside repeat while blocks inherit conditions."""
+    from custom_components.autodoctor.models import ConditionInfo
+
+    automation = {
+        "id": "repeat_test",
+        "alias": "Repeat Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "while": [
+                        {
+                            "condition": "state",
+                            "entity_id": "binary_sensor.running",
+                            "state": "on",
+                        }
+                    ],
+                    "sequence": [
+                        {
+                            "service": "notify.mobile",
+                            "target": {"entity_id": "notify.phone"},
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert len(actions[0].conditions) == 1
+    assert actions[0].conditions[0].entity_id == "binary_sensor.running"
+
+
+def test_extract_entity_actions_nested_conditions_accumulate():
+    """Test that nested conditions accumulate."""
+    from custom_components.autodoctor.models import ConditionInfo
+
+    automation = {
+        "id": "nested_test",
+        "alias": "Nested Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {"entity_id": "input_boolean.mode", "state": "night"}
+                        ],
+                        "sequence": [
+                            {
+                                "if": [
+                                    {"entity_id": "person.matt", "state": "home"}
+                                ],
+                                "then": [
+                                    {
+                                        "service": "light.turn_on",
+                                        "target": {"entity_id": "light.bedroom"},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert len(actions[0].conditions) == 2
+
+    entity_ids = {c.entity_id for c in actions[0].conditions}
+    assert entity_ids == {"input_boolean.mode", "person.matt"}

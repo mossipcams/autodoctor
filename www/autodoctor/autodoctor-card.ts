@@ -4,6 +4,10 @@ import { HomeAssistant } from "custom-card-helpers";
 
 import type { AutodoctorCardConfig, IssueWithFix, ValidationIssue, TabType, AutodoctorTabData, ConflictsTabData, Conflict } from "./types";
 
+const CARD_VERSION = "2.1.0";
+
+console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
+
 interface AutomationGroup {
   automation_id: string;
   automation_name: string;
@@ -19,7 +23,8 @@ export class AutodoctorCard extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @property({ attribute: false }) public config!: AutodoctorCardConfig;
 
-  @state() private _loading = true;
+  @state() private _loadingValidation = true;
+  @state() private _loadingConflicts = false;
   @state() private _error: string | null = null;
   @state() private _activeTab: TabType = "validation";
   @state() private _validationData: AutodoctorTabData | null = null;
@@ -28,6 +33,21 @@ export class AutodoctorCard extends LitElement {
   @state() private _runningConflicts = false;
   @state() private _isRefreshing = false;
   @state() private _dismissedSuggestions = new Set<string>();
+
+  // Request tracking to prevent race conditions
+  private _validationRequestId = 0;
+  private _conflictsRequestId = 0;
+  private _suppressionInProgress = false;
+
+  // Cooldown tracking to prevent rapid button clicks
+  private _lastValidationClick = 0;
+  private _lastConflictsClick = 0;
+  private static readonly CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
+
+  private _isInCooldown(isValidation: boolean): boolean {
+    const lastClick = isValidation ? this._lastValidationClick : this._lastConflictsClick;
+    return (Date.now() - lastClick) < AutodoctorCard.CLICK_COOLDOWN_MS;
+  }
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -51,74 +71,152 @@ export class AutodoctorCard extends LitElement {
   private _switchTab(tab: TabType): void {
     this._activeTab = tab;
 
-    // Fetch data if not loaded
-    if (tab === "validation" && !this._validationData) {
+    // Fetch data if not loaded and not already fetching
+    if (tab === "validation" && !this._validationData && !this._loadingValidation) {
       this._fetchValidation();
-    } else if (tab === "conflicts" && !this._conflictsData) {
+    } else if (tab === "conflicts" && !this._conflictsData && !this._loadingConflicts) {
       this._fetchConflicts();
     }
   }
 
   private async _fetchValidation(): Promise<void> {
-    this._loading = true;
+    // Increment request ID to track this specific request
+    const requestId = ++this._validationRequestId;
+    this._loadingValidation = true;
+
     try {
       this._error = null;
-      this._validationData = await this.hass.callWS<AutodoctorTabData>({
+      const data = await this.hass.callWS<AutodoctorTabData>({
         type: "autodoctor/validation",
       });
+
+      // Only update state if this is still the latest request
+      if (requestId === this._validationRequestId) {
+        this._validationData = data;
+      }
     } catch (err) {
-      console.error("Failed to fetch validation data:", err);
-      this._error = "Failed to load validation data";
+      // Only set error if this is still the latest request
+      if (requestId === this._validationRequestId) {
+        console.error("Failed to fetch validation data:", err);
+        this._error = "Failed to load validation data";
+      }
     }
-    this._loading = false;
+
+    // Only clear loading if this is still the latest request
+    if (requestId === this._validationRequestId) {
+      this._loadingValidation = false;
+    }
   }
 
   private async _runValidation(): Promise<void> {
+    // Prevent concurrent runs and enforce cooldown
+    const now = Date.now();
+    if (this._runningValidation || (now - this._lastValidationClick) < AutodoctorCard.CLICK_COOLDOWN_MS) {
+      return;
+    }
+    this._lastValidationClick = now;
+
+    const requestId = ++this._validationRequestId;
     this._runningValidation = true;
+
     try {
-      this._validationData = await this.hass.callWS<AutodoctorTabData>({
+      const data = await this.hass.callWS<AutodoctorTabData>({
         type: "autodoctor/validation/run",
       });
+
+      // Only update state if this is still the latest request
+      if (requestId === this._validationRequestId) {
+        this._validationData = data;
+      }
     } catch (err) {
-      console.error("Failed to run validation:", err);
+      if (requestId === this._validationRequestId) {
+        console.error("Failed to run validation:", err);
+      }
     }
-    this._runningValidation = false;
+
+    // Only clear running flag if this is still the latest request
+    if (requestId === this._validationRequestId) {
+      this._runningValidation = false;
+    }
   }
 
   private async _fetchConflicts(): Promise<void> {
-    this._loading = true;
+    // Increment request ID to track this specific request
+    const requestId = ++this._conflictsRequestId;
+    this._loadingConflicts = true;
+
     try {
       this._error = null;
-      this._conflictsData = await this.hass.callWS<ConflictsTabData>({
+      const data = await this.hass.callWS<ConflictsTabData>({
         type: "autodoctor/conflicts",
       });
+
+      // Only update state if this is still the latest request
+      if (requestId === this._conflictsRequestId) {
+        this._conflictsData = data;
+      }
     } catch (err) {
-      console.error("Failed to fetch conflicts data:", err);
-      this._error = "Failed to load conflicts data";
+      // Only set error if this is still the latest request
+      if (requestId === this._conflictsRequestId) {
+        console.error("Failed to fetch conflicts data:", err);
+        this._error = "Failed to load conflicts data";
+      }
     }
-    this._loading = false;
+
+    // Only clear loading if this is still the latest request
+    if (requestId === this._conflictsRequestId) {
+      this._loadingConflicts = false;
+    }
   }
 
   private async _runConflicts(): Promise<void> {
+    // Prevent concurrent runs and enforce cooldown
+    const now = Date.now();
+    if (this._runningConflicts || (now - this._lastConflictsClick) < AutodoctorCard.CLICK_COOLDOWN_MS) {
+      return;
+    }
+    this._lastConflictsClick = now;
+
+    const requestId = ++this._conflictsRequestId;
     this._runningConflicts = true;
+
     try {
-      this._conflictsData = await this.hass.callWS<ConflictsTabData>({
+      const data = await this.hass.callWS<ConflictsTabData>({
         type: "autodoctor/conflicts/run",
       });
+
+      // Only update state if this is still the latest request
+      if (requestId === this._conflictsRequestId) {
+        this._conflictsData = data;
+      }
     } catch (err) {
-      console.error("Failed to run conflict detection:", err);
+      if (requestId === this._conflictsRequestId) {
+        console.error("Failed to run conflict detection:", err);
+      }
     }
-    this._runningConflicts = false;
+
+    // Only clear running flag if this is still the latest request
+    if (requestId === this._conflictsRequestId) {
+      this._runningConflicts = false;
+    }
   }
 
   private async _refreshCurrentTab(): Promise<void> {
-    this._isRefreshing = true;
-    if (this._activeTab === "validation") {
-      await this._fetchValidation();
-    } else {
-      await this._fetchConflicts();
+    // Prevent concurrent refreshes
+    if (this._isRefreshing) {
+      return;
     }
-    this._isRefreshing = false;
+
+    this._isRefreshing = true;
+    try {
+      if (this._activeTab === "validation") {
+        await this._fetchValidation();
+      } else {
+        await this._fetchConflicts();
+      }
+    } finally {
+      this._isRefreshing = false;
+    }
   }
 
   private _groupIssuesByAutomation(issues: IssueWithFix[]): AutomationGroup[] {
@@ -170,6 +268,13 @@ export class AutodoctorCard extends LitElement {
     }
 
     return { errors, warnings, healthy: data.healthy_count, suppressed: data.suppressed_count || 0 };
+  }
+
+  private get _loading(): boolean {
+    // Return loading state for the current tab
+    return this._activeTab === "validation"
+      ? this._loadingValidation
+      : this._loadingConflicts;
   }
 
   protected render(): TemplateResult {
@@ -345,6 +450,13 @@ export class AutodoctorCard extends LitElement {
       ? this._runningValidation
       : this._runningConflicts;
 
+    const isLoading = isValidation
+      ? this._loadingValidation
+      : this._loadingConflicts;
+
+    // Disable button during any async operation or cooldown period
+    const isDisabled = isRunning || isLoading || this._isRefreshing || this._isInCooldown(isValidation);
+
     const lastRun = isValidation
       ? this._validationData?.last_run
       : this._conflictsData?.last_run;
@@ -361,15 +473,18 @@ export class AutodoctorCard extends LitElement {
       }
     };
 
+    // Show running state for any async operation
+    const showRunning = isRunning || isLoading || this._isRefreshing;
+
     return html`
       <div class="footer">
         <button
-          class="run-btn ${isRunning ? 'running' : ''}"
+          class="run-btn ${showRunning ? 'running' : ''}"
           @click=${runHandler}
-          ?disabled=${isRunning}
+          ?disabled=${isDisabled}
         >
-          <span class="run-icon" aria-hidden="true">${isRunning ? '↻' : '▶'}</span>
-          <span class="run-text">${isRunning ? 'Running...' : buttonText}</span>
+          <span class="run-icon" aria-hidden="true">${showRunning ? '↻' : '▶'}</span>
+          <span class="run-text">${showRunning ? 'Running...' : buttonText}</span>
         </button>
         ${lastRun ? html`
           <span class="last-run">Last run: ${this._formatLastRun(lastRun)}</span>
@@ -402,6 +517,12 @@ export class AutodoctorCard extends LitElement {
   }
 
   private async _suppressIssue(issue: ValidationIssue): Promise<void> {
+    // Prevent concurrent suppression operations
+    if (this._suppressionInProgress) {
+      return;
+    }
+
+    this._suppressionInProgress = true;
     try {
       await this.hass.callWS({
         type: "autodoctor/suppress",
@@ -412,10 +533,18 @@ export class AutodoctorCard extends LitElement {
       await this._refreshCurrentTab();
     } catch (err) {
       console.error("Failed to suppress issue:", err);
+    } finally {
+      this._suppressionInProgress = false;
     }
   }
 
   private async _clearSuppressions(): Promise<void> {
+    // Prevent concurrent suppression operations
+    if (this._suppressionInProgress) {
+      return;
+    }
+
+    this._suppressionInProgress = true;
     try {
       await this.hass.callWS({
         type: "autodoctor/clear_suppressions",
@@ -423,6 +552,8 @@ export class AutodoctorCard extends LitElement {
       await this._refreshCurrentTab();
     } catch (err) {
       console.error("Failed to clear suppressions:", err);
+    } finally {
+      this._suppressionInProgress = false;
     }
   }
 
@@ -581,13 +712,13 @@ export class AutodoctorCard extends LitElement {
         <div class="conflict-automations">
           <div class="conflict-automation">
             <span class="conflict-automation-label">A:</span>
-            <span class="conflict-automation-name">${conflict.automation_a}</span>
+            <span class="conflict-automation-name">${conflict.automation_a_name}</span>
             <span class="conflict-action">${conflict.action_a}</span>
           </div>
           <div class="conflict-vs">vs</div>
           <div class="conflict-automation">
             <span class="conflict-automation-label">B:</span>
-            <span class="conflict-automation-name">${conflict.automation_b}</span>
+            <span class="conflict-automation-name">${conflict.automation_b_name}</span>
             <span class="conflict-action">${conflict.action_b}</span>
           </div>
         </div>
