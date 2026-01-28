@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .conflict_detector import ConflictDetector
+from .fix_engine import get_state_suggestion, get_entity_suggestion
+from .models import IssueType
 
 if TYPE_CHECKING:
-    from .fix_engine import FixEngine
     from .suppression_store import SuppressionStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,27 +28,50 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_refresh)
     websocket_api.async_register_command(hass, websocket_get_validation)
     websocket_api.async_register_command(hass, websocket_run_validation)
-    websocket_api.async_register_command(hass, websocket_get_outcomes)
-    websocket_api.async_register_command(hass, websocket_run_outcomes)
     websocket_api.async_register_command(hass, websocket_get_conflicts)
     websocket_api.async_register_command(hass, websocket_run_conflicts)
     websocket_api.async_register_command(hass, websocket_suppress)
     websocket_api.async_register_command(hass, websocket_clear_suppressions)
 
 
-def _format_issues_with_fixes(issues: list, fix_engine) -> list[dict]:
-    """Format issues with fix suggestions."""
+def _extract_invalid_state(message: str) -> str | None:
+    """Extract the invalid state value from an error message."""
+    match = re.search(r"[Ss]tate ['\"]([^'\"]+)['\"]", message)
+    return match.group(1) if match else None
+
+
+def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
+    """Format issues with fix suggestions using simplified fix engine."""
     issues_with_fixes = []
+    all_entity_ids = [s.entity_id for s in hass.states.async_all()]
+
     for issue in issues:
-        fix = fix_engine.suggest_fix(issue) if fix_engine else None
+        fix = None
+
+        # Generate suggestion based on issue type
+        if issue.issue_type in (IssueType.ENTITY_NOT_FOUND, IssueType.ENTITY_REMOVED):
+            suggestion = get_entity_suggestion(issue.entity_id, all_entity_ids)
+            if suggestion:
+                fix = {
+                    "description": f"Did you mean '{suggestion}'?",
+                    "confidence": 0.8,
+                    "fix_value": suggestion,
+                }
+        elif issue.issue_type == IssueType.INVALID_STATE:
+            invalid_state = _extract_invalid_state(issue.message)
+            if invalid_state and issue.valid_states:
+                suggestion = get_state_suggestion(invalid_state, set(issue.valid_states))
+                if suggestion:
+                    fix = {
+                        "description": f"Did you mean '{suggestion}'?",
+                        "confidence": 0.8,
+                        "fix_value": suggestion,
+                    }
+
         automation_id = issue.automation_id.replace("automation.", "") if issue.automation_id else ""
         issues_with_fixes.append({
             "issue": issue.to_dict(),
-            "fix": {
-                "description": fix.description,
-                "confidence": fix.confidence,
-                "fix_value": fix.fix_value,
-            } if fix else None,
+            "fix": fix,
             "edit_url": f"/config/automation/edit/{automation_id}",
         })
     return issues_with_fixes
@@ -79,10 +104,9 @@ async def websocket_get_issues(
 ) -> None:
     """Get current issues with fix suggestions."""
     data = hass.data.get(DOMAIN, {})
-    fix_engine: FixEngine | None = data.get("fix_engine")
     issues: list = data.get("issues", [])
 
-    issues_with_fixes = _format_issues_with_fixes(issues, fix_engine)
+    issues_with_fixes = _format_issues_with_fixes(hass, issues)
     healthy_count = _get_healthy_count(hass, issues)
 
     connection.send_result(
@@ -127,7 +151,6 @@ async def websocket_get_validation(
 ) -> None:
     """Get validation issues only."""
     data = hass.data.get(DOMAIN, {})
-    fix_engine: FixEngine | None = data.get("fix_engine")
     suppression_store: SuppressionStore | None = data.get("suppression_store")
     all_issues: list = data.get("validation_issues", [])
     last_run = data.get("validation_last_run")
@@ -143,7 +166,7 @@ async def websocket_get_validation(
         visible_issues = all_issues
         suppressed_count = 0
 
-    issues_with_fixes = _format_issues_with_fixes(visible_issues, fix_engine)
+    issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
     healthy_count = _get_healthy_count(hass, visible_issues)
 
     connection.send_result(
@@ -172,7 +195,6 @@ async def websocket_run_validation(
     from . import async_validate_all
 
     data = hass.data.get(DOMAIN, {})
-    fix_engine: FixEngine | None = data.get("fix_engine")
     suppression_store: SuppressionStore | None = data.get("suppression_store")
 
     all_issues = await async_validate_all(hass)
@@ -188,98 +210,9 @@ async def websocket_run_validation(
         visible_issues = all_issues
         suppressed_count = 0
 
-    issues_with_fixes = _format_issues_with_fixes(visible_issues, fix_engine)
+    issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
     healthy_count = _get_healthy_count(hass, visible_issues)
     last_run = hass.data.get(DOMAIN, {}).get("validation_last_run")
-
-    connection.send_result(
-        msg["id"],
-        {
-            "issues": issues_with_fixes,
-            "healthy_count": healthy_count,
-            "last_run": last_run,
-            "suppressed_count": suppressed_count,
-        },
-    )
-
-
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "autodoctor/outcomes",
-    }
-)
-@websocket_api.async_response
-async def websocket_get_outcomes(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Get outcome issues only."""
-    data = hass.data.get(DOMAIN, {})
-    fix_engine: FixEngine | None = data.get("fix_engine")
-    suppression_store: SuppressionStore | None = data.get("suppression_store")
-    all_issues: list = data.get("outcome_issues", [])
-    last_run = data.get("outcomes_last_run")
-
-    # Filter out suppressed issues
-    if suppression_store:
-        visible_issues = [
-            issue for issue in all_issues
-            if not suppression_store.is_suppressed(issue.get_suppression_key())
-        ]
-        suppressed_count = len(all_issues) - len(visible_issues)
-    else:
-        visible_issues = all_issues
-        suppressed_count = 0
-
-    issues_with_fixes = _format_issues_with_fixes(visible_issues, fix_engine)
-    healthy_count = _get_healthy_count(hass, visible_issues)
-
-    connection.send_result(
-        msg["id"],
-        {
-            "issues": issues_with_fixes,
-            "healthy_count": healthy_count,
-            "last_run": last_run,
-            "suppressed_count": suppressed_count,
-        },
-    )
-
-
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "autodoctor/outcomes/run",
-    }
-)
-@websocket_api.async_response
-async def websocket_run_outcomes(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Run outcome simulation and return results."""
-    from . import async_simulate_all
-
-    data = hass.data.get(DOMAIN, {})
-    fix_engine: FixEngine | None = data.get("fix_engine")
-    suppression_store: SuppressionStore | None = data.get("suppression_store")
-
-    all_issues = await async_simulate_all(hass)
-
-    # Filter out suppressed issues
-    if suppression_store:
-        visible_issues = [
-            issue for issue in all_issues
-            if not suppression_store.is_suppressed(issue.get_suppression_key())
-        ]
-        suppressed_count = len(all_issues) - len(visible_issues)
-    else:
-        visible_issues = all_issues
-        suppressed_count = 0
-
-    issues_with_fixes = _format_issues_with_fixes(visible_issues, fix_engine)
-    healthy_count = _get_healthy_count(hass, visible_issues)
-    last_run = hass.data.get(DOMAIN, {}).get("outcomes_last_run")
 
     connection.send_result(
         msg["id"],

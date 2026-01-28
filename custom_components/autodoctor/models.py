@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum, IntEnum, auto
+from enum import Enum, IntEnum
 from typing import Any
 
 
@@ -16,14 +15,6 @@ class Severity(IntEnum):
     ERROR = 3
 
 
-class Verdict(IntEnum):
-    """Outcome verification verdicts."""
-
-    ALL_REACHABLE = auto()
-    PARTIALLY_REACHABLE = auto()
-    UNREACHABLE = auto()
-
-
 class IssueType(str, Enum):
     """Types of validation issues."""
 
@@ -33,7 +24,25 @@ class IssueType(str, Enum):
     IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
-    STALE_STATE = "stale_state"
+
+
+@dataclass
+class TriggerInfo:
+    """Simplified trigger representation for conflict detection."""
+
+    trigger_type: str  # "state", "time", "sun", "other"
+    entity_id: str | None
+    to_states: set[str] | None
+    time_value: str | None  # "06:00:00" or None
+    sun_event: str | None  # "sunrise", "sunset", or None
+
+
+@dataclass
+class ConditionInfo:
+    """Simplified condition representation for conflict detection."""
+
+    entity_id: str
+    required_states: set[str]
 
 
 @dataclass
@@ -91,12 +100,7 @@ class StateReference:
     expected_attribute: str | None
     location: str  # e.g., "trigger[0].to", "condition[1].state"
     source_line: int | None = None
-
-    # Historical analysis results (populated by analyzer)
-    historical_match: bool = True
-    last_seen: datetime | None = None
     transition_from: str | None = None
-    transition_valid: bool = True
 
 
 @dataclass
@@ -135,37 +139,3 @@ class ValidationIssue:
         """Generate a unique key for suppressing this issue."""
         issue_type = self.issue_type.value if self.issue_type else "unknown"
         return f"{self.automation_id}:{self.entity_id}:{issue_type}"
-
-
-@dataclass
-class OutcomeReport:
-    """Report on whether automation outcomes are reachable."""
-
-    automation_id: str
-    automation_name: str
-    triggers_valid: bool
-    conditions_reachable: bool
-    outcomes: list[str]
-    unreachable_paths: list[str]
-    verdict: Verdict
-
-
-def outcome_report_to_issues(report: OutcomeReport) -> list[ValidationIssue]:
-    """Convert an OutcomeReport to a list of ValidationIssue objects."""
-    if report.verdict == Verdict.ALL_REACHABLE:
-        return []
-
-    issues = []
-    for path in report.unreachable_paths:
-        issues.append(
-            ValidationIssue(
-                severity=Severity.WARNING,
-                automation_id=report.automation_id,
-                automation_name=report.automation_name,
-                entity_id="",
-                location=path,
-                message=f"Unreachable outcome: {path}",
-                issue_type=IssueType.IMPOSSIBLE_CONDITION,
-            )
-        )
-    return issues

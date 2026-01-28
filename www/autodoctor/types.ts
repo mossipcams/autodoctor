@@ -32,7 +32,7 @@ export interface AutodoctorCardConfig {
   title?: string;
 }
 
-export type TabType = "validation" | "outcomes" | "conflicts";
+export type TabType = "validation" | "conflicts";
 
 export interface AutodoctorTabData {
   issues: IssueWithFix[];

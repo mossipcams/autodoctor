@@ -23,10 +23,8 @@ export class AutodoctorCard extends LitElement {
   @state() private _error: string | null = null;
   @state() private _activeTab: TabType = "validation";
   @state() private _validationData: AutodoctorTabData | null = null;
-  @state() private _outcomesData: AutodoctorTabData | null = null;
   @state() private _conflictsData: ConflictsTabData | null = null;
   @state() private _runningValidation = false;
-  @state() private _runningOutcomes = false;
   @state() private _runningConflicts = false;
   @state() private _isRefreshing = false;
   @state() private _dismissedSuggestions = new Set<string>();
@@ -56,8 +54,6 @@ export class AutodoctorCard extends LitElement {
     // Fetch data if not loaded
     if (tab === "validation" && !this._validationData) {
       this._fetchValidation();
-    } else if (tab === "outcomes" && !this._outcomesData) {
-      this._fetchOutcomes();
     } else if (tab === "conflicts" && !this._conflictsData) {
       this._fetchConflicts();
     }
@@ -77,20 +73,6 @@ export class AutodoctorCard extends LitElement {
     this._loading = false;
   }
 
-  private async _fetchOutcomes(): Promise<void> {
-    this._loading = true;
-    try {
-      this._error = null;
-      this._outcomesData = await this.hass.callWS<AutodoctorTabData>({
-        type: "autodoctor/outcomes",
-      });
-    } catch (err) {
-      console.error("Failed to fetch outcomes data:", err);
-      this._error = "Failed to load outcomes data";
-    }
-    this._loading = false;
-  }
-
   private async _runValidation(): Promise<void> {
     this._runningValidation = true;
     try {
@@ -101,18 +83,6 @@ export class AutodoctorCard extends LitElement {
       console.error("Failed to run validation:", err);
     }
     this._runningValidation = false;
-  }
-
-  private async _runOutcomes(): Promise<void> {
-    this._runningOutcomes = true;
-    try {
-      this._outcomesData = await this.hass.callWS<AutodoctorTabData>({
-        type: "autodoctor/outcomes/run",
-      });
-    } catch (err) {
-      console.error("Failed to run outcomes:", err);
-    }
-    this._runningOutcomes = false;
   }
 
   private async _fetchConflicts(): Promise<void> {
@@ -145,8 +115,6 @@ export class AutodoctorCard extends LitElement {
     this._isRefreshing = true;
     if (this._activeTab === "validation") {
       await this._fetchValidation();
-    } else if (this._activeTab === "outcomes") {
-      await this._fetchOutcomes();
     } else {
       await this._fetchConflicts();
     }
@@ -220,9 +188,7 @@ export class AutodoctorCard extends LitElement {
       return this._renderConflictsTab(title);
     }
 
-    const data = this._activeTab === "validation"
-      ? this._validationData
-      : this._outcomesData;
+    const data = this._validationData;
 
     if (!data) {
       return this._renderEmpty(title);
@@ -328,12 +294,6 @@ export class AutodoctorCard extends LitElement {
           Validation
         </button>
         <button
-          class="tab ${this._activeTab === 'outcomes' ? 'active' : ''}"
-          @click=${() => this._switchTab('outcomes')}
-        >
-          Outcomes
-        </button>
-        <button
           class="tab ${this._activeTab === 'conflicts' ? 'active' : ''}"
           @click=${() => this._switchTab('conflicts')}
         >
@@ -380,32 +340,22 @@ export class AutodoctorCard extends LitElement {
 
   private _renderTabFooter(): TemplateResult {
     const isValidation = this._activeTab === "validation";
-    const isOutcomes = this._activeTab === "outcomes";
-    const isConflicts = this._activeTab === "conflicts";
 
     const isRunning = isValidation
       ? this._runningValidation
-      : isOutcomes
-        ? this._runningOutcomes
-        : this._runningConflicts;
+      : this._runningConflicts;
 
     const lastRun = isValidation
       ? this._validationData?.last_run
-      : isOutcomes
-        ? this._outcomesData?.last_run
-        : this._conflictsData?.last_run;
+      : this._conflictsData?.last_run;
 
     const buttonText = isValidation
       ? "Run Validation"
-      : isOutcomes
-        ? "Run Outcomes"
-        : "Run Conflict Detection";
+      : "Run Conflict Detection";
 
     const runHandler = () => {
       if (isValidation) {
         this._runValidation();
-      } else if (isOutcomes) {
-        this._runOutcomes();
       } else {
         this._runConflicts();
       }

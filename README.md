@@ -18,10 +18,9 @@ These issues cause automations to never fire or behave unpredictably, with no er
 ## Features
 
 1. **Static Validation** - Analyzes automation configs against known valid states
-2. **Outcome Verification** - Verifies that automation actions are actually reachable
-3. **Conflict Detection** - Finds automations that take opposing actions on the same entity
-4. **Smart Suggestions** - Suggests fixes based on entity relationships and learns from your feedback
-5. **Issue Suppression** - Dismiss false positives so they don't reappear
+2. **Conflict Detection** - Finds automations that take opposing actions on the same entity (with trigger overlap awareness)
+3. **Smart Suggestions** - Suggests fixes using synonyms and fuzzy matching
+4. **Issue Suppression** - Dismiss false positives so they don't reappear
 
 ## Installation
 
@@ -41,10 +40,9 @@ These issues cause automations to never fire or behave unpredictably, with no er
 
 ## Lovelace Card
 
-Autodoctor includes a custom card with three tabs:
+Autodoctor includes a custom card with two tabs:
 
 - **Validation** - Shows state validation issues (wrong states, typos, missing entities)
-- **Outcomes** - Shows unreachable automation paths
 - **Conflicts** - Shows automations with opposing actions on the same entity
 
 Add the card to your dashboard:
@@ -56,7 +54,7 @@ type: custom:autodoctor-card
 The card displays issues with:
 - Severity indicators (error/warning)
 - Direct links to edit the automation
-- Smart fix suggestions with confidence scores
+- Smart fix suggestions
 - Dismiss buttons to suppress false positives
 
 ## Usage
@@ -66,21 +64,11 @@ The card displays issues with:
 | Service | Description |
 |---------|-------------|
 | `autodoctor.validate` | Run validation on all automations (or a specific one) |
-| `autodoctor.simulate` | Verify that automation outcomes are reachable |
-| `autodoctor.detect_conflicts` | Find conflicting actions across automations |
 | `autodoctor.refresh_knowledge_base` | Rebuild the state knowledge base |
-
-### Entities
-
-| Entity | Type | Description |
-|--------|------|-------------|
-| `sensor.autodoctor_issues` | Sensor | Count of current validation issues |
-| `binary_sensor.autodoctor_ok` | Binary Sensor | `on` if there are problems |
 
 ### Issue Reporting
 
 Issues are reported via:
-- **Persistent notifications** - Summary with details
 - **Log warnings/errors** - For monitoring
 - **Repairs** - Settings → Repairs shows actionable issues
 
@@ -89,7 +77,6 @@ Issues are reported via:
 | Option | Default | Description |
 |--------|---------|-------------|
 | History lookback (days) | 30 | How many days of state history to analyze |
-| Staleness threshold (days) | 30 | Warn if referenced state hasn't occurred recently |
 | Validate on reload | Yes | Automatically validate when automations reload |
 | Debounce delay (seconds) | 5 | Wait before validating after reload |
 
@@ -118,26 +105,23 @@ Autodoctor builds a knowledge base of valid states from:
 | State never valid | Error | `person.matt` → `"away"` (should be `not_home`) |
 | Case mismatch | Warning | `"Armed_Away"` vs `"armed_away"` |
 | Attribute doesn't exist | Error | `state_attr('climate.hvac', 'temprature')` |
-| Transition never occurred | Warning | `from: home` to `away` never happened |
 
 ### Conflict Detection
 
-Autodoctor detects when multiple automations take opposing actions on the same entity:
+Autodoctor detects when multiple automations take opposing actions on the same entity. The conflict detector is trigger-overlap aware:
 
-| Conflict | Severity | Description |
-|----------|----------|-------------|
-| turn_on vs turn_off | Error | Direct conflict when both triggers fire |
-| toggle vs anything | Warning | Toggle behavior is unpredictable with other automations |
+- **No conflict if triggers can't fire together** - e.g., one triggers at 6am, another at 10pm
+- **No conflict if conditions are mutually exclusive** - e.g., one requires `mode: on`, another requires `mode: off`
+- **Conflicts only reported for turn_on vs turn_off** - toggle actions excluded (too noisy)
 
 ### Smart Suggestions
 
-When an entity is missing or removed, Autodoctor suggests replacements using:
+When a state is invalid, Autodoctor suggests corrections using:
 
-- **String similarity** (30%) - Fuzzy matching on entity names
-- **Relationship score** (50%) - Same device (+0.4), same area (+0.3), same domain (+0.2), shared labels (+0.1)
-- **Learning** - Suggestions you dismiss are penalized in future recommendations
+1. **Synonym table** - Maps common mistakes like `away` → `not_home`, `true` → `on`
+2. **Fuzzy matching** - Suggests close matches for typos
 
-Suggestions show confidence percentages and reasoning (e.g., "Same area", "Same device").
+When an entity is missing, suggestions are based on same-domain fuzzy matching.
 
 ## Requirements
 

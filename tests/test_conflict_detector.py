@@ -1,182 +1,171 @@
-"""Tests for ConflictDetector."""
+"""Tests for conflict detector with trigger overlap awareness."""
 
 import pytest
 from custom_components.autodoctor.conflict_detector import ConflictDetector
-from custom_components.autodoctor.models import Severity
+from custom_components.autodoctor.models import TriggerInfo, ConditionInfo
 
 
-def test_detect_on_off_conflict():
-    """Test detection of turn_on vs turn_off conflict."""
-    automations = [
-        {
-            "id": "motion_lights",
-            "alias": "Motion Lights",
-            "trigger": [{"platform": "state", "entity_id": "binary_sensor.motion", "to": "on"}],
-            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-        {
-            "id": "away_mode",
-            "alias": "Away Mode",
-            "trigger": [{"platform": "state", "entity_id": "person.matt", "to": "not_home"}],
-            "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
-        },
-    ]
+class TestConflictDetector:
+    """Test ConflictDetector class."""
 
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.detector = ConflictDetector()
 
-    assert len(conflicts) == 1
-    assert conflicts[0].entity_id == "light.living_room"
-    assert conflicts[0].severity == Severity.ERROR
-    assert "turn_on" in conflicts[0].action_a or "turn_on" in conflicts[0].action_b
-    assert "turn_off" in conflicts[0].action_a or "turn_off" in conflicts[0].action_b
+    def test_no_conflicts_when_no_automations(self):
+        """Test that empty automation list returns no conflicts."""
+        conflicts = self.detector.detect_conflicts([])
+        assert conflicts == []
 
+    def test_no_conflicts_same_action(self):
+        """Test that same actions don't conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "state", "entity_id": "input_boolean.test", "to": "on"}],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "state", "entity_id": "input_boolean.test2", "to": "on"}],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
 
-def test_no_conflict_different_entities():
-    """Test no conflict when different entities."""
-    automations = [
-        {
-            "id": "motion_lights",
-            "alias": "Motion Lights",
-            "trigger": [],
-            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-        {
-            "id": "away_mode",
-            "alias": "Away Mode",
-            "trigger": [],
-            "action": [{"service": "light.turn_off", "target": {"entity_id": "light.kitchen"}}],
-        },
-    ]
+    def test_conflict_detected_opposing_actions(self):
+        """Test that opposing actions on same entity are detected."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 1
+        assert conflicts[0].entity_id == "light.living"
+        assert {conflicts[0].action_a, conflicts[0].action_b} == {"turn_on", "turn_off"}
 
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
+    def test_no_conflict_different_times(self):
+        """Test that different trigger times don't conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
 
-    assert len(conflicts) == 0
+    def test_no_conflict_disjoint_state_triggers(self):
+        """Test that disjoint state triggers don't conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "state", "entity_id": "input_boolean.mode", "to": "on"}],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "state", "entity_id": "input_boolean.mode", "to": "off"}],
+                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
 
-
-def test_toggle_warning():
-    """Test toggle generates warning."""
-    automations = [
-        {
-            "id": "toggle_lights",
-            "alias": "Toggle Lights",
-            "trigger": [],
-            "action": [{"service": "light.toggle", "target": {"entity_id": "light.living_room"}}],
-        },
-        {
-            "id": "turn_on_lights",
-            "alias": "Turn On Lights",
-            "trigger": [],
-            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-    ]
-
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
-
-    assert len(conflicts) == 1
-    assert conflicts[0].severity == Severity.WARNING
-
-
-def test_no_conflict_same_action():
-    """Test no conflict when both do same action."""
-    automations = [
-        {
-            "id": "motion_lights",
-            "alias": "Motion Lights",
-            "trigger": [],
-            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-        {
-            "id": "door_lights",
-            "alias": "Door Lights",
-            "trigger": [],
-            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-    ]
-
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
-
-    assert len(conflicts) == 0
-
-
-def test_multiple_conflicts():
-    """Test detection of multiple conflicts."""
-    automations = [
-        {
-            "id": "auto1",
-            "alias": "Auto 1",
-            "trigger": [],
-            "action": [
-                {"service": "light.turn_on", "target": {"entity_id": "light.living_room"}},
-                {"service": "light.turn_on", "target": {"entity_id": "light.kitchen"}},
-            ],
-        },
-        {
-            "id": "auto2",
-            "alias": "Auto 2",
-            "trigger": [],
-            "action": [
-                {"service": "light.turn_off", "target": {"entity_id": "light.living_room"}},
-                {"service": "light.turn_off", "target": {"entity_id": "light.kitchen"}},
-            ],
-        },
-    ]
-
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
-
-    assert len(conflicts) == 2
-    entity_ids = {c.entity_id for c in conflicts}
-    assert entity_ids == {"light.living_room", "light.kitchen"}
+    def test_no_conflict_mutually_exclusive_conditions(self):
+        """Test that mutually exclusive conditions don't conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "condition": [{"condition": "state", "entity_id": "input_boolean.mode", "state": "on"}],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "condition": [{"condition": "state", "entity_id": "input_boolean.mode", "state": "off"}],
+                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
 
 
-def test_detect_conflict_with_action_key():
-    """Test detection works with HA 2024+ 'action' key format."""
-    automations = [
-        {
-            "id": "motion_lights",
-            "alias": "Motion Lights",
-            "trigger": [{"platform": "state", "entity_id": "binary_sensor.motion", "to": "on"}],
-            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-        {
-            "id": "away_mode",
-            "alias": "Away Mode",
-            "trigger": [{"platform": "state", "entity_id": "person.matt", "to": "not_home"}],
-            "action": [{"action": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
-        },
-    ]
+class TestTriggerOverlap:
+    """Test trigger overlap detection."""
 
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.detector = ConflictDetector()
 
-    assert len(conflicts) == 1
-    assert conflicts[0].entity_id == "light.living_room"
-    assert conflicts[0].severity == Severity.ERROR
+    def test_same_time_triggers_overlap(self):
+        """Test that same time triggers overlap."""
+        triggers_a = [TriggerInfo("time", None, None, "06:00:00", None)]
+        triggers_b = [TriggerInfo("time", None, None, "06:00:00", None)]
+        assert self.detector._triggers_can_overlap(triggers_a, triggers_b)
+
+    def test_different_time_triggers_no_overlap(self):
+        """Test that different time triggers don't overlap."""
+        triggers_a = [TriggerInfo("time", None, None, "06:00:00", None)]
+        triggers_b = [TriggerInfo("time", None, None, "22:00:00", None)]
+        assert not self.detector._triggers_can_overlap(triggers_a, triggers_b)
+
+    def test_same_sun_event_overlaps(self):
+        """Test that same sun events overlap."""
+        triggers_a = [TriggerInfo("sun", None, None, None, "sunrise")]
+        triggers_b = [TriggerInfo("sun", None, None, None, "sunrise")]
+        assert self.detector._triggers_can_overlap(triggers_a, triggers_b)
+
+    def test_different_sun_events_no_overlap(self):
+        """Test that different sun events don't overlap."""
+        triggers_a = [TriggerInfo("sun", None, None, None, "sunrise")]
+        triggers_b = [TriggerInfo("sun", None, None, None, "sunset")]
+        assert not self.detector._triggers_can_overlap(triggers_a, triggers_b)
+
+    def test_disjoint_state_triggers_no_overlap(self):
+        """Test that disjoint state triggers don't overlap."""
+        triggers_a = [TriggerInfo("state", "input_boolean.test", {"on"}, None, None)]
+        triggers_b = [TriggerInfo("state", "input_boolean.test", {"off"}, None, None)]
+        assert not self.detector._triggers_can_overlap(triggers_a, triggers_b)
 
 
-def test_detect_conflict_mixed_service_and_action_keys():
-    """Test detection works with mixed 'service' and 'action' key formats."""
-    automations = [
-        {
-            "id": "old_automation",
-            "alias": "Old Automation",
-            "trigger": [],
-            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
-        },
-        {
-            "id": "new_automation",
-            "alias": "New Automation",
-            "trigger": [],
-            "action": [{"action": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
-        },
-    ]
+class TestConditionExclusivity:
+    """Test condition mutual exclusivity detection."""
 
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.detector = ConflictDetector()
 
-    assert len(conflicts) == 1
-    assert conflicts[0].entity_id == "light.living_room"
+    def test_mutually_exclusive_states(self):
+        """Test that different required states are mutually exclusive."""
+        conds_a = [ConditionInfo("input_boolean.mode", {"on"})]
+        conds_b = [ConditionInfo("input_boolean.mode", {"off"})]
+        assert self.detector._conditions_mutually_exclusive(conds_a, conds_b)
+
+    def test_overlapping_states_not_exclusive(self):
+        """Test that overlapping states are not mutually exclusive."""
+        conds_a = [ConditionInfo("input_select.mode", {"home", "away"})]
+        conds_b = [ConditionInfo("input_select.mode", {"away", "vacation"})]
+        assert not self.detector._conditions_mutually_exclusive(conds_a, conds_b)
+
+    def test_different_entities_not_exclusive(self):
+        """Test that different entities are not mutually exclusive."""
+        conds_a = [ConditionInfo("input_boolean.mode1", {"on"})]
+        conds_b = [ConditionInfo("input_boolean.mode2", {"off"})]
+        assert not self.detector._conditions_mutually_exclusive(conds_a, conds_b)

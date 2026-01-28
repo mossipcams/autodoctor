@@ -13,11 +13,9 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     DOMAIN,
     CONF_HISTORY_DAYS,
-    CONF_STALENESS_THRESHOLD_DAYS,
     CONF_VALIDATE_ON_RELOAD,
     CONF_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
-    DEFAULT_STALENESS_THRESHOLD_DAYS,
     DEFAULT_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
 )
@@ -75,12 +73,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_HISTORY_DAYS,
                         default=options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
-                    vol.Optional(
-                        CONF_STALENESS_THRESHOLD_DAYS,
-                        default=options.get(
-                            CONF_STALENESS_THRESHOLD_DAYS, DEFAULT_STALENESS_THRESHOLD_DAYS
-                        ),
                     ): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
                     vol.Optional(
                         CONF_VALIDATE_ON_RELOAD,

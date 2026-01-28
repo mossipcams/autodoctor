@@ -6,7 +6,12 @@ import logging
 import re
 from typing import Any
 
-from .models import EntityAction, IssueType, Severity, StateReference, ValidationIssue
+from .models import (
+    ConditionInfo,
+    EntityAction,
+    StateReference,
+    TriggerInfo,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -428,71 +433,6 @@ class AutomationAnalyzer:
 
         return refs
 
-    def check_trigger_condition_compatibility(
-        self, automation: dict[str, Any]
-    ) -> list[ValidationIssue]:
-        """Check if triggers and conditions are compatible.
-
-        Detects impossible conditions where a trigger fires on one state
-        but the condition requires a different (incompatible) state for
-        the same entity.
-        """
-        automation_id = f"automation.{automation.get('id', 'unknown')}"
-        automation_name = automation.get("alias", automation_id)
-
-        triggers = automation.get("triggers") or automation.get("trigger", [])
-        conditions = automation.get("conditions") or automation.get("condition", [])
-
-        if not isinstance(triggers, list):
-            triggers = [triggers]
-        if not isinstance(conditions, list):
-            conditions = [conditions]
-
-        # Build map of entity_id -> trigger "to" states
-        trigger_states: dict[str, set[str]] = {}
-        for trigger in triggers:
-            platform = trigger.get("platform") or trigger.get("trigger", "")
-            if platform == "state":
-                entity_ids = trigger.get("entity_id", [])
-                if isinstance(entity_ids, str):
-                    entity_ids = [entity_ids]
-
-                to_state = trigger.get("to")
-                if to_state is not None:
-                    to_states = self._normalize_states(to_state)
-                    for entity_id in entity_ids:
-                        if entity_id not in trigger_states:
-                            trigger_states[entity_id] = set()
-                        trigger_states[entity_id].update(to_states)
-
-        issues: list[ValidationIssue] = []
-
-        for idx, condition in enumerate(conditions):
-            if condition.get("condition") == "state":
-                entity_id = condition.get("entity_id")
-                required_states = self._normalize_states(condition.get("state"))
-
-                if entity_id and entity_id in trigger_states:
-                    trigger_to_states = trigger_states[entity_id]
-                    required_set = set(required_states)
-
-                    # Check if there's any overlap
-                    if not trigger_to_states.intersection(required_set):
-                        issues.append(
-                            ValidationIssue(
-                                issue_type=IssueType.IMPOSSIBLE_CONDITION,
-                                severity=Severity.ERROR,
-                                automation_id=automation_id,
-                                automation_name=automation_name,
-                                entity_id=entity_id,
-                                location=f"condition[{idx}].state",
-                                message=f"Condition requires '{', '.join(required_states)}' but trigger fires on '{', '.join(trigger_to_states)}'",
-                                suggestion=list(trigger_to_states)[0] if trigger_to_states else None,
-                            )
-                        )
-
-        return issues
-
     def extract_entity_actions(self, automation: dict[str, Any]) -> list[EntityAction]:
         """Extract all entity actions (service calls) from an automation."""
         actions: list[EntityAction] = []
@@ -555,6 +495,115 @@ class AutomationAnalyzer:
                     results.extend(self._extract_actions_recursive(branch_actions, automation_id))
 
         return results
+
+    def extract_triggers(self, automation: dict[str, Any]) -> list[TriggerInfo]:
+        """Extract simplified trigger info for conflict detection."""
+        triggers: list[TriggerInfo] = []
+
+        trigger_list = automation.get("triggers") or automation.get("trigger", [])
+        if not isinstance(trigger_list, list):
+            trigger_list = [trigger_list]
+
+        for trigger in trigger_list:
+            if not isinstance(trigger, dict):
+                continue
+
+            # Support both 'platform' (old) and 'trigger' (new) keys
+            platform = trigger.get("platform") or trigger.get("trigger", "")
+
+            if platform == "state":
+                entity_ids = trigger.get("entity_id", [])
+                if isinstance(entity_ids, str):
+                    entity_ids = [entity_ids]
+
+                to_states = self._normalize_states(trigger.get("to"))
+
+                for entity_id in entity_ids:
+                    triggers.append(
+                        TriggerInfo(
+                            trigger_type="state",
+                            entity_id=entity_id,
+                            to_states=set(to_states) if to_states else None,
+                            time_value=None,
+                            sun_event=None,
+                        )
+                    )
+
+            elif platform == "time":
+                at_value = trigger.get("at")
+                # Handle time as string like "06:00:00"
+                time_str = None
+                if isinstance(at_value, str) and ":" in at_value:
+                    time_str = at_value
+
+                triggers.append(
+                    TriggerInfo(
+                        trigger_type="time",
+                        entity_id=None,
+                        to_states=None,
+                        time_value=time_str,
+                        sun_event=None,
+                    )
+                )
+
+            elif platform == "sun":
+                event = trigger.get("event")  # "sunrise" or "sunset"
+                triggers.append(
+                    TriggerInfo(
+                        trigger_type="sun",
+                        entity_id=None,
+                        to_states=None,
+                        time_value=None,
+                        sun_event=event,
+                    )
+                )
+
+            else:
+                # Other triggers (template, numeric_state, etc.)
+                triggers.append(
+                    TriggerInfo(
+                        trigger_type="other",
+                        entity_id=None,
+                        to_states=None,
+                        time_value=None,
+                        sun_event=None,
+                    )
+                )
+
+        return triggers
+
+    def extract_conditions(self, automation: dict[str, Any]) -> list[ConditionInfo]:
+        """Extract simplified condition info for conflict detection."""
+        conditions: list[ConditionInfo] = []
+
+        condition_list = automation.get("conditions") or automation.get("condition", [])
+        if not isinstance(condition_list, list):
+            condition_list = [condition_list]
+
+        for condition in condition_list:
+            if not isinstance(condition, dict):
+                continue
+
+            cond_type = condition.get("condition", "")
+
+            # Handle state conditions
+            is_state_condition = cond_type == "state" or (
+                not cond_type and "entity_id" in condition and "state" in condition
+            )
+
+            if is_state_condition:
+                entity_id = condition.get("entity_id")
+                if isinstance(entity_id, str):
+                    states = self._normalize_states(condition.get("state"))
+                    if states:
+                        conditions.append(
+                            ConditionInfo(
+                                entity_id=entity_id,
+                                required_states=set(states),
+                            )
+                        )
+
+        return conditions
 
     def _parse_service_call(
         self,
