@@ -109,11 +109,20 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a trigger."""
         refs: list[StateReference] = []
+
+        # Guard: skip non-dict triggers
+        if not isinstance(trigger, dict):
+            _LOGGER.warning(
+                "Skipping non-dict trigger[%d] in %s: %s",
+                index, automation_id, type(trigger).__name__
+            )
+            return refs
+
         # Support both 'platform' (old format) and 'trigger' (new format) keys
         platform = trigger.get("platform") or trigger.get("trigger", "")
 
         if platform == "state":
-            entity_ids = trigger.get("entity_id", [])
+            entity_ids = trigger.get("entity_id") or []
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -146,7 +155,7 @@ class AutomationAnalyzer:
                     )
 
         elif platform == "numeric_state":
-            entity_ids = trigger.get("entity_id", [])
+            entity_ids = trigger.get("entity_id") or []
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -210,7 +219,7 @@ class AutomationAnalyzer:
         )
 
         if is_state_condition:
-            entity_ids = condition.get("entity_id", [])
+            entity_ids = condition.get("entity_id") or []
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -330,8 +339,8 @@ class AutomationAnalyzer:
         for idx, action in enumerate(actions):
             # Extract from choose option conditions and sequences
             if "choose" in action:
-                options = action.get("choose", [])
-                default = action.get("default", [])
+                options = action.get("choose") or []
+                default = action.get("default") or []
 
                 for opt_idx, option in enumerate(options):
                     # Check conditions in each option (all types, not just template)
@@ -452,7 +461,7 @@ class AutomationAnalyzer:
 
             # Extract from parallel branches
             elif "parallel" in action:
-                branches = action["parallel"]
+                branches = action.get("parallel") or []
                 if not isinstance(branches, list):
                     branches = [branches]
                 for branch in branches:
@@ -518,7 +527,7 @@ class AutomationAnalyzer:
                     )
 
                 # Default has no additional conditions
-                default = action.get("default", [])
+                default = action.get("default") or []
                 if default:
                     results.extend(
                         self._extract_actions_recursive(

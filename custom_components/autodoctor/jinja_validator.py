@@ -19,6 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 # Pattern to detect if a string contains Jinja2 template syntax
 TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 
+# Maximum recursion depth for nested conditions/actions
+MAX_RECURSION_DEPTH = 20
+
 
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
@@ -117,9 +120,17 @@ class JinjaValidator:
         auto_id: str,
         auto_name: str,
         location_prefix: str,
+        _depth: int = 0,
     ) -> list[ValidationIssue]:
         """Validate templates in a condition."""
         issues: list[ValidationIssue] = []
+
+        if _depth > MAX_RECURSION_DEPTH:
+            _LOGGER.warning(
+                "Max recursion depth exceeded in %s at %s, stopping validation",
+                auto_id, location_prefix
+            )
+            return issues
 
         # String condition (template shorthand)
         if isinstance(condition, str):
@@ -159,6 +170,7 @@ class JinjaValidator:
                         auto_id,
                         auto_name,
                         f"{location_prefix}[{index}].{key}",
+                        _depth + 1,
                     )
                 )
 
@@ -174,6 +186,7 @@ class JinjaValidator:
                             auto_id,
                             auto_name,
                             f"{location_prefix}[{index}].not",
+                            _depth + 1,
                         )
                     )
             else:
@@ -184,6 +197,7 @@ class JinjaValidator:
                         auto_id,
                         auto_name,
                         f"{location_prefix}[{index}].not",
+                        _depth + 1,
                     )
                 )
 
@@ -195,9 +209,17 @@ class JinjaValidator:
         auto_id: str,
         auto_name: str,
         location_prefix: str = "action",
+        _depth: int = 0,
     ) -> list[ValidationIssue]:
         """Validate templates in actions recursively."""
         issues: list[ValidationIssue] = []
+
+        if _depth > MAX_RECURSION_DEPTH:
+            _LOGGER.warning(
+                "Max recursion depth exceeded in %s at %s, stopping validation",
+                auto_id, location_prefix
+            )
+            return issues
 
         if not isinstance(actions, list):
             actions = [actions]
@@ -255,6 +277,7 @@ class JinjaValidator:
                             auto_id,
                             auto_name,
                             f"{location}.choose[{opt_idx}].sequence",
+                            _depth + 1,
                         )
                     )
 
@@ -263,7 +286,7 @@ class JinjaValidator:
                 if default:
                     issues.extend(
                         self._validate_actions(
-                            default, auto_id, auto_name, f"{location}.default"
+                            default, auto_id, auto_name, f"{location}.default", _depth + 1
                         )
                     )
 
@@ -282,7 +305,7 @@ class JinjaValidator:
                 then_actions = action.get("then", [])
                 issues.extend(
                     self._validate_actions(
-                        then_actions, auto_id, auto_name, f"{location}.then"
+                        then_actions, auto_id, auto_name, f"{location}.then", _depth + 1
                     )
                 )
 
@@ -290,13 +313,15 @@ class JinjaValidator:
                 if else_actions:
                     issues.extend(
                         self._validate_actions(
-                            else_actions, auto_id, auto_name, f"{location}.else"
+                            else_actions, auto_id, auto_name, f"{location}.else", _depth + 1
                         )
                     )
 
             # Check repeat blocks
             if "repeat" in action:
-                repeat_config = action["repeat"]
+                repeat_config = action.get("repeat")
+                if not isinstance(repeat_config, dict):
+                    continue
 
                 # Check while/until conditions
                 for cond_key in ("while", "until"):
@@ -318,7 +343,7 @@ class JinjaValidator:
                 sequence = repeat_config.get("sequence", [])
                 issues.extend(
                     self._validate_actions(
-                        sequence, auto_id, auto_name, f"{location}.repeat.sequence"
+                        sequence, auto_id, auto_name, f"{location}.repeat.sequence", _depth + 1
                     )
                 )
 
@@ -335,6 +360,7 @@ class JinjaValidator:
                             auto_id,
                             auto_name,
                             f"{location}.parallel[{branch_idx}]",
+                            _depth + 1,
                         )
                     )
 

@@ -1016,3 +1016,132 @@ def test_extract_entity_actions_nested_conditions_accumulate():
 
     entity_ids = {c.entity_id for c in actions[0].conditions}
     assert entity_ids == {"input_boolean.mode", "person.matt"}
+
+
+def test_extract_handles_null_entity_id_in_trigger():
+    """Test that null entity_id in trigger doesn't crash extraction."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_null_entity",
+        "alias": "Test Null Entity",
+        "triggers": [
+            {
+                "platform": "state",
+                "entity_id": None,  # Explicitly null
+                "to": "on",
+            }
+        ],
+        "actions": [],
+    }
+    # Should not raise, should return empty list
+    refs = analyzer.extract_state_references(automation)
+    assert isinstance(refs, list)
+
+
+def test_extract_handles_null_entity_id_in_numeric_state_trigger():
+    """Test null entity_id in numeric_state trigger."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_numeric_null",
+        "alias": "Test Numeric Null",
+        "triggers": [
+            {
+                "platform": "numeric_state",
+                "entity_id": None,
+                "above": 50,
+            }
+        ],
+        "actions": [],
+    }
+    refs = analyzer.extract_state_references(automation)
+    assert isinstance(refs, list)
+
+
+def test_extract_handles_null_entity_id_in_condition():
+    """Test null entity_id in condition."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_cond_null",
+        "alias": "Test Condition Null",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [
+            {
+                "condition": "state",
+                "entity_id": None,
+                "state": "on",
+            }
+        ],
+        "actions": [],
+    }
+    refs = analyzer.extract_state_references(automation)
+    assert isinstance(refs, list)
+
+
+def test_extract_handles_null_choose_options():
+    """Test null choose options don't crash."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_choose_null",
+        "alias": "Test Choose Null",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "actions": [
+            {
+                "choose": None,  # Explicitly null
+            }
+        ],
+    }
+    refs = analyzer.extract_state_references(automation)
+    assert isinstance(refs, list)
+
+
+def test_extract_handles_null_if_conditions():
+    """Test null if conditions don't crash."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_if_null",
+        "alias": "Test If Null",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "actions": [
+            {
+                "if": None,  # Explicitly null
+                "then": [{"service": "light.turn_on"}],
+            }
+        ],
+    }
+    refs = analyzer.extract_state_references(automation)
+    assert isinstance(refs, list)
+
+
+def test_extract_handles_null_parallel_branches():
+    """Test null parallel branches don't crash."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_parallel_null",
+        "alias": "Test Parallel Null",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "actions": [
+            {
+                "parallel": None,  # Explicitly null
+            }
+        ],
+    }
+    refs = analyzer.extract_state_references(automation)
+    assert isinstance(refs, list)
+
+
+def test_malformed_trigger_does_not_crash():
+    """Test that malformed trigger dict doesn't crash extraction."""
+    analyzer = AutomationAnalyzer()
+    automation = {
+        "id": "test_malformed",
+        "alias": "Test Malformed",
+        "triggers": [
+            "not a dict",  # String instead of dict
+            {"platform": "state", "entity_id": "light.valid", "to": "on"},
+        ],
+        "actions": [],
+    }
+    refs = analyzer.extract_state_references(automation)
+    # Should skip malformed trigger, extract from valid one
+    assert len(refs) >= 1
+    assert any(r.entity_id == "light.valid" for r in refs)
