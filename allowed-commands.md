@@ -47,6 +47,10 @@ git branch
 git branch -a
 git show
 git blame <file>
+git -C <path> status
+git -C <path> log
+git -C <path> log --oneline
+git -C <path> diff
 ```
 
 ## Project Info
