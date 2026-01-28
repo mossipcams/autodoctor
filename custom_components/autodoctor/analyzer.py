@@ -171,13 +171,19 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
+        location_prefix: str = "condition",
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
         # Support both 'condition' key (used in both old and new formats for condition type)
         cond_type = condition.get("condition", "")
 
-        if cond_type == "state":
+        # Handle explicit state condition OR implicit shorthand (entity_id + state without condition key)
+        is_state_condition = cond_type == "state" or (
+            not cond_type and "entity_id" in condition and "state" in condition
+        )
+
+        if is_state_condition:
             entity_ids = condition.get("entity_id", [])
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
@@ -193,7 +199,7 @@ class AutomationAnalyzer:
                             entity_id=entity_id,
                             expected_state=state,
                             expected_attribute=None,
-                            location=f"condition[{index}].state",
+                            location=f"{location_prefix}[{index}].state",
                         )
                     )
 
@@ -201,7 +207,7 @@ class AutomationAnalyzer:
             value_template = condition.get("value_template", "")
             refs.extend(
                 self._extract_from_template(
-                    value_template, f"condition[{index}]", automation_id, automation_name
+                    value_template, f"{location_prefix}[{index}]", automation_id, automation_name
                 )
             )
 
@@ -299,22 +305,21 @@ class AutomationAnalyzer:
                 default = action.get("default", [])
 
                 for opt_idx, option in enumerate(options):
-                    # Check conditions in each option
+                    # Check conditions in each option (all types, not just template)
                     conditions = option.get("conditions", [])
                     if not isinstance(conditions, list):
                         conditions = [conditions]
 
                     for cond_idx, condition in enumerate(conditions):
-                        if condition.get("condition") == "template":
-                            template = condition.get("value_template", "")
-                            refs.extend(
-                                self._extract_from_template(
-                                    template,
-                                    f"action[{idx}].choose[{opt_idx}].conditions[{cond_idx}]",
-                                    automation_id,
-                                    automation_name,
-                                )
+                        refs.extend(
+                            self._extract_from_condition(
+                                condition,
+                                cond_idx,
+                                automation_id,
+                                automation_name,
+                                f"action[{idx}].choose[{opt_idx}].conditions",
                             )
+                        )
 
                     # Recurse into sequence
                     sequence = option.get("sequence", [])
@@ -328,23 +333,22 @@ class AutomationAnalyzer:
                         self._extract_from_actions(default, automation_id, automation_name)
                     )
 
-            # Extract from if condition templates
+            # Extract from if conditions (all types, not just template)
             elif "if" in action:
                 conditions = action.get("if", [])
                 if not isinstance(conditions, list):
                     conditions = [conditions]
 
                 for cond_idx, condition in enumerate(conditions):
-                    if condition.get("condition") == "template":
-                        template = condition.get("value_template", "")
-                        refs.extend(
-                            self._extract_from_template(
-                                template,
-                                f"action[{idx}].if[{cond_idx}]",
-                                automation_id,
-                                automation_name,
-                            )
+                    refs.extend(
+                        self._extract_from_condition(
+                            condition,
+                            cond_idx,
+                            automation_id,
+                            automation_name,
+                            f"action[{idx}].if",
                         )
+                    )
 
                 # Recurse into then/else
                 then_actions = action.get("then", [])
@@ -357,7 +361,7 @@ class AutomationAnalyzer:
                         self._extract_from_actions(else_actions, automation_id, automation_name)
                     )
 
-            # Extract from repeat while/until conditions
+            # Extract from repeat while/until conditions (all types, not just template)
             elif "repeat" in action:
                 repeat_config = action["repeat"]
 
@@ -366,32 +370,30 @@ class AutomationAnalyzer:
                 if not isinstance(while_conditions, list):
                     while_conditions = [while_conditions]
                 for cond_idx, condition in enumerate(while_conditions):
-                    if condition.get("condition") == "template":
-                        template = condition.get("value_template", "")
-                        refs.extend(
-                            self._extract_from_template(
-                                template,
-                                f"action[{idx}].repeat.while[{cond_idx}]",
-                                automation_id,
-                                automation_name,
-                            )
+                    refs.extend(
+                        self._extract_from_condition(
+                            condition,
+                            cond_idx,
+                            automation_id,
+                            automation_name,
+                            f"action[{idx}].repeat.while",
                         )
+                    )
 
                 # Check until conditions
                 until_conditions = repeat_config.get("until", [])
                 if not isinstance(until_conditions, list):
                     until_conditions = [until_conditions]
                 for cond_idx, condition in enumerate(until_conditions):
-                    if condition.get("condition") == "template":
-                        template = condition.get("value_template", "")
-                        refs.extend(
-                            self._extract_from_template(
-                                template,
-                                f"action[{idx}].repeat.until[{cond_idx}]",
-                                automation_id,
-                                automation_name,
-                            )
+                    refs.extend(
+                        self._extract_from_condition(
+                            condition,
+                            cond_idx,
+                            automation_id,
+                            automation_name,
+                            f"action[{idx}].repeat.until",
                         )
+                    )
 
                 # Recurse into sequence
                 sequence = repeat_config.get("sequence", [])
@@ -579,7 +581,7 @@ class AutomationAnalyzer:
         else:
             action_type = "set"
 
-        # Extract entity IDs from target or entity_id
+        # Extract entity IDs from target, entity_id, or data.entity_id
         entity_ids: list[str] = []
 
         target = action.get("target", {})
@@ -597,6 +599,19 @@ class AutomationAnalyzer:
                 entity_ids.append(direct_entity)
             elif isinstance(direct_entity, list):
                 entity_ids.extend(direct_entity)
+
+        # Also check data.entity_id (legacy format)
+        data = action.get("data", {})
+        if isinstance(data, dict):
+            data_entity = data.get("entity_id")
+            if data_entity:
+                if isinstance(data_entity, str):
+                    if data_entity not in entity_ids:
+                        entity_ids.append(data_entity)
+                elif isinstance(data_entity, list):
+                    for eid in data_entity:
+                        if eid not in entity_ids:
+                            entity_ids.append(eid)
 
         # Get optional value for set actions
         value = action.get("data", {}) if action_type == "set" else None
