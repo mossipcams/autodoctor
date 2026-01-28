@@ -107,5 +107,6 @@ autodoctor/
 - `test_fix_engine.py` - Suggestion logic
 - `test_models.py` - Data model serialization
 - `test_websocket_api.py` - WebSocket endpoints
+- `test_websocket_api_learning.py` - Learning on suppression
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle
