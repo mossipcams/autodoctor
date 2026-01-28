@@ -31,7 +31,6 @@ export class AutodoctorCard extends LitElement {
   @state() private _conflictsData: ConflictsTabData | null = null;
   @state() private _runningValidation = false;
   @state() private _runningConflicts = false;
-  @state() private _isRefreshing = false;
   @state() private _dismissedSuggestions = new Set<string>();
 
   // Request tracking to prevent race conditions
@@ -201,24 +200,6 @@ export class AutodoctorCard extends LitElement {
     }
   }
 
-  private async _refreshCurrentTab(): Promise<void> {
-    // Prevent concurrent refreshes
-    if (this._isRefreshing) {
-      return;
-    }
-
-    this._isRefreshing = true;
-    try {
-      if (this._activeTab === "validation") {
-        await this._fetchValidation();
-      } else {
-        await this._fetchConflicts();
-      }
-    } finally {
-      this._isRefreshing = false;
-    }
-  }
-
   private _groupIssuesByAutomation(issues: IssueWithFix[]): AutomationGroup[] {
     const groups = new Map<string, AutomationGroup>();
 
@@ -341,7 +322,7 @@ export class AutodoctorCard extends LitElement {
         <div class="card-content error-state">
           <div class="error-icon" aria-hidden="true">⚠</div>
           <span class="error-text">${this._error}</span>
-          <button class="retry-btn" @click=${this._refreshCurrentTab}>
+          <button class="retry-btn" @click=${() => this._activeTab === "validation" ? this._fetchValidation() : this._fetchConflicts()}>
             Try again
           </button>
         </div>
@@ -365,14 +346,6 @@ export class AutodoctorCard extends LitElement {
     return html`
       <div class="header">
         <h2 class="title">${title}</h2>
-        <button
-          class="refresh-btn ${this._isRefreshing ? 'refreshing' : ''}"
-          @click=${this._refreshCurrentTab}
-          ?disabled=${this._isRefreshing}
-          aria-label="Refresh"
-        >
-          <span class="refresh-icon" aria-hidden="true">↻</span>
-        </button>
       </div>
     `;
   }
@@ -455,7 +428,7 @@ export class AutodoctorCard extends LitElement {
       : this._loadingConflicts;
 
     // Disable button during any async operation or cooldown period
-    const isDisabled = isRunning || isLoading || this._isRefreshing || this._isInCooldown(isValidation);
+    const isDisabled = isRunning || isLoading || this._isInCooldown(isValidation);
 
     const lastRun = isValidation
       ? this._validationData?.last_run
@@ -474,7 +447,7 @@ export class AutodoctorCard extends LitElement {
     };
 
     // Show running state for any async operation
-    const showRunning = isRunning || isLoading || this._isRefreshing;
+    const showRunning = isRunning || isLoading;
 
     return html`
       <div class="footer">
@@ -530,7 +503,11 @@ export class AutodoctorCard extends LitElement {
         entity_id: issue.entity_id,
         issue_type: issue.issue_type || "unknown",
       });
-      await this._refreshCurrentTab();
+      if (this._activeTab === "validation") {
+        await this._fetchValidation();
+      } else {
+        await this._fetchConflicts();
+      }
     } catch (err) {
       console.error("Failed to suppress issue:", err);
     } finally {
@@ -549,7 +526,11 @@ export class AutodoctorCard extends LitElement {
       await this.hass.callWS({
         type: "autodoctor/clear_suppressions",
       });
-      await this._refreshCurrentTab();
+      if (this._activeTab === "validation") {
+        await this._fetchValidation();
+      } else {
+        await this._fetchConflicts();
+      }
     } catch (err) {
       console.error("Failed to clear suppressions:", err);
     } finally {
@@ -793,45 +774,6 @@ export class AutodoctorCard extends LitElement {
         font-size: var(--autodoc-title-size);
         font-weight: 600;
         color: var(--primary-text-color);
-      }
-
-      /* Header refresh button */
-      .header .refresh-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        padding: 0;
-        background: transparent;
-        color: var(--secondary-text-color);
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
-        transition: background var(--autodoc-transition-fast), color var(--autodoc-transition-fast);
-      }
-
-      .header .refresh-btn:hover:not(:disabled) {
-        background: var(--divider-color, rgba(127, 127, 127, 0.2));
-        color: var(--primary-color);
-      }
-
-      .header .refresh-btn:focus {
-        outline: 2px solid var(--primary-color);
-        outline-offset: 2px;
-      }
-
-      .header .refresh-btn:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-      }
-
-      .header .refresh-btn .refresh-icon {
-        font-size: 1.1rem;
-      }
-
-      .header .refresh-btn.refreshing .refresh-icon {
-        animation: rotate 1s linear infinite;
       }
 
       /* Tabs */
