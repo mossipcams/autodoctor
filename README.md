@@ -11,15 +11,16 @@ Automations can fail silently when they reference states that will never occur:
 - **Typos**: `binary_sensor.motoin_sensor` instead of `motion`
 - **Missing attributes**: `state_attr('climate.hvac', 'temprature')`
 - **Impossible conditions**: Trigger on `home` but condition requires `not_home`
+- **Conflicting automations**: One automation turns on a light while another turns it off
 
-These issues cause automations to never fire, with no errors in the logs.
+These issues cause automations to never fire or behave unpredictably, with no errors in the logs.
 
-## The Solution
-
-Autodoctor performs two types of validation:
+## Features
 
 1. **Static Validation** - Analyzes automation configs against known valid states
-2. **Outcome Verification** - Verifies that automation actions are actually reachable
+2. **Conflict Detection** - Finds automations that take opposing actions on the same entity (with trigger overlap awareness)
+3. **Smart Suggestions** - Suggests fixes using synonyms and fuzzy matching
+4. **Issue Suppression** - Dismiss false positives so they don't reappear
 
 ## Installation
 
@@ -37,6 +38,25 @@ Autodoctor performs two types of validation:
 3. Restart Home Assistant
 4. Add the integration via Settings → Devices & Services
 
+## Lovelace Card
+
+Autodoctor includes a custom card with two tabs:
+
+- **Validation** - Shows state validation issues (wrong states, typos, missing entities)
+- **Conflicts** - Shows automations with opposing actions on the same entity
+
+Add the card to your dashboard:
+
+```yaml
+type: custom:autodoctor-card
+```
+
+The card displays issues with:
+- Severity indicators (error/warning)
+- Direct links to edit the automation
+- Smart fix suggestions
+- Dismiss buttons to suppress false positives
+
 ## Usage
 
 ### Services
@@ -44,20 +64,11 @@ Autodoctor performs two types of validation:
 | Service | Description |
 |---------|-------------|
 | `autodoctor.validate` | Run validation on all automations (or a specific one) |
-| `autodoctor.simulate` | Verify that automation outcomes are reachable |
 | `autodoctor.refresh_knowledge_base` | Rebuild the state knowledge base |
-
-### Entities
-
-| Entity | Type | Description |
-|--------|------|-------------|
-| `sensor.autodoctor_issues` | Sensor | Count of current validation issues |
-| `binary_sensor.autodoctor_ok` | Binary Sensor | `on` if there are problems |
 
 ### Issue Reporting
 
 Issues are reported via:
-- **Persistent notifications** - Summary with details
 - **Log warnings/errors** - For monitoring
 - **Repairs** - Settings → Repairs shows actionable issues
 
@@ -66,7 +77,6 @@ Issues are reported via:
 | Option | Default | Description |
 |--------|---------|-------------|
 | History lookback (days) | 30 | How many days of state history to analyze |
-| Staleness threshold (days) | 30 | Warn if referenced state hasn't occurred recently |
 | Validate on reload | Yes | Automatically validate when automations reload |
 | Debounce delay (seconds) | 5 | Wait before validating after reload |
 
@@ -95,11 +105,27 @@ Autodoctor builds a knowledge base of valid states from:
 | State never valid | Error | `person.matt` → `"away"` (should be `not_home`) |
 | Case mismatch | Warning | `"Armed_Away"` vs `"armed_away"` |
 | Attribute doesn't exist | Error | `state_attr('climate.hvac', 'temprature')` |
-| Transition never occurred | Warning | `from: home` to `away` never happened |
+
+### Conflict Detection
+
+Autodoctor detects when multiple automations take opposing actions on the same entity. The conflict detector is trigger-overlap aware:
+
+- **No conflict if triggers can't fire together** - e.g., one triggers at 6am, another at 10pm
+- **No conflict if conditions are mutually exclusive** - e.g., one requires `mode: on`, another requires `mode: off`
+- **Conflicts only reported for turn_on vs turn_off** - toggle actions excluded (too noisy)
+
+### Smart Suggestions
+
+When a state is invalid, Autodoctor suggests corrections using:
+
+1. **Synonym table** - Maps common mistakes like `away` → `not_home`, `true` → `on`
+2. **Fuzzy matching** - Suggests close matches for typos
+
+When an entity is missing, suggestions are based on same-domain fuzzy matching.
 
 ## Requirements
 
-- Home Assistant 2024.1 or newer
+- Home Assistant 2024.1 or newer (supports both legacy `service:` and new `action:` formats)
 - Recorder integration (for history analysis)
 
 ## License

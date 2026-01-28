@@ -144,3 +144,79 @@ def test_outcome_report_to_issues_unreachable():
     assert issues[0].severity == Severity.WARNING
     assert issues[0].issue_type == IssueType.IMPOSSIBLE_CONDITION
     assert "condition[0]" in issues[0].location
+
+
+def test_entity_action_creation():
+    """Test EntityAction dataclass."""
+    from custom_components.autodoctor.models import EntityAction
+
+    action = EntityAction(
+        automation_id="automation.motion_lights",
+        entity_id="light.living_room",
+        action="turn_on",
+        value=None,
+        conditions=["motion detected"],
+    )
+
+    assert action.automation_id == "automation.motion_lights"
+    assert action.entity_id == "light.living_room"
+    assert action.action == "turn_on"
+
+
+def test_conflict_creation():
+    """Test Conflict dataclass."""
+    from custom_components.autodoctor.models import Conflict, Severity
+
+    conflict = Conflict(
+        entity_id="light.living_room",
+        automation_a="automation.motion_lights",
+        automation_b="automation.away_mode",
+        action_a="turn_on",
+        action_b="turn_off",
+        severity=Severity.ERROR,
+        explanation="Both automations affect light.living_room",
+        scenario="Motion detected while nobody_home",
+    )
+
+    assert conflict.entity_id == "light.living_room"
+    assert conflict.severity == Severity.ERROR
+
+
+def test_conflict_to_dict():
+    """Test Conflict serialization."""
+    from custom_components.autodoctor.models import Conflict, Severity
+
+    conflict = Conflict(
+        entity_id="light.living_room",
+        automation_a="automation.motion_lights",
+        automation_b="automation.away_mode",
+        action_a="turn_on",
+        action_b="turn_off",
+        severity=Severity.ERROR,
+        explanation="Both automations affect light.living_room",
+        scenario="Motion detected while nobody_home",
+    )
+
+    d = conflict.to_dict()
+    assert d["entity_id"] == "light.living_room"
+    assert d["severity"] == "error"
+    assert d["automation_a"] == "automation.motion_lights"
+
+
+def test_conflict_suppression_key():
+    """Test Conflict suppression key generation."""
+    from custom_components.autodoctor.models import Conflict, Severity
+
+    conflict = Conflict(
+        entity_id="light.living_room",
+        automation_a="automation.motion_lights",
+        automation_b="automation.away_mode",
+        action_a="turn_on",
+        action_b="turn_off",
+        severity=Severity.ERROR,
+        explanation="Both automations affect light.living_room",
+        scenario="Motion detected while nobody_home",
+    )
+
+    key = conflict.get_suppression_key()
+    assert key == "automation.away_mode:automation.motion_lights:light.living_room:conflict"

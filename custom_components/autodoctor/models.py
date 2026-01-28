@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum, IntEnum, auto
+from enum import Enum, IntEnum
 from typing import Any
 
 
@@ -16,14 +15,6 @@ class Severity(IntEnum):
     ERROR = 3
 
 
-class Verdict(IntEnum):
-    """Outcome verification verdicts."""
-
-    ALL_REACHABLE = auto()
-    PARTIALLY_REACHABLE = auto()
-    UNREACHABLE = auto()
-
-
 class IssueType(str, Enum):
     """Types of validation issues."""
 
@@ -33,7 +24,69 @@ class IssueType(str, Enum):
     IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
-    STALE_STATE = "stale_state"
+
+
+@dataclass
+class TriggerInfo:
+    """Simplified trigger representation for conflict detection."""
+
+    trigger_type: str  # "state", "time", "sun", "other"
+    entity_id: str | None
+    to_states: set[str] | None
+    time_value: str | None  # "06:00:00" or None
+    sun_event: str | None  # "sunrise", "sunset", or None
+
+
+@dataclass
+class ConditionInfo:
+    """Simplified condition representation for conflict detection."""
+
+    entity_id: str
+    required_states: set[str]
+
+
+@dataclass
+class EntityAction:
+    """An action that affects an entity, extracted from an automation."""
+
+    automation_id: str
+    entity_id: str
+    action: str  # "turn_on", "turn_off", "toggle", "set"
+    value: Any  # For set actions (brightness, temperature, etc.)
+    conditions: list[str]  # Human-readable condition summary
+
+
+@dataclass
+class Conflict:
+    """A detected conflict between two automations."""
+
+    entity_id: str
+    automation_a: str
+    automation_b: str
+    action_a: str
+    action_b: str
+    severity: Severity
+    explanation: str
+    scenario: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to serializable dictionary."""
+        return {
+            "entity_id": self.entity_id,
+            "automation_a": self.automation_a,
+            "automation_b": self.automation_b,
+            "action_a": self.action_a,
+            "action_b": self.action_b,
+            "severity": self.severity.name.lower(),
+            "explanation": self.explanation,
+            "scenario": self.scenario,
+        }
+
+    def get_suppression_key(self) -> str:
+        """Generate a unique key for suppressing this conflict."""
+        # Sort automation IDs for consistent key regardless of order
+        auto_ids = sorted([self.automation_a, self.automation_b])
+        return f"{auto_ids[0]}:{auto_ids[1]}:{self.entity_id}:conflict"
 
 
 @dataclass
@@ -47,12 +100,7 @@ class StateReference:
     expected_attribute: str | None
     location: str  # e.g., "trigger[0].to", "condition[1].state"
     source_line: int | None = None
-
-    # Historical analysis results (populated by analyzer)
-    historical_match: bool = True
-    last_seen: datetime | None = None
     transition_from: str | None = None
-    transition_valid: bool = True
 
 
 @dataclass
@@ -91,37 +139,3 @@ class ValidationIssue:
         """Generate a unique key for suppressing this issue."""
         issue_type = self.issue_type.value if self.issue_type else "unknown"
         return f"{self.automation_id}:{self.entity_id}:{issue_type}"
-
-
-@dataclass
-class OutcomeReport:
-    """Report on whether automation outcomes are reachable."""
-
-    automation_id: str
-    automation_name: str
-    triggers_valid: bool
-    conditions_reachable: bool
-    outcomes: list[str]
-    unreachable_paths: list[str]
-    verdict: Verdict
-
-
-def outcome_report_to_issues(report: OutcomeReport) -> list[ValidationIssue]:
-    """Convert an OutcomeReport to a list of ValidationIssue objects."""
-    if report.verdict == Verdict.ALL_REACHABLE:
-        return []
-
-    issues = []
-    for path in report.unreachable_paths:
-        issues.append(
-            ValidationIssue(
-                severity=Severity.WARNING,
-                automation_id=report.automation_id,
-                automation_name=report.automation_name,
-                entity_id="",
-                location=path,
-                message=f"Unreachable outcome: {path}",
-                issue_type=IssueType.IMPOSSIBLE_CONDITION,
-            )
-        )
-    return issues

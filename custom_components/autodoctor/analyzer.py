@@ -6,7 +6,12 @@ import logging
 import re
 from typing import Any
 
-from .models import IssueType, Severity, StateReference, ValidationIssue
+from .models import (
+    ConditionInfo,
+    EntityAction,
+    StateReference,
+    TriggerInfo,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -171,13 +176,19 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
+        location_prefix: str = "condition",
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
         # Support both 'condition' key (used in both old and new formats for condition type)
         cond_type = condition.get("condition", "")
 
-        if cond_type == "state":
+        # Handle explicit state condition OR implicit shorthand (entity_id + state without condition key)
+        is_state_condition = cond_type == "state" or (
+            not cond_type and "entity_id" in condition and "state" in condition
+        )
+
+        if is_state_condition:
             entity_ids = condition.get("entity_id", [])
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
@@ -193,7 +204,7 @@ class AutomationAnalyzer:
                             entity_id=entity_id,
                             expected_state=state,
                             expected_attribute=None,
-                            location=f"condition[{index}].state",
+                            location=f"{location_prefix}[{index}].state",
                         )
                     )
 
@@ -201,7 +212,7 @@ class AutomationAnalyzer:
             value_template = condition.get("value_template", "")
             refs.extend(
                 self._extract_from_template(
-                    value_template, f"condition[{index}]", automation_id, automation_name
+                    value_template, f"{location_prefix}[{index}]", automation_id, automation_name
                 )
             )
 
@@ -299,22 +310,21 @@ class AutomationAnalyzer:
                 default = action.get("default", [])
 
                 for opt_idx, option in enumerate(options):
-                    # Check conditions in each option
+                    # Check conditions in each option (all types, not just template)
                     conditions = option.get("conditions", [])
                     if not isinstance(conditions, list):
                         conditions = [conditions]
 
                     for cond_idx, condition in enumerate(conditions):
-                        if condition.get("condition") == "template":
-                            template = condition.get("value_template", "")
-                            refs.extend(
-                                self._extract_from_template(
-                                    template,
-                                    f"action[{idx}].choose[{opt_idx}].conditions[{cond_idx}]",
-                                    automation_id,
-                                    automation_name,
-                                )
+                        refs.extend(
+                            self._extract_from_condition(
+                                condition,
+                                cond_idx,
+                                automation_id,
+                                automation_name,
+                                f"action[{idx}].choose[{opt_idx}].conditions",
                             )
+                        )
 
                     # Recurse into sequence
                     sequence = option.get("sequence", [])
@@ -328,23 +338,22 @@ class AutomationAnalyzer:
                         self._extract_from_actions(default, automation_id, automation_name)
                     )
 
-            # Extract from if condition templates
+            # Extract from if conditions (all types, not just template)
             elif "if" in action:
                 conditions = action.get("if", [])
                 if not isinstance(conditions, list):
                     conditions = [conditions]
 
                 for cond_idx, condition in enumerate(conditions):
-                    if condition.get("condition") == "template":
-                        template = condition.get("value_template", "")
-                        refs.extend(
-                            self._extract_from_template(
-                                template,
-                                f"action[{idx}].if[{cond_idx}]",
-                                automation_id,
-                                automation_name,
-                            )
+                    refs.extend(
+                        self._extract_from_condition(
+                            condition,
+                            cond_idx,
+                            automation_id,
+                            automation_name,
+                            f"action[{idx}].if",
                         )
+                    )
 
                 # Recurse into then/else
                 then_actions = action.get("then", [])
@@ -357,7 +366,7 @@ class AutomationAnalyzer:
                         self._extract_from_actions(else_actions, automation_id, automation_name)
                     )
 
-            # Extract from repeat while/until conditions
+            # Extract from repeat while/until conditions (all types, not just template)
             elif "repeat" in action:
                 repeat_config = action["repeat"]
 
@@ -366,32 +375,30 @@ class AutomationAnalyzer:
                 if not isinstance(while_conditions, list):
                     while_conditions = [while_conditions]
                 for cond_idx, condition in enumerate(while_conditions):
-                    if condition.get("condition") == "template":
-                        template = condition.get("value_template", "")
-                        refs.extend(
-                            self._extract_from_template(
-                                template,
-                                f"action[{idx}].repeat.while[{cond_idx}]",
-                                automation_id,
-                                automation_name,
-                            )
+                    refs.extend(
+                        self._extract_from_condition(
+                            condition,
+                            cond_idx,
+                            automation_id,
+                            automation_name,
+                            f"action[{idx}].repeat.while",
                         )
+                    )
 
                 # Check until conditions
                 until_conditions = repeat_config.get("until", [])
                 if not isinstance(until_conditions, list):
                     until_conditions = [until_conditions]
                 for cond_idx, condition in enumerate(until_conditions):
-                    if condition.get("condition") == "template":
-                        template = condition.get("value_template", "")
-                        refs.extend(
-                            self._extract_from_template(
-                                template,
-                                f"action[{idx}].repeat.until[{cond_idx}]",
-                                automation_id,
-                                automation_name,
-                            )
+                    refs.extend(
+                        self._extract_from_condition(
+                            condition,
+                            cond_idx,
+                            automation_id,
+                            automation_name,
+                            f"action[{idx}].repeat.until",
                         )
+                    )
 
                 # Recurse into sequence
                 sequence = repeat_config.get("sequence", [])
@@ -426,67 +433,247 @@ class AutomationAnalyzer:
 
         return refs
 
-    def check_trigger_condition_compatibility(
-        self, automation: dict[str, Any]
-    ) -> list[ValidationIssue]:
-        """Check if triggers and conditions are compatible.
+    def extract_entity_actions(self, automation: dict[str, Any]) -> list[EntityAction]:
+        """Extract all entity actions (service calls) from an automation."""
+        actions: list[EntityAction] = []
 
-        Detects impossible conditions where a trigger fires on one state
-        but the condition requires a different (incompatible) state for
-        the same entity.
-        """
         automation_id = f"automation.{automation.get('id', 'unknown')}"
-        automation_name = automation.get("alias", automation_id)
 
-        triggers = automation.get("triggers") or automation.get("trigger", [])
-        conditions = automation.get("conditions") or automation.get("condition", [])
+        action_list = automation.get("actions") or automation.get("action", [])
+        if not isinstance(action_list, list):
+            action_list = [action_list]
 
-        if not isinstance(triggers, list):
-            triggers = [triggers]
-        if not isinstance(conditions, list):
-            conditions = [conditions]
+        actions.extend(self._extract_actions_recursive(action_list, automation_id))
 
-        # Build map of entity_id -> trigger "to" states
-        trigger_states: dict[str, set[str]] = {}
-        for trigger in triggers:
+        return actions
+
+    def _extract_actions_recursive(
+        self,
+        action_list: list[dict[str, Any]],
+        automation_id: str,
+    ) -> list[EntityAction]:
+        """Recursively extract EntityActions from action blocks."""
+        results: list[EntityAction] = []
+
+        for action in action_list:
+            if not isinstance(action, dict):
+                continue
+
+            # Direct service call (supports both "service" and "action" keys)
+            if "service" in action or "action" in action:
+                results.extend(self._parse_service_call(action, automation_id))
+
+            # Choose block
+            if "choose" in action:
+                for option in action.get("choose", []):
+                    sequence = option.get("sequence", [])
+                    results.extend(self._extract_actions_recursive(sequence, automation_id))
+                default = action.get("default", [])
+                if default:
+                    results.extend(self._extract_actions_recursive(default, automation_id))
+
+            # If/then/else block
+            if "if" in action:
+                then_actions = action.get("then", [])
+                else_actions = action.get("else", [])
+                results.extend(self._extract_actions_recursive(then_actions, automation_id))
+                if else_actions:
+                    results.extend(self._extract_actions_recursive(else_actions, automation_id))
+
+            # Repeat block
+            if "repeat" in action:
+                sequence = action["repeat"].get("sequence", [])
+                results.extend(self._extract_actions_recursive(sequence, automation_id))
+
+            # Parallel block
+            if "parallel" in action:
+                branches = action["parallel"]
+                if not isinstance(branches, list):
+                    branches = [branches]
+                for branch in branches:
+                    branch_actions = branch if isinstance(branch, list) else [branch]
+                    results.extend(self._extract_actions_recursive(branch_actions, automation_id))
+
+        return results
+
+    def extract_triggers(self, automation: dict[str, Any]) -> list[TriggerInfo]:
+        """Extract simplified trigger info for conflict detection."""
+        triggers: list[TriggerInfo] = []
+
+        trigger_list = automation.get("triggers") or automation.get("trigger", [])
+        if not isinstance(trigger_list, list):
+            trigger_list = [trigger_list]
+
+        for trigger in trigger_list:
+            if not isinstance(trigger, dict):
+                continue
+
+            # Support both 'platform' (old) and 'trigger' (new) keys
             platform = trigger.get("platform") or trigger.get("trigger", "")
+
             if platform == "state":
                 entity_ids = trigger.get("entity_id", [])
                 if isinstance(entity_ids, str):
                     entity_ids = [entity_ids]
 
-                to_state = trigger.get("to")
-                if to_state is not None:
-                    to_states = self._normalize_states(to_state)
-                    for entity_id in entity_ids:
-                        if entity_id not in trigger_states:
-                            trigger_states[entity_id] = set()
-                        trigger_states[entity_id].update(to_states)
+                to_states = self._normalize_states(trigger.get("to"))
 
-        issues: list[ValidationIssue] = []
+                for entity_id in entity_ids:
+                    triggers.append(
+                        TriggerInfo(
+                            trigger_type="state",
+                            entity_id=entity_id,
+                            to_states=set(to_states) if to_states else None,
+                            time_value=None,
+                            sun_event=None,
+                        )
+                    )
 
-        for idx, condition in enumerate(conditions):
-            if condition.get("condition") == "state":
+            elif platform == "time":
+                at_value = trigger.get("at")
+                # Handle time as string like "06:00:00"
+                time_str = None
+                if isinstance(at_value, str) and ":" in at_value:
+                    time_str = at_value
+
+                triggers.append(
+                    TriggerInfo(
+                        trigger_type="time",
+                        entity_id=None,
+                        to_states=None,
+                        time_value=time_str,
+                        sun_event=None,
+                    )
+                )
+
+            elif platform == "sun":
+                event = trigger.get("event")  # "sunrise" or "sunset"
+                triggers.append(
+                    TriggerInfo(
+                        trigger_type="sun",
+                        entity_id=None,
+                        to_states=None,
+                        time_value=None,
+                        sun_event=event,
+                    )
+                )
+
+            else:
+                # Other triggers (template, numeric_state, etc.)
+                triggers.append(
+                    TriggerInfo(
+                        trigger_type="other",
+                        entity_id=None,
+                        to_states=None,
+                        time_value=None,
+                        sun_event=None,
+                    )
+                )
+
+        return triggers
+
+    def extract_conditions(self, automation: dict[str, Any]) -> list[ConditionInfo]:
+        """Extract simplified condition info for conflict detection."""
+        conditions: list[ConditionInfo] = []
+
+        condition_list = automation.get("conditions") or automation.get("condition", [])
+        if not isinstance(condition_list, list):
+            condition_list = [condition_list]
+
+        for condition in condition_list:
+            if not isinstance(condition, dict):
+                continue
+
+            cond_type = condition.get("condition", "")
+
+            # Handle state conditions
+            is_state_condition = cond_type == "state" or (
+                not cond_type and "entity_id" in condition and "state" in condition
+            )
+
+            if is_state_condition:
                 entity_id = condition.get("entity_id")
-                required_states = self._normalize_states(condition.get("state"))
-
-                if entity_id and entity_id in trigger_states:
-                    trigger_to_states = trigger_states[entity_id]
-                    required_set = set(required_states)
-
-                    # Check if there's any overlap
-                    if not trigger_to_states.intersection(required_set):
-                        issues.append(
-                            ValidationIssue(
-                                issue_type=IssueType.IMPOSSIBLE_CONDITION,
-                                severity=Severity.ERROR,
-                                automation_id=automation_id,
-                                automation_name=automation_name,
+                if isinstance(entity_id, str):
+                    states = self._normalize_states(condition.get("state"))
+                    if states:
+                        conditions.append(
+                            ConditionInfo(
                                 entity_id=entity_id,
-                                location=f"condition[{idx}].state",
-                                message=f"Condition requires '{', '.join(required_states)}' but trigger fires on '{', '.join(trigger_to_states)}'",
-                                suggestion=list(trigger_to_states)[0] if trigger_to_states else None,
+                                required_states=set(states),
                             )
                         )
 
-        return issues
+        return conditions
+
+    def _parse_service_call(
+        self,
+        action: dict[str, Any],
+        automation_id: str,
+    ) -> list[EntityAction]:
+        """Parse a service call action into EntityAction objects."""
+        results: list[EntityAction] = []
+
+        # Support both "service" (old format) and "action" (HA 2024+ format)
+        service = action.get("service") or action.get("action", "")
+        if not service or "." not in service:
+            return results
+
+        domain, service_name = service.split(".", 1)
+
+        # Determine the action type
+        if service_name in ("turn_on",):
+            action_type = "turn_on"
+        elif service_name in ("turn_off",):
+            action_type = "turn_off"
+        elif service_name in ("toggle",):
+            action_type = "toggle"
+        else:
+            action_type = "set"
+
+        # Extract entity IDs from target, entity_id, or data.entity_id
+        entity_ids: list[str] = []
+
+        target = action.get("target", {})
+        if isinstance(target, dict):
+            target_entities = target.get("entity_id", [])
+            if isinstance(target_entities, str):
+                entity_ids.append(target_entities)
+            elif isinstance(target_entities, list):
+                entity_ids.extend(target_entities)
+
+        # Also check direct entity_id field
+        direct_entity = action.get("entity_id")
+        if direct_entity:
+            if isinstance(direct_entity, str):
+                entity_ids.append(direct_entity)
+            elif isinstance(direct_entity, list):
+                entity_ids.extend(direct_entity)
+
+        # Also check data.entity_id (legacy format)
+        data = action.get("data", {})
+        if isinstance(data, dict):
+            data_entity = data.get("entity_id")
+            if data_entity:
+                if isinstance(data_entity, str):
+                    if data_entity not in entity_ids:
+                        entity_ids.append(data_entity)
+                elif isinstance(data_entity, list):
+                    for eid in data_entity:
+                        if eid not in entity_ids:
+                            entity_ids.append(eid)
+
+        # Get optional value for set actions
+        value = action.get("data", {}) if action_type == "set" else None
+
+        for entity_id in entity_ids:
+            results.append(
+                EntityAction(
+                    automation_id=automation_id,
+                    entity_id=entity_id,
+                    action=action_type,
+                    value=value,
+                    conditions=[],
+                )
+            )
+
+        return results

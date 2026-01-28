@@ -32,11 +32,28 @@ export interface AutodoctorCardConfig {
   title?: string;
 }
 
-export type TabType = "validation" | "outcomes";
+export type TabType = "validation" | "conflicts";
 
 export interface AutodoctorTabData {
   issues: IssueWithFix[];
   healthy_count: number;
+  last_run: string | null;
+  suppressed_count: number;
+}
+
+export interface Conflict {
+  entity_id: string;
+  automation_a: string;
+  automation_b: string;
+  action_a: string;
+  action_b: string;
+  severity: string;
+  explanation: string;
+  scenario: string;
+}
+
+export interface ConflictsTabData {
+  conflicts: Conflict[];
   last_run: string | null;
   suppressed_count: number;
 }

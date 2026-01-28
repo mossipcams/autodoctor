@@ -1,1 +1,1 @@
-"""Tests for autodoctor."""
+"""Tests for Autodoctor."""

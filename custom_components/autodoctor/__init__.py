@@ -19,20 +19,16 @@ from .const import (
     DOMAIN,
     VERSION,
     CONF_HISTORY_DAYS,
-    CONF_STALENESS_THRESHOLD_DAYS,
     CONF_VALIDATE_ON_RELOAD,
     CONF_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
-    DEFAULT_STALENESS_THRESHOLD_DAYS,
     DEFAULT_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
 )
 from .knowledge_base import StateKnowledgeBase
 from .analyzer import AutomationAnalyzer
 from .validator import ValidationEngine
-from .simulator import SimulationEngine
 from .reporter import IssueReporter
-from .fix_engine import FixEngine
 from .suppression_store import SuppressionStore
 from .websocket_api import async_setup_websocket_api
 
@@ -42,8 +38,16 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 # Frontend card
 CARD_URL_BASE = "/autodoctor/autodoctor-card.js"
-CARD_URL = f"{CARD_URL_BASE}?v={VERSION}"
 CARD_PATH = Path(__file__).parent / "www" / "autodoctor-card.js"
+
+
+def _get_card_url() -> str:
+    """Get card URL with cache-busting version based on file modification time."""
+    try:
+        mtime = int(CARD_PATH.stat().st_mtime)
+        return f"{CARD_URL_BASE}?v={mtime}"
+    except OSError:
+        return f"{CARD_URL_BASE}?v={VERSION}"
 
 
 def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
@@ -99,12 +103,15 @@ async def _async_register_card(hass: HomeAssistant) -> None:
         _LOGGER.warning("Autodoctor card not found at %s", CARD_PATH)
         return
 
+    # Get versioned URL based on file modification time
+    card_url = _get_card_url()
+
     # Register static path for the card (base URL without version query string)
     try:
         await hass.http.async_register_static_paths(
             [StaticPathConfig(CARD_URL_BASE, str(CARD_PATH), cache_headers=False)]
         )
-    except ValueError:
+    except (ValueError, RuntimeError):
         # Path already registered from previous setup
         _LOGGER.debug("Static path %s already registered", CARD_URL_BASE)
 
@@ -125,7 +132,7 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             ]
 
             # Check if current version already registered
-            current_exists = any(r.get("url") == CARD_URL for r in existing)
+            current_exists = any(r.get("url") == card_url for r in existing)
 
             if current_exists:
                 _LOGGER.debug("Autodoctor card already registered with current version")
@@ -142,8 +149,8 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 
                 # Create new resource with current version
                 try:
-                    await resources.async_create_item({"url": CARD_URL, "res_type": "module"})
-                    _LOGGER.info("Registered autodoctor card as Lovelace resource: %s", CARD_URL)
+                    await resources.async_create_item({"url": card_url, "res_type": "module"})
+                    _LOGGER.info("Registered autodoctor card as Lovelace resource: %s", card_url)
                 except Exception as err:
                     _LOGGER.warning("Failed to register Lovelace resource: %s", err)
     else:
@@ -151,25 +158,21 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             "Lovelace in YAML mode or not available - card must be manually added as resource"
         )
 
-    _LOGGER.debug("Registered autodoctor card at %s", CARD_URL)
+    _LOGGER.debug("Registered autodoctor card at %s", card_url)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Autodoctor from a config entry."""
     options = entry.options
     history_days = options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
-    staleness_threshold_days = options.get(
-        CONF_STALENESS_THRESHOLD_DAYS, DEFAULT_STALENESS_THRESHOLD_DAYS
-    )
     validate_on_reload = options.get(CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD)
     debounce_seconds = options.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
 
     knowledge_base = StateKnowledgeBase(hass, history_days)
     analyzer = AutomationAnalyzer()
-    validator = ValidationEngine(knowledge_base, staleness_threshold_days)
-    simulator = SimulationEngine(knowledge_base)
+    validator = ValidationEngine(knowledge_base)
     reporter = IssueReporter(hass)
-    fix_engine = FixEngine(hass, knowledge_base)
+
     suppression_store = SuppressionStore(hass)
     await suppression_store.async_load()
 
@@ -177,15 +180,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "knowledge_base": knowledge_base,
         "analyzer": analyzer,
         "validator": validator,
-        "simulator": simulator,
         "reporter": reporter,
-        "fix_engine": fix_engine,
         "suppression_store": suppression_store,
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],
-        "outcome_issues": [],
         "validation_last_run": None,
-        "outcomes_last_run": None,
         "entry": entry,
         "debounce_task": None,
     }
@@ -247,13 +246,6 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         else:
             await async_validate_all(hass)
 
-    async def handle_simulate(call: Any) -> None:
-        automation_id = call.data.get("automation_id")
-        if automation_id:
-            await async_simulate_automation(hass, automation_id)
-        else:
-            await async_simulate_all(hass)
-
     async def handle_refresh(call: Any) -> None:
         data = hass.data.get(DOMAIN, {})
         kb = data.get("knowledge_base")
@@ -264,7 +256,6 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(DOMAIN, "validate", handle_validate)
     hass.services.async_register(DOMAIN, "validate_automation", handle_validate)
-    hass.services.async_register(DOMAIN, "simulate", handle_simulate)
     hass.services.async_register(DOMAIN, "refresh_knowledge_base", handle_refresh)
 
 
@@ -347,44 +338,3 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
     return issues
 
 
-async def async_simulate_all(hass: HomeAssistant) -> list:
-    """Simulate all automations and return issues."""
-    from .models import outcome_report_to_issues
-
-    data = hass.data.get(DOMAIN, {})
-    simulator = data.get("simulator")
-
-    if not simulator:
-        return []
-
-    automations = _get_automation_configs(hass)
-    all_issues = []
-    for automation in automations:
-        report = simulator.verify_outcomes(automation)
-        issues = outcome_report_to_issues(report)
-        all_issues.extend(issues)
-
-    hass.data[DOMAIN]["outcome_issues"] = all_issues
-    hass.data[DOMAIN]["outcomes_last_run"] = datetime.now(timezone.utc).isoformat()
-    return all_issues
-
-
-async def async_simulate_automation(hass: HomeAssistant, automation_id: str) -> Any:
-    """Simulate a specific automation."""
-    data = hass.data.get(DOMAIN, {})
-    simulator = data.get("simulator")
-
-    if not simulator:
-        return None
-
-    automations = _get_automation_configs(hass)
-    automation = next(
-        (a for a in automations if f"automation.{a.get('id')}" == automation_id),
-        None,
-    )
-
-    if not automation:
-        _LOGGER.warning("Automation %s not found", automation_id)
-        return None
-
-    return simulator.verify_outcomes(automation)
