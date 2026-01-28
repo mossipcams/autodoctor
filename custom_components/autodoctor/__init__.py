@@ -34,6 +34,7 @@ from .analyzer import AutomationAnalyzer
 from .validator import ValidationEngine
 from .reporter import IssueReporter
 from .suppression_store import SuppressionStore
+from .learned_states_store import LearnedStatesStore
 from .websocket_api import async_setup_websocket_api
 from .jinja_validator import JinjaValidator
 
@@ -182,14 +183,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     validate_on_reload = options.get(CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD)
     debounce_seconds = options.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
 
-    knowledge_base = StateKnowledgeBase(hass, history_days)
+    # Initialize stores first (they need to be loaded before use)
+    suppression_store = SuppressionStore(hass)
+    await suppression_store.async_load()
+
+    learned_states_store = LearnedStatesStore(hass)
+    await learned_states_store.async_load()
+
+    # Initialize knowledge base with learned states store
+    knowledge_base = StateKnowledgeBase(
+        hass,
+        history_days=history_days,
+        learned_states_store=learned_states_store,
+    )
     analyzer = AutomationAnalyzer()
     validator = ValidationEngine(knowledge_base)
     jinja_validator = JinjaValidator(hass)
     reporter = IssueReporter(hass)
-
-    suppression_store = SuppressionStore(hass)
-    await suppression_store.async_load()
 
     hass.data[DOMAIN] = {
         "knowledge_base": knowledge_base,
@@ -198,6 +208,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "jinja_validator": jinja_validator,
         "reporter": reporter,
         "suppression_store": suppression_store,
+        "learned_states_store": learned_states_store,
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],
         "validation_last_run": None,

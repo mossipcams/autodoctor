@@ -23,6 +23,7 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── sensor.py                    # Issue count sensor
+│   ├── learned_states_store.py      # User-learned state persistence
 │   ├── suppression_store.py         # Dismissed issue persistence
 │   ├── validator.py                 # State reference validation
 │   ├── websocket_api.py             # Frontend communication
@@ -32,6 +33,8 @@ autodoctor/
 │   ├── manifest.json                # Integration metadata
 │   ├── services.yaml                # Service definitions
 │   └── strings.json                 # UI strings
+├── scripts/                         # Utility scripts
+│   └── extract_ha_states.py         # Extract valid states from HA source
 ├── tests/                           # Test suite
 ├── docs/plans/                      # Design documents
 └── www/                             # Frontend build assets
@@ -57,6 +60,7 @@ autodoctor/
 - **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `EntityAction`, `TriggerInfo`, `ConditionInfo`, `Conflict`
 
 ### Persistence & API
+- **`learned_states_store.py`** - Thread-safe storage of user-learned states
 - **`suppression_store.py`** - Thread-safe storage of dismissed issues
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
@@ -101,8 +105,14 @@ autodoctor/
 - `test_validator.py` - State validation
 - `test_conflict_detector.py` - Conflict detection
 - `test_knowledge_base.py` - State knowledge building
+- `test_learned_states_store.py` - Learned states persistence
 - `test_fix_engine.py` - Suggestion logic
 - `test_models.py` - Data model serialization
 - `test_websocket_api.py` - WebSocket endpoints
+- `test_websocket_api_learning.py` - Learning on suppression
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle
+
+## Scripts
+
+- `scripts/extract_ha_states.py` - Extract valid states from Home Assistant source code
