@@ -1,0 +1,95 @@
+"""Tests for IssueReporter."""
+
+import pytest
+from unittest.mock import MagicMock, patch, AsyncMock
+
+from homeassistant.core import HomeAssistant
+
+from custom_components.autodoctor.reporter import IssueReporter
+from custom_components.autodoctor.models import ValidationIssue, Severity
+
+
+@pytest.fixture
+def reporter(hass: HomeAssistant):
+    """Create an IssueReporter instance."""
+    return IssueReporter(hass)
+
+
+def test_reporter_initialization(reporter):
+    """Test reporter can be initialized."""
+    assert reporter is not None
+
+
+@pytest.mark.asyncio
+async def test_report_issues_creates_repair(hass: HomeAssistant, reporter):
+    """Test that reporting issues creates repair entries."""
+    issues = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="person.matt",
+            location="trigger[0].to",
+            message="State 'away' is not valid",
+            suggestion="not_home",
+            valid_states=["home", "not_home"],
+        )
+    ]
+
+    # Register persistent_notification service for test
+    async def mock_notification_service(call):
+        pass
+
+    hass.services.async_register(
+        "persistent_notification", "create", mock_notification_service
+    )
+
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_create_issue",
+    ) as mock_create:
+        await reporter.async_report_issues(issues)
+        mock_create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_report_issues_creates_notification(hass: HomeAssistant, reporter):
+    """Test that reporting issues creates a notification."""
+    issues = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="person.matt",
+            location="trigger[0].to",
+            message="State 'away' is not valid",
+            suggestion="not_home",
+            valid_states=["home", "not_home"],
+        )
+    ]
+
+    # Track notification calls
+    notification_calls = []
+
+    async def mock_notification_service(call):
+        notification_calls.append(call)
+
+    hass.services.async_register(
+        "persistent_notification", "create", mock_notification_service
+    )
+
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_create_issue",
+    ):
+        await reporter.async_report_issues(issues)
+        assert len(notification_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_clear_resolved_issues(hass: HomeAssistant, reporter):
+    """Test clearing resolved issues."""
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_delete_issue",
+    ) as mock_delete:
+        reporter._active_issues = {"issue_1", "issue_2"}
+        reporter._clear_resolved_issues({"issue_1"})
+        mock_delete.assert_called_once()

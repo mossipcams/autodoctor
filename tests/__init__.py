@@ -1,1 +1,1 @@
-"""Tests for automation_mutation_tester."""
+"""Tests for autodoctor."""

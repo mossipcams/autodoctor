@@ -1,31 +1,24 @@
 """Tests for ValidationEngine."""
 
 import pytest
-from unittest.mock import MagicMock
 
-from custom_components.automation_mutation_tester.validator import ValidationEngine
-from custom_components.automation_mutation_tester.knowledge_base import StateKnowledgeBase
-from custom_components.automation_mutation_tester.models import StateReference, Severity
+from homeassistant.core import HomeAssistant
+from homeassistant.const import STATE_ON
 
-
-@pytest.fixture
-def mock_hass():
-    """Create a mock Home Assistant instance."""
-    hass = MagicMock()
-    return hass
+from custom_components.autodoctor.validator import ValidationEngine
+from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+from custom_components.autodoctor.models import StateReference, Severity
 
 
 @pytest.fixture
-def knowledge_base(mock_hass):
+def knowledge_base(hass: HomeAssistant):
     """Create a knowledge base with mocked data."""
-    kb = StateKnowledgeBase(mock_hass)
+    kb = StateKnowledgeBase(hass)
     return kb
 
 
-def test_validate_missing_entity(mock_hass, knowledge_base):
+async def test_validate_missing_entity(hass: HomeAssistant, knowledge_base):
     """Test validation detects missing entity."""
-    mock_hass.states.get = MagicMock(return_value=None)
-
     ref = StateReference(
         automation_id="automation.test",
         automation_name="Test",
@@ -43,13 +36,10 @@ def test_validate_missing_entity(mock_hass, knowledge_base):
     assert "does not exist" in issues[0].message.lower()
 
 
-def test_validate_invalid_state(mock_hass, knowledge_base):
+async def test_validate_invalid_state(hass: HomeAssistant, knowledge_base):
     """Test validation detects invalid state."""
-    mock_state = MagicMock()
-    mock_state.entity_id = "person.matt"
-    mock_state.domain = "person"
-    mock_state.attributes = {}
-    mock_hass.states.get = MagicMock(return_value=mock_state)
+    hass.states.async_set("person.matt", "home")
+    await hass.async_block_till_done()
 
     ref = StateReference(
         automation_id="automation.test",
@@ -68,13 +58,10 @@ def test_validate_invalid_state(mock_hass, knowledge_base):
     assert "away" in issues[0].message
 
 
-def test_validate_case_mismatch(mock_hass, knowledge_base):
+async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
     """Test validation detects case mismatch."""
-    mock_state = MagicMock()
-    mock_state.entity_id = "alarm_control_panel.home"
-    mock_state.domain = "alarm_control_panel"
-    mock_state.attributes = {}
-    mock_hass.states.get = MagicMock(return_value=mock_state)
+    hass.states.async_set("alarm_control_panel.home", "disarmed")
+    await hass.async_block_till_done()
 
     ref = StateReference(
         automation_id="automation.test",
@@ -94,13 +81,10 @@ def test_validate_case_mismatch(mock_hass, knowledge_base):
     assert issues[0].suggestion == "armed_away"
 
 
-def test_validate_valid_state(mock_hass, knowledge_base):
+async def test_validate_valid_state(hass: HomeAssistant, knowledge_base):
     """Test validation passes for valid state."""
-    mock_state = MagicMock()
-    mock_state.entity_id = "person.matt"
-    mock_state.domain = "person"
-    mock_state.attributes = {}
-    mock_hass.states.get = MagicMock(return_value=mock_state)
+    hass.states.async_set("person.matt", "home")
+    await hass.async_block_till_done()
 
     ref = StateReference(
         automation_id="automation.test",
