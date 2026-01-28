@@ -2,7 +2,7 @@
 
 import pytest
 
-from custom_components.automation_mutation_tester.device_class_states import (
+from custom_components.autodoctor.device_class_states import (
     get_device_class_states,
     get_all_known_domains,
 )

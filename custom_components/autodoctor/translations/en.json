@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Autodoctor",
+        "description": "Set up automation validation to detect state-related issues before they cause failures."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single instance of Autodoctor is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Autodoctor Options",
+        "data": {
+          "history_days": "History lookback period (days)",
+          "staleness_threshold_days": "Staleness warning threshold (days)",
+          "validate_on_reload": "Automatically validate when automations are reloaded",
+          "debounce_seconds": "Debounce delay before validation (seconds)"
+        },
+        "data_description": {
+          "history_days": "Number of days of state history to analyze",
+          "staleness_threshold_days": "Warn if a referenced state hasn't occurred in this many days",
+          "validate_on_reload": "Run validation automatically whenever automations are reloaded",
+          "debounce_seconds": "Wait this many seconds after reload before validating (prevents multiple rapid validations)"
+        }
+      }
+    }
+  },
+  "issues": {
+    "validation_issue": {
+      "title": "Automation Issue: {automation}",
+      "description": "**Entity:** `{entity}`\n\n**Problem:** {message}\n\n**Suggested fix:** {suggestion}\n\n**Valid states:** {valid_states}"
+    },
+    "automation_issues": {
+      "title": "{automation} ({count} issues)",
+      "description": "The following issues were found:\n\n{issues}"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "autodoctor_issues": {
+        "name": "Autodoctor Issues"
+      }
+    },
+    "binary_sensor": {
+      "autodoctor_ok": {
+        "name": "Autodoctor OK"
+      }
+    }
+  },
+  "services": {
+    "validate": {
+      "name": "Validate Automations",
+      "description": "Run validation on all automations or a specific one.",
+      "fields": {
+        "automation_id": {
+          "name": "Automation ID",
+          "description": "Optional: specific automation to validate. Leave empty to validate all."
+        }
+      }
+    },
+    "simulate": {
+      "name": "Verify Outcomes",
+      "description": "Verify that automation actions are reachable.",
+      "fields": {
+        "automation_id": {
+          "name": "Automation ID",
+          "description": "Optional: specific automation to verify. Leave empty to verify all."
+        }
+      }
+    },
+    "refresh_knowledge_base": {
+      "name": "Refresh Knowledge Base",
+      "description": "Rebuild the state knowledge base from recorder history and entity schemas."
+    }
+  }
+}

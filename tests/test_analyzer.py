@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import MagicMock
 
-from custom_components.automation_mutation_tester.analyzer import AutomationAnalyzer
-from custom_components.automation_mutation_tester.models import StateReference
+from custom_components.autodoctor.analyzer import AutomationAnalyzer
+from custom_components.autodoctor.models import StateReference
 
 
 def test_extract_state_trigger_to():

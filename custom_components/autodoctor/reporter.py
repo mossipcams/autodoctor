@@ -1,0 +1,146 @@
+"""IssueReporter - outputs validation issues to logs, notifications, and repairs."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+import logging
+from typing import TYPE_CHECKING
+
+from .const import DOMAIN
+from .models import ValidationIssue, Severity
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+_LOGGER = logging.getLogger(__name__)
+
+# Import issue registry with fallback
+try:
+    from homeassistant.helpers import issue_registry as ir
+    HAS_ISSUE_REGISTRY = True
+except ImportError:
+    HAS_ISSUE_REGISTRY = False
+    class ir:  # type: ignore
+        class IssueSeverity:
+            ERROR = "error"
+            WARNING = "warning"
+
+        @staticmethod
+        def async_create_issue(*args, **kwargs):
+            pass
+
+        @staticmethod
+        def async_delete_issue(*args, **kwargs):
+            pass
+
+
+class IssueReporter:
+    """Reports validation issues through multiple channels."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the reporter."""
+        self.hass = hass
+        self._active_issues: set[str] = set()
+
+    def _automation_issue_id(self, automation_id: str) -> str:
+        """Generate a unique issue ID for an automation."""
+        return automation_id.replace(".", "_")
+
+    def _severity_to_repair(self, severity: Severity) -> str:
+        """Convert our severity to HA repair severity."""
+        if severity == Severity.ERROR:
+            return ir.IssueSeverity.ERROR
+        return ir.IssueSeverity.WARNING
+
+    def _format_issues_for_repair(self, issues: list[ValidationIssue]) -> str:
+        """Format multiple issues into a single repair description."""
+        lines = []
+        for issue in issues:
+            lines.append(f"• **{issue.entity_id}** ({issue.location}): {issue.message}")
+        return "\n".join(lines)
+
+    async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
+        """Report validation issues grouped by automation."""
+        if not issues:
+            _LOGGER.info("Automation validation complete: no issues found")
+            return
+
+        # Group issues by automation
+        issues_by_automation: dict[str, list[ValidationIssue]] = defaultdict(list)
+        for issue in issues:
+            issues_by_automation[issue.automation_id].append(issue)
+
+            # Still log each issue individually
+            log_method = _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
+            log_method(
+                "Automation '%s': %s (entity: %s, location: %s)",
+                issue.automation_name,
+                issue.message,
+                issue.entity_id,
+                issue.location,
+            )
+
+        current_issue_ids: set[str] = set()
+
+        # Create one repair per automation
+        for automation_id, automation_issues in issues_by_automation.items():
+            issue_id = self._automation_issue_id(automation_id)
+            current_issue_ids.add(issue_id)
+
+            automation_name = automation_issues[0].automation_name
+            issue_count = len(automation_issues)
+
+            # Use highest severity among all issues for this automation
+            has_error = any(i.severity == Severity.ERROR for i in automation_issues)
+            severity = Severity.ERROR if has_error else Severity.WARNING
+
+            # Format all issues for this automation
+            issues_text = self._format_issues_for_repair(automation_issues)
+
+            # Note: ir.async_create_issue is synchronous despite the name
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=self._severity_to_repair(severity),
+                translation_key="automation_issues",
+                translation_placeholders={
+                    "automation": automation_name,
+                    "count": str(issue_count),
+                    "issues": issues_text,
+                },
+            )
+
+        error_count = sum(1 for i in issues if i.severity == Severity.ERROR)
+        warning_count = sum(1 for i in issues if i.severity == Severity.WARNING)
+
+        message = f"Found {len(issues)} issue(s): {error_count} errors, {warning_count} warnings. Check Settings > Repairs for details."
+
+        # Use service call for notification (more reliable than direct import)
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "message": message,
+                "title": "Automation Validation",
+                "notification_id": f"{DOMAIN}_results",
+            },
+        )
+
+        self._clear_resolved_issues(current_issue_ids)
+        self._active_issues = current_issue_ids
+
+    def _clear_resolved_issues(self, current_ids: set[str]) -> None:
+        """Clear issues that have been resolved."""
+        resolved = self._active_issues - current_ids
+        for issue_id in resolved:
+            # Note: ir.async_delete_issue is synchronous despite the name
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def clear_all_issues(self) -> None:
+        """Clear all issues."""
+        for issue_id in self._active_issues:
+            # Note: ir.async_delete_issue is synchronous despite the name
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        self._active_issues.clear()
