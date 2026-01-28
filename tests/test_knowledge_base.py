@@ -152,10 +152,10 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     history_states = [
-        MagicMock(state="active"),
-        MagicMock(state="idle"),
-        MagicMock(state="active"),
-        MagicMock(state="error"),
+        MagicMock(state="active", last_changed=None),
+        MagicMock(state="idle", last_changed=None),
+        MagicMock(state="active", last_changed=None),
+        MagicMock(state="error", last_changed=None),
     ]
 
     with patch(
@@ -179,9 +179,9 @@ async def test_history_excludes_unavailable_unknown(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     history_states = [
-        MagicMock(state="active"),
-        MagicMock(state="unavailable"),
-        MagicMock(state="unknown"),
+        MagicMock(state="active", last_changed=None),
+        MagicMock(state="unavailable", last_changed=None),
+        MagicMock(state="unknown", last_changed=None),
     ]
 
     with patch(
@@ -194,3 +194,29 @@ async def test_history_excludes_unavailable_unknown(hass: HomeAssistant):
     assert "active" in observed
     assert "unavailable" not in observed
     assert "unknown" not in observed
+
+
+@pytest.mark.asyncio
+async def test_get_historical_entity_ids(hass: HomeAssistant):
+    """Test getting historical entity IDs from recorder."""
+    kb = StateKnowledgeBase(hass)
+
+    # Simulate loading history with entities
+    history_states = [
+        MagicMock(state="on", last_changed=None),
+        MagicMock(state="off", last_changed=None),
+    ]
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
+        return_value={
+            "sensor.old_entity": history_states,
+            "sensor.another_old": history_states,
+        },
+    ):
+        await kb.async_load_history(["sensor.old_entity", "sensor.another_old"])
+
+    historical = kb.get_historical_entity_ids()
+    assert "sensor.old_entity" in historical
+    assert "sensor.another_old" in historical
+    assert "sensor.nonexistent" not in historical

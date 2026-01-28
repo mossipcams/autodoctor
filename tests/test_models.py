@@ -9,6 +9,8 @@ from custom_components.autodoctor.models import (
     OutcomeReport,
     Severity,
     Verdict,
+    IssueType,
+    outcome_report_to_issues,
 )
 
 
@@ -62,3 +64,83 @@ def test_severity_ordering():
     """Test severity levels."""
     assert Severity.ERROR.value > Severity.WARNING.value
     assert Severity.WARNING.value > Severity.INFO.value
+
+
+def test_issue_type_enum_values():
+    """Test IssueType enum has expected values."""
+    assert IssueType.ENTITY_NOT_FOUND.value == "entity_not_found"
+    assert IssueType.ENTITY_REMOVED.value == "entity_removed"
+    assert IssueType.INVALID_STATE.value == "invalid_state"
+    assert IssueType.IMPOSSIBLE_CONDITION.value == "impossible_condition"
+    assert IssueType.CASE_MISMATCH.value == "case_mismatch"
+    assert IssueType.ATTRIBUTE_NOT_FOUND.value == "attribute_not_found"
+
+
+def test_validation_issue_has_issue_type():
+    """Test ValidationIssue accepts issue_type field."""
+    issue = ValidationIssue(
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.missing",
+        location="trigger[0]",
+        message="Entity not found",
+    )
+    assert issue.issue_type == IssueType.ENTITY_NOT_FOUND
+
+
+def test_validation_issue_to_dict():
+    """Test ValidationIssue.to_dict() returns serializable dict."""
+    issue = ValidationIssue(
+        issue_type=IssueType.INVALID_STATE,
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="person.matt",
+        location="trigger[0].to",
+        message="State 'away' is not valid",
+        suggestion="not_home",
+    )
+    result = issue.to_dict()
+    assert result["issue_type"] == "invalid_state"
+    assert result["severity"] == "error"
+    assert result["entity_id"] == "person.matt"
+    assert result["message"] == "State 'away' is not valid"
+    assert result["suggestion"] == "not_home"
+
+
+def test_outcome_report_to_issues_all_reachable():
+    """All reachable returns empty list."""
+    report = OutcomeReport(
+        automation_id="automation.test",
+        automation_name="Test Automation",
+        triggers_valid=True,
+        conditions_reachable=True,
+        outcomes=["action.call_service"],
+        unreachable_paths=[],
+        verdict=Verdict.ALL_REACHABLE,
+    )
+    issues = outcome_report_to_issues(report)
+    assert issues == []
+
+
+def test_outcome_report_to_issues_unreachable():
+    """Unreachable paths become ValidationIssue objects."""
+    report = OutcomeReport(
+        automation_id="automation.test",
+        automation_name="Test Automation",
+        triggers_valid=True,
+        conditions_reachable=False,
+        outcomes=["action.call_service"],
+        unreachable_paths=["condition[0]: state requires 'home' but trigger sets 'away'"],
+        verdict=Verdict.UNREACHABLE,
+    )
+    issues = outcome_report_to_issues(report)
+
+    assert len(issues) == 1
+    assert issues[0].automation_id == "automation.test"
+    assert issues[0].automation_name == "Test Automation"
+    assert issues[0].severity == Severity.WARNING
+    assert issues[0].issue_type == IssueType.IMPOSSIBLE_CONDITION
+    assert "condition[0]" in issues[0].location
