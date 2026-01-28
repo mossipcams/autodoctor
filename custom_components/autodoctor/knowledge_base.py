@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import entity_registry as er
 
 try:
     # Current HA location (2021+)
@@ -91,6 +92,19 @@ class StateKnowledgeBase:
             The domain (e.g., 'binary_sensor')
         """
         return entity_id.split(".")[0] if "." in entity_id else ""
+
+    def get_integration(self, entity_id: str) -> str | None:
+        """Get the integration/platform that owns an entity.
+
+        Args:
+            entity_id: The entity ID to look up
+
+        Returns:
+            Integration name (e.g., 'roborock'), or None if not found
+        """
+        entity_registry = er.async_get(self.hass)
+        entry = entity_registry.async_get(entity_id)
+        return entry.platform if entry else None
 
     def get_valid_states(self, entity_id: str) -> set[str] | None:
         """Get valid states for an entity.

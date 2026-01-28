@@ -220,3 +220,45 @@ async def test_get_historical_entity_ids(hass: HomeAssistant):
     assert "sensor.old_entity" in historical
     assert "sensor.another_old" in historical
     assert "sensor.nonexistent" not in historical
+
+
+async def test_get_integration_from_entity_registry(hass: HomeAssistant):
+    """Test getting integration name from entity registry."""
+    from unittest.mock import MagicMock, patch
+    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+
+    kb = StateKnowledgeBase(hass)
+
+    # Mock entity registry
+    mock_entry = MagicMock()
+    mock_entry.platform = "roborock"
+
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_entry
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry
+    ):
+        integration = kb.get_integration("vacuum.roborock_s7")
+
+    assert integration == "roborock"
+
+
+async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
+    """Test getting integration returns None for unknown entity."""
+    from unittest.mock import MagicMock, patch
+    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+
+    kb = StateKnowledgeBase(hass)
+
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = None
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry
+    ):
+        integration = kb.get_integration("vacuum.unknown")
+
+    assert integration is None
