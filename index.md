@@ -23,6 +23,7 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── sensor.py                    # Issue count sensor
+│   ├── learned_states_store.py      # User-learned state persistence
 │   ├── suppression_store.py         # Dismissed issue persistence
 │   ├── validator.py                 # State reference validation
 │   ├── websocket_api.py             # Frontend communication
@@ -57,6 +58,7 @@ autodoctor/
 - **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `EntityAction`, `TriggerInfo`, `ConditionInfo`, `Conflict`
 
 ### Persistence & API
+- **`learned_states_store.py`** - Thread-safe storage of user-learned states
 - **`suppression_store.py`** - Thread-safe storage of dismissed issues
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
@@ -101,6 +103,7 @@ autodoctor/
 - `test_validator.py` - State validation
 - `test_conflict_detector.py` - Conflict detection
 - `test_knowledge_base.py` - State knowledge building
+- `test_learned_states_store.py` - Learned states persistence
 - `test_fix_engine.py` - Suggestion logic
 - `test_models.py` - Data model serialization
 - `test_websocket_api.py` - WebSocket endpoints
