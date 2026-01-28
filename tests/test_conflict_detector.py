@@ -131,3 +131,52 @@ def test_multiple_conflicts():
     assert len(conflicts) == 2
     entity_ids = {c.entity_id for c in conflicts}
     assert entity_ids == {"light.living_room", "light.kitchen"}
+
+
+def test_detect_conflict_with_action_key():
+    """Test detection works with HA 2024+ 'action' key format."""
+    automations = [
+        {
+            "id": "motion_lights",
+            "alias": "Motion Lights",
+            "trigger": [{"platform": "state", "entity_id": "binary_sensor.motion", "to": "on"}],
+            "action": [{"action": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
+        },
+        {
+            "id": "away_mode",
+            "alias": "Away Mode",
+            "trigger": [{"platform": "state", "entity_id": "person.matt", "to": "not_home"}],
+            "action": [{"action": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
+        },
+    ]
+
+    detector = ConflictDetector()
+    conflicts = detector.detect_conflicts(automations)
+
+    assert len(conflicts) == 1
+    assert conflicts[0].entity_id == "light.living_room"
+    assert conflicts[0].severity == Severity.ERROR
+
+
+def test_detect_conflict_mixed_service_and_action_keys():
+    """Test detection works with mixed 'service' and 'action' key formats."""
+    automations = [
+        {
+            "id": "old_automation",
+            "alias": "Old Automation",
+            "trigger": [],
+            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
+        },
+        {
+            "id": "new_automation",
+            "alias": "New Automation",
+            "trigger": [],
+            "action": [{"action": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
+        },
+    ]
+
+    detector = ConflictDetector()
+    conflicts = detector.detect_conflicts(automations)
+
+    assert len(conflicts) == 1
+    assert conflicts[0].entity_id == "light.living_room"

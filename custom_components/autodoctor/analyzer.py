@@ -517,8 +517,8 @@ class AutomationAnalyzer:
             if not isinstance(action, dict):
                 continue
 
-            # Direct service call
-            if "service" in action:
+            # Direct service call (supports both "service" and "action" keys)
+            if "service" in action or "action" in action:
                 results.extend(self._parse_service_call(action, automation_id))
 
             # Choose block
@@ -562,7 +562,8 @@ class AutomationAnalyzer:
         """Parse a service call action into EntityAction objects."""
         results: list[EntityAction] = []
 
-        service = action.get("service", "")
+        # Support both "service" (old format) and "action" (HA 2024+ format)
+        service = action.get("service") or action.get("action", "")
         if not service or "." not in service:
             return results
 
