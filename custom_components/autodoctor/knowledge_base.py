@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from .device_class_states import get_device_class_states
@@ -274,8 +274,8 @@ class StateKnowledgeBase:
             if not entity_ids:
                 return
 
-            start_time = datetime.now() - timedelta(days=self.history_days)
-            end_time = datetime.now()
+            start_time = datetime.now(timezone.utc) - timedelta(days=self.history_days)
+            end_time = datetime.now(timezone.utc)
 
             try:
                 # get_significant_states is synchronous, call it directly

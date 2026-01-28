@@ -148,7 +148,8 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
     """Test that recorder history adds observed states."""
     kb = StateKnowledgeBase(hass)
 
-    hass.states.async_set("sensor.custom", "active")
+    # Use input_select which supports arbitrary states from history
+    hass.states.async_set("input_select.mode", "active", {"options": ["active"]})
     await hass.async_block_till_done()
 
     history_states = [
@@ -160,11 +161,11 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.get_significant_states",
-        return_value={"sensor.custom": history_states},
+        return_value={"input_select.mode": history_states},
     ):
-        await kb.async_load_history(["sensor.custom"])
+        await kb.async_load_history(["input_select.mode"])
 
-    states = kb.get_valid_states("sensor.custom")
+    states = kb.get_valid_states("input_select.mode")
     assert "active" in states
     assert "idle" in states
     assert "error" in states

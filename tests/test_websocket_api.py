@@ -9,9 +9,7 @@ from custom_components.autodoctor.websocket_api import (
     async_setup_websocket_api,
     websocket_get_issues,
     websocket_get_validation,
-    websocket_get_outcomes,
     websocket_run_validation,
-    websocket_run_outcomes,
     websocket_get_conflicts,
     websocket_run_conflicts,
 )
@@ -31,15 +29,8 @@ async def test_websocket_api_setup(hass: HomeAssistant):
 async def test_websocket_get_issues_returns_data(hass: HomeAssistant):
     """Test websocket_get_issues returns issue data."""
     from custom_components.autodoctor.const import DOMAIN
-    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-    from custom_components.autodoctor.fix_engine import FixEngine
-
-    kb = StateKnowledgeBase(hass)
-    fix_engine = FixEngine(hass, kb)
 
     hass.data[DOMAIN] = {
-        "knowledge_base": kb,
-        "fix_engine": fix_engine,
         "issues": [],
     }
 
@@ -85,30 +76,6 @@ async def test_websocket_get_validation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_get_outcomes(hass: HomeAssistant):
-    """Test getting outcome issues only."""
-    hass.data[DOMAIN] = {
-        "outcome_issues": [],
-        "outcomes_last_run": "2026-01-27T12:00:00+00:00",
-        "fix_engine": None,
-    }
-
-    connection = MagicMock()
-    connection.send_result = MagicMock()
-
-    msg = {"id": 1, "type": "autodoctor/outcomes"}
-
-    await websocket_get_outcomes.__wrapped__(hass, connection, msg)
-
-    connection.send_result.assert_called_once()
-    call_args = connection.send_result.call_args
-    assert call_args[0][0] == 1  # message id
-    result = call_args[0][1]
-    assert result["issues"] == []
-    assert result["last_run"] == "2026-01-27T12:00:00+00:00"
-
-
-@pytest.mark.asyncio
 async def test_websocket_run_validation(hass: HomeAssistant):
     """Test running validation and getting results."""
     hass.data[DOMAIN] = {
@@ -139,36 +106,6 @@ async def test_websocket_run_validation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_run_outcomes(hass: HomeAssistant):
-    """Test running outcome simulation and getting results."""
-    hass.data[DOMAIN] = {
-        "outcome_issues": [],
-        "outcomes_last_run": "2026-01-27T12:00:00+00:00",
-        "fix_engine": None,
-    }
-
-    connection = MagicMock()
-    connection.send_result = MagicMock()
-
-    msg = {"id": 1, "type": "autodoctor/outcomes/run"}
-
-    with patch(
-        "custom_components.autodoctor.async_simulate_all",
-        new_callable=AsyncMock,
-        return_value=[],
-    ):
-        await websocket_run_outcomes.__wrapped__(hass, connection, msg)
-
-    connection.send_result.assert_called_once()
-    call_args = connection.send_result.call_args
-    assert call_args[0][0] == 1  # message id
-    result = call_args[0][1]
-    assert "issues" in result
-    assert "healthy_count" in result
-    assert "last_run" in result
-
-
-@pytest.mark.asyncio
 async def test_websocket_get_conflicts(hass: HomeAssistant):
     """Test getting conflicts via WebSocket."""
     # Set up mock data
@@ -178,6 +115,8 @@ async def test_websocket_get_conflicts(hass: HomeAssistant):
                 entity_id="light.living_room",
                 automation_a="automation.motion",
                 automation_b="automation.away",
+                automation_a_name="Motion",
+                automation_b_name="Away",
                 action_a="turn_on",
                 action_b="turn_off",
                 severity=Severity.ERROR,
@@ -209,19 +148,19 @@ async def test_websocket_get_conflicts(hass: HomeAssistant):
 @pytest.mark.asyncio
 async def test_websocket_run_conflicts(hass: HomeAssistant):
     """Test running conflict detection via WebSocket."""
-    # Set up mock automation data
+    # Set up mock automation data with overlapping triggers (same time)
     hass.data["automation"] = {
         "config": [
             {
                 "id": "motion",
                 "alias": "Motion",
-                "trigger": [],
+                "trigger": [{"platform": "time", "at": "08:00:00"}],
                 "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
             },
             {
                 "id": "away",
                 "alias": "Away",
-                "trigger": [],
+                "trigger": [{"platform": "time", "at": "08:00:00"}],
                 "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
             },
         ]

@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
 from pathlib import Path
 
+import voluptuous as vol
+
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import HomeAssistant, Event, callback
+from homeassistant.core import HomeAssistant, Event, callback, ServiceCall
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -39,6 +43,15 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 # Frontend card
 CARD_URL_BASE = "/autodoctor/autodoctor-card.js"
+
+# Service schemas
+SERVICE_VALIDATE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("automation_id"): cv.entity_id,
+    }
+)
+
+SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 CARD_PATH = Path(__file__).parent / "www" / "autodoctor-card.js"
 
 
@@ -190,10 +203,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "validation_last_run": None,
         "entry": entry,
         "debounce_task": None,
+        "unsub_reload_listener": None,
     }
 
     if validate_on_reload:
-        _setup_reload_listener(hass, debounce_seconds)
+        unsub = _setup_reload_listener(hass, debounce_seconds)
+        hass.data[DOMAIN]["unsub_reload_listener"] = unsub
 
     await _async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -210,19 +225,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_load_history)
 
+    # Listen for options updates to reload the integration
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
     return True
+
+
+async def _async_options_updated(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Handle options update by reloading the integration."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        data = hass.data.get(DOMAIN, {})
+
+        # Cancel pending debounce task
+        debounce_task = data.get("debounce_task")
+        if debounce_task is not None and not debounce_task.done():
+            debounce_task.cancel()
+
+        # Remove event listener
+        unsub_reload = data.get("unsub_reload_listener")
+        if unsub_reload is not None:
+            unsub_reload()
+
+        # Unregister services
+        hass.services.async_remove(DOMAIN, "validate")
+        hass.services.async_remove(DOMAIN, "validate_automation")
+        hass.services.async_remove(DOMAIN, "refresh_knowledge_base")
+
         hass.data.pop(DOMAIN, None)
     return unload_ok
 
 
-def _setup_reload_listener(hass: HomeAssistant, debounce_seconds: int) -> None:
-    """Set up listener for automation reload events."""
+def _setup_reload_listener(
+    hass: HomeAssistant, debounce_seconds: int
+) -> Callable[[], None]:
+    """Set up listener for automation reload events.
+
+    Returns the unsub callback to remove the listener.
+    """
 
     @callback
     def _handle_automation_reload(_: Event) -> None:
@@ -245,20 +292,20 @@ def _setup_reload_listener(hass: HomeAssistant, debounce_seconds: int) -> None:
         new_task = hass.async_create_task(_debounced_validate())
         data["debounce_task"] = new_task
 
-    hass.bus.async_listen("automation_reloaded", _handle_automation_reload)
+    return hass.bus.async_listen("automation_reloaded", _handle_automation_reload)
 
 
 async def _async_setup_services(hass: HomeAssistant) -> None:
     """Set up services."""
 
-    async def handle_validate(call: Any) -> None:
+    async def handle_validate(call: ServiceCall) -> None:
         automation_id = call.data.get("automation_id")
         if automation_id:
             await async_validate_automation(hass, automation_id)
         else:
             await async_validate_all(hass)
 
-    async def handle_refresh(call: Any) -> None:
+    async def handle_refresh(call: ServiceCall) -> None:
         data = hass.data.get(DOMAIN, {})
         kb = data.get("knowledge_base")
         if kb:
@@ -266,9 +313,15 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             await kb.async_load_history()
             _LOGGER.info("Knowledge base refreshed")
 
-    hass.services.async_register(DOMAIN, "validate", handle_validate)
-    hass.services.async_register(DOMAIN, "validate_automation", handle_validate)
-    hass.services.async_register(DOMAIN, "refresh_knowledge_base", handle_refresh)
+    hass.services.async_register(
+        DOMAIN, "validate", handle_validate, schema=SERVICE_VALIDATE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, "validate_automation", handle_validate, schema=SERVICE_VALIDATE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, "refresh_knowledge_base", handle_refresh, schema=SERVICE_REFRESH_SCHEMA
+    )
 
 
 async def async_validate_all(hass: HomeAssistant) -> list:
