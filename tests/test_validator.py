@@ -1,5 +1,7 @@
 """Tests for ValidationEngine."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from homeassistant.core import HomeAssistant
 
@@ -126,3 +128,46 @@ async def test_validate_detects_removed_entity(hass: HomeAssistant):
         "existed in history" in issues[0].message.lower()
         or "removed" in issues[0].message.lower()
     )
+
+
+def test_validate_reference_handles_knowledge_base_error():
+    """Test that knowledge_base errors don't crash validation."""
+    mock_kb = MagicMock()
+    mock_kb.entity_exists.side_effect = Exception("KB error")
+
+    validator = ValidationEngine(mock_kb)
+    ref = StateReference(
+        entity_id="light.test",
+        automation_id="test_auto",
+        automation_name="Test",
+        location="trigger[0]",
+        expected_state=None,
+        expected_attribute=None,
+    )
+
+    # Should not raise, should return empty list
+    issues = validator.validate_reference(ref)
+    assert issues == []
+
+
+def test_validator_caches_entity_suggestions():
+    """Test that entity cache is built once and reused."""
+    mock_kb = MagicMock()
+    mock_hass = MagicMock()
+    mock_kb.hass = mock_hass
+
+    # Return same entities each time
+    mock_entity1 = MagicMock()
+    mock_entity1.entity_id = "light.living_room"
+    mock_entity2 = MagicMock()
+    mock_entity2.entity_id = "light.bedroom"
+    mock_hass.states.async_all.return_value = [mock_entity1, mock_entity2]
+
+    validator = ValidationEngine(mock_kb)
+
+    # Call _suggest_entity twice
+    validator._suggest_entity("light.living_rom")  # Typo
+    validator._suggest_entity("light.bedroon")  # Typo
+
+    # async_all should only be called once (cached)
+    assert mock_hass.states.async_all.call_count == 1

@@ -193,3 +193,28 @@ async def test_websocket_run_conflicts(hass: HomeAssistant):
     assert len(result["conflicts"]) == 1
     assert "last_run" in result
     assert result["suppressed_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_validation_handles_error(hass: HomeAssistant):
+    """Test that validation errors return proper error response."""
+    hass.data[DOMAIN] = {}
+
+    connection = MagicMock()
+    connection.send_result = MagicMock()
+    connection.send_error = MagicMock()
+
+    msg = {"id": 1, "type": "autodoctor/validation/run"}
+
+    # Mock async_validate_all to raise an exception
+    with patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+        side_effect=Exception("Validation failed"),
+    ):
+        await websocket_run_validation.__wrapped__(hass, connection, msg)
+
+    # Should call send_error, not crash
+    connection.send_error.assert_called_once()
+    call_args = connection.send_error.call_args
+    assert call_args[0][0] == 1  # message id

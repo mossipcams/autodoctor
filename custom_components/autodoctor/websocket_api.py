@@ -202,38 +202,44 @@ async def websocket_run_validation(
     msg: dict[str, Any],
 ) -> None:
     """Run validation and return results."""
-    from . import async_validate_all
+    try:
+        from . import async_validate_all
 
-    data = hass.data.get(DOMAIN, {})
-    suppression_store: SuppressionStore | None = data.get("suppression_store")
+        data = hass.data.get(DOMAIN, {})
+        suppression_store: SuppressionStore | None = data.get("suppression_store")
 
-    all_issues = await async_validate_all(hass)
+        all_issues = await async_validate_all(hass)
 
-    # Filter out suppressed issues
-    if suppression_store:
-        visible_issues = [
-            issue
-            for issue in all_issues
-            if not suppression_store.is_suppressed(issue.get_suppression_key())
-        ]
-        suppressed_count = len(all_issues) - len(visible_issues)
-    else:
-        visible_issues = all_issues
-        suppressed_count = 0
+        # Filter out suppressed issues
+        if suppression_store:
+            visible_issues = [
+                issue
+                for issue in all_issues
+                if not suppression_store.is_suppressed(issue.get_suppression_key())
+            ]
+            suppressed_count = len(all_issues) - len(visible_issues)
+        else:
+            visible_issues = all_issues
+            suppressed_count = 0
 
-    issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
-    healthy_count = _get_healthy_count(hass, visible_issues)
-    last_run = hass.data.get(DOMAIN, {}).get("validation_last_run")
+        issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
+        healthy_count = _get_healthy_count(hass, visible_issues)
+        last_run = hass.data.get(DOMAIN, {}).get("validation_last_run")
 
-    connection.send_result(
-        msg["id"],
-        {
-            "issues": issues_with_fixes,
-            "healthy_count": healthy_count,
-            "last_run": last_run,
-            "suppressed_count": suppressed_count,
-        },
-    )
+        connection.send_result(
+            msg["id"],
+            {
+                "issues": issues_with_fixes,
+                "healthy_count": healthy_count,
+                "last_run": last_run,
+                "suppressed_count": suppressed_count,
+            },
+        )
+    except Exception as err:
+        _LOGGER.exception("Error in websocket_run_validation: %s", err)
+        connection.send_error(
+            msg["id"], "validation_failed", f"Validation error: {err}"
+        )
 
 
 def _format_conflicts(conflicts: list, suppression_store) -> tuple[list[dict], int]:

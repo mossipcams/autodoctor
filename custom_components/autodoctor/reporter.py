@@ -143,8 +143,11 @@ class IssueReporter:
         """Clear issues that have been resolved."""
         resolved = self._active_issues - current_ids
         for issue_id in resolved:
-            # Note: ir.async_delete_issue is synchronous despite the name
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            try:
+                # Note: ir.async_delete_issue is synchronous despite the name
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            except Exception as err:
+                _LOGGER.warning("Failed to delete issue %s: %s", issue_id, err)
 
     def clear_all_issues(self) -> None:
         """Clear all issues."""
