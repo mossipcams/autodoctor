@@ -1406,6 +1406,14 @@ export class AutodoctorCard extends LitElement {
   public getCardSize(): number {
     return 3;
   }
+
+  public getGridOptions() {
+    return {
+      columns: 12,
+      min_columns: 6,
+      rows: "auto",
+    };
+  }
 }
 
 // Register card with HA
