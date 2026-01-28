@@ -2,7 +2,7 @@ import { LitElement, html, css, CSSResultGroup, TemplateResult, nothing } from "
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type { AutodoctorCardConfig, IssueWithFix, ValidationIssue, TabType, AutodoctorTabData } from "./types";
+import type { AutodoctorCardConfig, IssueWithFix, ValidationIssue, TabType, AutodoctorTabData, ConflictsTabData, Conflict } from "./types";
 
 interface AutomationGroup {
   automation_id: string;
@@ -24,8 +24,10 @@ export class AutodoctorCard extends LitElement {
   @state() private _activeTab: TabType = "validation";
   @state() private _validationData: AutodoctorTabData | null = null;
   @state() private _outcomesData: AutodoctorTabData | null = null;
+  @state() private _conflictsData: ConflictsTabData | null = null;
   @state() private _runningValidation = false;
   @state() private _runningOutcomes = false;
+  @state() private _runningConflicts = false;
   @state() private _isRefreshing = false;
   @state() private _dismissedSuggestions = new Set<string>();
 
@@ -56,6 +58,8 @@ export class AutodoctorCard extends LitElement {
       this._fetchValidation();
     } else if (tab === "outcomes" && !this._outcomesData) {
       this._fetchOutcomes();
+    } else if (tab === "conflicts" && !this._conflictsData) {
+      this._fetchConflicts();
     }
   }
 
@@ -111,12 +115,40 @@ export class AutodoctorCard extends LitElement {
     this._runningOutcomes = false;
   }
 
+  private async _fetchConflicts(): Promise<void> {
+    this._loading = true;
+    try {
+      this._error = null;
+      this._conflictsData = await this.hass.callWS<ConflictsTabData>({
+        type: "autodoctor/conflicts",
+      });
+    } catch (err) {
+      console.error("Failed to fetch conflicts data:", err);
+      this._error = "Failed to load conflicts data";
+    }
+    this._loading = false;
+  }
+
+  private async _runConflicts(): Promise<void> {
+    this._runningConflicts = true;
+    try {
+      this._conflictsData = await this.hass.callWS<ConflictsTabData>({
+        type: "autodoctor/conflicts/run",
+      });
+    } catch (err) {
+      console.error("Failed to run conflict detection:", err);
+    }
+    this._runningConflicts = false;
+  }
+
   private async _refreshCurrentTab(): Promise<void> {
     this._isRefreshing = true;
     if (this._activeTab === "validation") {
       await this._fetchValidation();
-    } else {
+    } else if (this._activeTab === "outcomes") {
       await this._fetchOutcomes();
+    } else {
+      await this._fetchConflicts();
     }
     this._isRefreshing = false;
   }
@@ -181,6 +213,11 @@ export class AutodoctorCard extends LitElement {
 
     if (this._error) {
       return this._renderError(title);
+    }
+
+    // Handle conflicts tab separately since it has different data structure
+    if (this._activeTab === "conflicts") {
+      return this._renderConflictsTab(title);
     }
 
     const data = this._activeTab === "validation"
@@ -296,6 +333,12 @@ export class AutodoctorCard extends LitElement {
         >
           Outcomes
         </button>
+        <button
+          class="tab ${this._activeTab === 'conflicts' ? 'active' : ''}"
+          @click=${() => this._switchTab('conflicts')}
+        >
+          Conflicts
+        </button>
       </div>
     `;
   }
@@ -337,18 +380,42 @@ export class AutodoctorCard extends LitElement {
 
   private _renderTabFooter(): TemplateResult {
     const isValidation = this._activeTab === "validation";
-    const isRunning = isValidation ? this._runningValidation : this._runningOutcomes;
+    const isOutcomes = this._activeTab === "outcomes";
+    const isConflicts = this._activeTab === "conflicts";
+
+    const isRunning = isValidation
+      ? this._runningValidation
+      : isOutcomes
+        ? this._runningOutcomes
+        : this._runningConflicts;
+
     const lastRun = isValidation
       ? this._validationData?.last_run
-      : this._outcomesData?.last_run;
+      : isOutcomes
+        ? this._outcomesData?.last_run
+        : this._conflictsData?.last_run;
 
-    const buttonText = isValidation ? "Run Validation" : "Run Outcomes";
+    const buttonText = isValidation
+      ? "Run Validation"
+      : isOutcomes
+        ? "Run Outcomes"
+        : "Run Conflict Detection";
+
+    const runHandler = () => {
+      if (isValidation) {
+        this._runValidation();
+      } else if (isOutcomes) {
+        this._runOutcomes();
+      } else {
+        this._runConflicts();
+      }
+    };
 
     return html`
       <div class="footer">
         <button
           class="run-btn ${isRunning ? 'running' : ''}"
-          @click=${() => isValidation ? this._runValidation() : this._runOutcomes()}
+          @click=${runHandler}
           ?disabled=${isRunning}
         >
           <span class="run-icon" aria-hidden="true">${isRunning ? '↻' : '▶'}</span>
@@ -475,6 +542,111 @@ export class AutodoctorCard extends LitElement {
       <span class="confidence-pill ${isHigh ? 'high' : 'medium'}">
         ${isHigh ? 'High' : 'Medium'} confidence
       </span>
+    `;
+  }
+
+  private _renderConflictsTab(title: string): TemplateResult {
+    if (!this._conflictsData) {
+      return this._renderEmpty(title);
+    }
+
+    const { conflicts, suppressed_count } = this._conflictsData;
+    const hasConflicts = conflicts.length > 0;
+
+    // Count by severity
+    const errorCount = conflicts.filter(c => c.severity === "error").length;
+    const warningCount = conflicts.filter(c => c.severity === "warning").length;
+
+    return html`
+      <ha-card>
+        ${this._renderHeader(title)}
+        ${this._renderTabs()}
+        <div class="card-content">
+          ${this._renderConflictsBadges(errorCount, warningCount, suppressed_count)}
+          ${hasConflicts
+            ? conflicts.map((conflict) => this._renderConflict(conflict))
+            : this._renderNoConflicts()}
+        </div>
+        ${this._renderTabFooter()}
+      </ha-card>
+    `;
+  }
+
+  private _renderConflictsBadges(
+    errors: number,
+    warnings: number,
+    suppressed: number
+  ): TemplateResult {
+    return html`
+      <div class="badges-row">
+        ${errors > 0
+          ? html`<span class="badge badge-error" title="${errors} conflict${errors !== 1 ? 's' : ''}">
+              <span class="badge-icon" aria-hidden="true">✕</span>
+              <span class="badge-count">${errors}</span>
+            </span>`
+          : nothing}
+        ${warnings > 0
+          ? html`<span class="badge badge-warning" title="${warnings} warning${warnings !== 1 ? 's' : ''}">
+              <span class="badge-icon" aria-hidden="true">!</span>
+              <span class="badge-count">${warnings}</span>
+            </span>`
+          : nothing}
+        ${errors === 0 && warnings === 0
+          ? html`<span class="badge badge-healthy" title="No conflicts">
+              <span class="badge-icon" aria-hidden="true">✓</span>
+              <span class="badge-count">0</span>
+            </span>`
+          : nothing}
+        ${suppressed > 0
+          ? html`<span class="badge badge-suppressed" title="${suppressed} suppressed">
+              <span class="badge-icon" aria-hidden="true">⊘</span>
+              <span class="badge-count">${suppressed}</span>
+            </span>`
+          : nothing}
+      </div>
+    `;
+  }
+
+  private _renderNoConflicts(): TemplateResult {
+    return html`
+      <div class="all-healthy">
+        <div class="healthy-icon" aria-hidden="true">✓</div>
+        <div class="healthy-message">
+          <span class="healthy-title">No conflicts detected</span>
+          <span class="healthy-subtitle">Your automations work harmoniously</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderConflict(conflict: Conflict): TemplateResult {
+    const isError = conflict.severity === "error";
+
+    return html`
+      <div class="conflict-card ${isError ? 'severity-error' : 'severity-warning'}">
+        <div class="conflict-header">
+          <span class="conflict-severity-icon" aria-hidden="true">${isError ? '✕' : '!'}</span>
+          <span class="conflict-entity">${conflict.entity_id}</span>
+        </div>
+        <div class="conflict-automations">
+          <div class="conflict-automation">
+            <span class="conflict-automation-label">A:</span>
+            <span class="conflict-automation-name">${conflict.automation_a}</span>
+            <span class="conflict-action">${conflict.action_a}</span>
+          </div>
+          <div class="conflict-vs">vs</div>
+          <div class="conflict-automation">
+            <span class="conflict-automation-label">B:</span>
+            <span class="conflict-automation-name">${conflict.automation_b}</span>
+            <span class="conflict-action">${conflict.action_b}</span>
+          </div>
+        </div>
+        <div class="conflict-explanation">${conflict.explanation}</div>
+        <div class="conflict-scenario">
+          <span class="conflict-scenario-label">Scenario:</span>
+          ${conflict.scenario}
+        </div>
+      </div>
     `;
   }
 
@@ -1113,6 +1285,120 @@ export class AutodoctorCard extends LitElement {
       @keyframes rotate {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
+      }
+
+      /* Conflict cards */
+      .conflict-card {
+        background: rgba(127, 127, 127, 0.06);
+        border-left: 3px solid var(--autodoc-error);
+        border-radius: 0 8px 8px 0;
+        padding: var(--autodoc-spacing-md);
+        margin-bottom: var(--autodoc-spacing-md);
+      }
+
+      .conflict-card:last-child {
+        margin-bottom: 0;
+      }
+
+      .conflict-card.severity-warning {
+        border-left-color: var(--autodoc-warning);
+      }
+
+      .conflict-header {
+        display: flex;
+        align-items: center;
+        gap: var(--autodoc-spacing-sm);
+        margin-bottom: var(--autodoc-spacing-sm);
+      }
+
+      .conflict-severity-icon {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(217, 72, 72, 0.15);
+        color: var(--autodoc-error);
+        border-radius: 50%;
+        font-size: 0.7rem;
+        font-weight: bold;
+      }
+
+      .conflict-card.severity-warning .conflict-severity-icon {
+        background: rgba(196, 144, 8, 0.15);
+        color: var(--autodoc-warning);
+      }
+
+      .conflict-entity {
+        font-size: var(--autodoc-name-size);
+        font-weight: 600;
+        color: var(--primary-text-color);
+        font-family: monospace;
+      }
+
+      .conflict-automations {
+        display: flex;
+        flex-direction: column;
+        gap: var(--autodoc-spacing-xs);
+        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
+        background: var(--primary-background-color, rgba(255, 255, 255, 0.5));
+        border-radius: 6px;
+        margin-bottom: var(--autodoc-spacing-sm);
+      }
+
+      .conflict-automation {
+        display: flex;
+        align-items: center;
+        gap: var(--autodoc-spacing-sm);
+        font-size: var(--autodoc-issue-size);
+      }
+
+      .conflict-automation-label {
+        color: var(--secondary-text-color);
+        font-weight: 600;
+        min-width: 16px;
+      }
+
+      .conflict-automation-name {
+        color: var(--primary-text-color);
+        font-weight: 500;
+      }
+
+      .conflict-action {
+        color: var(--secondary-text-color);
+        font-style: italic;
+      }
+
+      .conflict-action::before {
+        content: "→ ";
+      }
+
+      .conflict-vs {
+        text-align: center;
+        color: var(--secondary-text-color);
+        font-size: var(--autodoc-meta-size);
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .conflict-explanation {
+        font-size: var(--autodoc-issue-size);
+        color: var(--primary-text-color);
+        line-height: 1.4;
+        margin-bottom: var(--autodoc-spacing-sm);
+      }
+
+      .conflict-scenario {
+        font-size: var(--autodoc-meta-size);
+        color: var(--secondary-text-color);
+        padding: var(--autodoc-spacing-sm);
+        background: rgba(127, 127, 127, 0.08);
+        border-radius: 4px;
+      }
+
+      .conflict-scenario-label {
+        font-weight: 600;
+        margin-right: var(--autodoc-spacing-xs);
       }
     `;
   }

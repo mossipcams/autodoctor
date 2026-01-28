@@ -557,3 +557,129 @@ def test_extract_from_nested_choose_default():
     refs = analyzer.extract_state_references(automation)
 
     assert any(r.entity_id == "sensor.fallback" for r in refs)
+
+
+def test_extract_service_calls_turn_on():
+    """Test extraction of turn_on service call."""
+    automation = {
+        "id": "motion_lights",
+        "alias": "Motion Lights",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].automation_id == "automation.motion_lights"
+    assert actions[0].entity_id == "light.living_room"
+    assert actions[0].action == "turn_on"
+
+
+def test_extract_service_calls_turn_off():
+    """Test extraction of turn_off service call."""
+    automation = {
+        "id": "away_mode",
+        "alias": "Away Mode",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_off",
+                "entity_id": "light.living_room",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].action == "turn_off"
+
+
+def test_extract_service_calls_toggle():
+    """Test extraction of toggle service call."""
+    automation = {
+        "id": "toggle_lights",
+        "alias": "Toggle Lights",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.toggle",
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].action == "toggle"
+
+
+def test_extract_service_calls_nested_choose():
+    """Test extraction from nested choose blocks."""
+    automation = {
+        "id": "complex",
+        "alias": "Complex",
+        "trigger": [],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [
+                            {
+                                "service": "light.turn_on",
+                                "target": {"entity_id": "light.bedroom"},
+                            }
+                        ],
+                    }
+                ],
+                "default": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.bedroom"},
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 2
+    action_types = {a.action for a in actions}
+    assert action_types == {"turn_on", "turn_off"}
+
+
+def test_extract_service_calls_multiple_entities():
+    """Test extraction with multiple entity targets."""
+    automation = {
+        "id": "all_off",
+        "alias": "All Off",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_off",
+                "target": {
+                    "entity_id": ["light.living_room", "light.kitchen"],
+                },
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 2
+    entity_ids = {a.entity_id for a in actions}
+    assert entity_ids == {"light.living_room", "light.kitchen"}

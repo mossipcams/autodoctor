@@ -35,6 +35,8 @@ from .reporter import IssueReporter
 from .fix_engine import FixEngine
 from .suppression_store import SuppressionStore
 from .websocket_api import async_setup_websocket_api
+from .entity_graph import EntityGraph
+from .suggestion_learner import SuggestionLearner
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -169,7 +171,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     validator = ValidationEngine(knowledge_base, staleness_threshold_days)
     simulator = SimulationEngine(knowledge_base)
     reporter = IssueReporter(hass)
-    fix_engine = FixEngine(hass, knowledge_base)
+
+    entity_graph = EntityGraph()
+    await entity_graph.async_load(hass)
+
+    suggestion_learner = SuggestionLearner()
+    await suggestion_learner.async_setup(hass)
+
+    fix_engine = FixEngine(hass, knowledge_base, entity_graph, suggestion_learner)
     suppression_store = SuppressionStore(hass)
     await suppression_store.async_load()
 
@@ -180,6 +189,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "simulator": simulator,
         "reporter": reporter,
         "fix_engine": fix_engine,
+        "entity_graph": entity_graph,
+        "suggestion_learner": suggestion_learner,
         "suppression_store": suppression_store,
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],

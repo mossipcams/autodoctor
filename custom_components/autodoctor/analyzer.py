@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from .models import IssueType, Severity, StateReference, ValidationIssue
+from .models import EntityAction, IssueType, Severity, StateReference, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -490,3 +490,125 @@ class AutomationAnalyzer:
                         )
 
         return issues
+
+    def extract_entity_actions(self, automation: dict[str, Any]) -> list[EntityAction]:
+        """Extract all entity actions (service calls) from an automation."""
+        actions: list[EntityAction] = []
+
+        automation_id = f"automation.{automation.get('id', 'unknown')}"
+
+        action_list = automation.get("actions") or automation.get("action", [])
+        if not isinstance(action_list, list):
+            action_list = [action_list]
+
+        actions.extend(self._extract_actions_recursive(action_list, automation_id))
+
+        return actions
+
+    def _extract_actions_recursive(
+        self,
+        action_list: list[dict[str, Any]],
+        automation_id: str,
+    ) -> list[EntityAction]:
+        """Recursively extract EntityActions from action blocks."""
+        results: list[EntityAction] = []
+
+        for action in action_list:
+            if not isinstance(action, dict):
+                continue
+
+            # Direct service call
+            if "service" in action:
+                results.extend(self._parse_service_call(action, automation_id))
+
+            # Choose block
+            if "choose" in action:
+                for option in action.get("choose", []):
+                    sequence = option.get("sequence", [])
+                    results.extend(self._extract_actions_recursive(sequence, automation_id))
+                default = action.get("default", [])
+                if default:
+                    results.extend(self._extract_actions_recursive(default, automation_id))
+
+            # If/then/else block
+            if "if" in action:
+                then_actions = action.get("then", [])
+                else_actions = action.get("else", [])
+                results.extend(self._extract_actions_recursive(then_actions, automation_id))
+                if else_actions:
+                    results.extend(self._extract_actions_recursive(else_actions, automation_id))
+
+            # Repeat block
+            if "repeat" in action:
+                sequence = action["repeat"].get("sequence", [])
+                results.extend(self._extract_actions_recursive(sequence, automation_id))
+
+            # Parallel block
+            if "parallel" in action:
+                branches = action["parallel"]
+                if not isinstance(branches, list):
+                    branches = [branches]
+                for branch in branches:
+                    branch_actions = branch if isinstance(branch, list) else [branch]
+                    results.extend(self._extract_actions_recursive(branch_actions, automation_id))
+
+        return results
+
+    def _parse_service_call(
+        self,
+        action: dict[str, Any],
+        automation_id: str,
+    ) -> list[EntityAction]:
+        """Parse a service call action into EntityAction objects."""
+        results: list[EntityAction] = []
+
+        service = action.get("service", "")
+        if not service or "." not in service:
+            return results
+
+        domain, service_name = service.split(".", 1)
+
+        # Determine the action type
+        if service_name in ("turn_on",):
+            action_type = "turn_on"
+        elif service_name in ("turn_off",):
+            action_type = "turn_off"
+        elif service_name in ("toggle",):
+            action_type = "toggle"
+        else:
+            action_type = "set"
+
+        # Extract entity IDs from target or entity_id
+        entity_ids: list[str] = []
+
+        target = action.get("target", {})
+        if isinstance(target, dict):
+            target_entities = target.get("entity_id", [])
+            if isinstance(target_entities, str):
+                entity_ids.append(target_entities)
+            elif isinstance(target_entities, list):
+                entity_ids.extend(target_entities)
+
+        # Also check direct entity_id field
+        direct_entity = action.get("entity_id")
+        if direct_entity:
+            if isinstance(direct_entity, str):
+                entity_ids.append(direct_entity)
+            elif isinstance(direct_entity, list):
+                entity_ids.extend(direct_entity)
+
+        # Get optional value for set actions
+        value = action.get("data", {}) if action_type == "set" else None
+
+        for entity_id in entity_ids:
+            results.append(
+                EntityAction(
+                    automation_id=automation_id,
+                    entity_id=entity_id,
+                    action=action_type,
+                    value=value,
+                    conditions=[],
+                )
+            )
+
+        return results

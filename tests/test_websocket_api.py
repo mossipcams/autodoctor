@@ -12,8 +12,11 @@ from custom_components.autodoctor.websocket_api import (
     websocket_get_outcomes,
     websocket_run_validation,
     websocket_run_outcomes,
+    websocket_get_conflicts,
+    websocket_run_conflicts,
 )
 from custom_components.autodoctor.const import DOMAIN
+from custom_components.autodoctor.models import Conflict, Severity
 
 
 @pytest.mark.asyncio
@@ -163,3 +166,79 @@ async def test_websocket_run_outcomes(hass: HomeAssistant):
     assert "issues" in result
     assert "healthy_count" in result
     assert "last_run" in result
+
+
+@pytest.mark.asyncio
+async def test_websocket_get_conflicts(hass: HomeAssistant):
+    """Test getting conflicts via WebSocket."""
+    # Set up mock data
+    hass.data[DOMAIN] = {
+        "conflicts": [
+            Conflict(
+                entity_id="light.living_room",
+                automation_a="automation.motion",
+                automation_b="automation.away",
+                action_a="turn_on",
+                action_b="turn_off",
+                severity=Severity.ERROR,
+                explanation="Test conflict",
+                scenario="Test scenario",
+            )
+        ],
+        "conflicts_last_run": "2026-01-27T12:00:00",
+        "suppression_store": None,
+    }
+
+    connection = MagicMock()
+    connection.send_result = MagicMock()
+
+    msg = {"id": 1, "type": "autodoctor/conflicts"}
+
+    await websocket_get_conflicts.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    call_args = connection.send_result.call_args
+    assert call_args[0][0] == 1  # message id
+    result = call_args[0][1]
+    assert len(result["conflicts"]) == 1
+    assert result["conflicts"][0]["entity_id"] == "light.living_room"
+    assert result["last_run"] == "2026-01-27T12:00:00"
+    assert result["suppressed_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_conflicts(hass: HomeAssistant):
+    """Test running conflict detection via WebSocket."""
+    # Set up mock automation data
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "motion",
+                "alias": "Motion",
+                "trigger": [],
+                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
+            },
+            {
+                "id": "away",
+                "alias": "Away",
+                "trigger": [],
+                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
+            },
+        ]
+    }
+    hass.data[DOMAIN] = {"suppression_store": None}
+
+    connection = MagicMock()
+    connection.send_result = MagicMock()
+
+    msg = {"id": 1, "type": "autodoctor/conflicts/run"}
+
+    await websocket_run_conflicts.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    call_args = connection.send_result.call_args
+    assert call_args[0][0] == 1  # message id
+    result = call_args[0][1]
+    assert len(result["conflicts"]) == 1
+    assert "last_run" in result
+    assert result["suppressed_count"] == 0

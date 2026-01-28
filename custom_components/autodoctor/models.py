@@ -37,6 +37,50 @@ class IssueType(str, Enum):
 
 
 @dataclass
+class EntityAction:
+    """An action that affects an entity, extracted from an automation."""
+
+    automation_id: str
+    entity_id: str
+    action: str  # "turn_on", "turn_off", "toggle", "set"
+    value: Any  # For set actions (brightness, temperature, etc.)
+    conditions: list[str]  # Human-readable condition summary
+
+
+@dataclass
+class Conflict:
+    """A detected conflict between two automations."""
+
+    entity_id: str
+    automation_a: str
+    automation_b: str
+    action_a: str
+    action_b: str
+    severity: Severity
+    explanation: str
+    scenario: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to serializable dictionary."""
+        return {
+            "entity_id": self.entity_id,
+            "automation_a": self.automation_a,
+            "automation_b": self.automation_b,
+            "action_a": self.action_a,
+            "action_b": self.action_b,
+            "severity": self.severity.name.lower(),
+            "explanation": self.explanation,
+            "scenario": self.scenario,
+        }
+
+    def get_suppression_key(self) -> str:
+        """Generate a unique key for suppressing this conflict."""
+        # Sort automation IDs for consistent key regardless of order
+        auto_ids = sorted([self.automation_a, self.automation_b])
+        return f"{auto_ids[0]}:{auto_ids[1]}:{self.entity_id}:conflict"
+
+
+@dataclass
 class StateReference:
     """A reference to an entity state found in an automation."""
 

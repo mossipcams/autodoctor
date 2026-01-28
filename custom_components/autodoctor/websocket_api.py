@@ -11,6 +11,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN
+from .conflict_detector import ConflictDetector
 
 if TYPE_CHECKING:
     from .fix_engine import FixEngine
@@ -27,6 +28,8 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_run_validation)
     websocket_api.async_register_command(hass, websocket_get_outcomes)
     websocket_api.async_register_command(hass, websocket_run_outcomes)
+    websocket_api.async_register_command(hass, websocket_get_conflicts)
+    websocket_api.async_register_command(hass, websocket_run_conflicts)
     websocket_api.async_register_command(hass, websocket_suppress)
     websocket_api.async_register_command(hass, websocket_clear_suppressions)
 
@@ -283,6 +286,101 @@ async def websocket_run_outcomes(
         {
             "issues": issues_with_fixes,
             "healthy_count": healthy_count,
+            "last_run": last_run,
+            "suppressed_count": suppressed_count,
+        },
+    )
+
+
+def _format_conflicts(conflicts: list, suppression_store) -> tuple[list[dict], int]:
+    """Format conflicts, filtering suppressed ones."""
+    if suppression_store:
+        visible = [
+            c for c in conflicts
+            if not suppression_store.is_suppressed(c.get_suppression_key())
+        ]
+        suppressed_count = len(conflicts) - len(visible)
+    else:
+        visible = conflicts
+        suppressed_count = 0
+
+    formatted = [c.to_dict() for c in visible]
+    return formatted, suppressed_count
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/conflicts",
+    }
+)
+@websocket_api.async_response
+async def websocket_get_conflicts(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Get conflict detection results."""
+    data = hass.data.get(DOMAIN, {})
+    conflicts = data.get("conflicts", [])
+    last_run = data.get("conflicts_last_run")
+    suppression_store = data.get("suppression_store")
+
+    formatted, suppressed_count = _format_conflicts(conflicts, suppression_store)
+
+    connection.send_result(
+        msg["id"],
+        {
+            "conflicts": formatted,
+            "last_run": last_run,
+            "suppressed_count": suppressed_count,
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/conflicts/run",
+    }
+)
+@websocket_api.async_response
+async def websocket_run_conflicts(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Run conflict detection and return results."""
+    from datetime import datetime, timezone
+
+    data = hass.data.get(DOMAIN, {})
+    suppression_store = data.get("suppression_store")
+
+    # Get automation configs
+    automation_data = hass.data.get("automation", {})
+    if isinstance(automation_data, dict):
+        automations = automation_data.get("config", [])
+    elif hasattr(automation_data, "entities"):
+        automations = [
+            e.raw_config for e in automation_data.entities
+            if hasattr(e, "raw_config") and e.raw_config
+        ]
+    else:
+        automations = []
+
+    # Detect conflicts
+    detector = ConflictDetector()
+    conflicts = detector.detect_conflicts(automations)
+
+    # Store results
+    last_run = datetime.now(timezone.utc).isoformat()
+    hass.data[DOMAIN]["conflicts"] = conflicts
+    hass.data[DOMAIN]["conflicts_last_run"] = last_run
+
+    formatted, suppressed_count = _format_conflicts(conflicts, suppression_store)
+
+    connection.send_result(
+        msg["id"],
+        {
+            "conflicts": formatted,
             "last_run": last_run,
             "suppressed_count": suppressed_count,
         },
