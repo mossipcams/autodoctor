@@ -17,15 +17,15 @@ IS_STATE_PATTERN = re.compile(
 STATE_ATTR_PATTERN = re.compile(
     r"state_attr\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)"
 )
-STATES_OBJECT_PATTERN = re.compile(
-    r"states\.([a-z_]+)\.([a-z0-9_]+)(?:\.state)?"
-)
+STATES_OBJECT_PATTERN = re.compile(r"states\.([a-z_]+)\.([a-z0-9_]+)(?:\.state)?")
 
 
 class AutomationAnalyzer:
     """Parses automation configs and extracts all state references."""
 
-    def extract_state_references(self, automation: dict[str, Any]) -> list[StateReference]:
+    def extract_state_references(
+        self, automation: dict[str, Any]
+    ) -> list[StateReference]:
         """Extract all state references from an automation."""
         refs: list[StateReference] = []
 
@@ -49,7 +49,9 @@ class AutomationAnalyzer:
 
         for idx, condition in enumerate(conditions):
             refs.extend(
-                self._extract_from_condition(condition, idx, automation_id, automation_name)
+                self._extract_from_condition(
+                    condition, idx, automation_id, automation_name
+                )
             )
 
         return refs
@@ -164,7 +166,10 @@ class AutomationAnalyzer:
             value_template = condition.get("value_template", "")
             refs.extend(
                 self._extract_from_template(
-                    value_template, f"condition[{index}]", automation_id, automation_name
+                    value_template,
+                    f"condition[{index}]",
+                    automation_id,
+                    automation_name,
                 )
             )
 

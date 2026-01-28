@@ -1,14 +1,13 @@
 """Tests for WebSocket API learning on suppression."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from homeassistant.core import HomeAssistant
 
-from custom_components.autodoctor.websocket_api import websocket_suppress
+from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.learned_states_store import LearnedStatesStore
 from custom_components.autodoctor.suppression_store import SuppressionStore
-from custom_components.autodoctor.const import DOMAIN
+from custom_components.autodoctor.websocket_api import websocket_suppress
 
 
 async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant):
@@ -43,7 +42,7 @@ async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant
 
     with patch(
         "custom_components.autodoctor.websocket_api.er.async_get",
-        return_value=mock_registry
+        return_value=mock_registry,
     ):
         await websocket_suppress.__wrapped__(hass, connection, msg)
 
@@ -52,7 +51,9 @@ async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant
     assert "segment_cleaning" in states
 
     # Verify suppression was added
-    assert suppression_store.is_suppressed("automation.test:vacuum.roborock_s7:invalid_state")
+    assert suppression_store.is_suppressed(
+        "automation.test:vacuum.roborock_s7:invalid_state"
+    )
 
 
 async def test_suppress_does_not_learn_for_non_state_issues(hass: HomeAssistant):
@@ -112,4 +113,6 @@ async def test_suppress_does_not_learn_without_state_param(hass: HomeAssistant):
     assert len(states) == 0
 
     # But suppression was still added
-    assert suppression_store.is_suppressed("automation.test:vacuum.roborock_s7:invalid_state")
+    assert suppression_store.is_suppressed(
+        "automation.test:vacuum.roborock_s7:invalid_state"
+    )

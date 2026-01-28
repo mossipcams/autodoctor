@@ -12,8 +12,16 @@ DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "lock": {"locked", "unlocked", "locking", "unlocking", "jammed", "opening", "open"},
     "cover": {"open", "closed", "opening", "closing", "stopped"},
     "alarm_control_panel": {
-        "disarmed", "armed_home", "armed_away", "armed_night", "armed_vacation",
-        "armed_custom_bypass", "pending", "arming", "disarming", "triggered"
+        "disarmed",
+        "armed_home",
+        "armed_away",
+        "armed_night",
+        "armed_vacation",
+        "armed_custom_bypass",
+        "pending",
+        "arming",
+        "disarming",
+        "triggered",
     },
     "vacuum": {"cleaning", "docked", "idle", "paused", "returning", "error"},
     "media_player": {"off", "on", "idle", "playing", "paused", "standby", "buffering"},
@@ -31,8 +39,15 @@ DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "climate": {"off", "heat", "cool", "heat_cool", "auto", "dry", "fan_only"},
     # water_heater: operation modes
     "water_heater": {
-        "off", "eco", "electric", "gas", "heat_pump", "high_demand", "performance",
-        "heat", "auto"
+        "off",
+        "eco",
+        "electric",
+        "gas",
+        "heat_pump",
+        "high_demand",
+        "performance",
+        "heat",
+        "auto",
     },
     # humidifier: on/off (action is an attribute)
     "humidifier": {"on", "off"},
@@ -63,9 +78,21 @@ DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "calendar": {"on", "off"},
     # weather: conditions
     "weather": {
-        "clear-night", "cloudy", "exceptional", "fog", "hail", "lightning",
-        "lightning-rainy", "partlycloudy", "pouring", "rainy", "snowy",
-        "snowy-rainy", "sunny", "windy", "windy-variant"
+        "clear-night",
+        "cloudy",
+        "exceptional",
+        "fog",
+        "hail",
+        "lightning",
+        "lightning-rainy",
+        "partlycloudy",
+        "pouring",
+        "rainy",
+        "snowy",
+        "snowy-rainy",
+        "sunny",
+        "windy",
+        "windy-variant",
     },
     # device_tracker states beyond home/not_home handled by knowledge_base
 }

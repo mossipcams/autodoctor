@@ -14,8 +14,10 @@ if TYPE_CHECKING:
 try:
     from homeassistant.components.recorder import get_significant_states
 except ImportError:
+
     async def get_significant_states(*args, **kwargs):
         return {}
+
 
 _LOGGER = logging.getLogger(__name__)
 

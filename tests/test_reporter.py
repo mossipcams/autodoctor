@@ -1,12 +1,12 @@
 """Tests for IssueReporter."""
 
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
 
+import pytest
 from homeassistant.core import HomeAssistant
 
+from custom_components.autodoctor.models import Severity, ValidationIssue
 from custom_components.autodoctor.reporter import IssueReporter
-from custom_components.autodoctor.models import ValidationIssue, Severity
 
 
 @pytest.fixture

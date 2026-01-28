@@ -68,9 +68,7 @@ class JinjaValidator:
             triggers = [triggers]
         for idx, trigger in enumerate(triggers):
             if isinstance(trigger, dict):
-                issues.extend(
-                    self._validate_trigger(trigger, idx, auto_id, auto_name)
-                )
+                issues.extend(self._validate_trigger(trigger, idx, auto_id, auto_name))
 
         # Validate conditions
         conditions = automation.get("conditions") or automation.get("condition", [])
@@ -78,7 +76,9 @@ class JinjaValidator:
             conditions = [conditions]
         for idx, condition in enumerate(conditions):
             issues.extend(
-                self._validate_condition(condition, idx, auto_id, auto_name, "condition")
+                self._validate_condition(
+                    condition, idx, auto_id, auto_name, "condition"
+                )
             )
 
         # Validate actions
@@ -212,7 +212,9 @@ class JinjaValidator:
             data = action.get("data", {})
             if isinstance(data, dict):
                 issues.extend(
-                    self._validate_data_templates(data, f"{location}.data", auto_id, auto_name)
+                    self._validate_data_templates(
+                        data, f"{location}.data", auto_id, auto_name
+                    )
                 )
 
             # Check wait_template

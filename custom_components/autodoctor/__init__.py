@@ -5,38 +5,35 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import datetime, timezone
-from typing import Any
-
+from datetime import UTC, datetime
 from pathlib import Path
 
 import voluptuous as vol
-
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import HomeAssistant, Event, callback, ServiceCall
+from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+from .analyzer import AutomationAnalyzer
 from .const import (
-    DOMAIN,
-    VERSION,
+    CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_VALIDATE_ON_RELOAD,
-    CONF_DEBOUNCE_SECONDS,
+    DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_VALIDATE_ON_RELOAD,
-    DEFAULT_DEBOUNCE_SECONDS,
+    DOMAIN,
+    VERSION,
 )
+from .jinja_validator import JinjaValidator
 from .knowledge_base import StateKnowledgeBase
-from .analyzer import AutomationAnalyzer
-from .validator import ValidationEngine
+from .learned_states_store import LearnedStatesStore
 from .reporter import IssueReporter
 from .suppression_store import SuppressionStore
-from .learned_states_store import LearnedStatesStore
+from .validator import ValidationEngine
 from .websocket_api import async_setup_websocket_api
-from .jinja_validator import JinjaValidator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,7 +96,11 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
             # Automation entities store their config in raw_config attribute
             if hasattr(entity, "raw_config") and entity.raw_config is not None:
                 configs.append(entity.raw_config)
-        _LOGGER.debug("EntityComponent mode: %d entities, %d configs extracted", entity_count, len(configs))
+        _LOGGER.debug(
+            "EntityComponent mode: %d entities, %d configs extracted",
+            entity_count,
+            len(configs),
+        )
         return configs
 
     _LOGGER.debug("automation_data has no 'entities' attribute")
@@ -134,16 +135,19 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # In YAML mode, users must manually add the resource
     lovelace = hass.data.get("lovelace")
     # Handle both dict (older HA) and object (newer HA) access patterns
-    lovelace_mode = getattr(lovelace, "mode", None) or (lovelace.get("mode") if isinstance(lovelace, dict) else None)
+    lovelace_mode = getattr(lovelace, "mode", None) or (
+        lovelace.get("mode") if isinstance(lovelace, dict) else None
+    )
     if lovelace and lovelace_mode == "storage":
-        resources = getattr(lovelace, "resources", None) or (lovelace.get("resources") if isinstance(lovelace, dict) else None)
+        resources = getattr(lovelace, "resources", None) or (
+            lovelace.get("resources") if isinstance(lovelace, dict) else None
+        )
         if resources:
             # Find all existing autodoctor resources
             # Note: lovelace.mode/resources use attribute access (HA 2026+)
             # but resource items from async_items() are dicts
             existing = [
-                r for r in resources.async_items()
-                if "autodoctor" in r.get("url", "")
+                r for r in resources.async_items() if "autodoctor" in r.get("url", "")
             ]
 
             # Check if current version already registered
@@ -158,14 +162,21 @@ async def _async_register_card(hass: HomeAssistant) -> None:
                     if resource_id:
                         try:
                             await resources.async_delete_item(resource_id)
-                            _LOGGER.debug("Removed old autodoctor card resource: %s", resource.get("url"))
+                            _LOGGER.debug(
+                                "Removed old autodoctor card resource: %s",
+                                resource.get("url"),
+                            )
                         except Exception as err:
                             _LOGGER.warning("Failed to remove old resource: %s", err)
 
                 # Create new resource with current version
                 try:
-                    await resources.async_create_item({"url": card_url, "res_type": "module"})
-                    _LOGGER.info("Registered autodoctor card as Lovelace resource: %s", card_url)
+                    await resources.async_create_item(
+                        {"url": card_url, "res_type": "module"}
+                    )
+                    _LOGGER.info(
+                        "Registered autodoctor card as Lovelace resource: %s", card_url
+                    )
                 except Exception as err:
                     _LOGGER.warning("Failed to register Lovelace resource: %s", err)
     else:
@@ -180,7 +191,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Autodoctor from a config entry."""
     options = entry.options
     history_days = options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
-    validate_on_reload = options.get(CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD)
+    validate_on_reload = options.get(
+        CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD
+    )
     debounce_seconds = options.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
 
     # Initialize stores first (they need to be loaded before use)
@@ -242,9 +255,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _async_options_updated(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> None:
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -362,15 +373,25 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     # Log first automation structure for debugging
     if automations:
         first = automations[0]
-        _LOGGER.debug("First automation keys: %s", list(first.keys()) if isinstance(first, dict) else type(first))
-        _LOGGER.debug("First automation sample: %s", {k: type(v).__name__ for k, v in first.items()} if isinstance(first, dict) else first)
+        _LOGGER.debug(
+            "First automation keys: %s",
+            list(first.keys()) if isinstance(first, dict) else type(first),
+        )
+        _LOGGER.debug(
+            "First automation sample: %s",
+            {k: type(v).__name__ for k, v in first.items()}
+            if isinstance(first, dict)
+            else first,
+        )
 
     all_issues = []
 
     # Run Jinja template validation first
     if jinja_validator:
         jinja_issues = jinja_validator.validate_automations(automations)
-        _LOGGER.debug("Jinja validation: found %d template syntax issues", len(jinja_issues))
+        _LOGGER.debug(
+            "Jinja validation: found %d template syntax issues", len(jinja_issues)
+        )
         all_issues.extend(jinja_issues)
 
     # Run state reference validation
@@ -381,24 +402,32 @@ async def async_validate_all(hass: HomeAssistant) -> list:
             _LOGGER.debug(
                 "Automation '%s' trigger: %s",
                 auto_name,
-                automation.get("trigger", automation.get("triggers", "NO TRIGGER KEY"))
+                automation.get("trigger", automation.get("triggers", "NO TRIGGER KEY")),
             )
         refs = analyzer.extract_state_references(automation)
-        _LOGGER.debug("Automation '%s': extracted %d state references", auto_name, len(refs))
+        _LOGGER.debug(
+            "Automation '%s': extracted %d state references", auto_name, len(refs)
+        )
         issues = validator.validate_all(refs)
         _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
         all_issues.extend(issues)
 
-    _LOGGER.info("Validation complete: %d total issues across %d automations", len(all_issues), len(automations))
+    _LOGGER.info(
+        "Validation complete: %d total issues across %d automations",
+        len(all_issues),
+        len(automations),
+    )
     await reporter.async_report_issues(all_issues)
 
     # Update all validation state atomically to prevent partial reads
-    timestamp = datetime.now(timezone.utc).isoformat()
-    hass.data[DOMAIN].update({
-        "issues": all_issues,  # Keep for backwards compatibility
-        "validation_issues": all_issues,
-        "validation_last_run": timestamp,
-    })
+    timestamp = datetime.now(UTC).isoformat()
+    hass.data[DOMAIN].update(
+        {
+            "issues": all_issues,  # Keep for backwards compatibility
+            "validation_issues": all_issues,
+            "validation_last_run": timestamp,
+        }
+    )
     return all_issues
 
 
@@ -436,5 +465,3 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
 
     await reporter.async_report_issues(issues)
     return issues
-
-

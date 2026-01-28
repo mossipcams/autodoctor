@@ -1,26 +1,28 @@
 """Tests for WebSocket API."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant.core import HomeAssistant
 
-from custom_components.autodoctor.websocket_api import (
-    async_setup_websocket_api,
-    websocket_get_issues,
-    websocket_get_validation,
-    websocket_run_validation,
-    websocket_get_conflicts,
-    websocket_run_conflicts,
-)
 from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.models import Conflict, Severity
+from custom_components.autodoctor.websocket_api import (
+    async_setup_websocket_api,
+    websocket_get_conflicts,
+    websocket_get_issues,
+    websocket_get_validation,
+    websocket_run_conflicts,
+    websocket_run_validation,
+)
 
 
 @pytest.mark.asyncio
 async def test_websocket_api_setup(hass: HomeAssistant):
     """Test WebSocket API can be set up."""
-    with patch("homeassistant.components.websocket_api.async_register_command") as mock_register:
+    with patch(
+        "homeassistant.components.websocket_api.async_register_command"
+    ) as mock_register:
         await async_setup_websocket_api(hass)
         assert mock_register.called
 
@@ -155,13 +157,23 @@ async def test_websocket_run_conflicts(hass: HomeAssistant):
                 "id": "motion",
                 "alias": "Motion",
                 "trigger": [{"platform": "time", "at": "08:00:00"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living_room"},
+                    }
+                ],
             },
             {
                 "id": "away",
                 "alias": "Away",
                 "trigger": [{"platform": "time", "at": "08:00:00"}],
-                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living_room"}}],
+                "action": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living_room"},
+                    }
+                ],
             },
         ]
     }

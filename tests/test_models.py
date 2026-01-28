@@ -1,13 +1,12 @@
 """Tests for data models."""
 
 import pytest
-from datetime import datetime
 
 from custom_components.autodoctor.models import (
+    IssueType,
+    Severity,
     StateReference,
     ValidationIssue,
-    Severity,
-    IssueType,
 )
 
 
@@ -113,7 +112,11 @@ def test_validation_issue_to_dict():
 @pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
 def test_outcome_report_to_issues_all_reachable():
     """All reachable returns empty list."""
-    from custom_components.autodoctor.models import OutcomeReport, Verdict, outcome_report_to_issues
+    from custom_components.autodoctor.models import (
+        OutcomeReport,
+        Verdict,
+        outcome_report_to_issues,
+    )
 
     report = OutcomeReport(
         automation_id="automation.test",
@@ -131,7 +134,11 @@ def test_outcome_report_to_issues_all_reachable():
 @pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
 def test_outcome_report_to_issues_unreachable():
     """Unreachable paths become ValidationIssue objects."""
-    from custom_components.autodoctor.models import OutcomeReport, Verdict, outcome_report_to_issues
+    from custom_components.autodoctor.models import (
+        OutcomeReport,
+        Verdict,
+        outcome_report_to_issues,
+    )
 
     report = OutcomeReport(
         automation_id="automation.test",
@@ -139,7 +146,9 @@ def test_outcome_report_to_issues_unreachable():
         triggers_valid=True,
         conditions_reachable=False,
         outcomes=["action.call_service"],
-        unreachable_paths=["condition[0]: state requires 'home' but trigger sets 'away'"],
+        unreachable_paths=[
+            "condition[0]: state requires 'home' but trigger sets 'away'"
+        ],
         verdict=Verdict.UNREACHABLE,
     )
     issues = outcome_report_to_issues(report)
@@ -232,12 +241,15 @@ def test_conflict_suppression_key():
     )
 
     key = conflict.get_suppression_key()
-    assert key == "automation.away_mode:automation.motion_lights:light.living_room:conflict"
+    assert (
+        key
+        == "automation.away_mode:automation.motion_lights:light.living_room:conflict"
+    )
 
 
 def test_entity_action_conditions_type():
     """Test that EntityAction.conditions accepts ConditionInfo objects."""
-    from custom_components.autodoctor.models import EntityAction, ConditionInfo
+    from custom_components.autodoctor.models import ConditionInfo, EntityAction
 
     condition = ConditionInfo(entity_id="input_boolean.mode", required_states={"night"})
     action = EntityAction(

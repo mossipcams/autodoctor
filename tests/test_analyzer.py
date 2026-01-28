@@ -1,10 +1,6 @@
 """Tests for AutomationAnalyzer."""
 
-import pytest
-from unittest.mock import MagicMock
-
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
-from custom_components.autodoctor.models import StateReference
 
 
 def test_extract_state_trigger_to():
@@ -455,7 +451,13 @@ def test_extract_from_nested_choose_default():
             {
                 "choose": [
                     {
-                        "conditions": [{"condition": "state", "entity_id": "sensor.x", "state": "on"}],
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "sensor.x",
+                                "state": "on",
+                            }
+                        ],
                         "sequence": [],
                     }
                 ],
@@ -671,7 +673,9 @@ def test_extract_implicit_state_condition_in_if():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "binary_sensor.motion" and r.expected_state == "on" for r in refs)
+    assert any(
+        r.entity_id == "binary_sensor.motion" and r.expected_state == "on" for r in refs
+    )
 
 
 def test_extract_explicit_state_condition_in_if():
@@ -697,7 +701,9 @@ def test_extract_explicit_state_condition_in_if():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "person.matt" and r.expected_state == "home" for r in refs)
+    assert any(
+        r.entity_id == "person.matt" and r.expected_state == "home" for r in refs
+    )
 
 
 def test_extract_state_condition_in_choose():
@@ -727,7 +733,9 @@ def test_extract_state_condition_in_choose():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "input_select.mode" and r.expected_state == "away" for r in refs)
+    assert any(
+        r.entity_id == "input_select.mode" and r.expected_state == "away" for r in refs
+    )
 
 
 def test_extract_implicit_state_condition_in_repeat_while():
@@ -754,7 +762,10 @@ def test_extract_implicit_state_condition_in_repeat_while():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "binary_sensor.running" and r.expected_state == "on" for r in refs)
+    assert any(
+        r.entity_id == "binary_sensor.running" and r.expected_state == "on"
+        for r in refs
+    )
 
 
 def test_extract_implicit_state_condition_in_repeat_until():
@@ -781,7 +792,9 @@ def test_extract_implicit_state_condition_in_repeat_until():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "lock.front_door" and r.expected_state == "locked" for r in refs)
+    assert any(
+        r.entity_id == "lock.front_door" and r.expected_state == "locked" for r in refs
+    )
 
 
 def test_condition_to_condition_info():
@@ -843,7 +856,6 @@ def test_condition_to_condition_info_template_returns_none():
 
 def test_extract_entity_actions_with_choose_conditions():
     """Test that actions inside choose blocks inherit conditions."""
-    from custom_components.autodoctor.models import ConditionInfo
 
     automation = {
         "id": "night_mode",
@@ -884,7 +896,6 @@ def test_extract_entity_actions_with_choose_conditions():
 
 def test_extract_entity_actions_with_if_conditions():
     """Test that actions inside if blocks inherit conditions."""
-    from custom_components.autodoctor.models import ConditionInfo
 
     automation = {
         "id": "if_test",
@@ -932,7 +943,6 @@ def test_extract_entity_actions_with_if_conditions():
 
 def test_extract_entity_actions_with_repeat_while_conditions():
     """Test that actions inside repeat while blocks inherit conditions."""
-    from custom_components.autodoctor.models import ConditionInfo
 
     automation = {
         "id": "repeat_test",
@@ -969,7 +979,6 @@ def test_extract_entity_actions_with_repeat_while_conditions():
 
 def test_extract_entity_actions_nested_conditions_accumulate():
     """Test that nested conditions accumulate."""
-    from custom_components.autodoctor.models import ConditionInfo
 
     automation = {
         "id": "nested_test",
@@ -984,9 +993,7 @@ def test_extract_entity_actions_nested_conditions_accumulate():
                         ],
                         "sequence": [
                             {
-                                "if": [
-                                    {"entity_id": "person.matt", "state": "home"}
-                                ],
+                                "if": [{"entity_id": "person.matt", "state": "home"}],
                                 "then": [
                                     {
                                         "service": "light.turn_on",

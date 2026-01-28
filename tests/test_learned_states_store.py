@@ -1,7 +1,5 @@
 """Tests for LearnedStatesStore."""
 
-import pytest
-
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.learned_states_store import LearnedStatesStore

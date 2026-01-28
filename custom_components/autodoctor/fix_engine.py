@@ -75,10 +75,7 @@ def get_state_suggestion(invalid_state: str, valid_states: set[str]) -> str | No
 
     # Fall back to fuzzy matching
     matches = get_close_matches(
-        invalid_state.lower(),
-        [s.lower() for s in valid_states],
-        n=1,
-        cutoff=0.6
+        invalid_state.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6
     )
     if matches:
         lower_map = {s.lower(): s for s in valid_states}

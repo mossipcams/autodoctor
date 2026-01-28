@@ -1,13 +1,11 @@
 """Tests for ValidationEngine."""
 
 import pytest
-
 from homeassistant.core import HomeAssistant
-from homeassistant.const import STATE_ON
 
-from custom_components.autodoctor.validator import ValidationEngine
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-from custom_components.autodoctor.models import StateReference, Severity, IssueType
+from custom_components.autodoctor.models import IssueType, Severity, StateReference
+from custom_components.autodoctor.validator import ValidationEngine
 
 
 @pytest.fixture
@@ -124,6 +122,7 @@ async def test_validate_detects_removed_entity(hass: HomeAssistant):
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.ENTITY_REMOVED
-    assert "existed in history" in issues[0].message.lower() or "removed" in issues[0].message.lower()
-
-
+    assert (
+        "existed in history" in issues[0].message.lower()
+        or "removed" in issues[0].message.lower()
+    )

@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
 from .conflict_detector import ConflictDetector
-from .fix_engine import get_state_suggestion, get_entity_suggestion
+from .const import DOMAIN
+from .fix_engine import get_entity_suggestion, get_state_suggestion
 from .models import IssueType
 
 if TYPE_CHECKING:
@@ -61,7 +61,9 @@ def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
         elif issue.issue_type == IssueType.INVALID_STATE:
             invalid_state = _extract_invalid_state(issue.message)
             if invalid_state and issue.valid_states:
-                suggestion = get_state_suggestion(invalid_state, set(issue.valid_states))
+                suggestion = get_state_suggestion(
+                    invalid_state, set(issue.valid_states)
+                )
                 if suggestion:
                     fix = {
                         "description": f"Did you mean '{suggestion}'?",
@@ -69,12 +71,18 @@ def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
                         "fix_value": suggestion,
                     }
 
-        automation_id = issue.automation_id.replace("automation.", "") if issue.automation_id else ""
-        issues_with_fixes.append({
-            "issue": issue.to_dict(),
-            "fix": fix,
-            "edit_url": f"/config/automation/edit/{automation_id}",
-        })
+        automation_id = (
+            issue.automation_id.replace("automation.", "")
+            if issue.automation_id
+            else ""
+        )
+        issues_with_fixes.append(
+            {
+                "issue": issue.to_dict(),
+                "fix": fix,
+                "edit_url": f"/config/automation/edit/{automation_id}",
+            }
+        )
     return issues_with_fixes
 
 
@@ -159,7 +167,8 @@ async def websocket_get_validation(
     # Filter out suppressed issues
     if suppression_store:
         visible_issues = [
-            issue for issue in all_issues
+            issue
+            for issue in all_issues
             if not suppression_store.is_suppressed(issue.get_suppression_key())
         ]
         suppressed_count = len(all_issues) - len(visible_issues)
@@ -203,7 +212,8 @@ async def websocket_run_validation(
     # Filter out suppressed issues
     if suppression_store:
         visible_issues = [
-            issue for issue in all_issues
+            issue
+            for issue in all_issues
             if not suppression_store.is_suppressed(issue.get_suppression_key())
         ]
         suppressed_count = len(all_issues) - len(visible_issues)
@@ -230,7 +240,8 @@ def _format_conflicts(conflicts: list, suppression_store) -> tuple[list[dict], i
     """Format conflicts, filtering suppressed ones."""
     if suppression_store:
         visible = [
-            c for c in conflicts
+            c
+            for c in conflicts
             if not suppression_store.is_suppressed(c.get_suppression_key())
         ]
         suppressed_count = len(conflicts) - len(visible)
@@ -283,7 +294,7 @@ async def websocket_run_conflicts(
     msg: dict[str, Any],
 ) -> None:
     """Run conflict detection and return results."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     data = hass.data.get(DOMAIN, {})
     suppression_store = data.get("suppression_store")
@@ -294,7 +305,8 @@ async def websocket_run_conflicts(
         automations = automation_data.get("config", [])
     elif hasattr(automation_data, "entities"):
         automations = [
-            e.raw_config for e in automation_data.entities
+            e.raw_config
+            for e in automation_data.entities
             if hasattr(e, "raw_config") and e.raw_config
         ]
     else:
@@ -305,11 +317,13 @@ async def websocket_run_conflicts(
     conflicts = detector.detect_conflicts(automations)
 
     # Store results atomically to prevent partial reads
-    last_run = datetime.now(timezone.utc).isoformat()
-    hass.data[DOMAIN].update({
-        "conflicts": conflicts,
-        "conflicts_last_run": last_run,
-    })
+    last_run = datetime.now(UTC).isoformat()
+    hass.data[DOMAIN].update(
+        {
+            "conflicts": conflicts,
+            "conflicts_last_run": last_run,
+        }
+    )
 
     formatted, suppressed_count = _format_conflicts(conflicts, suppression_store)
 
@@ -346,15 +360,13 @@ async def websocket_suppress(
     learned_store: LearnedStatesStore | None = data.get("learned_states_store")
 
     if not suppression_store:
-        connection.send_error(msg["id"], "not_ready", "Suppression store not initialized")
+        connection.send_error(
+            msg["id"], "not_ready", "Suppression store not initialized"
+        )
         return
 
     # Learn state if this is an invalid_state issue with a state value
-    if (
-        learned_store
-        and msg["issue_type"] == "invalid_state"
-        and "state" in msg
-    ):
+    if learned_store and msg["issue_type"] == "invalid_state" and "state" in msg:
         entity_id = msg["entity_id"]
         state = msg["state"]
 
@@ -367,14 +379,18 @@ async def websocket_suppress(
             await learned_store.async_learn_state(domain, entry.platform, state)
             _LOGGER.info(
                 "Learned state '%s' for %s entities from %s integration",
-                state, domain, entry.platform
+                state,
+                domain,
+                entry.platform,
             )
 
     # Suppress the issue
     key = f"{msg['automation_id']}:{msg['entity_id']}:{msg['issue_type']}"
     await suppression_store.async_suppress(key)
 
-    connection.send_result(msg["id"], {"success": True, "suppressed_count": suppression_store.count})
+    connection.send_result(
+        msg["id"], {"success": True, "suppressed_count": suppression_store.count}
+    )
 
 
 @websocket_api.websocket_command(
@@ -393,7 +409,9 @@ async def websocket_clear_suppressions(
     suppression_store: SuppressionStore | None = data.get("suppression_store")
 
     if not suppression_store:
-        connection.send_error(msg["id"], "not_ready", "Suppression store not initialized")
+        connection.send_error(
+            msg["id"], "not_ready", "Suppression store not initialized"
+        )
         return
 
     await suppression_store.async_clear_all()

@@ -9,9 +9,5 @@ export default {
     format: "es",
     inlineDynamicImports: true,
   },
-  plugins: [
-    resolve(),
-    typescript(),
-    terser(),
-  ],
+  plugins: [resolve(), typescript(), terser()],
 };

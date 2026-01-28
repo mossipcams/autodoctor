@@ -10,8 +10,16 @@ DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "lock": {"locked", "unlocked", "locking", "unlocking", "jammed", "opening", "open"},
     "cover": {"open", "closed", "opening", "closing"},
     "alarm_control_panel": {
-        "disarmed", "armed_home", "armed_away", "armed_night", "armed_vacation",
-        "armed_custom_bypass", "pending", "arming", "disarming", "triggered"
+        "disarmed",
+        "armed_home",
+        "armed_away",
+        "armed_night",
+        "armed_vacation",
+        "armed_custom_bypass",
+        "pending",
+        "arming",
+        "disarming",
+        "triggered",
     },
     "vacuum": {"cleaning", "docked", "idle", "paused", "returning", "error"},
     "media_player": {"off", "on", "idle", "playing", "paused", "standby", "buffering"},

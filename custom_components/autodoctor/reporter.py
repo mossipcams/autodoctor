@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from .const import DOMAIN
-from .models import ValidationIssue, Severity
+from .models import Severity, ValidationIssue
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -17,9 +17,11 @@ _LOGGER = logging.getLogger(__name__)
 # Import issue registry with fallback
 try:
     from homeassistant.helpers import issue_registry as ir
+
     HAS_ISSUE_REGISTRY = True
 except ImportError:
     HAS_ISSUE_REGISTRY = False
+
     class ir:  # type: ignore
         class IssueSeverity:
             ERROR = "error"
@@ -42,7 +44,9 @@ class IssueReporter:
         self.hass = hass
         # Use frozenset for thread-safe reads from sensors
         self._active_issues: frozenset[str] = frozenset()
-        _LOGGER.debug("IssueReporter initialized, HAS_ISSUE_REGISTRY=%s", HAS_ISSUE_REGISTRY)
+        _LOGGER.debug(
+            "IssueReporter initialized, HAS_ISSUE_REGISTRY=%s", HAS_ISSUE_REGISTRY
+        )
 
     def _automation_issue_id(self, automation_id: str) -> str:
         """Generate a unique issue ID for an automation."""
@@ -74,7 +78,9 @@ class IssueReporter:
             issues_by_automation[issue.automation_id].append(issue)
 
             # Still log each issue individually
-            log_method = _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
+            log_method = (
+                _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
+            )
             log_method(
                 "Automation '%s': %s (entity: %s, location: %s)",
                 issue.automation_name,
@@ -103,7 +109,10 @@ class IssueReporter:
             # Note: ir.async_create_issue is synchronous despite the name
             _LOGGER.debug(
                 "Creating repair issue: domain=%s, issue_id=%s, severity=%s, automation=%s",
-                DOMAIN, issue_id, severity, automation_name
+                DOMAIN,
+                issue_id,
+                severity,
+                automation_name,
             )
             try:
                 ir.async_create_issue(

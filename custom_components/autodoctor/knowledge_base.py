@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from .device_class_states import get_device_class_states
@@ -165,31 +165,30 @@ class StateKnowledgeBase:
             valid_states = device_class_defaults.copy()
             _LOGGER.debug(
                 "Entity %s (domain=%s): device class defaults = %s",
-                entity_id, domain, device_class_defaults
+                entity_id,
+                domain,
+                device_class_defaults,
             )
         else:
             # Unknown domain - return empty set (will be populated by history)
             valid_states = set()
             _LOGGER.debug(
-                "Entity %s (domain=%s): no device class defaults",
-                entity_id, domain
+                "Entity %s (domain=%s): no device class defaults", entity_id, domain
             )
 
         # Add learned states for this integration
         learned = self._get_learned_states(entity_id)
         if learned:
             valid_states.update(learned)
-            _LOGGER.debug(
-                "Entity %s: added learned states = %s",
-                entity_id, learned
-            )
+            _LOGGER.debug("Entity %s: added learned states = %s", entity_id, learned)
 
         # For zone-aware entities, add all zone names as valid states
         # Device trackers and person entities can report zone names as their state
         # Also handle area sensors (e.g., Bermuda BLE area sensors)
-        is_area_sensor = (
-            domain == "sensor" and
-            ("_area" in entity_id or "_room" in entity_id or "bermuda" in entity_id.lower())
+        is_area_sensor = domain == "sensor" and (
+            "_area" in entity_id
+            or "_room" in entity_id
+            or "bermuda" in entity_id.lower()
         )
         is_bermuda_tracker = (
             domain == "device_tracker" and "bermuda" in entity_id.lower()
@@ -201,10 +200,7 @@ class StateKnowledgeBase:
                     "friendly_name", zone_state.entity_id.split(".")[1]
                 )
                 valid_states.add(zone_name)
-            _LOGGER.debug(
-                "Entity %s: added zone names to valid states",
-                entity_id
-            )
+            _LOGGER.debug("Entity %s: added zone names to valid states", entity_id)
 
         # For Bermuda BLE entities, add HA area names (lowercase) from area registry
         # Bermuda sensors report lowercase area names matching HA area IDs
@@ -215,10 +211,7 @@ class StateKnowledgeBase:
                 valid_states.add(area.name)
                 # Also add lowercase version in case Bermuda normalizes differently
                 valid_states.add(area.name.lower())
-            _LOGGER.debug(
-                "Entity %s: added HA area names to valid states",
-                entity_id
-            )
+            _LOGGER.debug("Entity %s: added HA area names to valid states", entity_id)
 
         # For Bermuda BLE device_trackers, also add area names from Bermuda sensors
         # Bermuda uses BLE areas which may differ from HA zones
@@ -229,8 +222,7 @@ class StateKnowledgeBase:
                     if sensor_state.state not in ("unavailable", "unknown"):
                         valid_states.add(sensor_state.state)
             _LOGGER.debug(
-                "Entity %s: added Bermuda area sensor states to valid states",
-                entity_id
+                "Entity %s: added Bermuda area sensor states to valid states", entity_id
             )
 
         # Schema introspection - after getting device class defaults
@@ -260,10 +252,7 @@ class StateKnowledgeBase:
         else:
             self._cache[entity_id] = valid_states
 
-        _LOGGER.debug(
-            "Entity %s: final valid states = %s",
-            entity_id, valid_states
-        )
+        _LOGGER.debug("Entity %s: final valid states = %s", entity_id, valid_states)
 
         return valid_states.copy()
 
@@ -314,7 +303,9 @@ class StateKnowledgeBase:
         Uses a lock to prevent concurrent history loads from racing.
         """
         if get_significant_states is None:
-            _LOGGER.warning("Recorder history not available - get_significant_states not found")
+            _LOGGER.warning(
+                "Recorder history not available - get_significant_states not found"
+            )
             return
 
         # Serialize history loading to prevent races
@@ -325,8 +316,8 @@ class StateKnowledgeBase:
             if not entity_ids:
                 return
 
-            start_time = datetime.now(timezone.utc) - timedelta(days=self.history_days)
-            end_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC) - timedelta(days=self.history_days)
+            end_time = datetime.now(UTC)
 
             try:
                 # get_significant_states is synchronous, call it directly

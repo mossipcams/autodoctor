@@ -2,11 +2,23 @@ import { LitElement, html, css, CSSResultGroup, TemplateResult, nothing } from "
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type { AutodoctorCardConfig, IssueWithFix, ValidationIssue, TabType, AutodoctorTabData, ConflictsTabData, Conflict } from "./types";
+import type {
+  AutodoctorCardConfig,
+  IssueWithFix,
+  ValidationIssue,
+  TabType,
+  AutodoctorTabData,
+  ConflictsTabData,
+  Conflict,
+} from "./types";
 
 const CARD_VERSION = "2.1.0";
 
-console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
+console.info(
+  `%c AUTODOCTOR-CARD %c ${CARD_VERSION} `,
+  "color: white; background: #3498db; font-weight: bold;",
+  "color: #3498db; background: white; font-weight: bold;"
+);
 
 interface AutomationGroup {
   automation_id: string;
@@ -45,7 +57,7 @@ export class AutodoctorCard extends LitElement {
 
   private _isInCooldown(isValidation: boolean): boolean {
     const lastClick = isValidation ? this._lastValidationClick : this._lastConflictsClick;
-    return (Date.now() - lastClick) < AutodoctorCard.CLICK_COOLDOWN_MS;
+    return Date.now() - lastClick < AutodoctorCard.CLICK_COOLDOWN_MS;
   }
 
   public setConfig(config: AutodoctorCardConfig): void {
@@ -110,7 +122,10 @@ export class AutodoctorCard extends LitElement {
   private async _runValidation(): Promise<void> {
     // Prevent concurrent runs and enforce cooldown
     const now = Date.now();
-    if (this._runningValidation || (now - this._lastValidationClick) < AutodoctorCard.CLICK_COOLDOWN_MS) {
+    if (
+      this._runningValidation ||
+      now - this._lastValidationClick < AutodoctorCard.CLICK_COOLDOWN_MS
+    ) {
       return;
     }
     this._lastValidationClick = now;
@@ -171,7 +186,10 @@ export class AutodoctorCard extends LitElement {
   private async _runConflicts(): Promise<void> {
     // Prevent concurrent runs and enforce cooldown
     const now = Date.now();
-    if (this._runningConflicts || (now - this._lastConflictsClick) < AutodoctorCard.CLICK_COOLDOWN_MS) {
+    if (
+      this._runningConflicts ||
+      now - this._lastConflictsClick < AutodoctorCard.CLICK_COOLDOWN_MS
+    ) {
       return;
     }
     this._lastConflictsClick = now;
@@ -232,7 +250,12 @@ export class AutodoctorCard extends LitElement {
     return Array.from(groups.values());
   }
 
-  private _getCounts(data: AutodoctorTabData | null): { errors: number; warnings: number; healthy: number; suppressed: number } {
+  private _getCounts(data: AutodoctorTabData | null): {
+    errors: number;
+    warnings: number;
+    healthy: number;
+    suppressed: number;
+  } {
     if (!data) {
       return { errors: 0, warnings: 0, healthy: 0, suppressed: 0 };
     }
@@ -248,14 +271,17 @@ export class AutodoctorCard extends LitElement {
       }
     }
 
-    return { errors, warnings, healthy: data.healthy_count, suppressed: data.suppressed_count || 0 };
+    return {
+      errors,
+      warnings,
+      healthy: data.healthy_count,
+      suppressed: data.suppressed_count || 0,
+    };
   }
 
   private get _loading(): boolean {
     // Return loading state for the current tab
-    return this._activeTab === "validation"
-      ? this._loadingValidation
-      : this._loadingConflicts;
+    return this._activeTab === "validation" ? this._loadingValidation : this._loadingConflicts;
   }
 
   protected render(): TemplateResult {
@@ -286,8 +312,7 @@ export class AutodoctorCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._renderHeader(title)}
-        ${this._renderTabs()}
+        ${this._renderHeader(title)} ${this._renderTabs()}
         <div class="card-content">
           ${this._renderBadges(counts)}
           ${hasIssues
@@ -322,7 +347,11 @@ export class AutodoctorCard extends LitElement {
         <div class="card-content error-state">
           <div class="error-icon" aria-hidden="true">⚠</div>
           <span class="error-text">${this._error}</span>
-          <button class="retry-btn" @click=${() => this._activeTab === "validation" ? this._fetchValidation() : this._fetchConflicts()}>
+          <button
+            class="retry-btn"
+            @click=${() =>
+              this._activeTab === "validation" ? this._fetchValidation() : this._fetchConflicts()}
+          >
             Try again
           </button>
         </div>
@@ -333,8 +362,7 @@ export class AutodoctorCard extends LitElement {
   private _renderEmpty(title: string): TemplateResult {
     return html`
       <ha-card>
-        ${this._renderHeader(title)}
-        ${this._renderTabs()}
+        ${this._renderHeader(title)} ${this._renderTabs()}
         <div class="card-content empty-state">
           <span class="empty-text">No data available</span>
         </div>
@@ -356,7 +384,9 @@ export class AutodoctorCard extends LitElement {
         <div class="healthy-icon" aria-hidden="true">✓</div>
         <div class="healthy-message">
           <span class="healthy-title">All systems healthy</span>
-          <span class="healthy-subtitle">${healthyCount} automation${healthyCount !== 1 ? 's' : ''} checked</span>
+          <span class="healthy-subtitle"
+            >${healthyCount} automation${healthyCount !== 1 ? "s" : ""} checked</span
+          >
         </div>
       </div>
     `;
@@ -366,14 +396,14 @@ export class AutodoctorCard extends LitElement {
     return html`
       <div class="tabs">
         <button
-          class="tab ${this._activeTab === 'validation' ? 'active' : ''}"
-          @click=${() => this._switchTab('validation')}
+          class="tab ${this._activeTab === "validation" ? "active" : ""}"
+          @click=${() => this._switchTab("validation")}
         >
           Validation
         </button>
         <button
-          class="tab ${this._activeTab === 'conflicts' ? 'active' : ''}"
-          @click=${() => this._switchTab('conflicts')}
+          class="tab ${this._activeTab === "conflicts" ? "active" : ""}"
+          @click=${() => this._switchTab("conflicts")}
         >
           Conflicts
         </button>
@@ -381,17 +411,28 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderBadges(counts: { errors: number; warnings: number; healthy: number; suppressed: number }): TemplateResult {
+  private _renderBadges(counts: {
+    errors: number;
+    warnings: number;
+    healthy: number;
+    suppressed: number;
+  }): TemplateResult {
     return html`
       <div class="badges-row">
         ${counts.errors > 0
-          ? html`<span class="badge badge-error" title="${counts.errors} error${counts.errors !== 1 ? 's' : ''}">
+          ? html`<span
+              class="badge badge-error"
+              title="${counts.errors} error${counts.errors !== 1 ? "s" : ""}"
+            >
               <span class="badge-icon" aria-hidden="true">✕</span>
               <span class="badge-count">${counts.errors}</span>
             </span>`
           : nothing}
         ${counts.warnings > 0
-          ? html`<span class="badge badge-warning" title="${counts.warnings} warning${counts.warnings !== 1 ? 's' : ''}">
+          ? html`<span
+              class="badge badge-warning"
+              title="${counts.warnings} warning${counts.warnings !== 1 ? "s" : ""}"
+            >
               <span class="badge-icon" aria-hidden="true">!</span>
               <span class="badge-count">${counts.warnings}</span>
             </span>`
@@ -409,7 +450,9 @@ export class AutodoctorCard extends LitElement {
                 @click=${this._clearSuppressions}
                 title="Clear all suppressions"
                 aria-label="Clear all suppressions"
-              >✕</button>
+              >
+                ✕
+              </button>
             </span>`
           : nothing}
       </div>
@@ -419,24 +462,16 @@ export class AutodoctorCard extends LitElement {
   private _renderTabFooter(): TemplateResult {
     const isValidation = this._activeTab === "validation";
 
-    const isRunning = isValidation
-      ? this._runningValidation
-      : this._runningConflicts;
+    const isRunning = isValidation ? this._runningValidation : this._runningConflicts;
 
-    const isLoading = isValidation
-      ? this._loadingValidation
-      : this._loadingConflicts;
+    const isLoading = isValidation ? this._loadingValidation : this._loadingConflicts;
 
     // Disable button during any async operation or cooldown period
     const isDisabled = isRunning || isLoading || this._isInCooldown(isValidation);
 
-    const lastRun = isValidation
-      ? this._validationData?.last_run
-      : this._conflictsData?.last_run;
+    const lastRun = isValidation ? this._validationData?.last_run : this._conflictsData?.last_run;
 
-    const buttonText = isValidation
-      ? "Run Validation"
-      : "Run Conflict Detection";
+    const buttonText = isValidation ? "Run Validation" : "Run Conflict Detection";
 
     const runHandler = () => {
       if (isValidation) {
@@ -452,16 +487,16 @@ export class AutodoctorCard extends LitElement {
     return html`
       <div class="footer">
         <button
-          class="run-btn ${showRunning ? 'running' : ''}"
+          class="run-btn ${showRunning ? "running" : ""}"
           @click=${runHandler}
           ?disabled=${isDisabled}
         >
-          <span class="run-icon" aria-hidden="true">${showRunning ? '↻' : '▶'}</span>
-          <span class="run-text">${showRunning ? 'Running...' : buttonText}</span>
+          <span class="run-icon" aria-hidden="true">${showRunning ? "↻" : "▶"}</span>
+          <span class="run-text">${showRunning ? "Running..." : buttonText}</span>
         </button>
-        ${lastRun ? html`
-          <span class="last-run">Last run: ${this._formatLastRun(lastRun)}</span>
-        ` : nothing}
+        ${lastRun
+          ? html` <span class="last-run">Last run: ${this._formatLastRun(lastRun)}</span> `
+          : nothing}
       </div>
     `;
   }
@@ -540,15 +575,15 @@ export class AutodoctorCard extends LitElement {
 
   private _renderAutomationGroup(group: AutomationGroup): TemplateResult {
     return html`
-      <div class="automation-group ${group.has_error ? 'has-error' : 'has-warning'}">
+      <div class="automation-group ${group.has_error ? "has-error" : "has-warning"}">
         <div class="automation-header">
-          <span class="automation-severity-icon" aria-hidden="true">${group.has_error ? '✕' : '!'}</span>
+          <span class="automation-severity-icon" aria-hidden="true"
+            >${group.has_error ? "✕" : "!"}</span
+          >
           <span class="automation-name">${group.automation_name}</span>
           <span class="automation-badge">${group.issues.length}</span>
         </div>
-        <div class="automation-issues">
-          ${group.issues.map((item) => this._renderIssue(item))}
-        </div>
+        <div class="automation-issues">${group.issues.map((item) => this._renderIssue(item))}</div>
         <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
           <span class="edit-text">Edit automation</span>
           <span class="edit-arrow" aria-hidden="true">→</span>
@@ -563,16 +598,18 @@ export class AutodoctorCard extends LitElement {
     const isDismissed = this._dismissedSuggestions.has(this._getSuggestionKey(issue));
 
     return html`
-      <div class="issue ${isError ? 'error' : 'warning'}">
+      <div class="issue ${isError ? "error" : "warning"}">
         <div class="issue-header">
-          <span class="issue-icon" aria-hidden="true">${isError ? '✕' : '!'}</span>
+          <span class="issue-icon" aria-hidden="true">${isError ? "✕" : "!"}</span>
           <span class="issue-message">${issue.message}</span>
           <button
             class="suppress-btn"
             @click=${() => this._suppressIssue(issue)}
             aria-label="Suppress this issue"
             title="Don't show this issue again"
-          >⊘</button>
+          >
+            ⊘
+          </button>
         </div>
         ${fix && !isDismissed
           ? html`
@@ -586,7 +623,9 @@ export class AutodoctorCard extends LitElement {
                   class="dismiss-btn"
                   @click=${() => this._dismissSuggestion(issue)}
                   aria-label="Dismiss suggestion"
-                >✕</button>
+                >
+                  ✕
+                </button>
               </div>
             `
           : nothing}
@@ -601,8 +640,8 @@ export class AutodoctorCard extends LitElement {
 
     const isHigh = confidence > 0.9;
     return html`
-      <span class="confidence-pill ${isHigh ? 'high' : 'medium'}">
-        ${isHigh ? 'High' : 'Medium'} confidence
+      <span class="confidence-pill ${isHigh ? "high" : "medium"}">
+        ${isHigh ? "High" : "Medium"} confidence
       </span>
     `;
   }
@@ -616,13 +655,12 @@ export class AutodoctorCard extends LitElement {
     const hasConflicts = conflicts.length > 0;
 
     // Count by severity
-    const errorCount = conflicts.filter(c => c.severity === "error").length;
-    const warningCount = conflicts.filter(c => c.severity === "warning").length;
+    const errorCount = conflicts.filter((c) => c.severity === "error").length;
+    const warningCount = conflicts.filter((c) => c.severity === "warning").length;
 
     return html`
       <ha-card>
-        ${this._renderHeader(title)}
-        ${this._renderTabs()}
+        ${this._renderHeader(title)} ${this._renderTabs()}
         <div class="card-content">
           ${this._renderConflictsBadges(errorCount, warningCount, suppressed_count)}
           ${hasConflicts
@@ -642,13 +680,19 @@ export class AutodoctorCard extends LitElement {
     return html`
       <div class="badges-row">
         ${errors > 0
-          ? html`<span class="badge badge-error" title="${errors} conflict${errors !== 1 ? 's' : ''}">
+          ? html`<span
+              class="badge badge-error"
+              title="${errors} conflict${errors !== 1 ? "s" : ""}"
+            >
               <span class="badge-icon" aria-hidden="true">✕</span>
               <span class="badge-count">${errors}</span>
             </span>`
           : nothing}
         ${warnings > 0
-          ? html`<span class="badge badge-warning" title="${warnings} warning${warnings !== 1 ? 's' : ''}">
+          ? html`<span
+              class="badge badge-warning"
+              title="${warnings} warning${warnings !== 1 ? "s" : ""}"
+            >
               <span class="badge-icon" aria-hidden="true">!</span>
               <span class="badge-count">${warnings}</span>
             </span>`
@@ -685,9 +729,9 @@ export class AutodoctorCard extends LitElement {
     const isError = conflict.severity === "error";
 
     return html`
-      <div class="conflict-card ${isError ? 'severity-error' : 'severity-warning'}">
+      <div class="conflict-card ${isError ? "severity-error" : "severity-warning"}">
         <div class="conflict-header">
-          <span class="conflict-severity-icon" aria-hidden="true">${isError ? '✕' : '!'}</span>
+          <span class="conflict-severity-icon" aria-hidden="true">${isError ? "✕" : "!"}</span>
           <span class="conflict-entity">${conflict.entity_id}</span>
         </div>
         <div class="conflict-automations">
@@ -716,7 +760,7 @@ export class AutodoctorCard extends LitElement {
     return css`
       :host {
         /* Typography */
-        --autodoc-font-family: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+        --autodoc-font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
         --autodoc-title-size: 1.1rem;
         --autodoc-name-size: 0.95rem;
         --autodoc-issue-size: 0.875rem;
@@ -798,7 +842,9 @@ export class AutodoctorCard extends LitElement {
         font-size: var(--autodoc-issue-size);
         font-weight: 500;
         cursor: pointer;
-        transition: color var(--autodoc-transition-fast), border-color var(--autodoc-transition-fast);
+        transition:
+          color var(--autodoc-transition-fast),
+          border-color var(--autodoc-transition-fast);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -881,7 +927,9 @@ export class AutodoctorCard extends LitElement {
         font-size: 0.6em;
         cursor: pointer;
         opacity: 0.6;
-        transition: opacity var(--autodoc-transition-fast), background var(--autodoc-transition-fast);
+        transition:
+          opacity var(--autodoc-transition-fast),
+          background var(--autodoc-transition-fast);
       }
 
       .clear-suppressions-btn:hover {
@@ -914,7 +962,9 @@ export class AutodoctorCard extends LitElement {
       }
 
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .loading-text {
@@ -952,7 +1002,9 @@ export class AutodoctorCard extends LitElement {
         border-radius: 6px;
         font-size: var(--autodoc-issue-size);
         cursor: pointer;
-        transition: background var(--autodoc-transition-fast), color var(--autodoc-transition-fast);
+        transition:
+          background var(--autodoc-transition-fast),
+          color var(--autodoc-transition-fast);
       }
 
       .retry-btn:hover {
@@ -1138,7 +1190,9 @@ export class AutodoctorCard extends LitElement {
         font-size: 0.75rem;
         cursor: pointer;
         opacity: 0;
-        transition: opacity var(--autodoc-transition-fast), background var(--autodoc-transition-fast);
+        transition:
+          opacity var(--autodoc-transition-fast),
+          background var(--autodoc-transition-fast);
       }
 
       .issue:hover .suppress-btn {
@@ -1219,7 +1273,9 @@ export class AutodoctorCard extends LitElement {
         font-size: 0.7rem;
         cursor: pointer;
         opacity: 0.6;
-        transition: opacity var(--autodoc-transition-fast), background var(--autodoc-transition-fast);
+        transition:
+          opacity var(--autodoc-transition-fast),
+          background var(--autodoc-transition-fast);
       }
 
       .dismiss-btn:hover {
@@ -1287,7 +1343,9 @@ export class AutodoctorCard extends LitElement {
         font-size: var(--autodoc-issue-size);
         font-weight: 500;
         cursor: pointer;
-        transition: opacity var(--autodoc-transition-fast), transform var(--autodoc-transition-fast);
+        transition:
+          opacity var(--autodoc-transition-fast),
+          transform var(--autodoc-transition-fast);
       }
 
       .run-btn:hover:not(:disabled) {
@@ -1323,8 +1381,12 @@ export class AutodoctorCard extends LitElement {
       }
 
       @keyframes rotate {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       /* Conflict cards */

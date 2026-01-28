@@ -6,7 +6,7 @@ import logging
 from difflib import get_close_matches
 
 from .knowledge_base import StateKnowledgeBase
-from .models import StateReference, ValidationIssue, Severity
+from .models import Severity, StateReference, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,7 +121,9 @@ class ValidationEngine:
 
     def _suggest_state(self, invalid: str, valid_states: set[str]) -> str | None:
         """Suggest a correction for an invalid state."""
-        matches = get_close_matches(invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6)
+        matches = get_close_matches(
+            invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6
+        )
         if matches:
             lower_map = {s.lower(): s for s in valid_states}
             return lower_map.get(matches[0])
@@ -129,7 +131,9 @@ class ValidationEngine:
 
     def _suggest_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID."""
-        all_entities = [s.entity_id for s in self.knowledge_base.hass.states.async_all()]
+        all_entities = [
+            s.entity_id for s in self.knowledge_base.hass.states.async_all()
+        ]
         matches = get_close_matches(invalid, all_entities, n=1, cutoff=0.6)
         return matches[0] if matches else None
 

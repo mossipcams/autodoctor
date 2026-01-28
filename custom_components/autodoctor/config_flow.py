@@ -5,19 +5,18 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
-    DOMAIN,
+    CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_VALIDATE_ON_RELOAD,
-    CONF_DEBOUNCE_SECONDS,
+    DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_VALIDATE_ON_RELOAD,
-    DEFAULT_DEBOUNCE_SECONDS,
+    DOMAIN,
 )
 
 # Unique ID for single-instance integration

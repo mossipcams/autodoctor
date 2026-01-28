@@ -1,10 +1,10 @@
 """Tests for StateKnowledgeBase."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
+from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
-from homeassistant.const import STATE_ON, STATE_OFF
 
 from custom_components.autodoctor.knowledge_base import (
     StateKnowledgeBase,
@@ -226,6 +226,7 @@ async def test_get_historical_entity_ids(hass: HomeAssistant):
 async def test_get_integration_from_entity_registry(hass: HomeAssistant):
     """Test getting integration name from entity registry."""
     from unittest.mock import MagicMock, patch
+
     from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 
     kb = StateKnowledgeBase(hass)
@@ -239,7 +240,7 @@ async def test_get_integration_from_entity_registry(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.er.async_get",
-        return_value=mock_registry
+        return_value=mock_registry,
     ):
         integration = kb.get_integration("vacuum.roborock_s7")
 
@@ -249,6 +250,7 @@ async def test_get_integration_from_entity_registry(hass: HomeAssistant):
 async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
     """Test getting integration returns None for unknown entity."""
     from unittest.mock import MagicMock, patch
+
     from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 
     kb = StateKnowledgeBase(hass)
@@ -258,7 +260,7 @@ async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.er.async_get",
-        return_value=mock_registry
+        return_value=mock_registry,
     ):
         integration = kb.get_integration("vacuum.unknown")
 
@@ -267,7 +269,8 @@ async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
 
 async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
     """Test that learned states are included in valid states."""
-    from unittest.mock import MagicMock, patch, AsyncMock
+    from unittest.mock import MagicMock, patch
+
     from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
     from custom_components.autodoctor.learned_states_store import LearnedStatesStore
 
@@ -290,7 +293,7 @@ async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.er.async_get",
-        return_value=mock_registry
+        return_value=mock_registry,
     ):
         states = kb.get_valid_states("vacuum.roborock_s7")
 
