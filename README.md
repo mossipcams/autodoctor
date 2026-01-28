@@ -11,15 +11,17 @@ Automations can fail silently when they reference states that will never occur:
 - **Typos**: `binary_sensor.motoin_sensor` instead of `motion`
 - **Missing attributes**: `state_attr('climate.hvac', 'temprature')`
 - **Impossible conditions**: Trigger on `home` but condition requires `not_home`
+- **Conflicting automations**: One automation turns on a light while another turns it off
 
-These issues cause automations to never fire, with no errors in the logs.
+These issues cause automations to never fire or behave unpredictably, with no errors in the logs.
 
-## The Solution
-
-Autodoctor performs two types of validation:
+## Features
 
 1. **Static Validation** - Analyzes automation configs against known valid states
 2. **Outcome Verification** - Verifies that automation actions are actually reachable
+3. **Conflict Detection** - Finds automations that take opposing actions on the same entity
+4. **Smart Suggestions** - Suggests fixes based on entity relationships and learns from your feedback
+5. **Issue Suppression** - Dismiss false positives so they don't reappear
 
 ## Installation
 
@@ -37,6 +39,26 @@ Autodoctor performs two types of validation:
 3. Restart Home Assistant
 4. Add the integration via Settings → Devices & Services
 
+## Lovelace Card
+
+Autodoctor includes a custom card with three tabs:
+
+- **Validation** - Shows state validation issues (wrong states, typos, missing entities)
+- **Outcomes** - Shows unreachable automation paths
+- **Conflicts** - Shows automations with opposing actions on the same entity
+
+Add the card to your dashboard:
+
+```yaml
+type: custom:autodoctor-card
+```
+
+The card displays issues with:
+- Severity indicators (error/warning)
+- Direct links to edit the automation
+- Smart fix suggestions with confidence scores
+- Dismiss buttons to suppress false positives
+
 ## Usage
 
 ### Services
@@ -45,6 +67,7 @@ Autodoctor performs two types of validation:
 |---------|-------------|
 | `autodoctor.validate` | Run validation on all automations (or a specific one) |
 | `autodoctor.simulate` | Verify that automation outcomes are reachable |
+| `autodoctor.detect_conflicts` | Find conflicting actions across automations |
 | `autodoctor.refresh_knowledge_base` | Rebuild the state knowledge base |
 
 ### Entities
@@ -97,9 +120,28 @@ Autodoctor builds a knowledge base of valid states from:
 | Attribute doesn't exist | Error | `state_attr('climate.hvac', 'temprature')` |
 | Transition never occurred | Warning | `from: home` to `away` never happened |
 
+### Conflict Detection
+
+Autodoctor detects when multiple automations take opposing actions on the same entity:
+
+| Conflict | Severity | Description |
+|----------|----------|-------------|
+| turn_on vs turn_off | Error | Direct conflict when both triggers fire |
+| toggle vs anything | Warning | Toggle behavior is unpredictable with other automations |
+
+### Smart Suggestions
+
+When an entity is missing or removed, Autodoctor suggests replacements using:
+
+- **String similarity** (30%) - Fuzzy matching on entity names
+- **Relationship score** (50%) - Same device (+0.4), same area (+0.3), same domain (+0.2), shared labels (+0.1)
+- **Learning** - Suggestions you dismiss are penalized in future recommendations
+
+Suggestions show confidence percentages and reasoning (e.g., "Same area", "Same device").
+
 ## Requirements
 
-- Home Assistant 2024.1 or newer
+- Home Assistant 2024.1 or newer (supports both legacy `service:` and new `action:` formats)
 - Recorder integration (for history analysis)
 
 ## License
