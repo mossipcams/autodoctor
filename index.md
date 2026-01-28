@@ -33,6 +33,8 @@ autodoctor/
 │   ├── manifest.json                # Integration metadata
 │   ├── services.yaml                # Service definitions
 │   └── strings.json                 # UI strings
+├── scripts/                         # Utility scripts
+│   └── extract_ha_states.py         # Extract valid states from HA source
 ├── tests/                           # Test suite
 ├── docs/plans/                      # Design documents
 └── www/                             # Frontend build assets
@@ -110,3 +112,7 @@ autodoctor/
 - `test_websocket_api_learning.py` - Learning on suppression
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle
+
+## Scripts
+
+- `scripts/extract_ha_states.py` - Extract valid states from Home Assistant source code
