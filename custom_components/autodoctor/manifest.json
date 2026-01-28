@@ -3,10 +3,18 @@
   "name": "Autodoctor",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["automation", "recorder", "frontend", "http", "lovelace"],
-  "after_dependencies": ["automation"],
+  "dependencies": [
+    "automation",
+    "recorder",
+    "frontend",
+    "http",
+    "lovelace"
+  ],
+  "after_dependencies": [
+    "automation"
+  ],
   "documentation": "https://github.com/mossipcams/autodoctor",
   "iot_class": "local_polling",
   "requirements": [],
-  "version": "2.0.0"
+  "version": "2.1.0"
 }
