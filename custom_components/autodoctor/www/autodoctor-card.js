@@ -367,7 +367,8 @@ const dt=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
 
       .tab {
         flex: 1;
-        padding: var(--autodoc-spacing-md) var(--autodoc-spacing-lg);
+        min-width: 0;
+        padding: var(--autodoc-spacing-md) var(--autodoc-spacing-sm);
         background: transparent;
         border: none;
         border-bottom: 2px solid transparent;
@@ -377,6 +378,9 @@ const dt=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
         font-weight: 500;
         cursor: pointer;
         transition: color var(--autodoc-transition-fast), border-color var(--autodoc-transition-fast);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .tab:hover {
