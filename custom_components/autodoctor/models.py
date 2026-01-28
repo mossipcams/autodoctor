@@ -124,7 +124,18 @@ class ValidationIssue:
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
-        return hash((self.automation_id, self.entity_id, self.location, self.message))
+        return hash((self.automation_id, self.issue_type, self.entity_id, self.message))
+
+    def __eq__(self, other: object) -> bool:
+        """Equality based on key fields for deduplication."""
+        if not isinstance(other, ValidationIssue):
+            return NotImplemented
+        return (
+            self.automation_id == other.automation_id
+            and self.issue_type == other.issue_type
+            and self.entity_id == other.entity_id
+            and self.message == other.message
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to serializable dictionary."""

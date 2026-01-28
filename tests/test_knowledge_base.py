@@ -71,19 +71,34 @@ async def test_get_domain(hass: HomeAssistant):
 
 
 async def test_clear_cache(hass: HomeAssistant):
-    """Test cache clearing."""
+    """Test cache clearing clears all caches."""
     kb = StateKnowledgeBase(hass)
+
+    # Set up zone and area
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    from homeassistant.helpers import area_registry as ar
+    area_registry = ar.async_get(hass)
+    area_registry.async_create("Living Room")
+    await hass.async_block_till_done()
 
     hass.states.async_set("binary_sensor.motion", STATE_ON)
     await hass.async_block_till_done()
 
-    # Populate cache
+    # Populate caches
     kb.get_valid_states("binary_sensor.motion")
+    kb._get_zone_names()
+    kb._get_area_names()
+
     assert "binary_sensor.motion" in kb._cache
+    assert kb._zone_names is not None
+    assert kb._area_names is not None
 
     # Clear cache
     kb.clear_cache()
+
     assert len(kb._cache) == 0
+    assert kb._zone_names is None
+    assert kb._area_names is None
 
 
 async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant):
@@ -302,3 +317,73 @@ async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
     # Should still include device class defaults
     assert "cleaning" in states
     assert "docked" in states
+
+
+async def test_zone_names_are_cached(hass: HomeAssistant):
+    """Test that zone names are only fetched once and contain zone names."""
+    # Set up a zone
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+
+    # Call _get_zone_names twice
+    zones1 = kb._get_zone_names()
+    zones2 = kb._get_zone_names()
+
+    # Should be same object (cached)
+    assert zones1 is zones2
+    # Should contain the zone name
+    assert "Home" in zones1
+
+
+async def test_area_names_are_cached(hass: HomeAssistant):
+    """Test that area names are only fetched once and contain area names."""
+    from homeassistant.helpers import area_registry as ar
+
+    # Set up an area
+    area_registry = ar.async_get(hass)
+    area_registry.async_create("Living Room")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+
+    # Call _get_area_names twice
+    areas1 = kb._get_area_names()
+    areas2 = kb._get_area_names()
+
+    # Should be same object (cached)
+    assert areas1 is areas2
+    # Should contain the area name
+    assert "Living Room" in areas1
+
+
+@pytest.mark.asyncio
+async def test_load_history_uses_executor(hass: HomeAssistant):
+    """Test that history loading uses executor for blocking call."""
+    from unittest.mock import AsyncMock, patch
+
+    kb = StateKnowledgeBase(hass)
+
+    # Mock async_add_executor_job
+    hass.async_add_executor_job = AsyncMock(return_value={})
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states"
+    ) as mock_get:
+        await kb.async_load_history(["light.test"])
+
+    # Should have called async_add_executor_job
+    assert hass.async_add_executor_job.called
+
+
+async def test_has_history_loaded(hass: HomeAssistant):
+    """Test has_history_loaded public method."""
+    kb = StateKnowledgeBase(hass)
+
+    # Initially empty
+    assert kb.has_history_loaded() is False
+
+    # After adding observed states
+    kb._observed_states["light.test"] = {"on", "off"}
+    assert kb.has_history_loaded() is True

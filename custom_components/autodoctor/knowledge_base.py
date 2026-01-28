@@ -194,23 +194,13 @@ class StateKnowledgeBase:
             domain == "device_tracker" and "bermuda" in entity_id.lower()
         )
         if domain in ("device_tracker", "person") or is_area_sensor:
-            for zone_state in self.hass.states.async_all("zone"):
-                # Use friendly_name if available, otherwise use zone ID
-                zone_name = zone_state.attributes.get(
-                    "friendly_name", zone_state.entity_id.split(".")[1]
-                )
-                valid_states.add(zone_name)
+            valid_states.update(self._get_zone_names())
             _LOGGER.debug("Entity %s: added zone names to valid states", entity_id)
 
         # For Bermuda BLE entities, add HA area names (lowercase) from area registry
         # Bermuda sensors report lowercase area names matching HA area IDs
         if is_area_sensor or is_bermuda_tracker:
-            area_registry = ar.async_get(self.hass)
-            for area in area_registry.async_list_areas():
-                # Add both the normalized name (lowercase with underscores) and the original name
-                valid_states.add(area.name)
-                # Also add lowercase version in case Bermuda normalizes differently
-                valid_states.add(area.name.lower())
+            valid_states.update(self._get_area_names())
             _LOGGER.debug("Entity %s: added HA area names to valid states", entity_id)
 
         # For Bermuda BLE device_trackers, also add area names from Bermuda sensors
@@ -271,9 +261,32 @@ class StateKnowledgeBase:
             return False
         return state.lower() in {s.lower() for s in valid_states}
 
+    def _get_zone_names(self) -> set[str]:
+        """Get all zone names (cached)."""
+        if not hasattr(self, "_zone_names") or self._zone_names is None:
+            self._zone_names: set[str] = set()
+            for zone_state in self.hass.states.async_all("zone"):
+                zone_name = zone_state.attributes.get(
+                    "friendly_name", zone_state.entity_id.split(".")[1]
+                )
+                self._zone_names.add(zone_name)
+        return self._zone_names
+
+    def _get_area_names(self) -> set[str]:
+        """Get all area names (cached)."""
+        if not hasattr(self, "_area_names") or self._area_names is None:
+            self._area_names: set[str] = set()
+            area_registry = ar.async_get(self.hass)
+            for area in area_registry.async_list_areas():
+                self._area_names.add(area.name)
+                self._area_names.add(area.name.lower())
+        return self._area_names
+
     def clear_cache(self) -> None:
-        """Clear the state cache."""
+        """Clear all caches."""
         self._cache.clear()
+        self._zone_names = None
+        self._area_names = None
 
     def get_valid_attributes(self, entity_id: str, attribute: str) -> set[str] | None:
         """Get valid values for an entity attribute.
@@ -320,13 +333,16 @@ class StateKnowledgeBase:
             end_time = datetime.now(UTC)
 
             try:
-                # get_significant_states is synchronous, call it directly
-                history = get_significant_states(
+                # Run blocking call in executor
+                history = await self.hass.async_add_executor_job(
+                    get_significant_states,
                     self.hass,
                     start_time,
                     end_time,
                     entity_ids,
-                    significant_changes_only=True,
+                    None,
+                    True,
+                    True,
                 )
             except Exception as err:
                 _LOGGER.warning("Failed to load recorder history: %s", err)
@@ -379,3 +395,7 @@ class StateKnowledgeBase:
     def get_historical_entity_ids(self) -> set[str]:
         """Get entity IDs that have been observed in history."""
         return set(self._observed_states.keys())
+
+    def has_history_loaded(self) -> bool:
+        """Check if history has been loaded."""
+        return bool(self._observed_states)

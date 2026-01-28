@@ -263,3 +263,64 @@ def test_entity_action_conditions_type():
     assert len(action.conditions) == 1
     assert action.conditions[0].entity_id == "input_boolean.mode"
     assert action.conditions[0].required_states == {"night"}
+
+
+def test_validation_issue_equality():
+    """Test that ValidationIssue instances with same key fields are equal."""
+    issue1 = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    issue2 = ValidationIssue(
+        severity=Severity.WARNING,  # Different severity
+        automation_id="automation.test",
+        automation_name="Different Name",  # Different name
+        entity_id="sensor.temp",
+        location="condition[0]",  # Different location
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    # Should be equal because automation_id, issue_type, entity_id, and message match
+    assert issue1 == issue2
+    assert hash(issue1) == hash(issue2)
+
+
+def test_validation_issue_set_deduplication():
+    """Test that duplicate ValidationIssue instances are deduplicated in sets."""
+    issue1 = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    issue2 = ValidationIssue(
+        severity=Severity.WARNING,  # Different severity
+        automation_id="automation.test",
+        automation_name="Different",  # Different name
+        entity_id="sensor.temp",
+        location="condition[0]",  # Different location
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    issue3 = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.other",  # Different automation
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    # issue1 and issue2 are duplicates (same key fields)
+    # issue3 is different (different automation_id)
+    issues_set = {issue1, issue2, issue3}
+    assert len(issues_set) == 2  # Only 2 unique issues

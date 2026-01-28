@@ -359,7 +359,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
         return []
 
     # Ensure history is loaded before validation
-    if knowledge_base and not knowledge_base._observed_states:
+    if knowledge_base and not knowledge_base.has_history_loaded():
         _LOGGER.debug("Loading entity history before validation...")
         await knowledge_base.async_load_history()
 
@@ -385,32 +385,52 @@ async def async_validate_all(hass: HomeAssistant) -> list:
         )
 
     all_issues = []
+    failed_automations = 0
 
     # Run Jinja template validation first
     if jinja_validator:
-        jinja_issues = jinja_validator.validate_automations(automations)
-        _LOGGER.debug(
-            "Jinja validation: found %d template syntax issues", len(jinja_issues)
-        )
-        all_issues.extend(jinja_issues)
-
-    # Run state reference validation
-    for idx, automation in enumerate(automations):
-        auto_name = automation.get("alias", automation.get("id", "unknown"))
-        # Log trigger info for first few automations
-        if idx < 3:
+        try:
+            jinja_issues = jinja_validator.validate_automations(automations)
             _LOGGER.debug(
-                "Automation '%s' trigger: %s",
-                auto_name,
-                automation.get("trigger", automation.get("triggers", "NO TRIGGER KEY")),
+                "Jinja validation: found %d template syntax issues", len(jinja_issues)
             )
-        refs = analyzer.extract_state_references(automation)
-        _LOGGER.debug(
-            "Automation '%s': extracted %d state references", auto_name, len(refs)
+            all_issues.extend(jinja_issues)
+        except Exception as err:
+            _LOGGER.warning("Jinja validation failed: %s", err)
+
+    # Run state reference validation - isolate each automation
+    for idx, automation in enumerate(automations):
+        auto_id = automation.get("id", "unknown")
+        auto_name = automation.get("alias", auto_id)
+
+        try:
+            # Log trigger info for first few automations
+            if idx < 3:
+                _LOGGER.debug(
+                    "Automation '%s' trigger: %s",
+                    auto_name,
+                    automation.get("trigger", automation.get("triggers", "NO TRIGGER KEY")),
+                )
+            refs = analyzer.extract_state_references(automation)
+            _LOGGER.debug(
+                "Automation '%s': extracted %d state references", auto_name, len(refs)
+            )
+            issues = validator.validate_all(refs)
+            _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
+            all_issues.extend(issues)
+        except Exception as err:
+            failed_automations += 1
+            _LOGGER.warning(
+                "Failed to validate automation '%s' (%s): %s",
+                auto_name, auto_id, err
+            )
+            continue
+
+    if failed_automations > 0:
+        _LOGGER.warning(
+            "Validation completed with %d failed automations (out of %d)",
+            failed_automations, len(automations)
         )
-        issues = validator.validate_all(refs)
-        _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
-        all_issues.extend(issues)
 
     _LOGGER.info(
         "Validation complete: %d total issues across %d automations",
