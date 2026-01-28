@@ -39,6 +39,7 @@ class ValidationIssuesSensor(SensorEntity):
         data = self.hass.data.get(DOMAIN, {})
         reporter = data.get("reporter")
         if reporter:
+            # _active_issues is a frozenset, safe to read directly
             return len(reporter._active_issues)
         return 0
 
@@ -48,5 +49,7 @@ class ValidationIssuesSensor(SensorEntity):
         data = self.hass.data.get(DOMAIN, {})
         reporter = data.get("reporter")
         if reporter:
-            return {"issue_ids": list(reporter._active_issues)}
+            # Take snapshot - frozenset is immutable so this is safe
+            issues = reporter._active_issues
+            return {"issue_ids": list(issues)}
         return {}

@@ -45,6 +45,8 @@ export interface Conflict {
   entity_id: string;
   automation_a: string;
   automation_b: string;
+  automation_a_name: string;
+  automation_b_name: string;
   action_a: string;
   action_b: string;
   severity: string;

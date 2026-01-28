@@ -303,10 +303,12 @@ async def websocket_run_conflicts(
     detector = ConflictDetector()
     conflicts = detector.detect_conflicts(automations)
 
-    # Store results
+    # Store results atomically to prevent partial reads
     last_run = datetime.now(timezone.utc).isoformat()
-    hass.data[DOMAIN]["conflicts"] = conflicts
-    hass.data[DOMAIN]["conflicts_last_run"] = last_run
+    hass.data[DOMAIN].update({
+        "conflicts": conflicts,
+        "conflicts_last_run": last_run,
+    })
 
     formatted, suppressed_count = _format_conflicts(conflicts, suppression_store)
 

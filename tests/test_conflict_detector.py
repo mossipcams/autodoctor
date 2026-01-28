@@ -169,3 +169,169 @@ class TestConditionExclusivity:
         conds_a = [ConditionInfo("input_boolean.mode1", {"on"})]
         conds_b = [ConditionInfo("input_boolean.mode2", {"off"})]
         assert not self.detector._conditions_mutually_exclusive(conds_a, conds_b)
+
+
+class TestActionLevelConditions:
+    """Test conflict detection with action-level conditions."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.detector = ConflictDetector()
+
+    def test_no_conflict_with_mutually_exclusive_action_conditions(self):
+        """Test that mutually exclusive action conditions prevent conflicts."""
+        automations = [
+            {
+                "id": "night_on",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "action": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_on", "target": {"entity_id": "light.living"}}
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "day_off",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "action": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "day"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_off", "target": {"entity_id": "light.living"}}
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
+
+    def test_conflict_with_compatible_action_conditions(self):
+        """Test that compatible action conditions still allow conflicts."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "action": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_on", "target": {"entity_id": "light.living"}}
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "action": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_off", "target": {"entity_id": "light.living"}}
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 1
+
+    def test_combined_automation_and_action_conditions(self):
+        """Test that automation-level and action-level conditions combine."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "condition": [{"condition": "state", "entity_id": "input_boolean.enabled", "state": "on"}],
+                "action": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_on", "target": {"entity_id": "light.living"}}
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "22:00:00"}],
+                "condition": [{"condition": "state", "entity_id": "input_boolean.enabled", "state": "off"}],
+                "action": [
+                    {"service": "light.turn_off", "target": {"entity_id": "light.living"}}
+                ],
+            },
+        ]
+        # Automation-level conditions are mutually exclusive (enabled on vs off)
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
+
+    def test_real_world_scenario_mode_based_automation(self):
+        """Test real-world scenario: mode-based automations don't conflict."""
+        automations = [
+            {
+                "id": "morning_routine",
+                "alias": "Morning Routine",
+                "trigger": [{"platform": "time", "at": "07:00:00"}],
+                "action": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_select.house_mode", "state": "home"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_on", "target": {"entity_id": "light.kitchen"}},
+                                    {"service": "light.turn_on", "target": {"entity_id": "light.living_room"}},
+                                ],
+                            },
+                            {
+                                "conditions": [
+                                    {"condition": "state", "entity_id": "input_select.house_mode", "state": "away"}
+                                ],
+                                "sequence": [
+                                    {"service": "light.turn_off", "target": {"entity_id": "light.kitchen"}},
+                                    {"service": "light.turn_off", "target": {"entity_id": "light.living_room"}},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
+        ]
+        # Same automation with choose branches should not conflict with itself
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0

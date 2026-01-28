@@ -40,7 +40,8 @@ class IssueReporter:
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the reporter."""
         self.hass = hass
-        self._active_issues: set[str] = set()
+        # Use frozenset for thread-safe reads from sensors
+        self._active_issues: frozenset[str] = frozenset()
 
     def _automation_issue_id(self, automation_id: str) -> str:
         """Generate a unique issue ID for an automation."""
@@ -112,8 +113,10 @@ class IssueReporter:
                 },
             )
 
+        # Clear resolved issues before updating active set
         self._clear_resolved_issues(current_issue_ids)
-        self._active_issues = current_issue_ids
+        # Atomic assignment - sensors read this set, so assign complete set at once
+        self._active_issues = frozenset(current_issue_ids)
 
     def _clear_resolved_issues(self, current_ids: set[str]) -> None:
         """Clear issues that have been resolved."""
@@ -124,7 +127,10 @@ class IssueReporter:
 
     def clear_all_issues(self) -> None:
         """Clear all issues."""
-        for issue_id in self._active_issues:
+        # Take snapshot of current issues before clearing
+        issues_to_clear = self._active_issues
+        for issue_id in issues_to_clear:
             # Note: ir.async_delete_issue is synchronous despite the name
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-        self._active_issues.clear()
+        # Atomic assignment
+        self._active_issues = frozenset()
