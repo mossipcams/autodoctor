@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
-from custom_components.autodoctor.models import StateReference
+from custom_components.autodoctor.models import IssueType, StateReference
 
 
 def test_extract_state_trigger_to():
@@ -195,3 +195,365 @@ def test_extract_state_attr_from_template():
     assert len(refs) == 1
     assert refs[0].entity_id == "climate.living_room"
     assert refs[0].expected_attribute == "current_temperature"
+
+
+def test_check_trigger_condition_compatibility_detects_impossible():
+    """Test detection of impossible trigger/condition combinations."""
+    analyzer = AutomationAnalyzer()
+
+    automation = {
+        "id": "test",
+        "alias": "Test Automation",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt",
+                "state": "not_home",
+            }
+        ],
+    }
+
+    issues = analyzer.check_trigger_condition_compatibility(automation)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.IMPOSSIBLE_CONDITION
+    assert "home" in issues[0].message
+    assert "not_home" in issues[0].message
+
+
+def test_check_trigger_condition_compatibility_allows_matching():
+    """Test that matching trigger/condition passes."""
+    analyzer = AutomationAnalyzer()
+
+    automation = {
+        "id": "test",
+        "alias": "Test Automation",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt",
+                "state": "home",
+            }
+        ],
+    }
+
+    issues = analyzer.check_trigger_condition_compatibility(automation)
+    assert len(issues) == 0
+
+
+def test_check_trigger_condition_compatibility_allows_list_match():
+    """Test that condition with list including trigger state passes."""
+    analyzer = AutomationAnalyzer()
+
+    automation = {
+        "id": "test",
+        "alias": "Test Automation",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt",
+                "state": ["home", "away"],
+            }
+        ],
+    }
+
+    issues = analyzer.check_trigger_condition_compatibility(automation)
+    assert len(issues) == 0
+
+
+def test_extract_is_state_attr_from_template():
+    """Test extraction of is_state_attr() calls from templates."""
+    automation = {
+        "id": "state_attr_test",
+        "alias": "State Attr Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ is_state_attr('climate.living_room', 'hvac_mode', 'heat') }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "hvac_mode"
+
+
+def test_extract_template_with_escaped_quotes():
+    """Test extraction handles escaped quotes in templates."""
+    automation = {
+        "id": "escaped_quotes_test",
+        "alias": "Escaped Quotes Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": r"{{ is_state('sensor.name_with_quote', 'value\'s_here') }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.name_with_quote"
+
+
+def test_extract_multiline_template():
+    """Test extraction handles multiline templates."""
+    automation = {
+        "id": "multiline_test",
+        "alias": "Multiline Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": """{{
+                    is_state('sensor.test',
+                             'on')
+                }}""",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.test"
+    assert refs[0].expected_state == "on"
+
+
+def test_extract_template_strips_jinja_comments():
+    """Test that Jinja2 comments are stripped before parsing."""
+    automation = {
+        "id": "comment_test",
+        "alias": "Comment Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": """{# This is a comment #}{{ is_state('sensor.test', 'on') }}{# Another comment #}""",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.test"
+
+
+def test_extract_from_choose_action():
+    """Test extraction from choose action conditions."""
+    automation = {
+        "id": "choose_test",
+        "alias": "Choose Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ is_state('sensor.mode', 'day') }}",
+                            }
+                        ],
+                        "sequence": [{"service": "light.turn_on"}],
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "sensor.mode" for r in refs)
+
+
+def test_extract_from_if_action():
+    """Test extraction from if action conditions."""
+    automation = {
+        "id": "if_test",
+        "alias": "If Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "if": [
+                    {
+                        "condition": "template",
+                        "value_template": "{{ is_state('binary_sensor.presence', 'on') }}",
+                    }
+                ],
+                "then": [{"service": "light.turn_on"}],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "binary_sensor.presence" for r in refs)
+
+
+def test_extract_from_repeat_while_action():
+    """Test extraction from repeat while condition."""
+    automation = {
+        "id": "repeat_while_test",
+        "alias": "Repeat While Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "while": [
+                        {
+                            "condition": "template",
+                            "value_template": "{{ is_state('sensor.temp', 'high') }}",
+                        }
+                    ],
+                    "sequence": [{"service": "climate.set_temperature"}],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "sensor.temp" for r in refs)
+
+
+def test_extract_from_repeat_until_action():
+    """Test extraction from repeat until condition."""
+    automation = {
+        "id": "repeat_until_test",
+        "alias": "Repeat Until Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "until": [
+                        {
+                            "condition": "template",
+                            "value_template": "{{ is_state('lock.front', 'locked') }}",
+                        }
+                    ],
+                    "sequence": [{"service": "lock.lock"}],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "lock.front" for r in refs)
+
+
+def test_extract_from_wait_template_action():
+    """Test extraction from wait_template action."""
+    automation = {
+        "id": "wait_template_test",
+        "alias": "Wait Template Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "wait_template": "{{ is_state('binary_sensor.door', 'off') }}",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "binary_sensor.door" for r in refs)
+
+
+def test_extract_from_parallel_action():
+    """Test extraction from parallel action branches."""
+    automation = {
+        "id": "parallel_test",
+        "alias": "Parallel Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "parallel": [
+                    [
+                        {
+                            "wait_template": "{{ is_state('sensor.a', 'ready') }}",
+                        }
+                    ],
+                    [
+                        {
+                            "wait_template": "{{ is_state('sensor.b', 'ready') }}",
+                        }
+                    ],
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "sensor.a" for r in refs)
+    assert any(r.entity_id == "sensor.b" for r in refs)
+
+
+def test_extract_from_nested_choose_default():
+    """Test extraction from choose default sequence."""
+    automation = {
+        "id": "choose_default_test",
+        "alias": "Choose Default Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [{"condition": "state", "entity_id": "sensor.x", "state": "on"}],
+                        "sequence": [],
+                    }
+                ],
+                "default": [
+                    {
+                        "wait_template": "{{ is_state('sensor.fallback', 'ready') }}",
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "sensor.fallback" for r in refs)

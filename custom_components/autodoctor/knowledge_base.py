@@ -11,6 +11,8 @@ from .device_class_states import get_device_class_states
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from homeassistant.helpers import area_registry as ar
+
 try:
     # Current HA location (2021+)
     from homeassistant.components.recorder.history import get_significant_states
@@ -65,6 +67,7 @@ class StateKnowledgeBase:
         self.history_days = history_days
         self._cache: dict[str, set[str]] = {}
         self._observed_states: dict[str, set[str]] = {}
+        self._last_seen: dict[str, dict[str, datetime]] = {}
 
     def entity_exists(self, entity_id: str) -> bool:
         """Check if an entity exists.
@@ -122,6 +125,55 @@ class StateKnowledgeBase:
             _LOGGER.debug(
                 "Entity %s (domain=%s): no device class defaults",
                 entity_id, domain
+            )
+
+        # For zone-aware entities, add all zone names as valid states
+        # Device trackers and person entities can report zone names as their state
+        # Also handle area sensors (e.g., Bermuda BLE area sensors)
+        is_area_sensor = (
+            domain == "sensor" and
+            ("_area" in entity_id or "_room" in entity_id or "bermuda" in entity_id.lower())
+        )
+        is_bermuda_tracker = (
+            domain == "device_tracker" and "bermuda" in entity_id.lower()
+        )
+        if domain in ("device_tracker", "person") or is_area_sensor:
+            for zone_state in self.hass.states.async_all("zone"):
+                # Use friendly_name if available, otherwise use zone ID
+                zone_name = zone_state.attributes.get(
+                    "friendly_name", zone_state.entity_id.split(".")[1]
+                )
+                valid_states.add(zone_name)
+            _LOGGER.debug(
+                "Entity %s: added zone names to valid states",
+                entity_id
+            )
+
+        # For Bermuda BLE entities, add HA area names (lowercase) from area registry
+        # Bermuda sensors report lowercase area names matching HA area IDs
+        if is_area_sensor or is_bermuda_tracker:
+            area_registry = ar.async_get(self.hass)
+            for area in area_registry.async_list_areas():
+                # Add both the normalized name (lowercase with underscores) and the original name
+                valid_states.add(area.name)
+                # Also add lowercase version in case Bermuda normalizes differently
+                valid_states.add(area.name.lower())
+            _LOGGER.debug(
+                "Entity %s: added HA area names to valid states",
+                entity_id
+            )
+
+        # For Bermuda BLE device_trackers, also add area names from Bermuda sensors
+        # Bermuda uses BLE areas which may differ from HA zones
+        if is_bermuda_tracker:
+            for sensor_state in self.hass.states.async_all("sensor"):
+                sensor_id = sensor_state.entity_id
+                if "_area" in sensor_id or "bermuda" in sensor_id.lower():
+                    if sensor_state.state not in ("unavailable", "unknown"):
+                        valid_states.add(sensor_state.state)
+            _LOGGER.debug(
+                "Entity %s: added Bermuda area sensor states to valid states",
+                entity_id
             )
 
         # Schema introspection - after getting device class defaults
@@ -226,13 +278,18 @@ class StateKnowledgeBase:
         for entity_id, states in history.items():
             if entity_id not in self._observed_states:
                 self._observed_states[entity_id] = set()
+            if entity_id not in self._last_seen:
+                self._last_seen[entity_id] = {}
 
             for state in states:
                 # Handle both State objects and dict formats
                 if hasattr(state, "state"):
                     state_value = state.state
+                    # Get last_changed timestamp
+                    last_changed = getattr(state, "last_changed", None)
                 elif isinstance(state, dict):
                     state_value = state.get("state")
+                    last_changed = state.get("last_changed")
                 else:
                     continue
 
@@ -241,6 +298,20 @@ class StateKnowledgeBase:
                     loaded_count += 1
                     if entity_id in self._cache:
                         self._cache[entity_id].add(state_value)
+
+                    # Track when this state was last seen
+                    if last_changed:
+                        # Convert to datetime if needed
+                        if isinstance(last_changed, str):
+                            try:
+                                last_changed = datetime.fromisoformat(last_changed.replace("Z", "+00:00"))
+                            except ValueError:
+                                last_changed = None
+
+                        if last_changed:
+                            current = self._last_seen[entity_id].get(state_value)
+                            if current is None or last_changed > current:
+                                self._last_seen[entity_id][state_value] = last_changed
 
         _LOGGER.debug(
             "Loaded %d historical states for %d entities",
@@ -251,3 +322,20 @@ class StateKnowledgeBase:
     def get_observed_states(self, entity_id: str) -> set[str]:
         """Get states that have been observed in history."""
         return self._observed_states.get(entity_id, set())
+
+    def get_historical_entity_ids(self) -> set[str]:
+        """Get entity IDs that have been observed in history."""
+        return set(self._observed_states.keys())
+
+    def get_state_last_seen(self, entity_id: str, state: str) -> datetime | None:
+        """Get when a state was last seen for an entity.
+
+        Args:
+            entity_id: The entity ID
+            state: The state value to check
+
+        Returns:
+            The datetime when the state was last seen, or None if never seen
+        """
+        entity_states = self._last_seen.get(entity_id, {})
+        return entity_states.get(state)

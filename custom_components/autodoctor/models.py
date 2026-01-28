@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import IntEnum, auto
+from enum import Enum, IntEnum, auto
+from typing import Any
 
 
 class Severity(IntEnum):
@@ -21,6 +22,18 @@ class Verdict(IntEnum):
     ALL_REACHABLE = auto()
     PARTIALLY_REACHABLE = auto()
     UNREACHABLE = auto()
+
+
+class IssueType(str, Enum):
+    """Types of validation issues."""
+
+    ENTITY_NOT_FOUND = "entity_not_found"
+    ENTITY_REMOVED = "entity_removed"
+    INVALID_STATE = "invalid_state"
+    IMPOSSIBLE_CONDITION = "impossible_condition"
+    CASE_MISMATCH = "case_mismatch"
+    ATTRIBUTE_NOT_FOUND = "attribute_not_found"
+    STALE_STATE = "stale_state"
 
 
 @dataclass
@@ -52,12 +65,32 @@ class ValidationIssue:
     entity_id: str
     location: str
     message: str
+    issue_type: IssueType | None = None
     suggestion: str | None = None
     valid_states: list[str] = field(default_factory=list)
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
         return hash((self.automation_id, self.entity_id, self.location, self.message))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to serializable dictionary."""
+        return {
+            "issue_type": self.issue_type.value if self.issue_type else None,
+            "severity": self.severity.name.lower(),
+            "automation_id": self.automation_id,
+            "automation_name": self.automation_name,
+            "entity_id": self.entity_id,
+            "location": self.location,
+            "message": self.message,
+            "suggestion": self.suggestion,
+            "valid_states": self.valid_states,
+        }
+
+    def get_suppression_key(self) -> str:
+        """Generate a unique key for suppressing this issue."""
+        issue_type = self.issue_type.value if self.issue_type else "unknown"
+        return f"{self.automation_id}:{self.entity_id}:{issue_type}"
 
 
 @dataclass
@@ -71,3 +104,24 @@ class OutcomeReport:
     outcomes: list[str]
     unreachable_paths: list[str]
     verdict: Verdict
+
+
+def outcome_report_to_issues(report: OutcomeReport) -> list[ValidationIssue]:
+    """Convert an OutcomeReport to a list of ValidationIssue objects."""
+    if report.verdict == Verdict.ALL_REACHABLE:
+        return []
+
+    issues = []
+    for path in report.unreachable_paths:
+        issues.append(
+            ValidationIssue(
+                severity=Severity.WARNING,
+                automation_id=report.automation_id,
+                automation_name=report.automation_name,
+                entity_id="",
+                location=path,
+                message=f"Unreachable outcome: {path}",
+                issue_type=IssueType.IMPOSSIBLE_CONDITION,
+            )
+        )
+    return issues
