@@ -10,6 +10,7 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
 from .conflict_detector import ConflictDetector
@@ -328,6 +329,7 @@ async def websocket_run_conflicts(
         vol.Required("automation_id"): str,
         vol.Required("entity_id"): str,
         vol.Required("issue_type"): str,
+        vol.Optional("state"): str,  # State value for learning
     }
 )
 @websocket_api.async_response
@@ -336,14 +338,39 @@ async def websocket_suppress(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Suppress an issue."""
+    """Suppress an issue, optionally learning the state."""
+    from .learned_states_store import LearnedStatesStore
+
     data = hass.data.get(DOMAIN, {})
     suppression_store: SuppressionStore | None = data.get("suppression_store")
+    learned_store: LearnedStatesStore | None = data.get("learned_states_store")
 
     if not suppression_store:
         connection.send_error(msg["id"], "not_ready", "Suppression store not initialized")
         return
 
+    # Learn state if this is an invalid_state issue with a state value
+    if (
+        learned_store
+        and msg["issue_type"] == "invalid_state"
+        and "state" in msg
+    ):
+        entity_id = msg["entity_id"]
+        state = msg["state"]
+
+        # Get integration from entity registry
+        entity_registry = er.async_get(hass)
+        entry = entity_registry.async_get(entity_id)
+
+        if entry and entry.platform:
+            domain = entity_id.split(".")[0] if "." in entity_id else ""
+            await learned_store.async_learn_state(domain, entry.platform, state)
+            _LOGGER.info(
+                "Learned state '%s' for %s entities from %s integration",
+                state, domain, entry.platform
+            )
+
+    # Suppress the issue
     key = f"{msg['automation_id']}:{msg['entity_id']}:{msg['issue_type']}"
     await suppression_store.async_suppress(key)
 

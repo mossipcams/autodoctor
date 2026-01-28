@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from .device_class_states import get_device_class_states
+from .learned_states_store import LearnedStatesStore
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import entity_registry as er
 
 try:
     # Current HA location (2021+)
@@ -57,17 +59,24 @@ class StateKnowledgeBase:
     3. Recorder history (observed states)
     """
 
-    def __init__(self, hass: HomeAssistant, history_days: int = 30) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        history_days: int = 30,
+        learned_states_store: LearnedStatesStore | None = None,
+    ) -> None:
         """Initialize the knowledge base.
 
         Args:
             hass: Home Assistant instance
             history_days: Number of days of history to query
+            learned_states_store: Optional store for user-learned states
         """
         self.hass = hass
         self.history_days = history_days
         self._cache: dict[str, set[str]] = {}
         self._observed_states: dict[str, set[str]] = {}
+        self._learned_states_store = learned_states_store
         self._lock = asyncio.Lock()
 
     def entity_exists(self, entity_id: str) -> bool:
@@ -91,6 +100,39 @@ class StateKnowledgeBase:
             The domain (e.g., 'binary_sensor')
         """
         return entity_id.split(".")[0] if "." in entity_id else ""
+
+    def get_integration(self, entity_id: str) -> str | None:
+        """Get the integration/platform that owns an entity.
+
+        Args:
+            entity_id: The entity ID to look up
+
+        Returns:
+            Integration name (e.g., 'roborock'), or None if not found
+        """
+        entity_registry = er.async_get(self.hass)
+        entry = entity_registry.async_get(entity_id)
+        return entry.platform if entry else None
+
+    def _get_learned_states(self, entity_id: str) -> set[str]:
+        """Get learned states for an entity from the store.
+
+        Args:
+            entity_id: The entity ID
+
+        Returns:
+            Set of learned states, or empty set if none
+        """
+        if not self._learned_states_store:
+            return set()
+
+        domain = self.get_domain(entity_id)
+        integration = self.get_integration(entity_id)
+
+        if not integration:
+            return set()
+
+        return self._learned_states_store.get_learned_states(domain, integration)
 
     def get_valid_states(self, entity_id: str) -> set[str] | None:
         """Get valid states for an entity.
@@ -131,6 +173,15 @@ class StateKnowledgeBase:
             _LOGGER.debug(
                 "Entity %s (domain=%s): no device class defaults",
                 entity_id, domain
+            )
+
+        # Add learned states for this integration
+        learned = self._get_learned_states(entity_id)
+        if learned:
+            valid_states.update(learned)
+            _LOGGER.debug(
+                "Entity %s: added learned states = %s",
+                entity_id, learned
             )
 
         # For zone-aware entities, add all zone names as valid states
@@ -274,8 +325,8 @@ class StateKnowledgeBase:
             if not entity_ids:
                 return
 
-            start_time = datetime.now() - timedelta(days=self.history_days)
-            end_time = datetime.now()
+            start_time = datetime.now(timezone.utc) - timedelta(days=self.history_days)
+            end_time = datetime.now(timezone.utc)
 
             try:
                 # get_significant_states is synchronous, call it directly

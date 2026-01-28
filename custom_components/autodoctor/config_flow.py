@@ -20,6 +20,9 @@ from .const import (
     DEFAULT_DEBOUNCE_SECONDS,
 )
 
+# Unique ID for single-instance integration
+UNIQUE_ID = DOMAIN
+
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Autodoctor."""
@@ -30,8 +33,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
+        # Set unique ID to prevent duplicate entries
+        await self.async_set_unique_id(UNIQUE_ID)
+        self._abort_if_unique_id_configured()
 
         if user_input is not None:
             return self.async_create_entry(

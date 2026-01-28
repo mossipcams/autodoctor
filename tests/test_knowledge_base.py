@@ -148,7 +148,8 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
     """Test that recorder history adds observed states."""
     kb = StateKnowledgeBase(hass)
 
-    hass.states.async_set("sensor.custom", "active")
+    # Use input_select which supports arbitrary states from history
+    hass.states.async_set("input_select.mode", "active", {"options": ["active"]})
     await hass.async_block_till_done()
 
     history_states = [
@@ -160,11 +161,11 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.get_significant_states",
-        return_value={"sensor.custom": history_states},
+        return_value={"input_select.mode": history_states},
     ):
-        await kb.async_load_history(["sensor.custom"])
+        await kb.async_load_history(["input_select.mode"])
 
-    states = kb.get_valid_states("sensor.custom")
+    states = kb.get_valid_states("input_select.mode")
     assert "active" in states
     assert "idle" in states
     assert "error" in states
@@ -220,3 +221,81 @@ async def test_get_historical_entity_ids(hass: HomeAssistant):
     assert "sensor.old_entity" in historical
     assert "sensor.another_old" in historical
     assert "sensor.nonexistent" not in historical
+
+
+async def test_get_integration_from_entity_registry(hass: HomeAssistant):
+    """Test getting integration name from entity registry."""
+    from unittest.mock import MagicMock, patch
+    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+
+    kb = StateKnowledgeBase(hass)
+
+    # Mock entity registry
+    mock_entry = MagicMock()
+    mock_entry.platform = "roborock"
+
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_entry
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry
+    ):
+        integration = kb.get_integration("vacuum.roborock_s7")
+
+    assert integration == "roborock"
+
+
+async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
+    """Test getting integration returns None for unknown entity."""
+    from unittest.mock import MagicMock, patch
+    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+
+    kb = StateKnowledgeBase(hass)
+
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = None
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry
+    ):
+        integration = kb.get_integration("vacuum.unknown")
+
+    assert integration is None
+
+
+async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
+    """Test that learned states are included in valid states."""
+    from unittest.mock import MagicMock, patch, AsyncMock
+    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+    from custom_components.autodoctor.learned_states_store import LearnedStatesStore
+
+    # Set up entity
+    hass.states.async_set("vacuum.roborock_s7", "cleaning")
+    await hass.async_block_till_done()
+
+    # Create store with learned state
+    store = LearnedStatesStore(hass)
+    await store.async_learn_state("vacuum", "roborock", "segment_cleaning")
+
+    # Create knowledge base with store
+    kb = StateKnowledgeBase(hass, learned_states_store=store)
+
+    # Mock entity registry
+    mock_entry = MagicMock()
+    mock_entry.platform = "roborock"
+    mock_registry = MagicMock()
+    mock_registry.async_get.return_value = mock_entry
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry
+    ):
+        states = kb.get_valid_states("vacuum.roborock_s7")
+
+    # Should include learned state
+    assert "segment_cleaning" in states
+    # Should still include device class defaults
+    assert "cleaning" in states
+    assert "docked" in states
