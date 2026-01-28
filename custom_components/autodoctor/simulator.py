@@ -108,7 +108,9 @@ class SimulationEngine:
                 cond_state = condition.get("state")
 
                 if entity_id and cond_state and entity_id in trigger_states:
-                    cond_states = {cond_state} if isinstance(cond_state, str) else set(cond_state)
+                    cond_states = (
+                        {cond_state} if isinstance(cond_state, str) else set(cond_state)
+                    )
                     trigger_state_set = trigger_states[entity_id]
 
                     if not trigger_state_set.intersection(cond_states):

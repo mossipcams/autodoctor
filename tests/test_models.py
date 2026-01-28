@@ -1,13 +1,12 @@
 """Tests for data models."""
 
 import pytest
-from datetime import datetime
 
 from custom_components.autodoctor.models import (
+    IssueType,
+    Severity,
     StateReference,
     ValidationIssue,
-    Severity,
-    IssueType,
 )
 
 
@@ -113,7 +112,11 @@ def test_validation_issue_to_dict():
 @pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
 def test_outcome_report_to_issues_all_reachable():
     """All reachable returns empty list."""
-    from custom_components.autodoctor.models import OutcomeReport, Verdict, outcome_report_to_issues
+    from custom_components.autodoctor.models import (
+        OutcomeReport,
+        Verdict,
+        outcome_report_to_issues,
+    )
 
     report = OutcomeReport(
         automation_id="automation.test",
@@ -131,7 +134,11 @@ def test_outcome_report_to_issues_all_reachable():
 @pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
 def test_outcome_report_to_issues_unreachable():
     """Unreachable paths become ValidationIssue objects."""
-    from custom_components.autodoctor.models import OutcomeReport, Verdict, outcome_report_to_issues
+    from custom_components.autodoctor.models import (
+        OutcomeReport,
+        Verdict,
+        outcome_report_to_issues,
+    )
 
     report = OutcomeReport(
         automation_id="automation.test",
@@ -139,7 +146,9 @@ def test_outcome_report_to_issues_unreachable():
         triggers_valid=True,
         conditions_reachable=False,
         outcomes=["action.call_service"],
-        unreachable_paths=["condition[0]: state requires 'home' but trigger sets 'away'"],
+        unreachable_paths=[
+            "condition[0]: state requires 'home' but trigger sets 'away'"
+        ],
         verdict=Verdict.UNREACHABLE,
     )
     issues = outcome_report_to_issues(report)
@@ -232,12 +241,15 @@ def test_conflict_suppression_key():
     )
 
     key = conflict.get_suppression_key()
-    assert key == "automation.away_mode:automation.motion_lights:light.living_room:conflict"
+    assert (
+        key
+        == "automation.away_mode:automation.motion_lights:light.living_room:conflict"
+    )
 
 
 def test_entity_action_conditions_type():
     """Test that EntityAction.conditions accepts ConditionInfo objects."""
-    from custom_components.autodoctor.models import EntityAction, ConditionInfo
+    from custom_components.autodoctor.models import ConditionInfo, EntityAction
 
     condition = ConditionInfo(entity_id="input_boolean.mode", required_states={"night"})
     action = EntityAction(
@@ -251,3 +263,64 @@ def test_entity_action_conditions_type():
     assert len(action.conditions) == 1
     assert action.conditions[0].entity_id == "input_boolean.mode"
     assert action.conditions[0].required_states == {"night"}
+
+
+def test_validation_issue_equality():
+    """Test that ValidationIssue instances with same key fields are equal."""
+    issue1 = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    issue2 = ValidationIssue(
+        severity=Severity.WARNING,  # Different severity
+        automation_id="automation.test",
+        automation_name="Different Name",  # Different name
+        entity_id="sensor.temp",
+        location="condition[0]",  # Different location
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    # Should be equal because automation_id, issue_type, entity_id, and message match
+    assert issue1 == issue2
+    assert hash(issue1) == hash(issue2)
+
+
+def test_validation_issue_set_deduplication():
+    """Test that duplicate ValidationIssue instances are deduplicated in sets."""
+    issue1 = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    issue2 = ValidationIssue(
+        severity=Severity.WARNING,  # Different severity
+        automation_id="automation.test",
+        automation_name="Different",  # Different name
+        entity_id="sensor.temp",
+        location="condition[0]",  # Different location
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    issue3 = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.other",  # Different automation
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    # issue1 and issue2 are duplicates (same key fields)
+    # issue3 is different (different automation_id)
+    issues_set = {issue1, issue2, issue3}
+    assert len(issues_set) == 2  # Only 2 unique issues

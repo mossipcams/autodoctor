@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from .device_class_states import get_device_class_states
@@ -165,60 +165,43 @@ class StateKnowledgeBase:
             valid_states = device_class_defaults.copy()
             _LOGGER.debug(
                 "Entity %s (domain=%s): device class defaults = %s",
-                entity_id, domain, device_class_defaults
+                entity_id,
+                domain,
+                device_class_defaults,
             )
         else:
             # Unknown domain - return empty set (will be populated by history)
             valid_states = set()
             _LOGGER.debug(
-                "Entity %s (domain=%s): no device class defaults",
-                entity_id, domain
+                "Entity %s (domain=%s): no device class defaults", entity_id, domain
             )
 
         # Add learned states for this integration
         learned = self._get_learned_states(entity_id)
         if learned:
             valid_states.update(learned)
-            _LOGGER.debug(
-                "Entity %s: added learned states = %s",
-                entity_id, learned
-            )
+            _LOGGER.debug("Entity %s: added learned states = %s", entity_id, learned)
 
         # For zone-aware entities, add all zone names as valid states
         # Device trackers and person entities can report zone names as their state
         # Also handle area sensors (e.g., Bermuda BLE area sensors)
-        is_area_sensor = (
-            domain == "sensor" and
-            ("_area" in entity_id or "_room" in entity_id or "bermuda" in entity_id.lower())
+        is_area_sensor = domain == "sensor" and (
+            "_area" in entity_id
+            or "_room" in entity_id
+            or "bermuda" in entity_id.lower()
         )
         is_bermuda_tracker = (
             domain == "device_tracker" and "bermuda" in entity_id.lower()
         )
         if domain in ("device_tracker", "person") or is_area_sensor:
-            for zone_state in self.hass.states.async_all("zone"):
-                # Use friendly_name if available, otherwise use zone ID
-                zone_name = zone_state.attributes.get(
-                    "friendly_name", zone_state.entity_id.split(".")[1]
-                )
-                valid_states.add(zone_name)
-            _LOGGER.debug(
-                "Entity %s: added zone names to valid states",
-                entity_id
-            )
+            valid_states.update(self._get_zone_names())
+            _LOGGER.debug("Entity %s: added zone names to valid states", entity_id)
 
         # For Bermuda BLE entities, add HA area names (lowercase) from area registry
         # Bermuda sensors report lowercase area names matching HA area IDs
         if is_area_sensor or is_bermuda_tracker:
-            area_registry = ar.async_get(self.hass)
-            for area in area_registry.async_list_areas():
-                # Add both the normalized name (lowercase with underscores) and the original name
-                valid_states.add(area.name)
-                # Also add lowercase version in case Bermuda normalizes differently
-                valid_states.add(area.name.lower())
-            _LOGGER.debug(
-                "Entity %s: added HA area names to valid states",
-                entity_id
-            )
+            valid_states.update(self._get_area_names())
+            _LOGGER.debug("Entity %s: added HA area names to valid states", entity_id)
 
         # For Bermuda BLE device_trackers, also add area names from Bermuda sensors
         # Bermuda uses BLE areas which may differ from HA zones
@@ -229,8 +212,7 @@ class StateKnowledgeBase:
                     if sensor_state.state not in ("unavailable", "unknown"):
                         valid_states.add(sensor_state.state)
             _LOGGER.debug(
-                "Entity %s: added Bermuda area sensor states to valid states",
-                entity_id
+                "Entity %s: added Bermuda area sensor states to valid states", entity_id
             )
 
         # Schema introspection - after getting device class defaults
@@ -260,10 +242,7 @@ class StateKnowledgeBase:
         else:
             self._cache[entity_id] = valid_states
 
-        _LOGGER.debug(
-            "Entity %s: final valid states = %s",
-            entity_id, valid_states
-        )
+        _LOGGER.debug("Entity %s: final valid states = %s", entity_id, valid_states)
 
         return valid_states.copy()
 
@@ -282,9 +261,32 @@ class StateKnowledgeBase:
             return False
         return state.lower() in {s.lower() for s in valid_states}
 
+    def _get_zone_names(self) -> set[str]:
+        """Get all zone names (cached)."""
+        if not hasattr(self, "_zone_names") or self._zone_names is None:
+            self._zone_names: set[str] = set()
+            for zone_state in self.hass.states.async_all("zone"):
+                zone_name = zone_state.attributes.get(
+                    "friendly_name", zone_state.entity_id.split(".")[1]
+                )
+                self._zone_names.add(zone_name)
+        return self._zone_names
+
+    def _get_area_names(self) -> set[str]:
+        """Get all area names (cached)."""
+        if not hasattr(self, "_area_names") or self._area_names is None:
+            self._area_names: set[str] = set()
+            area_registry = ar.async_get(self.hass)
+            for area in area_registry.async_list_areas():
+                self._area_names.add(area.name)
+                self._area_names.add(area.name.lower())
+        return self._area_names
+
     def clear_cache(self) -> None:
-        """Clear the state cache."""
+        """Clear all caches."""
         self._cache.clear()
+        self._zone_names = None
+        self._area_names = None
 
     def get_valid_attributes(self, entity_id: str, attribute: str) -> set[str] | None:
         """Get valid values for an entity attribute.
@@ -314,7 +316,9 @@ class StateKnowledgeBase:
         Uses a lock to prevent concurrent history loads from racing.
         """
         if get_significant_states is None:
-            _LOGGER.warning("Recorder history not available - get_significant_states not found")
+            _LOGGER.warning(
+                "Recorder history not available - get_significant_states not found"
+            )
             return
 
         # Serialize history loading to prevent races
@@ -325,17 +329,20 @@ class StateKnowledgeBase:
             if not entity_ids:
                 return
 
-            start_time = datetime.now(timezone.utc) - timedelta(days=self.history_days)
-            end_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC) - timedelta(days=self.history_days)
+            end_time = datetime.now(UTC)
 
             try:
-                # get_significant_states is synchronous, call it directly
-                history = get_significant_states(
+                # Run blocking call in executor
+                history = await self.hass.async_add_executor_job(
+                    get_significant_states,
                     self.hass,
                     start_time,
                     end_time,
                     entity_ids,
-                    significant_changes_only=True,
+                    None,
+                    True,
+                    True,
                 )
             except Exception as err:
                 _LOGGER.warning("Failed to load recorder history: %s", err)
@@ -388,3 +395,7 @@ class StateKnowledgeBase:
     def get_historical_entity_ids(self) -> set[str]:
         """Get entity IDs that have been observed in history."""
         return set(self._observed_states.keys())
+
+    def has_history_loaded(self) -> bool:
+        """Check if history has been loaded."""
+        return bool(self._observed_states)

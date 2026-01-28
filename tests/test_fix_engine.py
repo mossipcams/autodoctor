@@ -1,10 +1,9 @@
 """Tests for simplified fix engine."""
 
-import pytest
 from custom_components.autodoctor.fix_engine import (
-    get_state_suggestion,
-    get_entity_suggestion,
     STATE_SYNONYMS,
+    get_entity_suggestion,
+    get_state_suggestion,
 )
 
 
@@ -45,7 +44,9 @@ class TestGetStateSuggestion:
     def test_no_match(self):
         """Test when no match is found."""
         valid_states = {"on", "off"}
-        assert get_state_suggestion("something_completely_different", valid_states) is None
+        assert (
+            get_state_suggestion("something_completely_different", valid_states) is None
+        )
 
     def test_person_state_away(self):
         """Test that 'away' suggests 'not_home' for person entities."""

@@ -60,7 +60,9 @@ class AutomationAnalyzer:
 
         return [str(value)]
 
-    def extract_state_references(self, automation: dict[str, Any]) -> list[StateReference]:
+    def extract_state_references(
+        self, automation: dict[str, Any]
+    ) -> list[StateReference]:
         """Extract all state references from an automation."""
         refs: list[StateReference] = []
 
@@ -84,7 +86,9 @@ class AutomationAnalyzer:
 
         for idx, condition in enumerate(conditions):
             refs.extend(
-                self._extract_from_condition(condition, idx, automation_id, automation_name)
+                self._extract_from_condition(
+                    condition, idx, automation_id, automation_name
+                )
             )
 
         # Extract from actions (support both 'action' and 'actions' keys)
@@ -105,11 +109,20 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a trigger."""
         refs: list[StateReference] = []
+
+        # Guard: skip non-dict triggers
+        if not isinstance(trigger, dict):
+            _LOGGER.warning(
+                "Skipping non-dict trigger[%d] in %s: %s",
+                index, automation_id, type(trigger).__name__
+            )
+            return refs
+
         # Support both 'platform' (old format) and 'trigger' (new format) keys
         platform = trigger.get("platform") or trigger.get("trigger", "")
 
         if platform == "state":
-            entity_ids = trigger.get("entity_id", [])
+            entity_ids = trigger.get("entity_id") or []
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -142,7 +155,7 @@ class AutomationAnalyzer:
                     )
 
         elif platform == "numeric_state":
-            entity_ids = trigger.get("entity_id", [])
+            entity_ids = trigger.get("entity_id") or []
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -185,7 +198,10 @@ class AutomationAnalyzer:
         if isinstance(condition, str):
             refs.extend(
                 self._extract_from_template(
-                    condition, f"{location_prefix}[{index}]", automation_id, automation_name
+                    condition,
+                    f"{location_prefix}[{index}]",
+                    automation_id,
+                    automation_name,
                 )
             )
             return refs
@@ -203,7 +219,7 @@ class AutomationAnalyzer:
         )
 
         if is_state_condition:
-            entity_ids = condition.get("entity_id", [])
+            entity_ids = condition.get("entity_id") or []
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -226,7 +242,10 @@ class AutomationAnalyzer:
             value_template = condition.get("value_template", "")
             refs.extend(
                 self._extract_from_template(
-                    value_template, f"{location_prefix}[{index}]", automation_id, automation_name
+                    value_template,
+                    f"{location_prefix}[{index}]",
+                    automation_id,
+                    automation_name,
                 )
             )
 
@@ -320,8 +339,8 @@ class AutomationAnalyzer:
         for idx, action in enumerate(actions):
             # Extract from choose option conditions and sequences
             if "choose" in action:
-                options = action.get("choose", [])
-                default = action.get("default", [])
+                options = action.get("choose") or []
+                default = action.get("default") or []
 
                 for opt_idx, option in enumerate(options):
                     # Check conditions in each option (all types, not just template)
@@ -343,13 +362,17 @@ class AutomationAnalyzer:
                     # Recurse into sequence
                     sequence = option.get("sequence", [])
                     refs.extend(
-                        self._extract_from_actions(sequence, automation_id, automation_name)
+                        self._extract_from_actions(
+                            sequence, automation_id, automation_name
+                        )
                     )
 
                 # Recurse into default
                 if default:
                     refs.extend(
-                        self._extract_from_actions(default, automation_id, automation_name)
+                        self._extract_from_actions(
+                            default, automation_id, automation_name
+                        )
                     )
 
             # Extract from if conditions (all types, not just template)
@@ -373,11 +396,15 @@ class AutomationAnalyzer:
                 then_actions = action.get("then", [])
                 else_actions = action.get("else", [])
                 refs.extend(
-                    self._extract_from_actions(then_actions, automation_id, automation_name)
+                    self._extract_from_actions(
+                        then_actions, automation_id, automation_name
+                    )
                 )
                 if else_actions:
                     refs.extend(
-                        self._extract_from_actions(else_actions, automation_id, automation_name)
+                        self._extract_from_actions(
+                            else_actions, automation_id, automation_name
+                        )
                     )
 
             # Extract from repeat while/until conditions (all types, not just template)
@@ -434,7 +461,7 @@ class AutomationAnalyzer:
 
             # Extract from parallel branches
             elif "parallel" in action:
-                branches = action["parallel"]
+                branches = action.get("parallel") or []
                 if not isinstance(branches, list):
                     branches = [branches]
                 for branch in branches:
@@ -478,7 +505,9 @@ class AutomationAnalyzer:
 
             # Direct service call (supports both "service" and "action" keys)
             if "service" in action or "action" in action:
-                results.extend(self._parse_service_call(action, automation_id, parent_conditions))
+                results.extend(
+                    self._parse_service_call(action, automation_id, parent_conditions)
+                )
 
             # Choose block
             if "choose" in action:
@@ -491,12 +520,20 @@ class AutomationAnalyzer:
                             option_conditions.append(cond_info)
 
                     sequence = option.get("sequence", [])
-                    results.extend(self._extract_actions_recursive(sequence, automation_id, option_conditions))
+                    results.extend(
+                        self._extract_actions_recursive(
+                            sequence, automation_id, option_conditions
+                        )
+                    )
 
                 # Default has no additional conditions
-                default = action.get("default", [])
+                default = action.get("default") or []
                 if default:
-                    results.extend(self._extract_actions_recursive(default, automation_id, parent_conditions))
+                    results.extend(
+                        self._extract_actions_recursive(
+                            default, automation_id, parent_conditions
+                        )
+                    )
 
             # If/then/else block
             if "if" in action:
@@ -509,10 +546,18 @@ class AutomationAnalyzer:
 
                 then_actions = action.get("then", [])
                 else_actions = action.get("else", [])
-                results.extend(self._extract_actions_recursive(then_actions, automation_id, if_conditions))
+                results.extend(
+                    self._extract_actions_recursive(
+                        then_actions, automation_id, if_conditions
+                    )
+                )
                 # Else branch: can't represent NOT condition, pass parent unchanged
                 if else_actions:
-                    results.extend(self._extract_actions_recursive(else_actions, automation_id, parent_conditions))
+                    results.extend(
+                        self._extract_actions_recursive(
+                            else_actions, automation_id, parent_conditions
+                        )
+                    )
 
             # Repeat block
             if "repeat" in action:
@@ -532,7 +577,11 @@ class AutomationAnalyzer:
                         repeat_conditions.append(cond_info)
 
                 sequence = repeat_config.get("sequence", [])
-                results.extend(self._extract_actions_recursive(sequence, automation_id, repeat_conditions))
+                results.extend(
+                    self._extract_actions_recursive(
+                        sequence, automation_id, repeat_conditions
+                    )
+                )
 
             # Parallel block
             if "parallel" in action:
@@ -541,7 +590,11 @@ class AutomationAnalyzer:
                     branches = [branches]
                 for branch in branches:
                     branch_actions = branch if isinstance(branch, list) else [branch]
-                    results.extend(self._extract_actions_recursive(branch_actions, automation_id, parent_conditions))
+                    results.extend(
+                        self._extract_actions_recursive(
+                            branch_actions, automation_id, parent_conditions
+                        )
+                    )
 
         return results
 

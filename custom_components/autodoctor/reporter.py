@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from .const import DOMAIN
-from .models import ValidationIssue, Severity
+from .models import Severity, ValidationIssue
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -17,9 +17,11 @@ _LOGGER = logging.getLogger(__name__)
 # Import issue registry with fallback
 try:
     from homeassistant.helpers import issue_registry as ir
+
     HAS_ISSUE_REGISTRY = True
 except ImportError:
     HAS_ISSUE_REGISTRY = False
+
     class ir:  # type: ignore
         class IssueSeverity:
             ERROR = "error"
@@ -42,6 +44,9 @@ class IssueReporter:
         self.hass = hass
         # Use frozenset for thread-safe reads from sensors
         self._active_issues: frozenset[str] = frozenset()
+        _LOGGER.debug(
+            "IssueReporter initialized, HAS_ISSUE_REGISTRY=%s", HAS_ISSUE_REGISTRY
+        )
 
     def _automation_issue_id(self, automation_id: str) -> str:
         """Generate a unique issue ID for an automation."""
@@ -62,6 +67,7 @@ class IssueReporter:
 
     async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
         """Report validation issues grouped by automation."""
+        _LOGGER.debug("async_report_issues called with %d issues", len(issues))
         if not issues:
             _LOGGER.info("Automation validation complete: no issues found")
             return
@@ -72,7 +78,9 @@ class IssueReporter:
             issues_by_automation[issue.automation_id].append(issue)
 
             # Still log each issue individually
-            log_method = _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
+            log_method = (
+                _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
+            )
             log_method(
                 "Automation '%s': %s (entity: %s, location: %s)",
                 issue.automation_name,
@@ -99,19 +107,32 @@ class IssueReporter:
             issues_text = self._format_issues_for_repair(automation_issues)
 
             # Note: ir.async_create_issue is synchronous despite the name
-            ir.async_create_issue(
-                self.hass,
+            _LOGGER.debug(
+                "Creating repair issue: domain=%s, issue_id=%s, severity=%s, automation=%s",
                 DOMAIN,
                 issue_id,
-                is_fixable=False,
-                severity=self._severity_to_repair(severity),
-                translation_key="automation_issues",
-                translation_placeholders={
-                    "automation": automation_name,
-                    "count": str(issue_count),
-                    "issues": issues_text,
-                },
+                severity,
+                automation_name,
             )
+            try:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=False,
+                    is_persistent=True,
+                    issue_domain=DOMAIN,
+                    severity=self._severity_to_repair(severity),
+                    translation_key="automation_issues",
+                    translation_placeholders={
+                        "automation": automation_name,
+                        "count": str(issue_count),
+                        "issues": issues_text,
+                    },
+                )
+                _LOGGER.debug("Repair issue created: %s", issue_id)
+            except Exception as err:
+                _LOGGER.error("Failed to create repair issue %s: %s", issue_id, err)
 
         # Clear resolved issues before updating active set
         self._clear_resolved_issues(current_issue_ids)
@@ -122,8 +143,11 @@ class IssueReporter:
         """Clear issues that have been resolved."""
         resolved = self._active_issues - current_ids
         for issue_id in resolved:
-            # Note: ir.async_delete_issue is synchronous despite the name
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            try:
+                # Note: ir.async_delete_issue is synchronous despite the name
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            except Exception as err:
+                _LOGGER.warning("Failed to delete issue %s: %s", issue_id, err)
 
     def clear_all_issues(self) -> None:
         """Clear all issues."""

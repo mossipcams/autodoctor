@@ -1,7 +1,8 @@
 """Pytest configuration for Autodoctor tests."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Import fixtures from pytest-homeassistant-custom-component
 pytest_plugins = ["pytest_homeassistant_custom_component"]

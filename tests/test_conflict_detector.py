@@ -1,8 +1,7 @@
 """Tests for conflict detector with trigger overlap awareness."""
 
-import pytest
 from custom_components.autodoctor.conflict_detector import ConflictDetector
-from custom_components.autodoctor.models import TriggerInfo, ConditionInfo
+from custom_components.autodoctor.models import ConditionInfo, TriggerInfo
 
 
 class TestConflictDetector:
@@ -22,13 +21,31 @@ class TestConflictDetector:
         automations = [
             {
                 "id": "auto1",
-                "trigger": [{"platform": "state", "entity_id": "input_boolean.test", "to": "on"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+                "trigger": [
+                    {"platform": "state", "entity_id": "input_boolean.test", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
             {
                 "id": "auto2",
-                "trigger": [{"platform": "state", "entity_id": "input_boolean.test2", "to": "on"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+                "trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "input_boolean.test2",
+                        "to": "on",
+                    }
+                ],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
         ]
         conflicts = self.detector.detect_conflicts(automations)
@@ -40,12 +57,22 @@ class TestConflictDetector:
             {
                 "id": "auto1",
                 "trigger": [{"platform": "time", "at": "06:00:00"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
             {
                 "id": "auto2",
                 "trigger": [{"platform": "time", "at": "06:00:00"}],
-                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+                "action": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
         ]
         conflicts = self.detector.detect_conflicts(automations)
@@ -59,12 +86,22 @@ class TestConflictDetector:
             {
                 "id": "auto1",
                 "trigger": [{"platform": "time", "at": "06:00:00"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
             {
                 "id": "auto2",
                 "trigger": [{"platform": "time", "at": "22:00:00"}],
-                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+                "action": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
         ]
         conflicts = self.detector.detect_conflicts(automations)
@@ -75,13 +112,31 @@ class TestConflictDetector:
         automations = [
             {
                 "id": "auto1",
-                "trigger": [{"platform": "state", "entity_id": "input_boolean.mode", "to": "on"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+                "trigger": [
+                    {"platform": "state", "entity_id": "input_boolean.mode", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
             {
                 "id": "auto2",
-                "trigger": [{"platform": "state", "entity_id": "input_boolean.mode", "to": "off"}],
-                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+                "trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "input_boolean.mode",
+                        "to": "off",
+                    }
+                ],
+                "action": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
         ]
         conflicts = self.detector.detect_conflicts(automations)
@@ -93,14 +148,36 @@ class TestConflictDetector:
             {
                 "id": "auto1",
                 "trigger": [{"platform": "time", "at": "06:00:00"}],
-                "condition": [{"condition": "state", "entity_id": "input_boolean.mode", "state": "on"}],
-                "action": [{"service": "light.turn_on", "target": {"entity_id": "light.living"}}],
+                "condition": [
+                    {
+                        "condition": "state",
+                        "entity_id": "input_boolean.mode",
+                        "state": "on",
+                    }
+                ],
+                "action": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
             {
                 "id": "auto2",
                 "trigger": [{"platform": "time", "at": "06:00:00"}],
-                "condition": [{"condition": "state", "entity_id": "input_boolean.mode", "state": "off"}],
-                "action": [{"service": "light.turn_off", "target": {"entity_id": "light.living"}}],
+                "condition": [
+                    {
+                        "condition": "state",
+                        "entity_id": "input_boolean.mode",
+                        "state": "off",
+                    }
+                ],
+                "action": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living"},
+                    }
+                ],
             },
         ]
         conflicts = self.detector.detect_conflicts(automations)
@@ -189,10 +266,17 @@ class TestActionLevelConditions:
                         "choose": [
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_boolean.mode",
+                                        "state": "night",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_on", "target": {"entity_id": "light.living"}}
+                                    {
+                                        "service": "light.turn_on",
+                                        "target": {"entity_id": "light.living"},
+                                    }
                                 ],
                             }
                         ],
@@ -207,10 +291,17 @@ class TestActionLevelConditions:
                         "choose": [
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "day"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_boolean.mode",
+                                        "state": "day",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_off", "target": {"entity_id": "light.living"}}
+                                    {
+                                        "service": "light.turn_off",
+                                        "target": {"entity_id": "light.living"},
+                                    }
                                 ],
                             }
                         ],
@@ -232,10 +323,17 @@ class TestActionLevelConditions:
                         "choose": [
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_boolean.mode",
+                                        "state": "night",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_on", "target": {"entity_id": "light.living"}}
+                                    {
+                                        "service": "light.turn_on",
+                                        "target": {"entity_id": "light.living"},
+                                    }
                                 ],
                             }
                         ],
@@ -250,10 +348,17 @@ class TestActionLevelConditions:
                         "choose": [
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_boolean.mode",
+                                        "state": "night",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_off", "target": {"entity_id": "light.living"}}
+                                    {
+                                        "service": "light.turn_off",
+                                        "target": {"entity_id": "light.living"},
+                                    }
                                 ],
                             }
                         ],
@@ -270,16 +375,29 @@ class TestActionLevelConditions:
             {
                 "id": "auto1",
                 "trigger": [{"platform": "time", "at": "22:00:00"}],
-                "condition": [{"condition": "state", "entity_id": "input_boolean.enabled", "state": "on"}],
+                "condition": [
+                    {
+                        "condition": "state",
+                        "entity_id": "input_boolean.enabled",
+                        "state": "on",
+                    }
+                ],
                 "action": [
                     {
                         "choose": [
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_boolean.mode", "state": "night"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_boolean.mode",
+                                        "state": "night",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_on", "target": {"entity_id": "light.living"}}
+                                    {
+                                        "service": "light.turn_on",
+                                        "target": {"entity_id": "light.living"},
+                                    }
                                 ],
                             }
                         ],
@@ -289,9 +407,18 @@ class TestActionLevelConditions:
             {
                 "id": "auto2",
                 "trigger": [{"platform": "time", "at": "22:00:00"}],
-                "condition": [{"condition": "state", "entity_id": "input_boolean.enabled", "state": "off"}],
+                "condition": [
+                    {
+                        "condition": "state",
+                        "entity_id": "input_boolean.enabled",
+                        "state": "off",
+                    }
+                ],
                 "action": [
-                    {"service": "light.turn_off", "target": {"entity_id": "light.living"}}
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.living"},
+                    }
                 ],
             },
         ]
@@ -311,20 +438,40 @@ class TestActionLevelConditions:
                         "choose": [
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_select.house_mode", "state": "home"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_select.house_mode",
+                                        "state": "home",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_on", "target": {"entity_id": "light.kitchen"}},
-                                    {"service": "light.turn_on", "target": {"entity_id": "light.living_room"}},
+                                    {
+                                        "service": "light.turn_on",
+                                        "target": {"entity_id": "light.kitchen"},
+                                    },
+                                    {
+                                        "service": "light.turn_on",
+                                        "target": {"entity_id": "light.living_room"},
+                                    },
                                 ],
                             },
                             {
                                 "conditions": [
-                                    {"condition": "state", "entity_id": "input_select.house_mode", "state": "away"}
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "input_select.house_mode",
+                                        "state": "away",
+                                    }
                                 ],
                                 "sequence": [
-                                    {"service": "light.turn_off", "target": {"entity_id": "light.kitchen"}},
-                                    {"service": "light.turn_off", "target": {"entity_id": "light.living_room"}},
+                                    {
+                                        "service": "light.turn_off",
+                                        "target": {"entity_id": "light.kitchen"},
+                                    },
+                                    {
+                                        "service": "light.turn_off",
+                                        "target": {"entity_id": "light.living_room"},
+                                    },
                                 ],
                             },
                         ],

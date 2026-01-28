@@ -6,7 +6,7 @@ import logging
 from difflib import get_close_matches
 
 from .knowledge_base import StateKnowledgeBase
-from .models import StateReference, ValidationIssue, Severity, IssueType
+from .models import IssueType, Severity, StateReference, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,49 +21,57 @@ class ValidationEngine:
             knowledge_base: The state knowledge base
         """
         self.knowledge_base = knowledge_base
+        self._entity_cache: dict[str, list[str]] | None = None
 
     def validate_reference(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate a single state reference."""
         issues: list[ValidationIssue] = []
 
-        if not self.knowledge_base.entity_exists(ref.entity_id):
-            # Check if entity existed in history (removed/renamed vs typo)
-            historical_ids = self.knowledge_base.get_historical_entity_ids()
-            if ref.entity_id in historical_ids:
-                issues.append(
-                    ValidationIssue(
-                        issue_type=IssueType.ENTITY_REMOVED,
-                        severity=Severity.ERROR,
-                        automation_id=ref.automation_id,
-                        automation_name=ref.automation_name,
-                        entity_id=ref.entity_id,
-                        location=ref.location,
-                        message=f"Entity '{ref.entity_id}' existed in history but is now missing (removed or renamed)",
-                        suggestion=self._suggest_entity(ref.entity_id),
+        try:
+            if not self.knowledge_base.entity_exists(ref.entity_id):
+                # Check if entity existed in history (removed/renamed vs typo)
+                historical_ids = self.knowledge_base.get_historical_entity_ids()
+                if ref.entity_id in historical_ids:
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.ENTITY_REMOVED,
+                            severity=Severity.ERROR,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"Entity '{ref.entity_id}' existed in history but is now missing (removed or renamed)",
+                            suggestion=self._suggest_entity(ref.entity_id),
+                        )
                     )
-                )
-            else:
-                issues.append(
-                    ValidationIssue(
-                        issue_type=IssueType.ENTITY_NOT_FOUND,
-                        severity=Severity.ERROR,
-                        automation_id=ref.automation_id,
-                        automation_name=ref.automation_name,
-                        entity_id=ref.entity_id,
-                        location=ref.location,
-                        message=f"Entity '{ref.entity_id}' does not exist",
-                        suggestion=self._suggest_entity(ref.entity_id),
+                else:
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.ENTITY_NOT_FOUND,
+                            severity=Severity.ERROR,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"Entity '{ref.entity_id}' does not exist",
+                            suggestion=self._suggest_entity(ref.entity_id),
+                        )
                     )
-                )
-            return issues
+                return issues
 
-        if ref.expected_state is not None:
-            state_issues = self._validate_state(ref)
-            issues.extend(state_issues)
+            if ref.expected_state is not None:
+                state_issues = self._validate_state(ref)
+                issues.extend(state_issues)
 
-        if ref.expected_attribute is not None:
-            attr_issues = self._validate_attribute(ref)
-            issues.extend(attr_issues)
+            if ref.expected_attribute is not None:
+                attr_issues = self._validate_attribute(ref)
+                issues.extend(attr_issues)
+
+        except Exception as err:
+            _LOGGER.warning(
+                "Error validating %s in %s: %s", ref.entity_id, ref.automation_id, err
+            )
+            # Return empty - avoid false positives on errors
 
         return issues
 
@@ -144,26 +152,39 @@ class ValidationEngine:
 
     def _suggest_state(self, invalid: str, valid_states: set[str]) -> str | None:
         """Suggest a correction for an invalid state."""
-        matches = get_close_matches(invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6)
+        matches = get_close_matches(
+            invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6
+        )
         if matches:
             lower_map = {s.lower(): s for s in valid_states}
             return lower_map.get(matches[0])
         return None
+
+    def _ensure_entity_cache(self) -> None:
+        """Build entity cache if not present."""
+        if self._entity_cache is not None:
+            return
+
+        self._entity_cache = {}
+        try:
+            for entity in self.knowledge_base.hass.states.async_all():
+                domain = entity.entity_id.split(".")[0]
+                if domain not in self._entity_cache:
+                    self._entity_cache[domain] = []
+                self._entity_cache[domain].append(entity.entity_id)
+        except Exception as err:
+            _LOGGER.warning("Failed to build entity cache: %s", err)
+            self._entity_cache = {}
 
     def _suggest_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID."""
         if "." not in invalid:
             return None
 
+        self._ensure_entity_cache()
         domain, name = invalid.split(".", 1)
 
-        # Only consider entities in the same domain
-        all_entities = self.knowledge_base.hass.states.async_all()
-        same_domain = [
-            e.entity_id for e in all_entities
-            if e.entity_id.startswith(f"{domain}.")
-        ]
-
+        same_domain = self._entity_cache.get(domain, [])
         if not same_domain:
             return None
 

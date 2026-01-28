@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .analyzer import AutomationAnalyzer
-from .models import Conflict, ConditionInfo, EntityAction, Severity, TriggerInfo
+from .models import ConditionInfo, Conflict, EntityAction, Severity, TriggerInfo
 
 
 @dataclass
@@ -53,7 +53,7 @@ class ConflictDetector:
 
         for entity_id, action_list in actions_by_entity.items():
             for i, (auto_id_a, action_a) in enumerate(action_list):
-                for auto_id_b, action_b in action_list[i + 1:]:
+                for auto_id_b, action_b in action_list[i + 1 :]:
                     if auto_id_a == auto_id_b:
                         continue
 
@@ -64,8 +64,12 @@ class ConflictDetector:
 
                     conflict = self._check_conflict(
                         entity_id,
-                        auto_id_a, action_a, auto_data[auto_id_a],
-                        auto_id_b, action_b, auto_data[auto_id_b],
+                        auto_id_a,
+                        action_a,
+                        auto_data[auto_id_a],
+                        auto_id_b,
+                        action_b,
+                        auto_data[auto_id_b],
                     )
                     if conflict:
                         seen_pairs.add(pair_key)
@@ -97,7 +101,9 @@ class ConflictDetector:
         combined_conditions_b = data_b.conditions + action_b.conditions
 
         # Check if combined conditions are mutually exclusive
-        if self._conditions_mutually_exclusive(combined_conditions_a, combined_conditions_b):
+        if self._conditions_mutually_exclusive(
+            combined_conditions_a, combined_conditions_b
+        ):
             return None
 
         return Conflict(

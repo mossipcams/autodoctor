@@ -1,12 +1,12 @@
 """Tests for IssueReporter."""
 
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
 
+import pytest
 from homeassistant.core import HomeAssistant
 
+from custom_components.autodoctor.models import Severity, ValidationIssue
 from custom_components.autodoctor.reporter import IssueReporter
-from custom_components.autodoctor.models import ValidationIssue, Severity
 
 
 @pytest.fixture
@@ -57,6 +57,28 @@ async def test_clear_resolved_issues(hass: HomeAssistant, reporter):
     with patch(
         "custom_components.autodoctor.reporter.ir.async_delete_issue",
     ) as mock_delete:
-        reporter._active_issues = {"issue_1", "issue_2"}
+        reporter._active_issues = frozenset({"issue_1", "issue_2"})
         reporter._clear_resolved_issues({"issue_1"})
         mock_delete.assert_called_once()
+
+
+def test_clear_resolved_issues_continues_on_delete_error(hass: HomeAssistant):
+    """Test that one failed delete doesn't stop others."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset({"issue1", "issue2", "issue3"})
+
+    delete_calls = []
+
+    def mock_delete(hass, domain, issue_id):
+        delete_calls.append(issue_id)
+        if issue_id == "issue2":
+            raise Exception("Delete failed")
+
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_delete_issue",
+        side_effect=mock_delete,
+    ):
+        reporter._clear_resolved_issues(set())  # All should be cleared
+
+    # Should have attempted all 3 deletes
+    assert len(delete_calls) == 3
