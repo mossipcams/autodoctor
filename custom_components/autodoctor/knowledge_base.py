@@ -67,7 +67,6 @@ class StateKnowledgeBase:
         self.history_days = history_days
         self._cache: dict[str, set[str]] = {}
         self._observed_states: dict[str, set[str]] = {}
-        self._last_seen: dict[str, dict[str, datetime]] = {}
 
     def entity_exists(self, entity_id: str) -> bool:
         """Check if an entity exists.
@@ -278,18 +277,13 @@ class StateKnowledgeBase:
         for entity_id, states in history.items():
             if entity_id not in self._observed_states:
                 self._observed_states[entity_id] = set()
-            if entity_id not in self._last_seen:
-                self._last_seen[entity_id] = {}
 
             for state in states:
                 # Handle both State objects and dict formats
                 if hasattr(state, "state"):
                     state_value = state.state
-                    # Get last_changed timestamp
-                    last_changed = getattr(state, "last_changed", None)
                 elif isinstance(state, dict):
                     state_value = state.get("state")
-                    last_changed = state.get("last_changed")
                 else:
                     continue
 
@@ -298,20 +292,6 @@ class StateKnowledgeBase:
                     loaded_count += 1
                     if entity_id in self._cache:
                         self._cache[entity_id].add(state_value)
-
-                    # Track when this state was last seen
-                    if last_changed:
-                        # Convert to datetime if needed
-                        if isinstance(last_changed, str):
-                            try:
-                                last_changed = datetime.fromisoformat(last_changed.replace("Z", "+00:00"))
-                            except ValueError:
-                                last_changed = None
-
-                        if last_changed:
-                            current = self._last_seen[entity_id].get(state_value)
-                            if current is None or last_changed > current:
-                                self._last_seen[entity_id][state_value] = last_changed
 
         _LOGGER.debug(
             "Loaded %d historical states for %d entities",
@@ -326,16 +306,3 @@ class StateKnowledgeBase:
     def get_historical_entity_ids(self) -> set[str]:
         """Get entity IDs that have been observed in history."""
         return set(self._observed_states.keys())
-
-    def get_state_last_seen(self, entity_id: str, state: str) -> datetime | None:
-        """Get when a state was last seen for an entity.
-
-        Args:
-            entity_id: The entity ID
-            state: The state value to check
-
-        Returns:
-            The datetime when the state was last seen, or None if never seen
-        """
-        entity_states = self._last_seen.get(entity_id, {})
-        return entity_states.get(state)

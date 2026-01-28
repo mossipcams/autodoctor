@@ -112,22 +112,6 @@ class IssueReporter:
                 },
             )
 
-        error_count = sum(1 for i in issues if i.severity == Severity.ERROR)
-        warning_count = sum(1 for i in issues if i.severity == Severity.WARNING)
-
-        message = f"Found {len(issues)} issue(s): {error_count} errors, {warning_count} warnings. Check Settings > Repairs for details."
-
-        # Use service call for notification (more reliable than direct import)
-        await self.hass.services.async_call(
-            "persistent_notification",
-            "create",
-            {
-                "message": message,
-                "title": "Automation Validation",
-                "notification_id": f"{DOMAIN}_results",
-            },
-        )
-
         self._clear_resolved_issues(current_issue_ids)
         self._active_issues = current_issue_ids
 

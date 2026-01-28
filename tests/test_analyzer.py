@@ -557,3 +557,313 @@ def test_extract_from_nested_choose_default():
     refs = analyzer.extract_state_references(automation)
 
     assert any(r.entity_id == "sensor.fallback" for r in refs)
+
+
+def test_extract_service_calls_turn_on():
+    """Test extraction of turn_on service call."""
+    automation = {
+        "id": "motion_lights",
+        "alias": "Motion Lights",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].automation_id == "automation.motion_lights"
+    assert actions[0].entity_id == "light.living_room"
+    assert actions[0].action == "turn_on"
+
+
+def test_extract_service_calls_turn_off():
+    """Test extraction of turn_off service call."""
+    automation = {
+        "id": "away_mode",
+        "alias": "Away Mode",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_off",
+                "entity_id": "light.living_room",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].action == "turn_off"
+
+
+def test_extract_service_calls_toggle():
+    """Test extraction of toggle service call."""
+    automation = {
+        "id": "toggle_lights",
+        "alias": "Toggle Lights",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.toggle",
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].action == "toggle"
+
+
+def test_extract_service_calls_nested_choose():
+    """Test extraction from nested choose blocks."""
+    automation = {
+        "id": "complex",
+        "alias": "Complex",
+        "trigger": [],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [
+                            {
+                                "service": "light.turn_on",
+                                "target": {"entity_id": "light.bedroom"},
+                            }
+                        ],
+                    }
+                ],
+                "default": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.bedroom"},
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 2
+    action_types = {a.action for a in actions}
+    assert action_types == {"turn_on", "turn_off"}
+
+
+def test_extract_service_calls_multiple_entities():
+    """Test extraction with multiple entity targets."""
+    automation = {
+        "id": "all_off",
+        "alias": "All Off",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_off",
+                "target": {
+                    "entity_id": ["light.living_room", "light.kitchen"],
+                },
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 2
+    entity_ids = {a.entity_id for a in actions}
+    assert entity_ids == {"light.living_room", "light.kitchen"}
+
+
+def test_extract_service_calls_from_data_entity_id():
+    """Test extraction of entity_id from data section (legacy format)."""
+    automation = {
+        "id": "legacy_format",
+        "alias": "Legacy Format",
+        "trigger": [],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "data": {
+                    "entity_id": "light.living_room",
+                    "brightness": 255,
+                },
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 1
+    assert actions[0].entity_id == "light.living_room"
+    assert actions[0].action == "turn_on"
+
+
+def test_extract_service_calls_from_data_entity_id_list():
+    """Test extraction of multiple entity_ids from data section."""
+    automation = {
+        "id": "legacy_multi",
+        "alias": "Legacy Multi",
+        "trigger": [],
+        "action": [
+            {
+                "action": "light.turn_off",
+                "data": {
+                    "entity_id": ["light.living_room", "light.kitchen"],
+                },
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    actions = analyzer.extract_entity_actions(automation)
+
+    assert len(actions) == 2
+    entity_ids = {a.entity_id for a in actions}
+    assert entity_ids == {"light.living_room", "light.kitchen"}
+
+
+def test_extract_implicit_state_condition_in_if():
+    """Test extraction of implicit state condition (HA 2024+ shorthand)."""
+    automation = {
+        "id": "implicit_condition",
+        "alias": "Implicit Condition",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "if": [
+                    {
+                        "entity_id": "binary_sensor.motion",
+                        "state": "on",
+                    }
+                ],
+                "then": [{"action": "light.turn_on"}],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "binary_sensor.motion" and r.expected_state == "on" for r in refs)
+
+
+def test_extract_explicit_state_condition_in_if():
+    """Test extraction of explicit state condition in if block."""
+    automation = {
+        "id": "explicit_condition",
+        "alias": "Explicit Condition",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "if": [
+                    {
+                        "condition": "state",
+                        "entity_id": "person.matt",
+                        "state": "home",
+                    }
+                ],
+                "then": [{"action": "light.turn_on"}],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "person.matt" and r.expected_state == "home" for r in refs)
+
+
+def test_extract_state_condition_in_choose():
+    """Test extraction of state condition in choose block."""
+    automation = {
+        "id": "choose_state",
+        "alias": "Choose State",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "input_select.mode",
+                                "state": "away",
+                            }
+                        ],
+                        "sequence": [{"action": "light.turn_off"}],
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "input_select.mode" and r.expected_state == "away" for r in refs)
+
+
+def test_extract_implicit_state_condition_in_repeat_while():
+    """Test extraction of implicit state condition in repeat while."""
+    automation = {
+        "id": "repeat_implicit",
+        "alias": "Repeat Implicit",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "while": [
+                        {
+                            "entity_id": "binary_sensor.running",
+                            "state": "on",
+                        }
+                    ],
+                    "sequence": [{"delay": "00:00:01"}],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "binary_sensor.running" and r.expected_state == "on" for r in refs)
+
+
+def test_extract_implicit_state_condition_in_repeat_until():
+    """Test extraction of implicit state condition in repeat until."""
+    automation = {
+        "id": "repeat_until_implicit",
+        "alias": "Repeat Until Implicit",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "until": [
+                        {
+                            "entity_id": "lock.front_door",
+                            "state": "locked",
+                        }
+                    ],
+                    "sequence": [{"action": "lock.lock"}],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "lock.front_door" and r.expected_state == "locked" for r in refs)

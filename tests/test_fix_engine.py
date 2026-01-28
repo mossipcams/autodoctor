@@ -1,87 +1,90 @@
-"""Tests for FixEngine."""
+"""Tests for simplified fix engine."""
 
 import pytest
-from unittest.mock import MagicMock
-
-from homeassistant.core import HomeAssistant
-
-from custom_components.autodoctor.fix_engine import FixEngine, FixSuggestion
-from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-from custom_components.autodoctor.models import ValidationIssue, Severity, IssueType
+from custom_components.autodoctor.fix_engine import (
+    get_state_suggestion,
+    get_entity_suggestion,
+    STATE_SYNONYMS,
+)
 
 
-@pytest.fixture
-def knowledge_base(hass: HomeAssistant):
-    """Create a StateKnowledgeBase instance."""
-    return StateKnowledgeBase(hass)
+class TestStateSynonyms:
+    """Test the STATE_SYNONYMS mapping."""
+
+    def test_away_maps_to_not_home(self):
+        assert STATE_SYNONYMS["away"] == "not_home"
+
+    def test_true_maps_to_on(self):
+        assert STATE_SYNONYMS["true"] == "on"
+
+    def test_false_maps_to_off(self):
+        assert STATE_SYNONYMS["false"] == "off"
 
 
-@pytest.fixture
-def fix_engine(hass: HomeAssistant, knowledge_base):
-    """Create a FixEngine instance."""
-    return FixEngine(hass, knowledge_base)
+class TestGetStateSuggestion:
+    """Test get_state_suggestion function."""
+
+    def test_synonym_match(self):
+        """Test that synonyms are matched correctly."""
+        valid_states = {"on", "off", "unavailable"}
+        assert get_state_suggestion("true", valid_states) == "on"
+        assert get_state_suggestion("false", valid_states) == "off"
+
+    def test_synonym_with_case(self):
+        """Test synonym matching with different cases in valid_states."""
+        valid_states = {"On", "Off"}
+        result = get_state_suggestion("true", valid_states)
+        assert result.lower() == "on"
+
+    def test_fuzzy_match(self):
+        """Test fuzzy matching for typos."""
+        valid_states = {"playing", "paused", "idle"}
+        # "playng" is close to "playing"
+        assert get_state_suggestion("playng", valid_states) == "playing"
+
+    def test_no_match(self):
+        """Test when no match is found."""
+        valid_states = {"on", "off"}
+        assert get_state_suggestion("something_completely_different", valid_states) is None
+
+    def test_person_state_away(self):
+        """Test that 'away' suggests 'not_home' for person entities."""
+        valid_states = {"home", "not_home", "unknown"}
+        assert get_state_suggestion("away", valid_states) == "not_home"
 
 
-def test_fix_engine_initialization(fix_engine):
-    """Test fix engine can be initialized."""
-    assert fix_engine is not None
+class TestGetEntitySuggestion:
+    """Test get_entity_suggestion function."""
 
+    def test_same_domain_match(self):
+        """Test entity suggestion within same domain."""
+        all_entities = [
+            "light.living_room",
+            "light.bedroom",
+            "switch.kitchen",
+        ]
+        # "light.livingroom" is close to "light.living_room"
+        result = get_entity_suggestion("light.livingroom", all_entities)
+        assert result == "light.living_room"
 
-@pytest.mark.asyncio
-async def test_suggest_fix_for_missing_entity(hass: HomeAssistant, fix_engine):
-    """Test fix suggestion for missing entity with similar match."""
-    # Set up an existing entity that's similar
-    hass.states.async_set("sensor.temperature", "23")
-    await hass.async_block_till_done()
+    def test_different_domain_no_match(self):
+        """Test that different domains don't match."""
+        all_entities = [
+            "switch.living_room",
+            "switch.bedroom",
+        ]
+        # No lights available
+        assert get_entity_suggestion("light.living_room", all_entities) is None
 
-    issue = ValidationIssue(
-        issue_type=IssueType.ENTITY_NOT_FOUND,
-        severity=Severity.ERROR,
-        automation_id="automation.test",
-        automation_name="Test",
-        entity_id="sensor.temperatur",  # typo
-        location="trigger[0]",
-        message="Entity not found",
-    )
+    def test_no_match(self):
+        """Test when no match is found."""
+        all_entities = [
+            "light.bedroom",
+            "switch.kitchen",
+        ]
+        assert get_entity_suggestion("light.completely_different", all_entities) is None
 
-    fix = fix_engine.suggest_fix(issue)
-
-    assert fix is not None
-    assert fix.fix_value == "sensor.temperature"
-    assert fix.confidence > 0.5
-
-
-@pytest.mark.asyncio
-async def test_suggest_fix_for_invalid_state(hass: HomeAssistant, knowledge_base, fix_engine):
-    """Test fix suggestion for invalid state value."""
-    hass.states.async_set("person.matt", "home")
-    await hass.async_block_till_done()
-
-    issue = ValidationIssue(
-        issue_type=IssueType.INVALID_STATE,
-        severity=Severity.ERROR,
-        automation_id="automation.test",
-        automation_name="Test",
-        entity_id="person.matt",
-        location="trigger[0].to",
-        message="State 'away' is not valid",
-        valid_states=["home", "not_home"],
-    )
-
-    fix = fix_engine.suggest_fix(issue)
-
-    assert fix is not None
-    assert fix.fix_value == "not_home"  # closest match to "away"
-
-
-def test_fix_suggestion_dataclass():
-    """Test FixSuggestion dataclass."""
-    fix = FixSuggestion(
-        description="Did you mean 'sensor.temperature'?",
-        confidence=0.85,
-        fix_value="sensor.temperature",
-        field_path="entity_id",
-    )
-    assert fix.description == "Did you mean 'sensor.temperature'?"
-    assert fix.confidence == 0.85
-    assert fix.fix_value == "sensor.temperature"
+    def test_invalid_entity_format(self):
+        """Test that invalid entity IDs return None."""
+        all_entities = ["light.bedroom"]
+        assert get_entity_suggestion("invalid_no_dot", all_entities) is None
