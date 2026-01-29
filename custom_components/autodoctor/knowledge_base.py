@@ -418,6 +418,10 @@ class StateKnowledgeBase:
     def get_valid_attributes(self, entity_id: str, attribute: str) -> set[str] | None:
         """Get valid values for an entity attribute.
 
+        Data sources (in priority order):
+        1. Entity registry capabilities (integration-declared values)
+        2. Current state attributes (fallback)
+
         Args:
             entity_id: The entity ID
             attribute: The attribute name to get valid values for
@@ -429,6 +433,12 @@ class StateKnowledgeBase:
         if state is None:
             return None
 
+        # Try capability values first (works on fresh install)
+        capability_values = self._get_capabilities_attribute_values(entity_id, attribute)
+        if capability_values:
+            return capability_values
+
+        # Fall back to current state attributes
         source_attr = ATTRIBUTE_VALUE_SOURCES.get(attribute)
         if source_attr:
             values = state.attributes.get(source_attr)

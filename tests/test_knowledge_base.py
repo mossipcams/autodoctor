@@ -592,3 +592,34 @@ async def test_get_capabilities_attribute_values_climate(hass: HomeAssistant):
         "climate.thermostat", "preset_mode"
     )
     assert preset_values == {"eco", "comfort", "sleep"}
+
+
+async def test_get_valid_attributes_uses_capabilities(hass: HomeAssistant):
+    """Test that get_valid_attributes() includes capability values on fresh install."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create climate entity with fan_modes capability but NO current state attributes
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test",
+        unique_id="test_climate_fresh",
+        suggested_object_id="fresh_climate",
+        capabilities={
+            "fan_modes": ["low", "medium", "high"],
+            "preset_modes": ["eco", "comfort"],
+        },
+    )
+
+    # Set state WITHOUT fan_modes/preset_modes attributes
+    hass.states.async_set("climate.fresh_climate", "heat", {})
+    await hass.async_block_till_done()
+
+    # Get valid attributes (should include capabilities even without current attributes)
+    fan_values = kb.get_valid_attributes("climate.fresh_climate", "fan_mode")
+    assert fan_values == {"low", "medium", "high"}
+
+    preset_values = kb.get_valid_attributes("climate.fresh_climate", "preset_mode")
+    assert preset_values == {"eco", "comfort"}
