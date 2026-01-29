@@ -23,7 +23,6 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── sensor.py                    # Issue count sensor
-│   ├── simulator.py                 # Outcome reachability verification
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── suppression_store.py         # Dismissed issue persistence
 │   ├── validator.py                 # State reference validation
@@ -50,7 +49,6 @@ autodoctor/
 - **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions
 - **`validator.py`** - Validates state references against knowledge base
 - **`jinja_validator.py`** - Validates Jinja2 template syntax
-- **`simulator.py`** - Verifies automation outcomes are reachable (trigger/condition validity)
 
 ### Knowledge & Suggestions
 - **`knowledge_base.py`** - Builds valid state mappings from device classes, schema introspection, and recorder history
@@ -59,7 +57,7 @@ autodoctor/
 - **`fix_engine.py`** - Entity ID fuzzy matching for typo suggestions
 
 ### Data Models
-- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `Verdict`, `OutcomeReport`
+- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
@@ -90,7 +88,6 @@ autodoctor/
 
 - `autodoctor.validate` - Run validation (specific automation or all)
 - `autodoctor.validate_automation` - Run validation on a specific automation
-- `autodoctor.simulate` - Run outcome verification on automations
 - `autodoctor.refresh_knowledge_base` - Rebuild state knowledge base
 
 ## Validation Rules
