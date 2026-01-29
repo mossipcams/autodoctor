@@ -153,6 +153,7 @@ class ValidationEngine:
         suggestion = self._suggest_attribute(ref.expected_attribute, available)
         issues.append(
             ValidationIssue(
+                issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
                 severity=Severity.ERROR,
                 automation_id=ref.automation_id,
                 automation_name=ref.automation_name,
