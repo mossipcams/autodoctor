@@ -22,17 +22,10 @@ export interface IssueWithFix {
   edit_url: string;
 }
 
-export interface AutodoctorData {
-  issues: IssueWithFix[];
-  healthy_count: number;
-}
-
 export interface AutodoctorCardConfig {
   type: string;
   title?: string;
 }
-
-export type TabType = "validation";
 
 export interface AutodoctorTabData {
   issues: IssueWithFix[];

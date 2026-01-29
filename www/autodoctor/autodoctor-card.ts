@@ -6,7 +6,6 @@ import type {
   AutodoctorCardConfig,
   IssueWithFix,
   ValidationIssue,
-  TabType,
   AutodoctorTabData,
 } from "./types";
 
@@ -35,7 +34,6 @@ export class AutodoctorCard extends LitElement {
 
   @state() private _loadingValidation = true;
   @state() private _error: string | null = null;
-  @state() private _activeTab: TabType = "validation";
   @state() private _validationData: AutodoctorTabData | null = null;
   @state() private _runningValidation = false;
   @state() private _dismissedSuggestions = new Set<string>();
