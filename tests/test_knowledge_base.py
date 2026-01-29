@@ -512,3 +512,30 @@ async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssis
 
     states = kb._get_capabilities_states("select.bad_select")
     assert states == set()  # Should return empty, not crash
+
+
+async def test_get_valid_states_uses_capabilities(hass: HomeAssistant):
+    """Test that get_valid_states() includes capability states on fresh install."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create select entity with capabilities but NO history
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_select_fresh",
+        suggested_object_id="test_mode",
+        capabilities={"options": ["mode1", "mode2", "mode3"]},
+    )
+
+    hass.states.async_set("select.test_mode", "mode1")
+    await hass.async_block_till_done()
+
+    # Get valid states (should include capabilities even without history)
+    valid_states = kb.get_valid_states("select.test_mode")
+
+    assert "mode1" in valid_states
+    assert "mode2" in valid_states
+    assert "mode3" in valid_states

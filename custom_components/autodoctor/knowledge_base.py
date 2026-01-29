@@ -68,8 +68,10 @@ class StateKnowledgeBase:
 
     Data sources (in priority order):
     1. Device class defaults (hardcoded mappings)
-    2. Schema introspection (entity capabilities)
-    3. Recorder history (observed states)
+    2. Learned states (user-taught)
+    3. Entity registry capabilities (integration-declared values)
+    4. Schema introspection (entity attributes)
+    5. Recorder history (observed states)
     """
 
     def __init__(
@@ -229,6 +231,16 @@ class StateKnowledgeBase:
         if learned:
             valid_states.update(learned)
             _LOGGER.debug("Entity %s: added learned states = %s", entity_id, learned)
+
+        # Add capabilities states
+        capabilities_states = self._get_capabilities_states(entity_id)
+        if capabilities_states:
+            valid_states.update(capabilities_states)
+            _LOGGER.debug(
+                "Entity %s: capabilities states = %s",
+                entity_id,
+                capabilities_states
+            )
 
         # For zone-aware entities, add all zone names as valid states
         # Device trackers and person entities can report zone names as their state
