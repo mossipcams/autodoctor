@@ -558,3 +558,37 @@ async def test_attribute_maps_to_capability(hass: HomeAssistant):
     assert kb._attribute_maps_to_capability("brightness") is None
     assert kb._attribute_maps_to_capability("temperature") is None
     assert kb._attribute_maps_to_capability("unknown_attr") is None
+
+
+async def test_get_capabilities_attribute_values_climate(hass: HomeAssistant):
+    """Test extracting attribute values from climate capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create climate entity with fan_modes and preset_modes capabilities
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test",
+        unique_id="test_climate_1",
+        suggested_object_id="thermostat",
+        capabilities={
+            "hvac_modes": ["auto", "cool", "heat", "off"],  # States, not attributes
+            "fan_modes": ["low", "medium", "high", "auto"],  # Attribute values
+            "preset_modes": ["eco", "comfort", "sleep"],  # Attribute values
+        },
+    )
+
+    hass.states.async_set("climate.thermostat", "heat")
+    await hass.async_block_till_done()
+
+    # Test fan_mode attribute
+    fan_values = kb._get_capabilities_attribute_values("climate.thermostat", "fan_mode")
+    assert fan_values == {"low", "medium", "high", "auto"}
+
+    # Test preset_mode attribute
+    preset_values = kb._get_capabilities_attribute_values(
+        "climate.thermostat", "preset_mode"
+    )
+    assert preset_values == {"eco", "comfort", "sleep"}

@@ -206,6 +206,51 @@ class StateKnowledgeBase:
 
         return ATTRIBUTE_TO_CAPABILITY.get(attribute_name)
 
+    def _get_capabilities_attribute_values(
+        self, entity_id: str, attribute_name: str
+    ) -> set[str]:
+        """Extract valid values for an attribute from capabilities.
+
+        Uses _attribute_maps_to_capability() to find the capability key,
+        then extracts the values from that capability.
+
+        Args:
+            entity_id: The entity ID
+            attribute_name: The attribute name
+
+        Returns:
+            Set of valid values from capabilities, or empty set
+        """
+        try:
+            # Map attribute to capability key
+            capability_key = self._attribute_maps_to_capability(attribute_name)
+            if not capability_key:
+                return set()
+
+            # Get entity registry entry
+            entity_registry = er.async_get(self.hass)
+            entry = entity_registry.async_get(entity_id)
+
+            if not entry or not entry.capabilities:
+                return set()
+
+            # Extract values from capability
+            if capability_key in entry.capabilities:
+                cap_value = entry.capabilities[capability_key]
+                if isinstance(cap_value, list):
+                    return {str(v) for v in cap_value}
+
+            return set()
+
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to get capability values for %s.%s: %s",
+                entity_id,
+                attribute_name,
+                err,
+            )
+            return set()
+
     def get_valid_states(self, entity_id: str) -> set[str] | None:
         """Get valid states for an entity.
 
