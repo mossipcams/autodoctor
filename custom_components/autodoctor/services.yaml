@@ -24,19 +24,6 @@ validate_automation:
         entity:
           domain: automation
 
-simulate:
-  name: Simulate Outcomes
-  description: Run outcome verification on automations.
-  fields:
-    automation_id:
-      name: Automation ID
-      description: Optional automation ID to simulate. If not specified, simulates all.
-      required: false
-      example: automation.welcome_home
-      selector:
-        entity:
-          domain: automation
-
 refresh_knowledge_base:
   name: Refresh Knowledge Base
   description: Rebuild the state knowledge base from recorder and schema.
