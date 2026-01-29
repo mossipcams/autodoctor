@@ -428,3 +428,87 @@ async def test_get_capabilities_states_select_entity(hass: HomeAssistant):
 
     states = kb._get_capabilities_states("select.mode")
     assert states == {"auto", "cool", "heat", "off"}
+
+
+async def test_get_capabilities_states_climate_entity(hass: HomeAssistant):
+    """Test extracting hvac_modes from climate entity capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test",
+        unique_id="test_climate_1",
+        suggested_object_id="thermostat",
+        capabilities={
+            "hvac_modes": ["heat", "cool", "auto", "off"],
+            "fan_modes": ["low", "medium", "high"],  # Should NOT be in states
+        },
+    )
+
+    hass.states.async_set("climate.thermostat", "heat")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("climate.thermostat")
+    # Should only include hvac_modes (state source), not fan_modes (attribute source)
+    assert states == {"heat", "cool", "auto", "off"}
+    assert "low" not in states
+    assert "medium" not in states
+
+
+async def test_get_capabilities_states_no_capabilities(hass: HomeAssistant):
+    """Test handling entity with no capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="switch",
+        platform="test",
+        unique_id="test_switch_1",
+        suggested_object_id="test_switch",
+        capabilities=None,  # No capabilities
+    )
+
+    hass.states.async_set("switch.test_switch", "on")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("switch.test_switch")
+    assert states == set()
+
+
+async def test_get_capabilities_states_no_registry_entry(hass: HomeAssistant):
+    """Test handling entity not in registry."""
+    kb = StateKnowledgeBase(hass)
+
+    # Entity exists in states but not in registry
+    hass.states.async_set("sensor.temperature", "20")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("sensor.temperature")
+    assert states == set()
+
+
+async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssistant):
+    """Test handling capabilities with non-list values."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_select_bad",
+        suggested_object_id="bad_select",
+        capabilities={"options": "not_a_list"},  # Invalid format
+    )
+
+    hass.states.async_set("select.bad_select", "on")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("select.bad_select")
+    assert states == set()  # Should return empty, not crash
