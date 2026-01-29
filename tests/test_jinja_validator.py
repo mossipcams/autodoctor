@@ -120,3 +120,47 @@ def test_invalid_template_produces_syntax_error():
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
     assert issues[0].severity == Severity.ERROR
+
+
+def test_unknown_filter_produces_warning():
+    """A template using a filter that doesn't exist in HA should produce a warning."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "bad_filter",
+        "alias": "Bad Filter",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | as_timestmp }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_FILTER
+    assert issues[0].severity == Severity.WARNING
+    assert "as_timestmp" in issues[0].message
+
+
+def test_unknown_test_produces_warning():
+    """A template using a test that doesn't exist in HA should produce a warning."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "bad_test",
+        "alias": "Bad Test",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [
+            {
+                "condition": "template",
+                "value_template": "{% if states('sensor.temp') is mach('\\\\d+') %}true{% endif %}",
+            }
+        ],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_TEST
+    assert issues[0].severity == Severity.WARNING
+    assert "mach" in issues[0].message
