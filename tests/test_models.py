@@ -42,23 +42,6 @@ def test_validation_issue_creation():
     assert issue.suggestion == "not_home"
 
 
-@pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
-def test_outcome_report_creation():
-    """Test OutcomeReport dataclass."""
-    from custom_components.autodoctor.models import OutcomeReport, Verdict
-
-    report = OutcomeReport(
-        automation_id="automation.test",
-        automation_name="Test",
-        triggers_valid=True,
-        conditions_reachable=True,
-        outcomes=["action: light.turn_on"],
-        unreachable_paths=[],
-        verdict=Verdict.ALL_REACHABLE,
-    )
-    assert report.verdict == Verdict.ALL_REACHABLE
-
-
 def test_severity_ordering():
     """Test severity levels."""
     assert Severity.ERROR.value > Severity.WARNING.value
