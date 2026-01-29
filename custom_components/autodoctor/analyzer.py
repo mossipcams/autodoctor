@@ -60,6 +60,21 @@ INTEGRATION_ENTITIES_PATTERN = re.compile(
     rf"integration_entities\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
     re.DOTALL,
 )
+# Pattern for device_id('entity_id')
+DEVICE_ID_PATTERN = re.compile(
+    rf"device_id\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for area_name('entity_id') and area_id('entity_id')
+AREA_NAME_PATTERN = re.compile(
+    rf"area_(?:name|id)\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for has_value('entity_id')
+HAS_VALUE_PATTERN = re.compile(
+    rf"has_value\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
 # Pattern to strip Jinja2 comments before parsing
 JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
