@@ -971,3 +971,81 @@ def test_extract_integration_entities():
     assert len(refs) == 1
     assert refs[0].entity_id == "hue"
     assert refs[0].reference_type == "integration"
+
+
+def test_extract_service_call_data_entity_id():
+    """Test extraction from service call with data.entity_id."""
+    automation = {
+        "id": "turn_on_light",
+        "alias": "Turn On Light",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "data": {
+                    "entity_id": "light.kitchen"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract light.kitchen from service call
+    service_refs = [r for r in refs if r.entity_id == "light.kitchen"]
+    assert len(service_refs) == 1
+    assert service_refs[0].location == "action[0].service.entity_id"
+    assert service_refs[0].reference_type == "service_call"
+
+
+def test_extract_service_call_multiple_entities():
+    """Test extraction from service call with multiple entity_ids."""
+    automation = {
+        "id": "turn_on_lights",
+        "alias": "Turn On Lights",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "data": {
+                    "entity_id": ["light.kitchen", "light.bedroom"]
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract both lights
+    service_refs = [r for r in refs if "light." in r.entity_id]
+    assert len(service_refs) == 2
+    entity_ids = {r.entity_id for r in service_refs}
+    assert "light.kitchen" in entity_ids
+    assert "light.bedroom" in entity_ids
+
+
+def test_extract_service_call_target_entity_id():
+    """Test extraction from service call with target.entity_id."""
+    automation = {
+        "id": "turn_on_light",
+        "alias": "Turn On Light",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {
+                    "entity_id": "light.living_room"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    service_refs = [r for r in refs if r.entity_id == "light.living_room"]
+    assert len(service_refs) == 1
+    assert service_refs[0].location == "action[0].service.entity_id"
+    assert service_refs[0].reference_type == "service_call"
