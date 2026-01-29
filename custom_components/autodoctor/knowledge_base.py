@@ -147,6 +147,41 @@ class StateKnowledgeBase:
 
         return self._learned_states_store.get_learned_states(domain, integration)
 
+    def _get_capabilities_states(self, entity_id: str) -> set[str]:
+        """Extract valid states from entity registry capabilities.
+
+        Checks registry entry capabilities for attributes that contain
+        valid state lists (e.g., options, hvac_modes).
+
+        Returns:
+            Set of valid states from capabilities, or empty set
+        """
+        try:
+            entity_registry = er.async_get(self.hass)
+            entry = entity_registry.async_get(entity_id)
+
+            if not entry or not entry.capabilities:
+                return set()
+
+            states = set()
+
+            # Extract state-related capabilities only
+            for cap_key in CAPABILITY_STATE_SOURCES:
+                if cap_key in entry.capabilities:
+                    cap_value = entry.capabilities[cap_key]
+                    if isinstance(cap_value, list):
+                        states.update(str(v) for v in cap_value)
+
+            return states
+
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to get capabilities for %s: %s",
+                entity_id,
+                err
+            )
+            return set()
+
     def get_valid_states(self, entity_id: str) -> set[str] | None:
         """Get valid states for an entity.
 
