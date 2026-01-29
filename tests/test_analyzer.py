@@ -1330,3 +1330,81 @@ def test_extract_deduplication_helper_functions():
     # Should only have 1 reference to light.kitchen (deduplicated)
     kitchen_refs = [r for r in refs if r.entity_id == "light.kitchen"]
     assert len(kitchen_refs) == 1
+
+
+def test_extract_full_automation_with_all_patterns():
+    """Test extraction from automation using all new patterns."""
+    automation = {
+        "id": "comprehensive_test",
+        "alias": "Comprehensive Test",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.motion",
+                "to": "on",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.temperature') }}"
+            }
+        ],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {
+                    "entity_id": "light.kitchen"
+                }
+            },
+            {
+                "service": "script.bedtime_routine"
+            },
+            {
+                "service": "scene.turn_on",
+                "data": {
+                    "entity_id": "scene.movie_time"
+                }
+            },
+            {
+                "repeat": {
+                    "for_each": ["light.bedroom", "light.living_room"],
+                    "sequence": [
+                        {
+                            "service": "light.turn_off",
+                            "target": {"entity_id": "{{ repeat.item }}"}
+                        }
+                    ]
+                }
+            },
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Check each expected extraction
+    # 1. State trigger
+    assert any(r.entity_id == "binary_sensor.motion" and "trigger" in r.location for r in refs)
+
+    # 2. has_value in condition
+    assert any(r.entity_id == "sensor.temperature" for r in refs)
+
+    # 3. Service call target
+    service_refs = [r for r in refs if r.entity_id == "light.kitchen" and r.reference_type == "service_call"]
+    assert len(service_refs) == 1
+
+    # 4. Script shorthand
+    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine" and r.reference_type == "script"]
+    assert len(script_refs) == 1
+
+    # 5. Scene
+    scene_refs = [r for r in refs if r.entity_id == "scene.movie_time" and r.reference_type == "scene"]
+    assert len(scene_refs) == 1
+
+    # 6. For-each static list
+    for_each_refs = [r for r in refs if r.reference_type == "for_each"]
+    assert len(for_each_refs) == 2
+    for_each_entities = {r.entity_id for r in for_each_refs}
+    assert "light.bedroom" in for_each_entities
+    assert "light.living_room" in for_each_entities
