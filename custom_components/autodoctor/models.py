@@ -26,6 +26,10 @@ class IssueType(str, Enum):
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
+    SERVICE_NOT_FOUND = "service_not_found"
+    SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"
+    SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
+    SERVICE_UNKNOWN_PARAM = "service_unknown_param"
 
 
 
@@ -92,3 +96,17 @@ class ValidationIssue:
         """Generate a unique key for suppressing this issue."""
         issue_type = self.issue_type.value if self.issue_type else "unknown"
         return f"{self.automation_id}:{self.entity_id}:{issue_type}"
+
+
+@dataclass
+class ServiceCall:
+    """A service call found in an automation action."""
+
+    automation_id: str
+    automation_name: str
+    service: str
+    location: str
+    target: dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
+    is_template: bool = False
+    source_line: int | None = None
