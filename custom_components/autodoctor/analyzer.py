@@ -455,6 +455,21 @@ class AutomationAnalyzer:
         if not service:
             return refs
 
+        # Shorthand script call: service: script.my_script
+        if service.startswith("script.") and service not in ("script.turn_on", "script.reload", "script.turn_off"):
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=service,  # e.g., "script.bedtime_routine"
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"action[{index}].service",
+                    reference_type="script",
+                )
+            )
+            return refs  # Shorthand doesn't have additional entity_id
+
         # Check data.entity_id
         data = action.get("data", {})
         entity_ids = self._normalize_states(data.get("entity_id"))
