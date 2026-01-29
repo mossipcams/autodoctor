@@ -21,7 +21,6 @@ class IssueType(str, Enum):
     ENTITY_NOT_FOUND = "entity_not_found"
     ENTITY_REMOVED = "entity_removed"
     INVALID_STATE = "invalid_state"
-    IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
