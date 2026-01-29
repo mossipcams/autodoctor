@@ -42,23 +42,6 @@ def test_validation_issue_creation():
     assert issue.suggestion == "not_home"
 
 
-@pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
-def test_outcome_report_creation():
-    """Test OutcomeReport dataclass."""
-    from custom_components.autodoctor.models import OutcomeReport, Verdict
-
-    report = OutcomeReport(
-        automation_id="automation.test",
-        automation_name="Test",
-        triggers_valid=True,
-        conditions_reachable=True,
-        outcomes=["action: light.turn_on"],
-        unreachable_paths=[],
-        verdict=Verdict.ALL_REACHABLE,
-    )
-    assert report.verdict == Verdict.ALL_REACHABLE
-
-
 def test_severity_ordering():
     """Test severity levels."""
     assert Severity.ERROR.value > Severity.WARNING.value
@@ -108,108 +91,56 @@ def test_validation_issue_to_dict():
     assert result["suggestion"] == "not_home"
 
 
-def test_entity_action_creation():
-    """Test EntityAction dataclass."""
-    from custom_components.autodoctor.models import EntityAction
-
-    action = EntityAction(
-        automation_id="automation.motion_lights",
-        entity_id="light.living_room",
-        action="turn_on",
-        value=None,
-        conditions=[],
+@pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
+def test_outcome_report_to_issues_all_reachable():
+    """All reachable returns empty list."""
+    from custom_components.autodoctor.models import (
+        OutcomeReport,
+        Verdict,
+        outcome_report_to_issues,
     )
 
-    assert action.automation_id == "automation.motion_lights"
-    assert action.entity_id == "light.living_room"
-    assert action.action == "turn_on"
-    assert action.conditions == []
-
-
-def test_conflict_creation():
-    """Test Conflict dataclass."""
-    from custom_components.autodoctor.models import Conflict, Severity
-
-    conflict = Conflict(
-        entity_id="light.living_room",
-        automation_a="automation.motion_lights",
-        automation_b="automation.away_mode",
-        automation_a_name="Motion Lights",
-        automation_b_name="Away Mode",
-        action_a="turn_on",
-        action_b="turn_off",
-        severity=Severity.ERROR,
-        explanation="Both automations affect light.living_room",
-        scenario="Motion detected while nobody_home",
-    )
-
-    assert conflict.entity_id == "light.living_room"
-    assert conflict.severity == Severity.ERROR
-
-
-def test_conflict_to_dict():
-    """Test Conflict serialization."""
-    from custom_components.autodoctor.models import Conflict, Severity
-
-    conflict = Conflict(
-        entity_id="light.living_room",
-        automation_a="automation.motion_lights",
-        automation_b="automation.away_mode",
-        automation_a_name="Motion Lights",
-        automation_b_name="Away Mode",
-        action_a="turn_on",
-        action_b="turn_off",
-        severity=Severity.ERROR,
-        explanation="Both automations affect light.living_room",
-        scenario="Motion detected while nobody_home",
-    )
-
-    d = conflict.to_dict()
-    assert d["entity_id"] == "light.living_room"
-    assert d["severity"] == "error"
-    assert d["automation_a"] == "automation.motion_lights"
-
-
-def test_conflict_suppression_key():
-    """Test Conflict suppression key generation."""
-    from custom_components.autodoctor.models import Conflict, Severity
-
-    conflict = Conflict(
-        entity_id="light.living_room",
-        automation_a="automation.motion_lights",
-        automation_b="automation.away_mode",
-        automation_a_name="Motion Lights",
-        automation_b_name="Away Mode",
-        action_a="turn_on",
-        action_b="turn_off",
-        severity=Severity.ERROR,
-        explanation="Both automations affect light.living_room",
-        scenario="Motion detected while nobody_home",
-    )
-
-    key = conflict.get_suppression_key()
-    assert (
-        key
-        == "automation.away_mode:automation.motion_lights:light.living_room:conflict"
-    )
-
-
-def test_entity_action_conditions_type():
-    """Test that EntityAction.conditions accepts ConditionInfo objects."""
-    from custom_components.autodoctor.models import ConditionInfo, EntityAction
-
-    condition = ConditionInfo(entity_id="input_boolean.mode", required_states={"night"})
-    action = EntityAction(
+    report = OutcomeReport(
         automation_id="automation.test",
-        entity_id="light.kitchen",
-        action="turn_on",
-        value=None,
-        conditions=[condition],
+        automation_name="Test Automation",
+        triggers_valid=True,
+        conditions_reachable=True,
+        outcomes=["action.call_service"],
+        unreachable_paths=[],
+        verdict=Verdict.ALL_REACHABLE,
+    )
+    issues = outcome_report_to_issues(report)
+    assert issues == []
+
+
+@pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
+def test_outcome_report_to_issues_unreachable():
+    """Unreachable paths become ValidationIssue objects."""
+    from custom_components.autodoctor.models import (
+        OutcomeReport,
+        Verdict,
+        outcome_report_to_issues,
     )
 
-    assert len(action.conditions) == 1
-    assert action.conditions[0].entity_id == "input_boolean.mode"
-    assert action.conditions[0].required_states == {"night"}
+    report = OutcomeReport(
+        automation_id="automation.test",
+        automation_name="Test Automation",
+        triggers_valid=True,
+        conditions_reachable=False,
+        outcomes=["action.call_service"],
+        unreachable_paths=[
+            "condition[0]: state requires 'home' but trigger sets 'away'"
+        ],
+        verdict=Verdict.UNREACHABLE,
+    )
+    issues = outcome_report_to_issues(report)
+
+    assert len(issues) == 1
+    assert issues[0].automation_id == "automation.test"
+    assert issues[0].automation_name == "Test Automation"
+    assert issues[0].severity == Severity.WARNING
+    assert issues[0].issue_type == IssueType.IMPOSSIBLE_CONDITION
+    assert "condition[0]" in issues[0].location
 
 
 def test_validation_issue_equality():

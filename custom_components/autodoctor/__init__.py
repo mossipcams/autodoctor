@@ -50,16 +50,8 @@ SERVICE_VALIDATE_SCHEMA = vol.Schema(
 )
 
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
-CARD_PATH = Path(__file__).parent / "www" / "autodoctor-card.js"
 
 
-def _get_card_url() -> str:
-    """Get card URL with cache-busting version based on file modification time."""
-    try:
-        mtime = int(CARD_PATH.stat().st_mtime)
-        return f"{CARD_URL_BASE}?v={mtime}"
-    except OSError:
-        return f"{CARD_URL_BASE}?v={VERSION}"
 
 
 def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
@@ -115,17 +107,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def _async_register_card(hass: HomeAssistant) -> None:
     """Register the frontend card."""
-    if not CARD_PATH.exists():
-        _LOGGER.warning("Autodoctor card not found at %s", CARD_PATH)
+    card_path = Path(__file__).parent / "www" / "autodoctor-card.js"
+    if not card_path.exists():
+        _LOGGER.warning("Autodoctor card not found at %s", card_path)
         return
 
-    # Get versioned URL based on file modification time
-    card_url = _get_card_url()
+    # Get versioned URL using integration version for cache-busting
+    card_url = f"{CARD_URL_BASE}?v={VERSION}"
 
     # Register static path for the card (base URL without version query string)
     try:
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(CARD_URL_BASE, str(CARD_PATH), cache_headers=False)]
+            [StaticPathConfig(CARD_URL_BASE, str(card_path), cache_headers=False)]
         )
     except (ValueError, RuntimeError):
         # Path already registered from previous setup

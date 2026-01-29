@@ -226,3 +226,32 @@ async def test_no_false_positive_for_climate_temperature(hass: HomeAssistant):
 
     # Should NOT report an error - climate supports temperature
     assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant):
+    """Test that invalid attributes set ATTRIBUTE_NOT_FOUND issue type."""
+    # Create a light with standard attributes
+    hass.states.async_set("light.bedroom", "on", {"brightness": 255})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Check for an attribute that doesn't exist and isn't supported by lights
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.bedroom",
+        expected_state=None,
+        expected_attribute="nonexistent_attribute",
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should report an error with ATTRIBUTE_NOT_FOUND issue type
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ATTRIBUTE_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert "nonexistent_attribute" in issues[0].message
