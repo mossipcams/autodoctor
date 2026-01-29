@@ -14,16 +14,16 @@ autodoctor/
 │   ├── analyzer.py                  # Automation parsing & extraction
 │   ├── binary_sensor.py             # Integration health sensor
 │   ├── config_flow.py               # Configuration UI
+│   ├── conflict_detector.py         # Automation conflict detection
 │   ├── const.py                     # Constants & defaults
 │   ├── device_class_states.py       # Default state mappings
 │   ├── domain_attributes.py         # Domain attribute mappings
-│   ├── fix_engine.py                # Entity ID suggestion logic
+│   ├── fix_engine.py                # Suggestion & correction logic
 │   ├── jinja_validator.py           # Jinja2 template validation
 │   ├── knowledge_base.py            # Valid state knowledge
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── sensor.py                    # Issue count sensor
-│   ├── simulator.py                 # Outcome reachability verification
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── suppression_store.py         # Dismissed issue persistence
 │   ├── validator.py                 # State reference validation
@@ -50,16 +50,16 @@ autodoctor/
 - **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions
 - **`validator.py`** - Validates state references against knowledge base
 - **`jinja_validator.py`** - Validates Jinja2 template syntax
-- **`simulator.py`** - Verifies automation outcomes are reachable (trigger/condition validity)
+- **`conflict_detector.py`** - Finds automations with opposing actions on same entity
 
 ### Knowledge & Suggestions
-- **`knowledge_base.py`** - Builds valid state mappings from device classes, schema introspection, and recorder history
+- **`knowledge_base.py`** - Builds valid state mappings from device classes, entity registry capabilities, schema introspection, and recorder history
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
-- **`fix_engine.py`** - Entity ID fuzzy matching for typo suggestions
+- **`fix_engine.py`** - Synonym table, fuzzy matching for suggestions
 
 ### Data Models
-- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `Verdict`, `OutcomeReport`
+- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `EntityAction`, `TriggerInfo`, `ConditionInfo`, `Conflict`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
@@ -83,6 +83,8 @@ autodoctor/
 | `autodoctor/refresh` | Trigger a validation refresh |
 | `autodoctor/validation` | Get validation issues only |
 | `autodoctor/validation/run` | Run validation on demand |
+| `autodoctor/conflicts` | Get detected conflicts |
+| `autodoctor/conflicts/run` | Detect conflicts on demand |
 | `autodoctor/suppress` | Suppress an issue (optionally learn state) |
 | `autodoctor/clear_suppressions` | Clear all suppressions |
 
@@ -90,7 +92,6 @@ autodoctor/
 
 - `autodoctor.validate` - Run validation (specific automation or all)
 - `autodoctor.validate_automation` - Run validation on a specific automation
-- `autodoctor.simulate` - Run outcome verification on automations
 - `autodoctor.refresh_knowledge_base` - Rebuild state knowledge base
 
 ## Validation Rules
@@ -109,9 +110,10 @@ autodoctor/
 
 - `test_analyzer.py` - Automation parsing
 - `test_validator.py` - State validation
+- `test_conflict_detector.py` - Conflict detection
 - `test_knowledge_base.py` - State knowledge building
 - `test_learned_states_store.py` - Learned states persistence
-- `test_fix_engine.py` - Entity ID suggestion logic
+- `test_fix_engine.py` - Suggestion logic
 - `test_models.py` - Data model serialization
 - `test_reporter.py` - Issue reporting
 - `test_websocket_api.py` - WebSocket endpoints
