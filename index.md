@@ -106,6 +106,8 @@ autodoctor/
 | Case mismatch | WARNING |
 | Attribute doesn't exist | ERROR |
 | Template syntax error | ERROR |
+| Unknown template filter | WARNING |
+| Unknown template test | WARNING |
 
 ## Test Files
 
@@ -119,6 +121,7 @@ autodoctor/
 - `test_reporter.py` - Issue reporting
 - `test_websocket_api.py` - WebSocket endpoints
 - `test_websocket_api_learning.py` - Learning on suppression
+- `test_jinja_validator.py` - Jinja2 template validation
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle
 

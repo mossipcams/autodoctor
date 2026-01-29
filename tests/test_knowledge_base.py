@@ -7,8 +7,25 @@ from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.knowledge_base import (
+    CAPABILITY_ATTRIBUTE_SOURCES,
+    CAPABILITY_STATE_SOURCES,
     StateKnowledgeBase,
 )
+
+
+async def test_capability_constants_defined(hass: HomeAssistant):
+    """Test capability source constants are defined."""
+    # State sources (contain valid states)
+    assert "options" in CAPABILITY_STATE_SOURCES
+    assert "hvac_modes" in CAPABILITY_STATE_SOURCES
+    assert CAPABILITY_STATE_SOURCES["options"] is True
+    assert CAPABILITY_STATE_SOURCES["hvac_modes"] is True
+
+    # Attribute sources (contain valid attribute values)
+    assert "fan_modes" in CAPABILITY_ATTRIBUTE_SOURCES
+    assert "preset_modes" in CAPABILITY_ATTRIBUTE_SOURCES
+    assert "swing_modes" in CAPABILITY_ATTRIBUTE_SOURCES
+    assert "swing_horizontal_modes" in CAPABILITY_ATTRIBUTE_SOURCES
 
 
 async def test_knowledge_base_initialization(hass: HomeAssistant):
@@ -387,3 +404,27 @@ async def test_has_history_loaded(hass: HomeAssistant):
     # After adding observed states
     kb._observed_states["light.test"] = {"on", "off"}
     assert kb.has_history_loaded() is True
+
+
+async def test_get_capabilities_states_select_entity(hass: HomeAssistant):
+    """Test extracting states from select entity capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create entity registry entry with capabilities
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_select_1",
+        suggested_object_id="mode",
+        capabilities={"options": ["auto", "cool", "heat", "off"]},
+    )
+
+    # Also need the state to exist
+    hass.states.async_set("select.mode", "auto")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("select.mode")
+    assert states == {"auto", "cool", "heat", "off"}
