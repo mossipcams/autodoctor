@@ -2,6 +2,7 @@
 
 import pytest
 from custom_components.autodoctor.jinja_validator import JinjaValidator
+from custom_components.autodoctor.models import IssueType, Severity
 
 
 def test_deeply_nested_conditions_do_not_stackoverflow():
@@ -50,3 +51,72 @@ def test_null_parallel_config_does_not_crash():
     }
     issues = validator.validate_automations([automation])
     assert isinstance(issues, list)
+
+
+def test_break_continue_do_not_produce_false_positives():
+    """Templates using {% break %} and {% continue %} are valid in HA."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "loop_control_test",
+        "alias": "Loop Control Test",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "data": {
+                    "message": """{% for item in items %}
+{% if item == 'skip' %}{% continue %}{% endif %}
+{% if item == 'stop' %}{% break %}{% endif %}
+{{ item }}
+{% endfor %}"""
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_valid_template_produces_no_issues():
+    """A valid HA template should produce no issues."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "valid_template",
+        "alias": "Valid Template",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | float > 20 }}",
+            }
+        ],
+        "conditions": [
+            {
+                "condition": "template",
+                "value_template": "{{ is_state('binary_sensor.motion', 'on') and now().hour > 6 }}",
+            }
+        ],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_invalid_template_produces_syntax_error():
+    """A template with bad syntax should produce an error."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "bad_syntax",
+        "alias": "Bad Syntax",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | float > }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+    assert issues[0].severity == Severity.ERROR

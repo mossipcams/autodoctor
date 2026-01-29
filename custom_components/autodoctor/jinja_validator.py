@@ -34,7 +34,7 @@ class JinjaValidator:
         """
         self.hass = hass
         # Use a sandboxed environment for safe parsing
-        self._env = SandboxedEnvironment()
+        self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
 
     def validate_automations(
         self, automations: list[dict[str, Any]]
