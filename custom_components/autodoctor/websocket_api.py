@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
@@ -12,9 +11,8 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .conflict_detector import ConflictDetector
 from .const import DOMAIN
-from .fix_engine import get_entity_suggestion, get_state_suggestion
+from .fix_engine import get_entity_suggestion
 from .models import IssueType
 
 if TYPE_CHECKING:
@@ -22,24 +20,14 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-
 async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     """Set up WebSocket API."""
     websocket_api.async_register_command(hass, websocket_get_issues)
     websocket_api.async_register_command(hass, websocket_refresh)
     websocket_api.async_register_command(hass, websocket_get_validation)
     websocket_api.async_register_command(hass, websocket_run_validation)
-    websocket_api.async_register_command(hass, websocket_get_conflicts)
-    websocket_api.async_register_command(hass, websocket_run_conflicts)
     websocket_api.async_register_command(hass, websocket_suppress)
     websocket_api.async_register_command(hass, websocket_clear_suppressions)
-
-
-def _extract_invalid_state(message: str) -> str | None:
-    """Extract the invalid state value from an error message."""
-    match = re.search(r"[Ss]tate ['\"]([^'\"]+)['\"]", message)
-    return match.group(1) if match else None
-
 
 def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
     """Format issues with fix suggestions using simplified fix engine."""
@@ -58,18 +46,6 @@ def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
                     "confidence": 0.8,
                     "fix_value": suggestion,
                 }
-        elif issue.issue_type == IssueType.INVALID_STATE:
-            invalid_state = _extract_invalid_state(issue.message)
-            if invalid_state and issue.valid_states:
-                suggestion = get_state_suggestion(
-                    invalid_state, set(issue.valid_states)
-                )
-                if suggestion:
-                    fix = {
-                        "description": f"Did you mean '{suggestion}'?",
-                        "confidence": 0.8,
-                        "fix_value": suggestion,
-                    }
 
         automation_id = (
             issue.automation_id.replace("automation.", "")
@@ -85,7 +61,6 @@ def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
         )
     return issues_with_fixes
 
-
 def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
     """Calculate healthy automation count."""
     automation_data = hass.data.get("automation")
@@ -98,7 +73,6 @@ def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
 
     automations_with_issues = len(set(i.automation_id for i in issues))
     return max(0, total_automations - automations_with_issues)
-
 
 @websocket_api.websocket_command(
     {
@@ -126,7 +100,6 @@ async def websocket_get_issues(
         },
     )
 
-
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "autodoctor/refresh",
@@ -144,7 +117,6 @@ async def websocket_refresh(
     issues = await async_validate_all(hass)
 
     connection.send_result(msg["id"], {"success": True, "issue_count": len(issues)})
-
 
 @websocket_api.websocket_command(
     {
@@ -187,7 +159,6 @@ async def websocket_get_validation(
             "suppressed_count": suppressed_count,
         },
     )
-
 
 @websocket_api.websocket_command(
     {
@@ -239,99 +210,6 @@ async def websocket_run_validation(
         connection.send_error(
             msg["id"], "validation_failed", f"Validation error: {err}"
         )
-
-
-def _format_conflicts(conflicts: list, suppression_store) -> tuple[list[dict], int]:
-    """Format conflicts, filtering suppressed ones."""
-    if suppression_store:
-        visible = [
-            c
-            for c in conflicts
-            if not suppression_store.is_suppressed(c.get_suppression_key())
-        ]
-        suppressed_count = len(conflicts) - len(visible)
-    else:
-        visible = conflicts
-        suppressed_count = 0
-
-    formatted = [c.to_dict() for c in visible]
-    return formatted, suppressed_count
-
-
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "autodoctor/conflicts",
-    }
-)
-@websocket_api.async_response
-async def websocket_get_conflicts(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Get conflict detection results."""
-    data = hass.data.get(DOMAIN, {})
-    conflicts = data.get("conflicts", [])
-    last_run = data.get("conflicts_last_run")
-    suppression_store = data.get("suppression_store")
-
-    formatted, suppressed_count = _format_conflicts(conflicts, suppression_store)
-
-    connection.send_result(
-        msg["id"],
-        {
-            "conflicts": formatted,
-            "last_run": last_run,
-            "suppressed_count": suppressed_count,
-        },
-    )
-
-
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "autodoctor/conflicts/run",
-    }
-)
-@websocket_api.async_response
-async def websocket_run_conflicts(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Run conflict detection and return results."""
-    from datetime import datetime
-
-    from . import _get_automation_configs
-
-    data = hass.data.get(DOMAIN, {})
-    suppression_store = data.get("suppression_store")
-
-    # Get automation configs
-    automations = _get_automation_configs(hass)
-
-    # Detect conflicts
-    detector = ConflictDetector()
-    conflicts = detector.detect_conflicts(automations)
-
-    # Store results atomically to prevent partial reads
-    last_run = datetime.now(UTC).isoformat()
-    hass.data[DOMAIN].update(
-        {
-            "conflicts": conflicts,
-            "conflicts_last_run": last_run,
-        }
-    )
-
-    formatted, suppressed_count = _format_conflicts(conflicts, suppression_store)
-
-    connection.send_result(
-        msg["id"],
-        {
-            "conflicts": formatted,
-            "last_run": last_run,
-            "suppressed_count": suppressed_count,
-        },
-    )
 
 
 @websocket_api.websocket_command(
@@ -388,7 +266,6 @@ async def websocket_suppress(
     connection.send_result(
         msg["id"], {"success": True, "suppressed_count": suppression_store.count}
     )
-
 
 @websocket_api.websocket_command(
     {
