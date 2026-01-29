@@ -1145,3 +1145,225 @@ def test_malformed_trigger_does_not_crash():
     # Should skip malformed trigger, extract from valid one
     assert len(refs) >= 1
     assert any(r.entity_id == "light.valid" for r in refs)
+
+
+def test_extract_states_function_basic():
+    """Test extraction of states('entity_id') function calls."""
+    automation = {
+        "id": "states_function_test",
+        "alias": "States Function Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temperature') == '25' }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.temperature"
+    assert refs[0].expected_state is None  # states() doesn't capture expected state
+    assert "states" in refs[0].location
+
+
+def test_extract_states_function_with_double_quotes():
+    """Test extraction of states() with double quotes."""
+    automation = {
+        "id": "states_double_quotes",
+        "alias": "States Double Quotes",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": '{{ states("light.bedroom") == "on" }}',
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.bedroom"
+
+
+def test_extract_states_function_with_default_filter():
+    """Test extraction of states() with | default() filter."""
+    automation = {
+        "id": "states_default_filter",
+        "alias": "States Default Filter",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('binary_sensor.door') | default('unknown') == 'on' }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "binary_sensor.door"
+
+
+def test_extract_states_function_multiline():
+    """Test extraction of states() in multiline templates."""
+    automation = {
+        "id": "states_multiline",
+        "alias": "States Multiline",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": """{{
+                    states(
+                        'sensor.humidity'
+                    ) | float > 60
+                }}""",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.humidity"
+
+
+def test_extract_states_function_deduplicates_with_is_state():
+    """Test that states() doesn't duplicate entities already found by is_state()."""
+    automation = {
+        "id": "states_dedupe",
+        "alias": "States Dedupe",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ is_state('sensor.test', 'on') and states('sensor.test') == 'on' }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should only have one reference for sensor.test, not two
+    sensor_refs = [r for r in refs if r.entity_id == "sensor.test"]
+    assert len(sensor_refs) == 1
+    # The is_state match should take priority (has expected_state)
+    assert sensor_refs[0].expected_state == "on"
+
+
+def test_extract_expand_group():
+    """Test extraction of expand('group.xxx') calls."""
+    automation = {
+        "id": "expand_group_test",
+        "alias": "Expand Group Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ expand('group.all_lights') | selectattr('state', 'eq', 'on') | list | count > 0 }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "group.all_lights"
+
+
+def test_expand_group_has_reference_type():
+    """Test that expand() references have reference_type='group'."""
+    automation = {
+        "id": "expand_ref_type",
+        "alias": "Expand Ref Type",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ expand('group.lights') | list | count > 0 }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].reference_type == "group"
+
+
+def test_extract_area_entities():
+    """Test extraction of area_entities() calls."""
+    automation = {
+        "id": "area_entities_test",
+        "alias": "Area Entities Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ area_entities('living_room') | list | count > 0 }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "living_room"
+    assert refs[0].reference_type == "area"
+
+
+def test_extract_device_entities():
+    """Test extraction of device_entities() calls."""
+    automation = {
+        "id": "device_entities_test",
+        "alias": "Device Entities Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ device_entities('abc123') | list | count > 0 }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "abc123"
+    assert refs[0].reference_type == "device"
+
+
+def test_extract_integration_entities():
+    """Test extraction of integration_entities() calls."""
+    automation = {
+        "id": "integration_entities_test",
+        "alias": "Integration Entities Test",
+        "trigger": [
+            {
+                "platform": "template",
+                "value_template": "{{ integration_entities('hue') | list | count > 0 }}",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "hue"
+    assert refs[0].reference_type == "integration"

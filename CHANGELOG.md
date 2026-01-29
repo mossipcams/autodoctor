@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/mossipcams/autodoctor/compare/v2.2.0...v2.3.0) (2026-01-29)
+
+
+### Features
+
+* enhance validation system with four improvements ([aa16922](https://github.com/mossipcams/autodoctor/commit/aa16922569c463c13e52c339aa786a6b06b43a39))
+
 ## [2.2.0](https://github.com/mossipcams/autodoctor/compare/v2.1.0...v2.2.0) (2026-01-28)
 
 

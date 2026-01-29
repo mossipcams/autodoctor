@@ -88,8 +88,20 @@ class ConflictDetector:
         data_b: AutomationData,
     ) -> Conflict | None:
         """Check if two actions conflict."""
-        # Only care about turn_on vs turn_off (skip toggle - too noisy)
-        if {action_a.action, action_b.action} != {"turn_on", "turn_off"}:
+        # Check for turn_on vs turn_off conflicts
+        is_on_off_conflict = {action_a.action, action_b.action} == {"turn_on", "turn_off"}
+
+        # Check for set action conflicts (same action type, different values)
+        is_set_conflict = False
+        conflicting_keys: list[str] = []
+        if action_a.action == "set" and action_b.action == "set":
+            conflicting_keys = self._get_conflicting_value_keys(
+                action_a.value, action_b.value
+            )
+            is_set_conflict = len(conflicting_keys) > 0
+
+        # Skip if neither conflict type
+        if not is_on_off_conflict and not is_set_conflict:
             return None
 
         # Check if triggers can overlap
@@ -106,18 +118,75 @@ class ConflictDetector:
         ):
             return None
 
-        return Conflict(
-            entity_id=entity_id,
-            automation_a=auto_id_a,
-            automation_b=auto_id_b,
-            automation_a_name=data_a.name,
-            automation_b_name=data_b.name,
-            action_a=action_a.action,
-            action_b=action_b.action,
-            severity=Severity.ERROR,
-            explanation=f"Both automations can fire simultaneously with opposing actions on {entity_id}",
-            scenario="May conflict when both triggers fire",
-        )
+        if is_on_off_conflict:
+            return Conflict(
+                entity_id=entity_id,
+                automation_a=auto_id_a,
+                automation_b=auto_id_b,
+                automation_a_name=data_a.name,
+                automation_b_name=data_b.name,
+                action_a=action_a.action,
+                action_b=action_b.action,
+                severity=Severity.ERROR,
+                explanation=f"Both automations can fire simultaneously with opposing actions on {entity_id}",
+                scenario="May conflict when both triggers fire",
+            )
+        else:
+            # Set action conflict - WARNING severity
+            conflict_details = ", ".join(
+                f"{k}: {action_a.value.get(k)} vs {action_b.value.get(k)}"
+                for k in conflicting_keys
+            )
+            return Conflict(
+                entity_id=entity_id,
+                automation_a=auto_id_a,
+                automation_b=auto_id_b,
+                automation_a_name=data_a.name,
+                automation_b_name=data_b.name,
+                action_a=action_a.action,
+                action_b=action_b.action,
+                severity=Severity.WARNING,
+                explanation=f"Both automations set different values on {entity_id}: {conflict_details}",
+                scenario="May conflict when both triggers fire",
+            )
+
+    def _get_conflicting_value_keys(
+        self, value_a: dict | None, value_b: dict | None
+    ) -> list[str]:
+        """Get keys that have conflicting values between two value dicts.
+
+        Returns empty list if no conflicts (same values or different keys).
+        Skips template values (strings containing '{{' or '{%').
+        """
+        if not value_a or not value_b:
+            return []
+
+        conflicting = []
+        for key in set(value_a.keys()) & set(value_b.keys()):
+            val_a = value_a[key]
+            val_b = value_b[key]
+
+            # Skip template values - can't evaluate at static analysis time
+            if self._is_template_value(val_a) or self._is_template_value(val_b):
+                continue
+
+            # Only compare numeric and string values
+            if not isinstance(val_a, (int, float, str)) or not isinstance(
+                val_b, (int, float, str)
+            ):
+                continue
+
+            # Different values = conflict
+            if val_a != val_b:
+                conflicting.append(key)
+
+        return conflicting
+
+    def _is_template_value(self, value: Any) -> bool:
+        """Check if a value is a Jinja2 template."""
+        if not isinstance(value, str):
+            return False
+        return "{{" in value or "{%" in value
 
     def _triggers_can_overlap(
         self, triggers_a: list[TriggerInfo], triggers_b: list[TriggerInfo]

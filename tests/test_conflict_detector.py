@@ -482,3 +482,134 @@ class TestActionLevelConditions:
         # Same automation with choose branches should not conflict with itself
         conflicts = self.detector.detect_conflicts(automations)
         assert len(conflicts) == 0
+
+
+class TestSetActionConflicts:
+    """Test set-action conflict detection."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.detector = ConflictDetector()
+
+    def test_conflict_detected_different_temperature_values(self):
+        """Test that same service with different values is detected as conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": 22},
+                    }
+                ],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": 18},
+                    }
+                ],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 1
+        assert conflicts[0].entity_id == "climate.living_room"
+        # Set conflicts should be WARNING severity (less severe than on/off)
+        from custom_components.autodoctor.models import Severity
+
+        assert conflicts[0].severity == Severity.WARNING
+
+    def test_no_conflict_same_temperature_values(self):
+        """Test that same service with same values doesn't conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": 22},
+                    }
+                ],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": 22},
+                    }
+                ],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        assert len(conflicts) == 0
+
+    def test_no_conflict_different_services_same_entity(self):
+        """Test that different services on same entity don't conflict."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": 22},
+                    }
+                ],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_hvac_mode",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"hvac_mode": "heat"},
+                    }
+                ],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        # Different keys = no conflict
+        assert len(conflicts) == 0
+
+    def test_no_conflict_template_values_skipped(self):
+        """Test that template values are skipped (can't evaluate statically)."""
+        automations = [
+            {
+                "id": "auto1",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": "{{ states('input_number.target') | int }}"},
+                    }
+                ],
+            },
+            {
+                "id": "auto2",
+                "trigger": [{"platform": "time", "at": "06:00:00"}],
+                "action": [
+                    {
+                        "service": "climate.set_temperature",
+                        "target": {"entity_id": "climate.living_room"},
+                        "data": {"temperature": 18},
+                    }
+                ],
+            },
+        ]
+        conflicts = self.detector.detect_conflicts(automations)
+        # Template values are skipped - no conflict reported
+        assert len(conflicts) == 0

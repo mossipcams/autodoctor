@@ -106,6 +106,8 @@ class StateReference:
     location: str  # e.g., "trigger[0].to", "condition[1].state"
     source_line: int | None = None
     transition_from: str | None = None
+    # Type of reference: direct entity, group, device, area, or integration
+    reference_type: str = "direct"
 
 
 @dataclass

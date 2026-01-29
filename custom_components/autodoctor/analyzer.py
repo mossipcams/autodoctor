@@ -35,6 +35,36 @@ STATES_OBJECT_PATTERN = re.compile(
     r"states\.([a-z_]+)\.([a-z0-9_]+)(?:\.state)?",
     re.DOTALL,
 )
+# Pattern for states('entity_id') function calls
+# Matches: states('sensor.temperature'), states("light.bedroom") | default('unknown')
+STATES_FUNCTION_PATTERN = re.compile(
+    rf"states\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for expand() function calls
+# Matches: expand('group.all_lights'), expand('light.bedroom', 'light.kitchen')
+EXPAND_PATTERN = re.compile(
+    rf"expand\s*\(\s*['\"]({_QUOTED_STRING})['\"]",
+    re.DOTALL,
+)
+# Pattern for area_entities() calls
+# Matches: area_entities('living_room')
+AREA_ENTITIES_PATTERN = re.compile(
+    rf"area_entities\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for device_entities() calls
+# Matches: device_entities('device_id_here')
+DEVICE_ENTITIES_PATTERN = re.compile(
+    rf"device_entities\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for integration_entities() calls
+# Matches: integration_entities('hue')
+INTEGRATION_ENTITIES_PATTERN = re.compile(
+    rf"integration_entities\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
 # Pattern to strip Jinja2 comments before parsing
 JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
@@ -319,6 +349,87 @@ class AutomationAnalyzer:
                         expected_state=None,
                         expected_attribute=None,
                         location=f"{location}.states_object",
+                    )
+                )
+
+        # Extract states('entity_id') function calls
+        for match in STATES_FUNCTION_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            # Deduplicate - don't add if already found via other patterns
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.states_function",
+                    )
+                )
+
+        # Extract expand() function calls
+        for match in EXPAND_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            # Deduplicate - don't add if already found via other patterns
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.expand",
+                        reference_type="group",
+                    )
+                )
+
+        # Extract area_entities() calls
+        for match in AREA_ENTITIES_PATTERN.finditer(template):
+            area_id = match.group(1)
+            if not any(r.entity_id == area_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=area_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.area_entities",
+                        reference_type="area",
+                    )
+                )
+
+        # Extract device_entities() calls
+        for match in DEVICE_ENTITIES_PATTERN.finditer(template):
+            device_id = match.group(1)
+            if not any(r.entity_id == device_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.device_entities",
+                        reference_type="device",
+                    )
+                )
+
+        # Extract integration_entities() calls
+        for match in INTEGRATION_ENTITIES_PATTERN.finditer(template):
+            integration_id = match.group(1)
+            if not any(r.entity_id == integration_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=integration_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.integration_entities",
+                        reference_type="integration",
                     )
                 )
 
