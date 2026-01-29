@@ -1,4 +1,16 @@
-"""StateKnowledgeBase - builds and maintains valid states for entities."""
+"""StateKnowledgeBase - builds and maintains valid states for entities.
+
+Data sources (in priority order):
+1. Device class defaults (hardcoded domain mappings)
+2. Learned states (user-taught via suppression)
+3. Entity registry capabilities (integration-declared valid values)
+4. Schema introspection (entity state attributes)
+5. Recorder history (observed states)
+6. Current state (always valid)
+
+Capabilities provide reliable state/attribute values on fresh installs
+where recorder history is not yet available.
+"""
 
 from __future__ import annotations
 
