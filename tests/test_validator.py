@@ -171,3 +171,58 @@ def test_validator_caches_entity_suggestions():
 
     # async_all should only be called once (cached)
     assert mock_hass.states.async_all.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_false_positive_for_light_brightness_when_off(hass: HomeAssistant):
+    """Test that checking brightness on a light that's off doesn't report error.
+
+    Lights support brightness even when off, but the attribute isn't present
+    in the current state. We should validate against supported attributes,
+    not just current state attributes.
+    """
+    # Set up a light that's off - no brightness attribute present
+    hass.states.async_set("light.bedroom", "off")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.bedroom",
+        expected_state=None,
+        expected_attribute="brightness",
+        location="trigger[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should NOT report an error - lights support brightness even when off
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_no_false_positive_for_climate_temperature(hass: HomeAssistant):
+    """Test that checking temperature on climate doesn't report false positive."""
+    # Climate entity that's off - temperature attribute may not be present
+    hass.states.async_set("climate.living_room", "off")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="climate.living_room",
+        expected_state=None,
+        expected_attribute="temperature",
+        location="trigger[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should NOT report an error - climate supports temperature
+    assert len(issues) == 0
