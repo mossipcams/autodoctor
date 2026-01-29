@@ -430,6 +430,73 @@ class AutomationAnalyzer:
 
         return refs
 
+    def _extract_from_service_call(
+        self,
+        action: dict[str, Any],
+        index: int,
+        automation_id: str,
+        automation_name: str,
+    ) -> list[StateReference]:
+        """Extract entity references from service calls.
+
+        Args:
+            action: The action dict containing service call
+            index: Action index in the automation
+            automation_id: Automation entity ID
+            automation_name: Automation friendly name
+
+        Returns:
+            List of StateReference objects for entities in service call
+        """
+        refs: list[StateReference] = []
+
+        # Get service name (both 'service' and 'action' keys)
+        service = action.get("service") or action.get("action")
+        if not service:
+            return refs
+
+        # Check data.entity_id
+        data = action.get("data", {})
+        entity_ids = self._normalize_states(data.get("entity_id"))
+
+        # Check target.entity_id (newer syntax)
+        target = action.get("target", {})
+        entity_ids.extend(self._normalize_states(target.get("entity_id")))
+
+        # Determine reference type based on service
+        reference_type = "service_call"
+        if service == "scene.turn_on":
+            reference_type = "scene"
+        elif service == "script.turn_on":
+            reference_type = "script"
+
+        for entity_id in entity_ids:
+            # If it's a template, extract from template
+            if "{{" in entity_id:
+                refs.extend(
+                    self._extract_from_template(
+                        entity_id,
+                        f"action[{index}].data.entity_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+            else:
+                # Direct entity reference
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"action[{index}].service.entity_id",
+                        reference_type=reference_type,
+                    )
+                )
+
+        return refs
+
     def _extract_from_actions(
         self,
         actions: list[dict[str, Any]],
@@ -443,6 +510,13 @@ class AutomationAnalyzer:
             actions = [actions]
 
         for idx, action in enumerate(actions):
+            # Extract from service calls
+            refs.extend(
+                self._extract_from_service_call(
+                    action, idx, automation_id, automation_name
+                )
+            )
+
             # Extract from choose option conditions and sequences
             if "choose" in action:
                 options = action.get("choose") or []
