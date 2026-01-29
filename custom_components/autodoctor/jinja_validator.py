@@ -6,6 +6,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
@@ -22,6 +23,65 @@ TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 # Maximum recursion depth for nested conditions/actions
 MAX_RECURSION_DEPTH = 20
 
+# HA-specific filters (added on top of Jinja2 built-ins).
+# Source: https://www.home-assistant.io/docs/configuration/templating
+_HA_FILTERS: frozenset[str] = frozenset({
+    # Datetime / timestamp
+    "as_datetime", "as_timestamp", "as_local", "as_timedelta",
+    "timestamp_custom", "timestamp_local", "timestamp_utc",
+    "relative_time", "time_since", "time_until",
+    # JSON
+    "to_json", "from_json",
+    # Type conversion (override Jinja2 built-ins)
+    "float", "int", "bool",
+    # Validation
+    "is_defined", "is_number", "has_value",
+    # Math
+    "log", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sqrt",
+    "multiply", "add", "average", "median", "statistical_mode",
+    "clamp", "wrap", "remap",
+    # Bitwise
+    "bitwise_and", "bitwise_or", "bitwise_xor", "ord",
+    # Encoding
+    "base64_encode", "base64_decode", "from_hex",
+    # Hashing
+    "md5", "sha1", "sha256", "sha512",
+    # Regex
+    "regex_match", "regex_search", "regex_replace",
+    "regex_findall", "regex_findall_index",
+    # String
+    "slugify", "ordinal",
+    # Collections
+    "set", "shuffle", "flatten",
+    "intersect", "difference", "symmetric_difference", "union", "combine",
+    "contains",
+    # Entity / device / area / floor / label lookups
+    "expand", "closest", "distance",
+    "state_attr", "is_state_attr", "is_state", "state_translated",
+    "is_hidden_entity",
+    "device_entities", "device_attr", "is_device_attr", "device_id", "device_name",
+    "config_entry_id", "config_entry_attr",
+    "area_id", "area_name", "area_entities", "area_devices",
+    "floor_id", "floor_name", "floor_areas", "floor_entities",
+    "label_id", "label_name", "label_description",
+    "label_areas", "label_devices", "label_entities",
+    "integration_entities",
+    # Misc
+    "iif", "version", "pack", "unpack",
+    "apply", "as_function", "merge_response", "typeof",
+})
+
+# HA-specific tests (added on top of Jinja2 built-ins).
+_HA_TESTS: frozenset[str] = frozenset({
+    "match", "search",
+    "is_number", "has_value", "contains",
+    "is_list", "is_set", "is_tuple", "is_datetime", "is_string_like",
+    "is_boolean", "is_callable", "is_float", "is_integer",
+    "is_iterable", "is_mapping", "is_sequence", "is_string",
+    "is_state", "is_state_attr", "is_device_attr", "is_hidden_entity",
+    "apply",
+})
+
 
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
@@ -35,6 +95,8 @@ class JinjaValidator:
         self.hass = hass
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
+        self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | _HA_FILTERS
+        self._known_tests: frozenset[str] = frozenset(self._env.tests.keys()) | _HA_TESTS
 
     def validate_automations(
         self, automations: list[dict[str, Any]]
@@ -50,7 +112,7 @@ class JinjaValidator:
         issues: list[ValidationIssue] = []
 
         for auto in automations:
-            auto_id = f"automation.{auto.get('id', 'unknown')}"
+            auto_id = f"automation.{auto.get("id", "unknown")}"
             auto_name = auto.get("alias", auto_id)
             issues.extend(self._validate_automation(auto, auto_id, auto_name))
 
@@ -105,11 +167,9 @@ class JinjaValidator:
         # Check value_template
         value_template = trigger.get("value_template")
         if value_template and isinstance(value_template, str):
-            issue = self._check_template(
+            issues.extend(self._check_template(
                 value_template, f"trigger[{index}].value_template", auto_id, auto_name
-            )
-            if issue:
-                issues.append(issue)
+            ))
 
         return issues
 
@@ -135,11 +195,9 @@ class JinjaValidator:
         # String condition (template shorthand)
         if isinstance(condition, str):
             if self._is_template(condition):
-                issue = self._check_template(
+                issues.extend(self._check_template(
                     condition, f"{location_prefix}[{index}]", auto_id, auto_name
-                )
-                if issue:
-                    issues.append(issue)
+                ))
             return issues
 
         if not isinstance(condition, dict):
@@ -148,14 +206,12 @@ class JinjaValidator:
         # Check value_template
         value_template = condition.get("value_template")
         if value_template and isinstance(value_template, str):
-            issue = self._check_template(
+            issues.extend(self._check_template(
                 value_template,
                 f"{location_prefix}[{index}].value_template",
                 auto_id,
                 auto_name,
-            )
-            if issue:
-                issues.append(issue)
+            ))
 
         # Check nested conditions (and/or/not)
         for key in ("conditions", "and", "or"):
@@ -242,11 +298,9 @@ class JinjaValidator:
             # Check wait_template
             wait_template = action.get("wait_template")
             if wait_template and isinstance(wait_template, str):
-                issue = self._check_template(
+                issues.extend(self._check_template(
                     wait_template, f"{location}.wait_template", auto_id, auto_name
-                )
-                if issue:
-                    issues.append(issue)
+                ))
 
             # Check choose blocks
             if "choose" in action:
@@ -378,11 +432,9 @@ class JinjaValidator:
 
         for key, value in data.items():
             if isinstance(value, str) and self._is_template(value):
-                issue = self._check_template(
+                issues.extend(self._check_template(
                     value, f"{location}.{key}", auto_id, auto_name
-                )
-                if issue:
-                    issues.append(issue)
+                ))
             elif isinstance(value, dict):
                 issues.extend(
                     self._validate_data_templates(
@@ -392,11 +444,9 @@ class JinjaValidator:
             elif isinstance(value, list):
                 for idx, item in enumerate(value):
                     if isinstance(item, str) and self._is_template(item):
-                        issue = self._check_template(
+                        issues.extend(self._check_template(
                             item, f"{location}.{key}[{idx}]", auto_id, auto_name
-                        )
-                        if issue:
-                            issues.append(issue)
+                        ))
                     elif isinstance(item, dict):
                         issues.extend(
                             self._validate_data_templates(
@@ -410,45 +460,87 @@ class JinjaValidator:
         """Check if a string contains Jinja2 template syntax."""
         return bool(TEMPLATE_PATTERN.search(value))
 
+    def _check_ast_semantics(
+        self,
+        ast: nodes.Template,
+        location: str,
+        auto_id: str,
+        auto_name: str,
+    ) -> list[ValidationIssue]:
+        """Walk the parsed AST to check for unknown filters and tests."""
+        issues: list[ValidationIssue] = []
+
+        for node in ast.find_all(nodes.Filter):
+            if node.name not in self._known_filters:
+                issues.append(
+                    ValidationIssue(
+                        issue_type=IssueType.TEMPLATE_UNKNOWN_FILTER,
+                        severity=Severity.WARNING,
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id="",
+                        location=location,
+                        message=f"Unknown filter '{node.name}' — not a built-in Jinja2 or Home Assistant filter",
+                    )
+                )
+
+        for node in ast.find_all(nodes.Test):
+            if node.name not in self._known_tests:
+                issues.append(
+                    ValidationIssue(
+                        issue_type=IssueType.TEMPLATE_UNKNOWN_TEST,
+                        severity=Severity.WARNING,
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id="",
+                        location=location,
+                        message=f"Unknown test '{node.name}' — not a built-in Jinja2 or Home Assistant test",
+                    )
+                )
+
+        return issues
+
     def _check_template(
         self,
         template: str,
         location: str,
         auto_id: str,
         auto_name: str,
-    ) -> ValidationIssue | None:
-        """Check a template for syntax errors.
+    ) -> list[ValidationIssue]:
+        """Check a template for syntax errors and semantic issues.
 
-        Returns a ValidationIssue if there's an error, None otherwise.
+        Returns a list of ValidationIssues (empty if no problems).
         """
         try:
-            # Try to parse the template
-            self._env.parse(template)
-            return None
+            ast = self._env.parse(template)
         except TemplateSyntaxError as err:
-            # Extract useful error info
             error_msg = str(err.message) if err.message else str(err)
             line_info = f" (line {err.lineno})" if err.lineno else ""
-
-            return ValidationIssue(
-                issue_type=IssueType.TEMPLATE_SYNTAX_ERROR,
-                severity=Severity.ERROR,
-                automation_id=auto_id,
-                automation_name=auto_name,
-                entity_id="",  # Templates don't have a specific entity
-                location=location,
-                message=f"Jinja2 syntax error{line_info}: {error_msg}",
-                suggestion=None,
-            )
+            return [
+                ValidationIssue(
+                    issue_type=IssueType.TEMPLATE_SYNTAX_ERROR,
+                    severity=Severity.ERROR,
+                    automation_id=auto_id,
+                    automation_name=auto_name,
+                    entity_id="",
+                    location=location,
+                    message=f"Jinja2 syntax error{line_info}: {error_msg}",
+                    suggestion=None,
+                )
+            ]
         except Exception as err:
-            # Catch any other parsing errors
-            return ValidationIssue(
-                issue_type=IssueType.TEMPLATE_SYNTAX_ERROR,
-                severity=Severity.ERROR,
-                automation_id=auto_id,
-                automation_name=auto_name,
-                entity_id="",
-                location=location,
-                message=f"Template error: {err}",
-                suggestion=None,
-            )
+            return [
+                ValidationIssue(
+                    issue_type=IssueType.TEMPLATE_SYNTAX_ERROR,
+                    severity=Severity.ERROR,
+                    automation_id=auto_id,
+                    automation_name=auto_name,
+                    entity_id="",
+                    location=location,
+                    message=f"Template error: {err}",
+                    suggestion=None,
+                )
+            ]
+
+        # Syntax OK — run semantic checks
+        return self._check_ast_semantics(ast, location, auto_id, auto_name)
