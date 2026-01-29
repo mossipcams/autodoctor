@@ -12,9 +12,8 @@
           "jsonpath": "$.version"
         },
         {
-          "type": "python",
-          "path": "custom_components/autodoctor/const.py",
-          "glob": false
+          "type": "generic",
+          "path": "custom_components/autodoctor/const.py"
         }
       ],
       "changelog-sections": [
