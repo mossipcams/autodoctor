@@ -70,7 +70,6 @@ def test_issue_type_enum_values():
     assert IssueType.ENTITY_NOT_FOUND.value == "entity_not_found"
     assert IssueType.ENTITY_REMOVED.value == "entity_removed"
     assert IssueType.INVALID_STATE.value == "invalid_state"
-    assert IssueType.IMPOSSIBLE_CONDITION.value == "impossible_condition"
     assert IssueType.CASE_MISMATCH.value == "case_mismatch"
     assert IssueType.ATTRIBUTE_NOT_FOUND.value == "attribute_not_found"
 

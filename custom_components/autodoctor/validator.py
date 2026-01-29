@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from difflib import get_close_matches
 
+from .domain_attributes import get_domain_attributes
 from .knowledge_base import StateKnowledgeBase
 from .models import IssueType, Severity, StateReference, ValidationIssue
 
@@ -125,28 +126,44 @@ class ValidationEngine:
         return issues
 
     def _validate_attribute(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the expected attribute exists."""
+        """Validate the expected attribute exists.
+
+        Checks against supported attributes for the domain, not just current state.
+        This prevents false positives (e.g., light.brightness when light is off).
+        """
         issues: list[ValidationIssue] = []
 
         state = self.knowledge_base.hass.states.get(ref.entity_id)
         if state is None:
             return issues
 
-        if ref.expected_attribute not in state.attributes:
-            available = list(state.attributes.keys())
-            suggestion = self._suggest_attribute(ref.expected_attribute, available)
-            issues.append(
-                ValidationIssue(
-                    severity=Severity.ERROR,
-                    automation_id=ref.automation_id,
-                    automation_name=ref.automation_name,
-                    entity_id=ref.entity_id,
-                    location=ref.location,
-                    message=f"Attribute '{ref.expected_attribute}' does not exist on {ref.entity_id}",
-                    suggestion=suggestion,
-                    valid_states=available,
-                )
+        # Check if attribute is in current state
+        if ref.expected_attribute in state.attributes:
+            return issues
+
+        # Check if attribute is supported by this domain
+        domain = self.knowledge_base.get_domain(ref.entity_id)
+        domain_attrs = get_domain_attributes(domain)
+        if ref.expected_attribute in domain_attrs:
+            # Attribute is supported by this domain, don't report error
+            return issues
+
+        # Attribute not found in current state or domain defaults
+        available = list(state.attributes.keys())
+        suggestion = self._suggest_attribute(ref.expected_attribute, available)
+        issues.append(
+            ValidationIssue(
+                issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
+                severity=Severity.ERROR,
+                automation_id=ref.automation_id,
+                automation_name=ref.automation_name,
+                entity_id=ref.entity_id,
+                location=ref.location,
+                message=f"Attribute '{ref.expected_attribute}' does not exist on {ref.entity_id}",
+                suggestion=suggestion,
+                valid_states=available,
             )
+        )
 
         return issues
 

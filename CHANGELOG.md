@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.3.0](https://github.com/mossipcams/autodoctor/compare/v2.2.0...v2.3.0) (2026-01-29)
+
+
+### Features
+
+* enhance validation system with four improvements ([aa16922](https://github.com/mossipcams/autodoctor/commit/aa16922569c463c13e52c339aa786a6b06b43a39))
+
+## [2.2.0](https://github.com/mossipcams/autodoctor/compare/v2.1.0...v2.2.0) (2026-01-28)
+
+
+### Features
+
+* add error handling to validation pipeline ([0568cbd](https://github.com/mossipcams/autodoctor/commit/0568cbd1c0926d67378c058b1cd6b2f4cb663d2d))
+* **models:** fix ValidationIssue hash/eq for set operations ([a6c99f1](https://github.com/mossipcams/autodoctor/commit/a6c99f1ff3302436098983b824c9890d65f25262))
+* validation pipeline hardening (Phase 1-2) ([cee420f](https://github.com/mossipcams/autodoctor/commit/cee420f7539911b8a9032baa33c18bd4f213dff8))
+
+
+### Bug Fixes
+
+* repairs not showing in HA and remove refresh button ([f0a7a8f](https://github.com/mossipcams/autodoctor/commit/f0a7a8fe0d47861a6972e2be5a5804ac1444f5b1))
+
+
+### Performance Improvements
+
+* optimize knowledge base performance ([2c9df92](https://github.com/mossipcams/autodoctor/commit/2c9df92639609a7605b05d7ebef75b02e0250f13))
+
+
+### Code Refactoring
+
+* improve code quality and reduce duplication ([414c64e](https://github.com/mossipcams/autodoctor/commit/414c64ef50674c7c58c08ee1370e51aa4e60f00f))
+
+
+### Documentation
+
+* add validation pipeline hardening design ([5bc792c](https://github.com/mossipcams/autodoctor/commit/5bc792c2a348618a666815b231bcb5ba8dd55f27))
+* update README with user-focused problem statement and v2.1 features ([aebdf11](https://github.com/mossipcams/autodoctor/commit/aebdf11fe0e67f1b13ad3b8f11a647f0dea97ff4))
+
 ## [2.1.0](https://github.com/mossipcams/autodoctor/compare/v2.0.0...v2.1.0) (2026-01-28)
 
 

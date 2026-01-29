@@ -21,10 +21,11 @@ class IssueType(str, Enum):
     ENTITY_NOT_FOUND = "entity_not_found"
     ENTITY_REMOVED = "entity_removed"
     INVALID_STATE = "invalid_state"
-    IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
+    TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
+    TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
 
 
 
@@ -40,6 +41,8 @@ class StateReference:
     location: str  # e.g., "trigger[0].to", "condition[1].state"
     source_line: int | None = None
     transition_from: str | None = None
+    # Type of reference: direct entity, group, device, area, or integration
+    reference_type: str = "direct"
 
 
 @dataclass
