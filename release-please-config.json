@@ -10,6 +10,11 @@
           "type": "json",
           "path": "custom_components/autodoctor/manifest.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "python",
+          "path": "custom_components/autodoctor/const.py",
+          "glob": false
         }
       ],
       "changelog-sections": [
