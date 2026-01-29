@@ -623,3 +623,70 @@ async def test_get_valid_attributes_uses_capabilities(hass: HomeAssistant):
 
     preset_values = kb.get_valid_attributes("climate.fresh_climate", "preset_mode")
     assert preset_values == {"eco", "comfort"}
+
+
+async def test_fresh_install_no_false_positives(hass: HomeAssistant):
+    """Test that fresh install has no false positives with capabilities.
+
+    Simulates a fresh Home Assistant install where:
+    - Entity registry has capabilities
+    - No recorder history exists
+    - State attributes might be incomplete
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create select entity (no history, capabilities only)
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test_integration",
+        unique_id="fresh_select",
+        suggested_object_id="input_mode",
+        capabilities={"options": ["option_a", "option_b", "option_c"]},
+    )
+    hass.states.async_set("select.input_mode", "option_a")
+
+    # Create climate entity (no history, capabilities only)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test_integration",
+        unique_id="fresh_climate",
+        suggested_object_id="thermostat",
+        capabilities={
+            "hvac_modes": ["heat", "cool", "auto", "off"],
+            "fan_modes": ["low", "medium", "high"],
+            "preset_modes": ["eco", "comfort"],
+        },
+    )
+    hass.states.async_set(
+        "climate.thermostat",
+        "off",
+        attributes={},  # Minimal attributes (like fresh install)
+    )
+
+    await hass.async_block_till_done()
+
+    # Verify select options are valid (no false positives)
+    select_states = kb.get_valid_states("select.input_mode")
+    assert "option_a" in select_states
+    assert "option_b" in select_states
+    assert "option_c" in select_states
+
+    # Verify climate hvac_modes are valid (no false positives)
+    climate_states = kb.get_valid_states("climate.thermostat")
+    assert "heat" in climate_states
+    assert "cool" in climate_states
+    assert "auto" in climate_states
+    assert "off" in climate_states
+
+    # Verify climate attribute values are valid
+    fan_values = kb.get_valid_attributes("climate.thermostat", "fan_mode")
+    assert fan_values == {"low", "medium", "high"}
+
+    preset_values = kb.get_valid_attributes("climate.thermostat", "preset_mode")
+    assert preset_values == {"eco", "comfort"}
+
+    # Verify history is NOT required
+    assert not kb.has_history_loaded()
