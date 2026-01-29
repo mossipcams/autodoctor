@@ -443,6 +443,54 @@ class AutomationAnalyzer:
                     )
                 )
 
+        # Extract device_id() calls
+        for match in DEVICE_ID_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.device_id",
+                        reference_type="metadata",
+                    )
+                )
+
+        # Extract area_name/area_id() calls
+        for match in AREA_NAME_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.area_lookup",
+                        reference_type="metadata",
+                    )
+                )
+
+        # Extract has_value() calls
+        for match in HAS_VALUE_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.has_value",
+                        reference_type="entity",
+                    )
+                )
+
         return refs
 
     def _extract_from_service_call(
