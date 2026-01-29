@@ -184,6 +184,28 @@ class StateKnowledgeBase:
             )
             return set()
 
+    def _attribute_maps_to_capability(self, attribute_name: str) -> str | None:
+        """Map an attribute name to its capability key.
+
+        Some attributes get their valid values from capabilities
+        (e.g., fan_mode → fan_modes, preset_mode → preset_modes).
+
+        Args:
+            attribute_name: The attribute to check
+
+        Returns:
+            The capability key if mapped, None otherwise
+        """
+        # Direct mapping: attribute_name → capability_key
+        ATTRIBUTE_TO_CAPABILITY = {
+            "fan_mode": "fan_modes",
+            "preset_mode": "preset_modes",
+            "swing_mode": "swing_modes",
+            "swing_horizontal_mode": "swing_horizontal_modes",
+        }
+
+        return ATTRIBUTE_TO_CAPABILITY.get(attribute_name)
+
     def get_valid_states(self, entity_id: str) -> set[str] | None:
         """Get valid states for an entity.
 

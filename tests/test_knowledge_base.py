@@ -539,3 +539,22 @@ async def test_get_valid_states_uses_capabilities(hass: HomeAssistant):
     assert "mode1" in valid_states
     assert "mode2" in valid_states
     assert "mode3" in valid_states
+
+
+async def test_attribute_maps_to_capability(hass: HomeAssistant):
+    """Test mapping attribute names to capability keys."""
+    kb = StateKnowledgeBase(hass)
+
+    # Test valid mappings
+    assert kb._attribute_maps_to_capability("fan_mode") == "fan_modes"
+    assert kb._attribute_maps_to_capability("preset_mode") == "preset_modes"
+    assert kb._attribute_maps_to_capability("swing_mode") == "swing_modes"
+    assert (
+        kb._attribute_maps_to_capability("swing_horizontal_mode")
+        == "swing_horizontal_modes"
+    )
+
+    # Test non-mapped attributes
+    assert kb._attribute_maps_to_capability("brightness") is None
+    assert kb._attribute_maps_to_capability("temperature") is None
+    assert kb._attribute_maps_to_capability("unknown_attr") is None
