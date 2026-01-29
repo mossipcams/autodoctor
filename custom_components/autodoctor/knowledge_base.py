@@ -49,6 +49,19 @@ ATTRIBUTE_VALUE_SOURCES: dict[str, str] = {
     "swing_mode": "swing_modes",
 }
 
+# Capability introspection - map capability keys to state vs attribute values
+CAPABILITY_STATE_SOURCES: dict[str, bool] = {
+    "options": True,              # select/input_select - STATES
+    "hvac_modes": True,           # climate - STATES
+}
+
+CAPABILITY_ATTRIBUTE_SOURCES: dict[str, bool] = {
+    "fan_modes": True,            # climate fan_mode attribute
+    "preset_modes": True,         # climate/fan preset_mode attribute
+    "swing_modes": True,          # climate swing_mode attribute
+    "swing_horizontal_modes": True, # climate swing_horizontal_mode attribute
+}
+
 
 class StateKnowledgeBase:
     """Builds and maintains the valid states map for all entities.
