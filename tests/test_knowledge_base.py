@@ -7,8 +7,25 @@ from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.knowledge_base import (
+    CAPABILITY_ATTRIBUTE_SOURCES,
+    CAPABILITY_STATE_SOURCES,
     StateKnowledgeBase,
 )
+
+
+async def test_capability_constants_defined(hass: HomeAssistant):
+    """Test capability source constants are defined."""
+    # State sources (contain valid states)
+    assert "options" in CAPABILITY_STATE_SOURCES
+    assert "hvac_modes" in CAPABILITY_STATE_SOURCES
+    assert CAPABILITY_STATE_SOURCES["options"] is True
+    assert CAPABILITY_STATE_SOURCES["hvac_modes"] is True
+
+    # Attribute sources (contain valid attribute values)
+    assert "fan_modes" in CAPABILITY_ATTRIBUTE_SOURCES
+    assert "preset_modes" in CAPABILITY_ATTRIBUTE_SOURCES
+    assert "swing_modes" in CAPABILITY_ATTRIBUTE_SOURCES
+    assert "swing_horizontal_modes" in CAPABILITY_ATTRIBUTE_SOURCES
 
 
 async def test_knowledge_base_initialization(hass: HomeAssistant):
@@ -387,3 +404,289 @@ async def test_has_history_loaded(hass: HomeAssistant):
     # After adding observed states
     kb._observed_states["light.test"] = {"on", "off"}
     assert kb.has_history_loaded() is True
+
+
+async def test_get_capabilities_states_select_entity(hass: HomeAssistant):
+    """Test extracting states from select entity capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create entity registry entry with capabilities
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_select_1",
+        suggested_object_id="mode",
+        capabilities={"options": ["auto", "cool", "heat", "off"]},
+    )
+
+    # Also need the state to exist
+    hass.states.async_set("select.mode", "auto")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("select.mode")
+    assert states == {"auto", "cool", "heat", "off"}
+
+
+async def test_get_capabilities_states_climate_entity(hass: HomeAssistant):
+    """Test extracting hvac_modes from climate entity capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test",
+        unique_id="test_climate_1",
+        suggested_object_id="thermostat",
+        capabilities={
+            "hvac_modes": ["heat", "cool", "auto", "off"],
+            "fan_modes": ["low", "medium", "high"],  # Should NOT be in states
+        },
+    )
+
+    hass.states.async_set("climate.thermostat", "heat")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("climate.thermostat")
+    # Should only include hvac_modes (state source), not fan_modes (attribute source)
+    assert states == {"heat", "cool", "auto", "off"}
+    assert "low" not in states
+    assert "medium" not in states
+
+
+async def test_get_capabilities_states_no_capabilities(hass: HomeAssistant):
+    """Test handling entity with no capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="switch",
+        platform="test",
+        unique_id="test_switch_1",
+        suggested_object_id="test_switch",
+        capabilities=None,  # No capabilities
+    )
+
+    hass.states.async_set("switch.test_switch", "on")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("switch.test_switch")
+    assert states == set()
+
+
+async def test_get_capabilities_states_no_registry_entry(hass: HomeAssistant):
+    """Test handling entity not in registry."""
+    kb = StateKnowledgeBase(hass)
+
+    # Entity exists in states but not in registry
+    hass.states.async_set("sensor.temperature", "20")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("sensor.temperature")
+    assert states == set()
+
+
+async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssistant):
+    """Test handling capabilities with non-list values."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_select_bad",
+        suggested_object_id="bad_select",
+        capabilities={"options": "not_a_list"},  # Invalid format
+    )
+
+    hass.states.async_set("select.bad_select", "on")
+    await hass.async_block_till_done()
+
+    states = kb._get_capabilities_states("select.bad_select")
+    assert states == set()  # Should return empty, not crash
+
+
+async def test_get_valid_states_uses_capabilities(hass: HomeAssistant):
+    """Test that get_valid_states() includes capability states on fresh install."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create select entity with capabilities but NO history
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_select_fresh",
+        suggested_object_id="test_mode",
+        capabilities={"options": ["mode1", "mode2", "mode3"]},
+    )
+
+    hass.states.async_set("select.test_mode", "mode1")
+    await hass.async_block_till_done()
+
+    # Get valid states (should include capabilities even without history)
+    valid_states = kb.get_valid_states("select.test_mode")
+
+    assert "mode1" in valid_states
+    assert "mode2" in valid_states
+    assert "mode3" in valid_states
+
+
+async def test_attribute_maps_to_capability(hass: HomeAssistant):
+    """Test mapping attribute names to capability keys."""
+    kb = StateKnowledgeBase(hass)
+
+    # Test valid mappings
+    assert kb._attribute_maps_to_capability("fan_mode") == "fan_modes"
+    assert kb._attribute_maps_to_capability("preset_mode") == "preset_modes"
+    assert kb._attribute_maps_to_capability("swing_mode") == "swing_modes"
+    assert (
+        kb._attribute_maps_to_capability("swing_horizontal_mode")
+        == "swing_horizontal_modes"
+    )
+
+    # Test non-mapped attributes
+    assert kb._attribute_maps_to_capability("brightness") is None
+    assert kb._attribute_maps_to_capability("temperature") is None
+    assert kb._attribute_maps_to_capability("unknown_attr") is None
+
+
+async def test_get_capabilities_attribute_values_climate(hass: HomeAssistant):
+    """Test extracting attribute values from climate capabilities."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create climate entity with fan_modes and preset_modes capabilities
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test",
+        unique_id="test_climate_1",
+        suggested_object_id="thermostat",
+        capabilities={
+            "hvac_modes": ["auto", "cool", "heat", "off"],  # States, not attributes
+            "fan_modes": ["low", "medium", "high", "auto"],  # Attribute values
+            "preset_modes": ["eco", "comfort", "sleep"],  # Attribute values
+        },
+    )
+
+    hass.states.async_set("climate.thermostat", "heat")
+    await hass.async_block_till_done()
+
+    # Test fan_mode attribute
+    fan_values = kb._get_capabilities_attribute_values("climate.thermostat", "fan_mode")
+    assert fan_values == {"low", "medium", "high", "auto"}
+
+    # Test preset_mode attribute
+    preset_values = kb._get_capabilities_attribute_values(
+        "climate.thermostat", "preset_mode"
+    )
+    assert preset_values == {"eco", "comfort", "sleep"}
+
+
+async def test_get_valid_attributes_uses_capabilities(hass: HomeAssistant):
+    """Test that get_valid_attributes() includes capability values on fresh install."""
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create climate entity with fan_modes capability but NO current state attributes
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test",
+        unique_id="test_climate_fresh",
+        suggested_object_id="fresh_climate",
+        capabilities={
+            "fan_modes": ["low", "medium", "high"],
+            "preset_modes": ["eco", "comfort"],
+        },
+    )
+
+    # Set state WITHOUT fan_modes/preset_modes attributes
+    hass.states.async_set("climate.fresh_climate", "heat", {})
+    await hass.async_block_till_done()
+
+    # Get valid attributes (should include capabilities even without current attributes)
+    fan_values = kb.get_valid_attributes("climate.fresh_climate", "fan_mode")
+    assert fan_values == {"low", "medium", "high"}
+
+    preset_values = kb.get_valid_attributes("climate.fresh_climate", "preset_mode")
+    assert preset_values == {"eco", "comfort"}
+
+
+async def test_fresh_install_no_false_positives(hass: HomeAssistant):
+    """Test that fresh install has no false positives with capabilities.
+
+    Simulates a fresh Home Assistant install where:
+    - Entity registry has capabilities
+    - No recorder history exists
+    - State attributes might be incomplete
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    kb = StateKnowledgeBase(hass)
+
+    # Create select entity (no history, capabilities only)
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test_integration",
+        unique_id="fresh_select",
+        suggested_object_id="input_mode",
+        capabilities={"options": ["option_a", "option_b", "option_c"]},
+    )
+    hass.states.async_set("select.input_mode", "option_a")
+
+    # Create climate entity (no history, capabilities only)
+    entity_registry.async_get_or_create(
+        domain="climate",
+        platform="test_integration",
+        unique_id="fresh_climate",
+        suggested_object_id="thermostat",
+        capabilities={
+            "hvac_modes": ["heat", "cool", "auto", "off"],
+            "fan_modes": ["low", "medium", "high"],
+            "preset_modes": ["eco", "comfort"],
+        },
+    )
+    hass.states.async_set(
+        "climate.thermostat",
+        "off",
+        attributes={},  # Minimal attributes (like fresh install)
+    )
+
+    await hass.async_block_till_done()
+
+    # Verify select options are valid (no false positives)
+    select_states = kb.get_valid_states("select.input_mode")
+    assert "option_a" in select_states
+    assert "option_b" in select_states
+    assert "option_c" in select_states
+
+    # Verify climate hvac_modes are valid (no false positives)
+    climate_states = kb.get_valid_states("climate.thermostat")
+    assert "heat" in climate_states
+    assert "cool" in climate_states
+    assert "auto" in climate_states
+    assert "off" in climate_states
+
+    # Verify climate attribute values are valid
+    fan_values = kb.get_valid_attributes("climate.thermostat", "fan_mode")
+    assert fan_values == {"low", "medium", "high"}
+
+    preset_values = kb.get_valid_attributes("climate.thermostat", "preset_mode")
+    assert preset_values == {"eco", "comfort"}
+
+    # Verify history is NOT required
+    assert not kb.has_history_loaded()

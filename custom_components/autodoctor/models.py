@@ -21,77 +21,12 @@ class IssueType(str, Enum):
     ENTITY_NOT_FOUND = "entity_not_found"
     ENTITY_REMOVED = "entity_removed"
     INVALID_STATE = "invalid_state"
-    IMPOSSIBLE_CONDITION = "impossible_condition"
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
+    TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
+    TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
 
-
-@dataclass
-class TriggerInfo:
-    """Simplified trigger representation for conflict detection."""
-
-    trigger_type: str  # "state", "time", "sun", "other"
-    entity_id: str | None
-    to_states: set[str] | None
-    time_value: str | None  # "06:00:00" or None
-    sun_event: str | None  # "sunrise", "sunset", or None
-
-
-@dataclass
-class ConditionInfo:
-    """Simplified condition representation for conflict detection."""
-
-    entity_id: str
-    required_states: set[str]
-
-
-@dataclass
-class EntityAction:
-    """An action that affects an entity, extracted from an automation."""
-
-    automation_id: str
-    entity_id: str
-    action: str  # "turn_on", "turn_off", "toggle", "set"
-    value: Any  # For set actions (brightness, temperature, etc.)
-    conditions: list[ConditionInfo]  # Conditions that must be true for this action
-
-
-@dataclass
-class Conflict:
-    """A detected conflict between two automations."""
-
-    entity_id: str
-    automation_a: str
-    automation_b: str
-    automation_a_name: str
-    automation_b_name: str
-    action_a: str
-    action_b: str
-    severity: Severity
-    explanation: str
-    scenario: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to serializable dictionary."""
-        return {
-            "entity_id": self.entity_id,
-            "automation_a": self.automation_a,
-            "automation_b": self.automation_b,
-            "automation_a_name": self.automation_a_name,
-            "automation_b_name": self.automation_b_name,
-            "action_a": self.action_a,
-            "action_b": self.action_b,
-            "severity": self.severity.name.lower(),
-            "explanation": self.explanation,
-            "scenario": self.scenario,
-        }
-
-    def get_suppression_key(self) -> str:
-        """Generate a unique key for suppressing this conflict."""
-        # Sort automation IDs for consistent key regardless of order
-        auto_ids = sorted([self.automation_a, self.automation_b])
-        return f"{auto_ids[0]}:{auto_ids[1]}:{self.entity_id}:conflict"
 
 
 @dataclass

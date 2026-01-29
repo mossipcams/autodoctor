@@ -24,7 +24,6 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── sensor.py                    # Issue count sensor
-│   ├── simulator.py                 # Outcome reachability verification
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── suppression_store.py         # Dismissed issue persistence
 │   ├── validator.py                 # State reference validation
@@ -52,16 +51,15 @@ autodoctor/
 - **`validator.py`** - Validates state references against knowledge base
 - **`jinja_validator.py`** - Validates Jinja2 template syntax
 - **`conflict_detector.py`** - Finds automations with opposing actions on same entity
-- **`simulator.py`** - Verifies automation outcomes are reachable (trigger/condition validity)
 
 ### Knowledge & Suggestions
-- **`knowledge_base.py`** - Builds valid state mappings from device classes, schema introspection, and recorder history
+- **`knowledge_base.py`** - Builds valid state mappings from device classes, entity registry capabilities, schema introspection, and recorder history
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 - **`fix_engine.py`** - Synonym table, fuzzy matching for suggestions
 
 ### Data Models
-- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `EntityAction`, `TriggerInfo`, `ConditionInfo`, `Conflict`, `Verdict`, `OutcomeReport`
+- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `EntityAction`, `TriggerInfo`, `ConditionInfo`, `Conflict`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
@@ -94,7 +92,6 @@ autodoctor/
 
 - `autodoctor.validate` - Run validation (specific automation or all)
 - `autodoctor.validate_automation` - Run validation on a specific automation
-- `autodoctor.simulate` - Run outcome verification on automations
 - `autodoctor.refresh_knowledge_base` - Rebuild state knowledge base
 
 ## Validation Rules
@@ -106,6 +103,8 @@ autodoctor/
 | Case mismatch | WARNING |
 | Attribute doesn't exist | ERROR |
 | Template syntax error | ERROR |
+| Unknown template filter | WARNING |
+| Unknown template test | WARNING |
 
 ## Test Files
 
@@ -119,6 +118,7 @@ autodoctor/
 - `test_reporter.py` - Issue reporting
 - `test_websocket_api.py` - WebSocket endpoints
 - `test_websocket_api_learning.py` - Learning on suppression
+- `test_jinja_validator.py` - Jinja2 template validation
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle
 

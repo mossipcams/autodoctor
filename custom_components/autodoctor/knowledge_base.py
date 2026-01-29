@@ -1,4 +1,16 @@
-"""StateKnowledgeBase - builds and maintains valid states for entities."""
+"""StateKnowledgeBase - builds and maintains valid states for entities.
+
+Data sources (in priority order):
+1. Device class defaults (hardcoded domain mappings)
+2. Learned states (user-taught via suppression)
+3. Entity registry capabilities (integration-declared valid values)
+4. Schema introspection (entity state attributes)
+5. Recorder history (observed states)
+6. Current state (always valid)
+
+Capabilities provide reliable state/attribute values on fresh installs
+where recorder history is not yet available.
+"""
 
 from __future__ import annotations
 
@@ -49,14 +61,29 @@ ATTRIBUTE_VALUE_SOURCES: dict[str, str] = {
     "swing_mode": "swing_modes",
 }
 
+# Capability introspection - map capability keys to state vs attribute values
+CAPABILITY_STATE_SOURCES: dict[str, bool] = {
+    "options": True,              # select/input_select - STATES
+    "hvac_modes": True,           # climate - STATES
+}
+
+CAPABILITY_ATTRIBUTE_SOURCES: dict[str, bool] = {
+    "fan_modes": True,            # climate fan_mode attribute
+    "preset_modes": True,         # climate/fan preset_mode attribute
+    "swing_modes": True,          # climate swing_mode attribute
+    "swing_horizontal_modes": True, # climate swing_horizontal_mode attribute
+}
+
 
 class StateKnowledgeBase:
     """Builds and maintains the valid states map for all entities.
 
     Data sources (in priority order):
     1. Device class defaults (hardcoded mappings)
-    2. Schema introspection (entity capabilities)
-    3. Recorder history (observed states)
+    2. Learned states (user-taught)
+    3. Entity registry capabilities (integration-declared values)
+    4. Schema introspection (entity attributes)
+    5. Recorder history (observed states)
     """
 
     def __init__(
@@ -134,6 +161,108 @@ class StateKnowledgeBase:
 
         return self._learned_states_store.get_learned_states(domain, integration)
 
+    def _get_capabilities_states(self, entity_id: str) -> set[str]:
+        """Extract valid states from entity registry capabilities.
+
+        Checks registry entry capabilities for attributes that contain
+        valid state lists (e.g., options, hvac_modes).
+
+        Returns:
+            Set of valid states from capabilities, or empty set
+        """
+        try:
+            entity_registry = er.async_get(self.hass)
+            entry = entity_registry.async_get(entity_id)
+
+            if not entry or not entry.capabilities:
+                return set()
+
+            states = set()
+
+            # Extract state-related capabilities only
+            for cap_key in CAPABILITY_STATE_SOURCES:
+                if cap_key in entry.capabilities:
+                    cap_value = entry.capabilities[cap_key]
+                    if isinstance(cap_value, list):
+                        states.update(str(v) for v in cap_value)
+
+            return states
+
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to get capabilities for %s: %s",
+                entity_id,
+                err
+            )
+            return set()
+
+    def _attribute_maps_to_capability(self, attribute_name: str) -> str | None:
+        """Map an attribute name to its capability key.
+
+        Some attributes get their valid values from capabilities
+        (e.g., fan_mode → fan_modes, preset_mode → preset_modes).
+
+        Args:
+            attribute_name: The attribute to check
+
+        Returns:
+            The capability key if mapped, None otherwise
+        """
+        # Direct mapping: attribute_name → capability_key
+        ATTRIBUTE_TO_CAPABILITY = {
+            "fan_mode": "fan_modes",
+            "preset_mode": "preset_modes",
+            "swing_mode": "swing_modes",
+            "swing_horizontal_mode": "swing_horizontal_modes",
+        }
+
+        return ATTRIBUTE_TO_CAPABILITY.get(attribute_name)
+
+    def _get_capabilities_attribute_values(
+        self, entity_id: str, attribute_name: str
+    ) -> set[str]:
+        """Extract valid values for an attribute from capabilities.
+
+        Uses _attribute_maps_to_capability() to find the capability key,
+        then extracts the values from that capability.
+
+        Args:
+            entity_id: The entity ID
+            attribute_name: The attribute name
+
+        Returns:
+            Set of valid values from capabilities, or empty set
+        """
+        try:
+            # Map attribute to capability key
+            capability_key = self._attribute_maps_to_capability(attribute_name)
+            if not capability_key:
+                return set()
+
+            # Get entity registry entry
+            entity_registry = er.async_get(self.hass)
+            entry = entity_registry.async_get(entity_id)
+
+            if not entry or not entry.capabilities:
+                return set()
+
+            # Extract values from capability
+            if capability_key in entry.capabilities:
+                cap_value = entry.capabilities[capability_key]
+                if isinstance(cap_value, list):
+                    return {str(v) for v in cap_value}
+
+            return set()
+
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to get capability values for %s.%s: %s",
+                entity_id,
+                attribute_name,
+                err,
+            )
+            return set()
+
     def get_valid_states(self, entity_id: str) -> set[str] | None:
         """Get valid states for an entity.
 
@@ -181,6 +310,16 @@ class StateKnowledgeBase:
         if learned:
             valid_states.update(learned)
             _LOGGER.debug("Entity %s: added learned states = %s", entity_id, learned)
+
+        # Add capabilities states
+        capabilities_states = self._get_capabilities_states(entity_id)
+        if capabilities_states:
+            valid_states.update(capabilities_states)
+            _LOGGER.debug(
+                "Entity %s: capabilities states = %s",
+                entity_id,
+                capabilities_states
+            )
 
         # For zone-aware entities, add all zone names as valid states
         # Device trackers and person entities can report zone names as their state
@@ -291,6 +430,10 @@ class StateKnowledgeBase:
     def get_valid_attributes(self, entity_id: str, attribute: str) -> set[str] | None:
         """Get valid values for an entity attribute.
 
+        Data sources (in priority order):
+        1. Entity registry capabilities (integration-declared values)
+        2. Current state attributes (fallback)
+
         Args:
             entity_id: The entity ID
             attribute: The attribute name to get valid values for
@@ -302,6 +445,12 @@ class StateKnowledgeBase:
         if state is None:
             return None
 
+        # Try capability values first (works on fresh install)
+        capability_values = self._get_capabilities_attribute_values(entity_id, attribute)
+        if capability_values:
+            return capability_values
+
+        # Fall back to current state attributes
         source_attr = ATTRIBUTE_VALUE_SOURCES.get(attribute)
         if source_attr:
             values = state.attributes.get(source_attr)
