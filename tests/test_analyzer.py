@@ -971,3 +971,47 @@ def test_extract_integration_entities():
     assert len(refs) == 1
     assert refs[0].entity_id == "hue"
     assert refs[0].reference_type == "integration"
+
+
+def test_normalize_entity_ids_single_string():
+    """Test normalizing single entity_id string to list."""
+    analyzer = AutomationAnalyzer()
+    result = analyzer._normalize_entity_ids("light.kitchen")
+    assert result == ["light.kitchen"]
+
+
+def test_normalize_entity_ids_list():
+    """Test normalizing entity_id list."""
+    analyzer = AutomationAnalyzer()
+    result = analyzer._normalize_entity_ids(["light.kitchen", "light.bedroom"])
+    assert result == ["light.kitchen", "light.bedroom"]
+
+
+def test_normalize_entity_ids_none():
+    """Test normalizing None entity_id."""
+    analyzer = AutomationAnalyzer()
+    result = analyzer._normalize_entity_ids(None)
+    assert result == []
+
+
+def test_extract_direct_service_call():
+    """Test extracting a direct service call."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.living_room"},
+                "data": {"brightness": 255},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+    assert calls[0].location == "action[0]"
+    assert calls[0].is_template is False

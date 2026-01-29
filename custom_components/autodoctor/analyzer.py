@@ -85,6 +85,14 @@ class AutomationAnalyzer:
 
         return [str(value)]
 
+    def _normalize_entity_ids(self, value: Any) -> list[str]:
+        """Normalize entity_id value(s) to a list of strings."""
+        if value is None:
+            return []
+        if hasattr(value, "__iter__") and not isinstance(value, str):
+            return [str(v) for v in value]
+        return [str(value)]
+
     def extract_state_references(
         self, automation: dict[str, Any]
     ) -> list[StateReference]:
