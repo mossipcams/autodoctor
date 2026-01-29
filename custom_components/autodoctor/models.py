@@ -24,6 +24,8 @@ class IssueType(str, Enum):
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
+    TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
+    TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
 
 
 @dataclass
