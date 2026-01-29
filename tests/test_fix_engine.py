@@ -1,8 +1,57 @@
 """Tests for simplified fix engine."""
 
 from custom_components.autodoctor.fix_engine import (
+    STATE_SYNONYMS,
     get_entity_suggestion,
+    get_state_suggestion,
 )
+
+
+class TestStateSynonyms:
+    """Test the STATE_SYNONYMS mapping."""
+
+    def test_away_maps_to_not_home(self):
+        assert STATE_SYNONYMS["away"] == "not_home"
+
+    def test_true_maps_to_on(self):
+        assert STATE_SYNONYMS["true"] == "on"
+
+    def test_false_maps_to_off(self):
+        assert STATE_SYNONYMS["false"] == "off"
+
+
+class TestGetStateSuggestion:
+    """Test get_state_suggestion function."""
+
+    def test_synonym_match(self):
+        """Test that synonyms are matched correctly."""
+        valid_states = {"on", "off", "unavailable"}
+        assert get_state_suggestion("true", valid_states) == "on"
+        assert get_state_suggestion("false", valid_states) == "off"
+
+    def test_synonym_with_case(self):
+        """Test synonym matching with different cases in valid_states."""
+        valid_states = {"On", "Off"}
+        result = get_state_suggestion("true", valid_states)
+        assert result.lower() == "on"
+
+    def test_fuzzy_match(self):
+        """Test fuzzy matching for typos."""
+        valid_states = {"playing", "paused", "idle"}
+        # "playng" is close to "playing"
+        assert get_state_suggestion("playng", valid_states) == "playing"
+
+    def test_no_match(self):
+        """Test when no match is found."""
+        valid_states = {"on", "off"}
+        assert (
+            get_state_suggestion("something_completely_different", valid_states) is None
+        )
+
+    def test_person_state_away(self):
+        """Test that 'away' suggests 'not_home' for person entities."""
+        valid_states = {"home", "not_home", "unknown"}
+        assert get_state_suggestion("away", valid_states) == "not_home"
 
 
 class TestGetEntitySuggestion:
