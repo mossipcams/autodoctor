@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.4.0](https://github.com/mossipcams/autodoctor/compare/v2.3.0...v2.4.0) (2026-01-29)
+
+
+### Features
+
+* add capability source constants for state vs attribute separation ([c972699](https://github.com/mossipcams/autodoctor/commit/c97269931a7cc77394413fc87f51c09762efd9a8))
+* implement _get_capabilities_states() for select/climate entities ([cea9312](https://github.com/mossipcams/autodoctor/commit/cea93126ce001527f5fc57b0cd89fb14a5b09177))
+* **jinja:** add AST-based semantic validation for unknown filters and tests ([c30308f](https://github.com/mossipcams/autodoctor/commit/c30308f5739296943cd3c5b30984cb5901dfb8e1))
+* **models:** add TEMPLATE_UNKNOWN_FILTER and TEMPLATE_UNKNOWN_TEST issue types ([b221173](https://github.com/mossipcams/autodoctor/commit/b22117322c837ad7f4815f6a12730397a5491a16))
+
+
+### Bug Fixes
+
+* clean up issue types - implement ATTRIBUTE_NOT_FOUND and remove unused IMPOSSIBLE_CONDITION ([afdc3ea](https://github.com/mossipcams/autodoctor/commit/afdc3eaa55693f288c6f48979811bc55b0a8963c))
+* **jinja:** add loopcontrols extension to prevent false positives on break/continue ([dd3b80b](https://github.com/mossipcams/autodoctor/commit/dd3b80b04f0abd9068a4f32e1238a62731d0b6c6))
+
+
+### Code Refactoring
+
+* delete conflict detection module and tests ([1cda7f8](https://github.com/mossipcams/autodoctor/commit/1cda7f8838a938187371bde2aa7a4b469a3fe754))
+* remove conflict detection data models ([603dc88](https://github.com/mossipcams/autodoctor/commit/603dc881910309dcaa457225574f71f51f8cf764))
+* remove conflict detection methods from analyzer ([b3abf1f](https://github.com/mossipcams/autodoctor/commit/b3abf1f4df6328bbe6d48ec40057f00fbda43dec))
+* remove conflict detection WebSocket handlers ([ec74cee](https://github.com/mossipcams/autodoctor/commit/ec74ceec2b7d68c0f71d9505bb84e318b0013ede))
+* remove state suggestion feature ([16ce749](https://github.com/mossipcams/autodoctor/commit/16ce7493277a82f3b1f1ea631b091ff2464b3578))
+* remove unused simulator module and service ([331b37d](https://github.com/mossipcams/autodoctor/commit/331b37d3c043f9683b45096f6d3ad8f611f93070))
+
+
+### Documentation
+
+* design for removing state suggestions and conflict detection ([02adf61](https://github.com/mossipcams/autodoctor/commit/02adf61a3f33cfba8bfea8ca3290781303cbd2be))
+* implementation plan for removing state suggestions and conflicts ([e829f22](https://github.com/mossipcams/autodoctor/commit/e829f222d821bec153187c52241ccbb8f1e11f37))
+* update index.md to remove conflict detection references ([cf12dac](https://github.com/mossipcams/autodoctor/commit/cf12dac2288186818fcda21c5cb2e0ec213aca54))
+* update index.md with new validation rules and test file ([79f9f26](https://github.com/mossipcams/autodoctor/commit/79f9f26aae11fba3cf45fe0c12d4793c0bec0d8d))
+* update README to remove state suggestions and conflict detection ([38597d9](https://github.com/mossipcams/autodoctor/commit/38597d9ecd3d5c530303aa901c7ade24ac2dcaf8))
+
 ## [2.3.0](https://github.com/mossipcams/autodoctor/compare/v2.2.0...v2.3.0) (2026-01-29)
 
 
