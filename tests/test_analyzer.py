@@ -1049,3 +1049,94 @@ def test_extract_service_call_target_entity_id():
     assert len(service_refs) == 1
     assert service_refs[0].location == "action[0].service.entity_id"
     assert service_refs[0].reference_type == "service_call"
+
+
+def test_extract_scene_turn_on():
+    """Test extraction from scene.turn_on service."""
+    automation = {
+        "id": "activate_scene",
+        "alias": "Activate Scene",
+        "trigger": [{"platform": "time", "at": "20:00:00"}],
+        "action": [
+            {
+                "service": "scene.turn_on",
+                "target": {
+                    "entity_id": "scene.movie_time"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    scene_refs = [r for r in refs if r.entity_id == "scene.movie_time"]
+    assert len(scene_refs) == 1
+    assert scene_refs[0].reference_type == "scene"
+
+
+def test_extract_script_turn_on():
+    """Test extraction from script.turn_on service."""
+    automation = {
+        "id": "run_script",
+        "alias": "Run Script",
+        "trigger": [{"platform": "time", "at": "22:00:00"}],
+        "action": [
+            {
+                "service": "script.turn_on",
+                "target": {
+                    "entity_id": "script.bedtime_routine"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine"]
+    assert len(script_refs) == 1
+    assert script_refs[0].reference_type == "script"
+
+
+def test_extract_script_shorthand():
+    """Test extraction from shorthand script call."""
+    automation = {
+        "id": "run_script_shorthand",
+        "alias": "Run Script Shorthand",
+        "trigger": [{"platform": "time", "at": "22:00:00"}],
+        "action": [
+            {
+                "service": "script.bedtime_routine"
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine"]
+    assert len(script_refs) == 1
+    assert script_refs[0].reference_type == "script"
+    assert script_refs[0].location == "action[0].service"
+
+
+def test_script_meta_service_not_extracted():
+    """Test that script meta-services are not extracted as entities."""
+    automation = {
+        "id": "reload_scripts",
+        "alias": "Reload Scripts",
+        "trigger": [{"platform": "time", "at": "00:00:00"}],
+        "action": [
+            {"service": "script.reload"},
+            {"service": "script.turn_off", "data": {"entity_id": "script.test"}},
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should only extract script.test from turn_off data, not reload
+    script_refs = [r for r in refs if "script." in r.entity_id]
+    assert len(script_refs) == 1
+    assert script_refs[0].entity_id == "script.test"
