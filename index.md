@@ -53,7 +53,7 @@ autodoctor/
 - **`conflict_detector.py`** - Finds automations with opposing actions on same entity
 
 ### Knowledge & Suggestions
-- **`knowledge_base.py`** - Builds valid state mappings from device classes, schema introspection, and recorder history
+- **`knowledge_base.py`** - Builds valid state mappings from device classes, entity registry capabilities, schema introspection, and recorder history
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 - **`fix_engine.py`** - Synonym table, fuzzy matching for suggestions
