@@ -15,7 +15,6 @@ Hours later you discover:
 - You typed `Armed_Away` but it's actually `armed_away`
 - You have a typo: `binary_sensor.motoin_sensor`
 - A template has a syntax error: `{{ is_state('sensor.temp' }}`
-- Two automations fight each other—one turns on a light, another turns it off
 
 **Autodoctor catches these issues before they waste your time.**
 
@@ -23,8 +22,7 @@ Hours later you discover:
 
 - **Static Validation** - Checks automation configs against known valid states
 - **Jinja Template Validation** - Catches syntax errors in templates before they fail
-- **Conflict Detection** - Finds automations with opposing actions on the same entity
-- **Smart Suggestions** - Suggests fixes using synonyms and fuzzy matching
+- **Entity Suggestions** - Suggests fixes for entity ID typos using fuzzy matching
 - **State Learning** - Learns valid states when you dismiss false positives
 - **Issue Suppression** - Dismiss false positives so they don't reappear
 
@@ -47,10 +45,7 @@ Hours later you discover:
 
 ## Dashboard Card
 
-Autodoctor includes a custom Lovelace card with two tabs:
-
-- **Validation** - State validation issues (wrong states, typos, missing entities)
-- **Conflicts** - Automations with opposing actions on the same entity
+Autodoctor includes a custom Lovelace card that displays validation issues.
 
 Add the card to your dashboard:
 
@@ -61,7 +56,7 @@ type: custom:autodoctor-card
 The card displays issues with:
 - Severity indicators (error/warning)
 - Direct links to edit the automation
-- Smart fix suggestions
+- Entity ID fix suggestions for typos
 - Dismiss buttons (dismissing also teaches Autodoctor valid states)
 
 ## Services
@@ -123,22 +118,9 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 | Attribute doesn't exist | Error | `state_attr('climate.hvac', 'temprature')` |
 | Template syntax error | Error | `{{ is_state('sensor.temp' }}` (missing paren) |
 
-### Conflict Detection
+### Entity Suggestions
 
-Autodoctor detects when multiple automations take opposing actions on the same entity. The conflict detector is trigger-overlap aware:
-
-- **No conflict if triggers can't fire together** - e.g., one triggers at 6am, another at 10pm
-- **No conflict if conditions are mutually exclusive** - e.g., one requires `home`, another requires `not_home`
-- **Conflicts only reported for turn_on vs turn_off** - toggle actions excluded (too noisy)
-
-### Smart Suggestions
-
-When a state is invalid, Autodoctor suggests corrections using:
-
-1. **Synonym table** - Maps common mistakes like `away` → `not_home`, `true` → `on`
-2. **Fuzzy matching** - Suggests close matches for typos
-
-When an entity is missing, suggestions are based on same-domain fuzzy matching.
+When an entity ID is invalid or missing, Autodoctor suggests corrections using fuzzy matching within the same domain. For example, if you type `light.livingroom`, it will suggest `light.living_room`.
 
 ### State Learning
 
