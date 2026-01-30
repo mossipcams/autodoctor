@@ -74,7 +74,10 @@ def test_break_continue_do_not_produce_false_positives():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) == 0
+    # Only issue should be 'items' being undefined, not 'item' which is the loop variable
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
+    assert "'items'" in issues[0].message
 
 
 def test_valid_template_produces_no_issues():
@@ -249,7 +252,9 @@ def test_standard_jinja2_filters_are_accepted():
             "actions": [],
         }
         issues = validator.validate_automations([automation])
-        assert len(issues) == 0, f"Unexpected issue for template: {tmpl}: {issues}"
+        # Should not produce filter warnings (undefined variables are OK for this test)
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), \
+            f"Unexpected filter issue for template: {tmpl}: {issues}"
 
 
 def test_multiple_unknown_filters_all_reported():
@@ -450,11 +455,37 @@ def test_for_loop_variable_in_scope():
         ],
     }
     issues = validator.validate_automations([automation])
-    # Should not warn about 'item' being undefined
-    assert all(
-        i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE or "item" not in i.message
-        for i in issues
-    )
+    # Should warn about 'items' being undefined, but not 'item'
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
+    assert "'items'" in issues[0].message
+    assert "'item'" not in issues[0].message or issues[0].message == "Undefined variable 'items'"
+
+
+def test_special_context_variables_allowed():
+    """Test that special context variables are allowed."""
+    validator = JinjaValidator()
+    templates = [
+        "{{ trigger.platform }}",
+        "{{ this.state }}",
+        "{{ repeat.index }}",
+    ]
+    for tmpl in templates:
+        automation = {
+            "id": "context_test",
+            "alias": "Context Test",
+            "triggers": [
+                {
+                    "platform": "template",
+                    "value_template": tmpl,
+                }
+            ],
+            "conditions": [],
+            "actions": [],
+        }
+        issues = validator.validate_automations([automation])
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE for i in issues), \
+            f"Unexpected variable warning for: {tmpl}"
 
 
 def test_validate_entity_not_found(hass):

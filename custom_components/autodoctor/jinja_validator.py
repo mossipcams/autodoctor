@@ -969,5 +969,13 @@ class JinjaValidator:
                 )
             ]
 
-        # Syntax OK — run semantic checks
-        return self._check_ast_semantics(ast, location, auto_id, auto_name)
+        issues = []
+
+        # 2. Semantic check for filters/tests (existing)
+        issues.extend(self._check_ast_semantics(ast, location, auto_id, auto_name))
+
+        # 3. NEW: Semantic check for entity references
+        refs = self._extract_entity_references(template, location, auto_id, auto_name)
+        issues.extend(self._validate_entity_references(refs))
+
+        return issues
