@@ -15,6 +15,7 @@ from .template_semantics import (
     ENTITY_ID_FUNCTIONS,
     ENTITY_ID_PATTERN,
     FILTER_SIGNATURES,
+    KNOWN_CALLABLE_GLOBALS,
     KNOWN_GLOBALS,
     TEST_SIGNATURES,
 )
@@ -317,18 +318,24 @@ class JinjaValidator:
         if not isinstance(actions, list):
             actions = [actions]
 
+        # Accumulate variables across the action sequence.
+        # In HA, a variables: action makes those names available to all
+        # subsequent actions in the same sequence.
+        accumulated_vars = set(auto_vars) if auto_vars else set()
+
         for idx, action in enumerate(actions):
             if not isinstance(action, dict):
                 continue
 
             location = f"{location_prefix}[{idx}]"
 
-            # Collect variables defined at this action level
-            # (actions can have their own variables: section)
-            action_level_vars = auto_vars
+            # Collect variables defined at this action level and add to
+            # accumulated scope so later actions in the sequence can see them
             action_variables = action.get("variables")
             if isinstance(action_variables, dict):
-                action_level_vars = (auto_vars or set()) | set(action_variables.keys())
+                accumulated_vars = accumulated_vars | set(action_variables.keys())
+
+            action_level_vars = accumulated_vars
 
             # Check service/action data for templates
             data = action.get("data", {})
@@ -850,7 +857,7 @@ class JinjaValidator:
 
         # Collect template-defined variables
         template_vars = self._collect_template_variables(ast)
-        known_vars = KNOWN_GLOBALS | template_vars
+        known_vars = KNOWN_GLOBALS | KNOWN_CALLABLE_GLOBALS | template_vars
         if auto_vars:
             known_vars = known_vars | auto_vars
 

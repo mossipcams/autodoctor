@@ -184,6 +184,36 @@ KNOWN_GLOBALS: frozenset[str] = frozenset({
     "integration_entities",
 })
 
+# Functions that Home Assistant registers as callable globals in the template
+# environment (beyond the query/state functions already in KNOWN_GLOBALS).
+# These can be used with function-call syntax: float(value), sin(x), etc.
+# Source: homeassistant/helpers/template.py - _ENVIRONMENT globals
+KNOWN_CALLABLE_GLOBALS: frozenset[str] = frozenset({
+    # Type conversion (HA overrides with default-parameter support)
+    "float", "int", "bool", "str",
+    # Math functions
+    "log", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sqrt",
+    "round", "abs", "max", "min",
+    # Math constants
+    "pi", "e", "tau", "inf",
+    # Statistical
+    "average", "median", "statistical_mode",
+    # Conditional
+    "iif",
+    # Pack / unpack
+    "pack", "unpack",
+    # Datetime helpers
+    "today_at", "relative_time", "time_since", "time_until",
+    "timedelta", "strptime", "as_datetime", "as_local", "as_timedelta",
+    # String
+    "slugify", "ordinal", "urlencode",
+    # Python builtins exposed by HA
+    "range", "zip", "len", "list", "set", "tuple", "dict", "type",
+    "map", "filter", "sorted", "reversed", "enumerate",
+    # Jinja2 built-in globals
+    "namespace", "cycler", "joiner",
+})
+
 # Pattern for valid entity IDs: domain.object_id
 ENTITY_ID_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z0-9_]+$")
 

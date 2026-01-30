@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2](https://github.com/mossipcams/autodoctor/compare/v2.6.1...v2.6.2) (2026-01-30)
+
+
+### Bug Fixes
+
+* resolve false positive undefined variable warnings for callable globals and sequence variables ([40c2f59](https://github.com/mossipcams/autodoctor/commit/40c2f593b86c0ffd3467ef4c883eebf3773cd74d))
+
 ## [2.6.1](https://github.com/mossipcams/autodoctor/compare/v2.6.0...v2.6.1) (2026-01-30)
 
 
