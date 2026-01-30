@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/mossipcams/autodoctor/compare/v2.6.0...v2.6.1) (2026-01-30)
+
+
+### Bug Fixes
+
+* resolve false positive undefined variable warnings for blueprint automations ([9baa3d9](https://github.com/mossipcams/autodoctor/commit/9baa3d985ea0ac7bf5773fd6d81c8085e7ebf7ed))
+
 ## [2.6.0](https://github.com/mossipcams/autodoctor/compare/v2.5.0...v2.6.0) (2026-01-30)
 
 
