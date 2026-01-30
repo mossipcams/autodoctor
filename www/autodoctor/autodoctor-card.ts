@@ -16,7 +16,8 @@ import { renderBadges } from "./badges.js";
 import "./autodoc-issue-group.js";
 import "./autodoc-pipeline.js";
 
-const CARD_VERSION = "2.1.0";
+declare const __CARD_VERSION__: string;
+const CARD_VERSION = __CARD_VERSION__;
 
 console.info(
   `%c AUTODOCTOR-CARD %c ${CARD_VERSION} `,
