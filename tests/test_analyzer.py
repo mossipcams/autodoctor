@@ -1575,3 +1575,440 @@ def test_extract_service_calls_from_choose():
     assert calls[0].location == "action[0].choose[0].sequence[0]"
     assert calls[1].service == "light.turn_off"
     assert calls[1].location == "action[0].choose[1].sequence[0]"
+
+
+def test_extract_service_call_data_entity_id():
+    """Test extraction from service call with data.entity_id."""
+    automation = {
+        "id": "turn_on_light",
+        "alias": "Turn On Light",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "data": {
+                    "entity_id": "light.kitchen"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract light.kitchen from service call
+    service_refs = [r for r in refs if r.entity_id == "light.kitchen"]
+    assert len(service_refs) == 1
+    assert service_refs[0].location == "action[0].service.entity_id"
+    assert service_refs[0].reference_type == "service_call"
+
+
+def test_extract_service_call_multiple_entities():
+    """Test extraction from service call with multiple entity_ids."""
+    automation = {
+        "id": "turn_on_lights",
+        "alias": "Turn On Lights",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "data": {
+                    "entity_id": ["light.kitchen", "light.bedroom"]
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract both lights
+    service_refs = [r for r in refs if "light." in r.entity_id]
+    assert len(service_refs) == 2
+    entity_ids = {r.entity_id for r in service_refs}
+    assert "light.kitchen" in entity_ids
+    assert "light.bedroom" in entity_ids
+
+
+def test_extract_service_call_target_entity_id():
+    """Test extraction from service call with target.entity_id."""
+    automation = {
+        "id": "turn_on_light",
+        "alias": "Turn On Light",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {
+                    "entity_id": "light.living_room"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    service_refs = [r for r in refs if r.entity_id == "light.living_room"]
+    assert len(service_refs) == 1
+    assert service_refs[0].location == "action[0].service.entity_id"
+    assert service_refs[0].reference_type == "service_call"
+
+
+def test_extract_scene_turn_on():
+    """Test extraction from scene.turn_on service."""
+    automation = {
+        "id": "activate_scene",
+        "alias": "Activate Scene",
+        "trigger": [{"platform": "time", "at": "20:00:00"}],
+        "action": [
+            {
+                "service": "scene.turn_on",
+                "target": {
+                    "entity_id": "scene.movie_time"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    scene_refs = [r for r in refs if r.entity_id == "scene.movie_time"]
+    assert len(scene_refs) == 1
+    assert scene_refs[0].reference_type == "scene"
+
+
+def test_extract_script_turn_on():
+    """Test extraction from script.turn_on service."""
+    automation = {
+        "id": "run_script",
+        "alias": "Run Script",
+        "trigger": [{"platform": "time", "at": "22:00:00"}],
+        "action": [
+            {
+                "service": "script.turn_on",
+                "target": {
+                    "entity_id": "script.bedtime_routine"
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine"]
+    assert len(script_refs) == 1
+    assert script_refs[0].reference_type == "script"
+
+
+def test_extract_script_shorthand():
+    """Test extraction from shorthand script call."""
+    automation = {
+        "id": "run_script_shorthand",
+        "alias": "Run Script Shorthand",
+        "trigger": [{"platform": "time", "at": "22:00:00"}],
+        "action": [
+            {
+                "service": "script.bedtime_routine"
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine"]
+    assert len(script_refs) == 1
+    assert script_refs[0].reference_type == "script"
+    assert script_refs[0].location == "action[0].service"
+
+
+def test_script_meta_service_not_extracted():
+    """Test that script meta-services are not extracted as entities."""
+    automation = {
+        "id": "reload_scripts",
+        "alias": "Reload Scripts",
+        "trigger": [{"platform": "time", "at": "00:00:00"}],
+        "action": [
+            {"service": "script.reload"},
+            {"service": "script.turn_off", "data": {"entity_id": "script.test"}},
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should only extract script.test from turn_off data, not reload
+    script_refs = [r for r in refs if "script." in r.entity_id]
+    assert len(script_refs) == 1
+    assert script_refs[0].entity_id == "script.test"
+
+
+def test_extract_for_each_static_list():
+    """Test extraction from repeat.for_each with static entity list."""
+    automation = {
+        "id": "iterate_lights",
+        "alias": "Iterate Lights",
+        "trigger": [{"platform": "time", "at": "20:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "for_each": ["light.kitchen", "light.bedroom", "light.living_room"],
+                    "sequence": [
+                        {
+                            "service": "light.turn_on",
+                            "target": {"entity_id": "{{ repeat.item }}"}
+                        }
+                    ]
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    for_each_refs = [r for r in refs if r.reference_type == "for_each"]
+    assert len(for_each_refs) == 3
+    entity_ids = {r.entity_id for r in for_each_refs}
+    assert "light.kitchen" in entity_ids
+    assert "light.bedroom" in entity_ids
+    assert "light.living_room" in entity_ids
+    assert all(r.location == "action[0].repeat.for_each" for r in for_each_refs)
+
+
+def test_extract_for_each_template():
+    """Test extraction from repeat.for_each with template."""
+    automation = {
+        "id": "iterate_group",
+        "alias": "Iterate Group",
+        "trigger": [{"platform": "time", "at": "20:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "for_each": "{{ expand('group.all_lights') | map(attribute='entity_id') | list }}",
+                    "sequence": [
+                        {
+                            "service": "light.turn_on",
+                            "target": {"entity_id": "{{ repeat.item }}"}
+                        }
+                    ]
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract group.all_lights via expand() pattern
+    group_refs = [r for r in refs if r.entity_id == "group.all_lights"]
+    assert len(group_refs) == 1
+    assert group_refs[0].reference_type == "group"
+
+
+def test_extract_for_each_area_entities():
+    """Test extraction from repeat.for_each with area_entities."""
+    automation = {
+        "id": "iterate_area",
+        "alias": "Iterate Area",
+        "trigger": [{"platform": "time", "at": "20:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "for_each": "{{ area_entities('bedroom') }}",
+                    "sequence": [
+                        {
+                            "service": "homeassistant.turn_off",
+                            "target": {"entity_id": "{{ repeat.item }}"}
+                        }
+                    ]
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract bedroom via area_entities() pattern
+    area_refs = [r for r in refs if r.entity_id == "bedroom"]
+    assert len(area_refs) == 1
+    assert area_refs[0].reference_type == "area"
+
+
+def test_extract_device_id_function():
+    """Test extraction from device_id() function."""
+    automation = {
+        "id": "check_device",
+        "alias": "Check Device",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "template",
+                "value_template": "{{ device_id('light.kitchen') == device_id('light.bedroom') }}"
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_id_refs = [r for r in refs if r.reference_type == "metadata"]
+    assert len(device_id_refs) == 2
+    entity_ids = {r.entity_id for r in device_id_refs}
+    assert "light.kitchen" in entity_ids
+    assert "light.bedroom" in entity_ids
+
+
+def test_extract_area_name_and_id_functions():
+    """Test extraction from area_name() and area_id() functions."""
+    automation = {
+        "id": "check_area",
+        "alias": "Check Area",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "template",
+                "value_template": "{{ area_name('sensor.temperature') == 'Kitchen' and area_id('light.bedroom') == 'bedroom' }}"
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    area_refs = [r for r in refs if r.reference_type == "metadata"]
+    assert len(area_refs) == 2
+    entity_ids = {r.entity_id for r in area_refs}
+    assert "sensor.temperature" in entity_ids
+    assert "light.bedroom" in entity_ids
+
+
+def test_extract_has_value_function():
+    """Test extraction from has_value() function."""
+    automation = {
+        "id": "check_value",
+        "alias": "Check Value",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.temperature') }}"
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    has_value_refs = [r for r in refs if r.location.endswith(".has_value")]
+    assert len(has_value_refs) == 1
+    assert has_value_refs[0].entity_id == "sensor.temperature"
+    assert has_value_refs[0].reference_type == "entity"
+
+
+def test_extract_deduplication_helper_functions():
+    """Test that same entity via different patterns is deduplicated."""
+    automation = {
+        "id": "dedupe_test",
+        "alias": "Dedupe Test",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "template",
+                "value_template": "{{ is_state('light.kitchen', 'on') and device_id('light.kitchen') }}"
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should only have 1 reference to light.kitchen (deduplicated)
+    kitchen_refs = [r for r in refs if r.entity_id == "light.kitchen"]
+    assert len(kitchen_refs) == 1
+
+
+def test_extract_full_automation_with_all_patterns():
+    """Test extraction from automation using all new patterns."""
+    automation = {
+        "id": "comprehensive_test",
+        "alias": "Comprehensive Test",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.motion",
+                "to": "on",
+            }
+        ],
+        "condition": [
+            {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.temperature') }}"
+            }
+        ],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {
+                    "entity_id": "light.kitchen"
+                }
+            },
+            {
+                "service": "script.bedtime_routine"
+            },
+            {
+                "service": "scene.turn_on",
+                "data": {
+                    "entity_id": "scene.movie_time"
+                }
+            },
+            {
+                "repeat": {
+                    "for_each": ["light.bedroom", "light.living_room"],
+                    "sequence": [
+                        {
+                            "service": "light.turn_off",
+                            "target": {"entity_id": "{{ repeat.item }}"}
+                        }
+                    ]
+                }
+            },
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Check each expected extraction
+    # 1. State trigger
+    assert any(r.entity_id == "binary_sensor.motion" and "trigger" in r.location for r in refs)
+
+    # 2. has_value in condition
+    assert any(r.entity_id == "sensor.temperature" for r in refs)
+
+    # 3. Service call target
+    service_refs = [r for r in refs if r.entity_id == "light.kitchen" and r.reference_type == "service_call"]
+    assert len(service_refs) == 1
+
+    # 4. Script shorthand
+    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine" and r.reference_type == "script"]
+    assert len(script_refs) == 1
+
+    # 5. Scene
+    scene_refs = [r for r in refs if r.entity_id == "scene.movie_time" and r.reference_type == "scene"]
+    assert len(scene_refs) == 1
+
+    # 6. For-each static list
+    for_each_refs = [r for r in refs if r.reference_type == "for_each"]
+    assert len(for_each_refs) == 2
+    for_each_entities = {r.entity_id for r in for_each_refs}
+    assert "light.bedroom" in for_each_entities
+    assert "light.living_room" in for_each_entities

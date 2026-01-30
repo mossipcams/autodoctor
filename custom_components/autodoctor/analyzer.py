@@ -60,6 +60,21 @@ INTEGRATION_ENTITIES_PATTERN = re.compile(
     rf"integration_entities\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
     re.DOTALL,
 )
+# Pattern for device_id('entity_id')
+DEVICE_ID_PATTERN = re.compile(
+    rf"device_id\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for area_name('entity_id') and area_id('entity_id')
+AREA_NAME_PATTERN = re.compile(
+    rf"area_(?:name|id)\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for has_value('entity_id')
+HAS_VALUE_PATTERN = re.compile(
+    rf"has_value\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
 # Pattern to strip Jinja2 comments before parsing
 JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
@@ -759,6 +774,136 @@ class AutomationAnalyzer:
                     )
                 )
 
+        # Extract device_id() calls
+        for match in DEVICE_ID_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.device_id",
+                        reference_type="metadata",
+                    )
+                )
+
+        # Extract area_name/area_id() calls
+        for match in AREA_NAME_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.area_lookup",
+                        reference_type="metadata",
+                    )
+                )
+
+        # Extract has_value() calls
+        for match in HAS_VALUE_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.has_value",
+                        reference_type="entity",
+                    )
+                )
+
+        return refs
+
+    def _extract_from_service_call(
+        self,
+        action: dict[str, Any],
+        index: int,
+        automation_id: str,
+        automation_name: str,
+    ) -> list[StateReference]:
+        """Extract entity references from service calls.
+
+        Args:
+            action: The action dict containing service call
+            index: Action index in the automation
+            automation_id: Automation entity ID
+            automation_name: Automation friendly name
+
+        Returns:
+            List of StateReference objects for entities in service call
+        """
+        refs: list[StateReference] = []
+
+        # Get service name (both 'service' and 'action' keys)
+        service = action.get("service") or action.get("action")
+        if not service:
+            return refs
+
+        # Shorthand script call: service: script.my_script
+        if service.startswith("script.") and service not in ("script.turn_on", "script.reload", "script.turn_off"):
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=service,  # e.g., "script.bedtime_routine"
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"action[{index}].service",
+                    reference_type="script",
+                )
+            )
+            return refs  # Shorthand doesn't have additional entity_id
+
+        # Check data.entity_id
+        data = action.get("data", {})
+        entity_ids = self._normalize_states(data.get("entity_id"))
+
+        # Check target.entity_id (newer syntax)
+        target = action.get("target", {})
+        entity_ids.extend(self._normalize_states(target.get("entity_id")))
+
+        # Determine reference type based on service
+        reference_type = "service_call"
+        if service == "scene.turn_on":
+            reference_type = "scene"
+        elif service == "script.turn_on":
+            reference_type = "script"
+
+        for entity_id in entity_ids:
+            # If it's a template, extract from template
+            if "{{" in entity_id:
+                refs.extend(
+                    self._extract_from_template(
+                        entity_id,
+                        f"action[{index}].data.entity_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+            else:
+                # Direct entity reference
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"action[{index}].service.entity_id",
+                        reference_type=reference_type,
+                    )
+                )
+
         return refs
 
     def _extract_from_actions(
@@ -774,6 +919,13 @@ class AutomationAnalyzer:
             actions = [actions]
 
         for idx, action in enumerate(actions):
+            # Extract from service calls
+            refs.extend(
+                self._extract_from_service_call(
+                    action, idx, automation_id, automation_name
+                )
+            )
+
             # Extract from choose option conditions and sequences
             if "choose" in action:
                 options = action.get("choose") or []
@@ -847,6 +999,37 @@ class AutomationAnalyzer:
             # Extract from repeat while/until conditions (all types, not just template)
             elif "repeat" in action:
                 repeat_config = action["repeat"]
+
+                # Extract from for_each
+                if "for_each" in repeat_config:
+                    for_each_value = repeat_config["for_each"]
+
+                    # Handle list format (static entities)
+                    if isinstance(for_each_value, list):
+                        for item in for_each_value:
+                            if isinstance(item, str):
+                                refs.append(
+                                    StateReference(
+                                        automation_id=automation_id,
+                                        automation_name=automation_name,
+                                        entity_id=item,
+                                        expected_state=None,
+                                        expected_attribute=None,
+                                        location=f"action[{idx}].repeat.for_each",
+                                        reference_type="for_each",
+                                    )
+                                )
+
+                    # Handle template format
+                    elif isinstance(for_each_value, str):
+                        refs.extend(
+                            self._extract_from_template(
+                                for_each_value,
+                                f"action[{idx}].repeat.for_each",
+                                automation_id,
+                                automation_name,
+                            )
+                        )
 
                 # Check while conditions
                 while_conditions = repeat_config.get("while", [])
