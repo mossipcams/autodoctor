@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/mossipcams/autodoctor/compare/v2.8.0...v2.9.0) (2026-01-30)
+
+
+### Features
+
+* dynamic versioning from manifest.json and CI card rebuild ([4fb8555](https://github.com/mossipcams/autodoctor/commit/4fb8555fc7bd2806ad99ed827df16448557730b9))
+
 ## [2.8.0](https://github.com/mossipcams/autodoctor/compare/v2.7.0...v2.8.0) (2026-01-30)
 
 
