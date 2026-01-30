@@ -1482,6 +1482,28 @@ def test_extract_device_condition():
     assert refs[0].location == "condition[0].device_id"
 
 
+def test_extract_numeric_state_trigger_with_attribute():
+    """Test numeric_state trigger now extracts attribute for validation."""
+    automation = {
+        "id": "test_numeric_trigger_attr",
+        "alias": "Test Numeric Trigger Attribute",
+        "trigger": {
+            "platform": "numeric_state",
+            "entity_id": "climate.living_room",
+            "attribute": "temperature",
+            "above": 20
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "temperature"
+    assert refs[0].location == "trigger[0]"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
