@@ -994,6 +994,74 @@ def test_normalize_entity_ids_none():
     assert result == []
 
 
+def test_extract_zone_trigger():
+    """Test zone trigger extraction."""
+    automation = {
+        "id": "test_zone",
+        "alias": "Test Zone Trigger",
+        "trigger": {
+            "platform": "zone",
+            "entity_id": "device_tracker.paulus",
+            "zone": "zone.home",
+            "event": "enter"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "device_tracker.paulus"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0].entity_id"
+    assert refs[1].entity_id == "zone.home"
+    assert refs[1].reference_type == "zone"
+    assert refs[1].location == "trigger[0].zone"
+
+
+def test_extract_sun_trigger():
+    """Test sun trigger extraction."""
+    automation = {
+        "id": "test_sun",
+        "alias": "Test Sun Trigger",
+        "trigger": {
+            "platform": "sun",
+            "event": "sunset",
+            "offset": "-01:00:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sun.sun"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0]"
+
+
+def test_extract_calendar_trigger():
+    """Test calendar trigger extraction."""
+    automation = {
+        "id": "test_calendar",
+        "alias": "Test Calendar Trigger",
+        "trigger": {
+            "platform": "calendar",
+            "entity_id": "calendar.events",
+            "event": "start",
+            "offset": "-00:05:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "calendar.events"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0].entity_id"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
@@ -1015,3 +1083,53 @@ def test_extract_direct_service_call():
     assert calls[0].service == "light.turn_on"
     assert calls[0].location == "action[0]"
     assert calls[0].is_template is False
+
+
+def test_extract_templated_service_call():
+    """Test extracting a templated service call."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {"service": "{{ service_var }}"}
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].is_template is True
+
+
+def test_extract_service_calls_from_choose():
+    """Test extracting service calls from choose branches."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "choose": [
+                    {
+                        "sequence": [
+                            {"service": "light.turn_on"}
+                        ]
+                    },
+                    {
+                        "sequence": [
+                            {"service": "light.turn_off"}
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 2
+    assert calls[0].service == "light.turn_on"
+    assert calls[0].location == "action[0].choose[0].sequence[0]"
+    assert calls[1].service == "light.turn_off"
+    assert calls[1].location == "action[0].choose[1].sequence[0]"

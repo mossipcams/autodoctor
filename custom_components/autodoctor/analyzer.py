@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from .models import StateReference
+from .models import ServiceCall, StateReference
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -213,6 +213,65 @@ class AutomationAnalyzer:
                     value_template, f"trigger[{index}]", automation_id, automation_name
                 )
             )
+
+        elif platform == "zone":
+            entity_ids = self._normalize_entity_ids(trigger.get("entity_id"))
+            zone_id = trigger.get("zone")
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].entity_id",
+                        reference_type="direct",
+                    )
+                )
+
+            if zone_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=zone_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].zone",
+                        reference_type="zone",
+                    )
+                )
+
+        elif platform == "sun":
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id="sun.sun",
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"trigger[{index}]",
+                    reference_type="direct",
+                )
+            )
+
+        elif platform == "calendar":
+            entity_ids = self._normalize_entity_ids(trigger.get("entity_id"))
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].entity_id",
+                        reference_type="direct",
+                    )
+                )
 
         return refs
 
@@ -587,4 +646,24 @@ class AutomationAnalyzer:
                     )
 
         return refs
+
+    def extract_service_calls(self, automation: dict) -> list[ServiceCall]:
+        """Extract all service calls from automation actions."""
+        service_calls: list[ServiceCall] = []
+        actions = automation.get("action", [])
+
+        for idx, action in enumerate(actions):
+            if "service" in action:
+                is_template = "{{" in action["service"] or "{%" in action["service"]
+                service_calls.append(ServiceCall(
+                    automation_id=automation.get("id", "unknown"),
+                    automation_name=automation.get("alias", "Unknown"),
+                    service=action["service"],
+                    location=f"action[{idx}]",
+                    target=action.get("target"),
+                    data=action.get("data"),
+                    is_template=is_template,
+                ))
+
+        return service_calls
 
