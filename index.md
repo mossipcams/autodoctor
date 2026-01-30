@@ -95,7 +95,8 @@ autodoctor/
 | Option | Default | Description |
 |--------|---------|-------------|
 | History lookback | 30 days | How far back to check recorder history for valid states |
-| Debounce delay | 10s | Delay before running validation after config changes |
+| Validate on reload | ON | Auto-validate when automations are reloaded |
+| Debounce delay | 5s | Delay before running validation after config changes |
 | **Strict template validation** | OFF | Enable warnings for unknown Jinja2 filters/tests (disable if using custom components) |
 | **Strict service validation** | OFF | Enable warnings for unknown service parameters (may flag valid capability-dependent params) |
 

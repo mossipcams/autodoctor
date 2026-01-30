@@ -94,13 +94,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         ),
                     ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
                     vol.Optional(
+                        CONF_STRICT_TEMPLATE_VALIDATION,
+                        default=options.get(
+                            CONF_STRICT_TEMPLATE_VALIDATION,
+                            DEFAULT_STRICT_TEMPLATE_VALIDATION,
+                        ),
+                    ): bool,
+                    vol.Optional(
                         CONF_STRICT_SERVICE_VALIDATION,
-    CONF_STRICT_TEMPLATE_VALIDATION,
                         default=options.get(
                             CONF_STRICT_SERVICE_VALIDATION,
-    CONF_STRICT_TEMPLATE_VALIDATION,
                             DEFAULT_STRICT_SERVICE_VALIDATION,
-    DEFAULT_STRICT_TEMPLATE_VALIDATION,
                         ),
                     ): bool,
                 }
