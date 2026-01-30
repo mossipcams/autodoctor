@@ -1,7 +1,21 @@
 """Constants for Autodoctor."""
 
+import json
+from pathlib import Path
+
 DOMAIN = "autodoctor"
-VERSION = "2.4.0"
+
+
+def _read_version() -> str:
+    """Read version from manifest.json (single source of truth)."""
+    manifest = Path(__file__).parent / "manifest.json"
+    try:
+        return json.loads(manifest.read_text())["version"]
+    except (FileNotFoundError, KeyError, json.JSONDecodeError):
+        return "0.0.0"
+
+
+VERSION = _read_version()
 
 # Defaults
 DEFAULT_HISTORY_DAYS = 30
