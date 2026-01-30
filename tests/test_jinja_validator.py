@@ -386,6 +386,77 @@ def test_undefined_variable_warns():
     assert "unknown_variable" in issues[0].message
 
 
+def test_known_global_variables_pass():
+    """Test that known global variables don't produce warnings."""
+    validator = JinjaValidator()
+    templates = [
+        "{{ states('sensor.temp') }}",
+        "{{ now() }}",
+        "{{ utcnow() }}",
+        "{{ state_attr('sensor.temp', 'unit') }}",
+    ]
+    for tmpl in templates:
+        automation = {
+            "id": "global_test",
+            "alias": "Global Test",
+            "triggers": [
+                {
+                    "platform": "template",
+                    "value_template": tmpl,
+                }
+            ],
+            "conditions": [],
+            "actions": [],
+        }
+        issues = validator.validate_automations([automation])
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE for i in issues), \
+            f"Unexpected variable warning for: {tmpl}"
+
+
+def test_set_variable_in_scope():
+    """Test that {% set %} variables are in scope."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "set_var",
+        "alias": "Set Var",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "data": {
+                    "message": "{% set my_var = 42 %}{{ my_var }}",
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE for i in issues)
+
+
+def test_for_loop_variable_in_scope():
+    """Test that loop variables are in scope."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "loop_var",
+        "alias": "Loop Var",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "data": {
+                    "message": "{% for item in items %}{{ item }}{% endfor %}",
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    # Should not warn about 'item' being undefined
+    assert all(
+        i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE or "item" not in i.message
+        for i in issues
+    )
+
+
 def test_validate_entity_not_found(hass):
     """Test entity existence validation."""
     validator = JinjaValidator(hass)
@@ -479,4 +550,51 @@ def test_validate_entity_exists_no_issues(hass):
 
     issues = validator._validate_entity_references(refs)
 
+    assert len(issues) == 0
+
+
+def test_template_validation_end_to_end(hass):
+    """Test complete template validation with entity and state checks."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "off")
+
+    validator = JinjaValidator(hass)
+
+    automation = {
+        "id": "test_e2e",
+        "alias": "Test End to End",
+        "condition": {
+            "condition": "template",
+            "value_template": "{{ is_state('light.nonexistent', 'on') and is_state('light.kitchen', 'invalid_state') }}"
+        }
+    }
+
+    issues = validator.validate_automations([automation])
+
+    # Should find both entity not found and invalid state
+    assert len(issues) >= 2
+    issue_types = {i.issue_type for i in issues}
+    assert IssueType.TEMPLATE_ENTITY_NOT_FOUND in issue_types
+    assert IssueType.TEMPLATE_INVALID_STATE in issue_types
+
+
+def test_template_validation_passes_for_valid_template(hass):
+    """Test template validation passes for valid template."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = JinjaValidator(hass)
+
+    automation = {
+        "id": "test_valid",
+        "alias": "Test Valid",
+        "condition": {
+            "condition": "template",
+            "value_template": "{{ is_state('light.kitchen', 'on') }}"
+        }
+    }
+
+    issues = validator.validate_automations([automation])
+
+    # Should have no issues
     assert len(issues) == 0
