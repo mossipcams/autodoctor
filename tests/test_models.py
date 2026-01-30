@@ -254,3 +254,17 @@ def test_service_issue_types_exist():
     assert IssueType.SERVICE_MISSING_REQUIRED_PARAM.value == "service_missing_required_param"
     assert IssueType.SERVICE_INVALID_PARAM_TYPE.value == "service_invalid_param_type"
     assert IssueType.SERVICE_UNKNOWN_PARAM.value == "service_unknown_param"
+
+
+def test_new_template_issue_types():
+    """Test new template-related issue types exist."""
+    assert hasattr(IssueType, "TEMPLATE_ENTITY_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_INVALID_STATE")
+    assert hasattr(IssueType, "TEMPLATE_ATTRIBUTE_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_DEVICE_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_AREA_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_ZONE_NOT_FOUND")
+
+    assert IssueType.TEMPLATE_ENTITY_NOT_FOUND.value == "template_entity_not_found"
+    assert IssueType.TEMPLATE_INVALID_STATE.value == "template_invalid_state"
+    assert IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND.value == "template_attribute_not_found"
