@@ -317,6 +317,21 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif platform == "geo_location":
+            zone = trigger.get("zone")
+            if zone:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=zone,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].zone",
+                        reference_type="zone",
+                    )
+                )
+
         return refs
 
     def _extract_from_condition(

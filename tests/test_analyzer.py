@@ -1109,6 +1109,47 @@ def test_extract_tag_trigger():
     assert refs[1].location == "trigger[0].device_id"
 
 
+def test_extract_tag_trigger_no_device():
+    """Test tag trigger without device_id."""
+    automation = {
+        "id": "test_tag_no_device",
+        "alias": "Test Tag No Device",
+        "trigger": {
+            "platform": "tag",
+            "tag_id": "EEFFGGHH"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "EEFFGGHH"
+    assert refs[0].reference_type == "tag"
+
+
+def test_extract_geo_location_trigger():
+    """Test geo_location trigger extraction."""
+    automation = {
+        "id": "test_geo",
+        "alias": "Test Geo Location Trigger",
+        "trigger": {
+            "platform": "geo_location",
+            "source": "nsw_rural_fire_service_feed",
+            "zone": "zone.home",
+            "event": "enter"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "zone.home"
+    assert refs[0].reference_type == "zone"
+    assert refs[0].location == "trigger[0].zone"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
