@@ -94,13 +94,23 @@ _HA_TESTS: frozenset[str] = frozenset({
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
 
-    def __init__(self, hass: HomeAssistant | None = None) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant | None = None,
+        knowledge_base: Any = None,
+        strict_template_validation: bool = False,
+    ) -> None:
         """Initialize the Jinja validator.
 
         Args:
             hass: Home Assistant instance (optional, for HA-specific template env)
+            knowledge_base: Shared StateKnowledgeBase instance (avoids creating new ones)
+            strict_template_validation: If True, warn about unknown filters/tests.
+                Disable if using custom components that add custom Jinja filters.
         """
         self.hass = hass
+        self.knowledge_base = knowledge_base
+        self._strict_validation = strict_template_validation
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
         self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | _HA_FILTERS
@@ -811,11 +821,20 @@ class JinjaValidator:
                     )
 
             # 3. Validate state value if specified (from is_state calls)
+            #    Only for domains in the whitelist with stable state values.
             if ref.expected_state:
-                # Use knowledge base to check if state is valid
-                from .knowledge_base import StateKnowledgeBase
+                from .const import STATE_VALIDATION_WHITELIST
 
-                kb = StateKnowledgeBase(self.hass)
+                entity_domain = ref.entity_id.split(".")[0] if "." in ref.entity_id else ""
+                if entity_domain not in STATE_VALIDATION_WHITELIST:
+                    continue
+
+                # Use shared knowledge base if available, otherwise create one
+                kb = self.knowledge_base
+                if kb is None:
+                    from .knowledge_base import StateKnowledgeBase
+
+                    kb = StateKnowledgeBase(self.hass)
                 valid_states = kb.get_valid_states(ref.entity_id)
 
                 if valid_states and ref.expected_state not in valid_states:
@@ -852,53 +871,49 @@ class JinjaValidator:
         auto_name: str,
         auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
-        """Walk the parsed AST to check for semantic issues."""
+        """Walk the parsed AST to check for semantic issues.
+
+        Note: Variable reference validation was removed in v2.7.0 due to high
+        false positive rate with blueprint automations.
+        """
         issues: list[ValidationIssue] = []
 
-        # Collect template-defined variables
-        template_vars = self._collect_template_variables(ast)
-        known_vars = KNOWN_GLOBALS | KNOWN_CALLABLE_GLOBALS | template_vars
-        if auto_vars:
-            known_vars = known_vars | auto_vars
-
-        for node in ast.find_all(nodes.Filter):
-            _LOGGER.debug(f"Found filter: {node.name}, known: {node.name in self._known_filters}")
-            if node.name not in self._known_filters:
-                issues.append(
-                    ValidationIssue(
-                        issue_type=IssueType.TEMPLATE_UNKNOWN_FILTER,
-                        severity=Severity.WARNING,
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id="",
-                        location=location,
-                        message=f"Unknown filter '{node.name}' — not a built-in Jinja2 or Home Assistant filter",
+        # Filter/test validation is opt-in via strict_template_validation config.
+        # Custom components may add custom Jinja filters/tests that we don't know
+        # about, leading to false positives when strict mode is off.
+        if self._strict_validation:
+            for node in ast.find_all(nodes.Filter):
+                _LOGGER.debug(f"Found filter: {node.name}, known: {node.name in self._known_filters}")
+                if node.name not in self._known_filters:
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.TEMPLATE_UNKNOWN_FILTER,
+                            severity=Severity.WARNING,
+                            automation_id=auto_id,
+                            automation_name=auto_name,
+                            entity_id="",
+                            location=location,
+                            message=f"Unknown filter '{node.name}' — not a built-in Jinja2 or Home Assistant filter",
+                        )
                     )
-                )
-            else:
-                # Validate arguments for known filters
-                _LOGGER.debug(f"Calling _validate_filter_args for {node.name}")
-                issues.extend(self._validate_filter_args(node, location, auto_id, auto_name))
+                else:
+                    # Validate arguments for known filters
+                    _LOGGER.debug(f"Calling _validate_filter_args for {node.name}")
+                    issues.extend(self._validate_filter_args(node, location, auto_id, auto_name))
 
-        for node in ast.find_all(nodes.Test):
-            if node.name not in self._known_tests:
-                issues.append(
-                    ValidationIssue(
-                        issue_type=IssueType.TEMPLATE_UNKNOWN_TEST,
-                        severity=Severity.WARNING,
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id="",
-                        location=location,
-                        message=f"Unknown test '{node.name}' — not a built-in Jinja2 or Home Assistant test",
+            for node in ast.find_all(nodes.Test):
+                if node.name not in self._known_tests:
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.TEMPLATE_UNKNOWN_TEST,
+                            severity=Severity.WARNING,
+                            automation_id=auto_id,
+                            automation_name=auto_name,
+                            entity_id="",
+                            location=location,
+                            message=f"Unknown test '{node.name}' — not a built-in Jinja2 or Home Assistant test",
+                        )
                     )
-                )
-
-        # Validate variable references
-        for node in ast.find_all(nodes.Name):
-            # Only validate Name nodes in 'load' context (reading variables)
-            if node.ctx == "load":
-                issues.extend(self._validate_variable(node, known_vars, location, auto_id, auto_name))
 
         return issues
 
@@ -938,35 +953,6 @@ class JinjaValidator:
                 )
             ]
         return []
-
-    def _validate_variable(
-        self,
-        node: nodes.Name,
-        known_vars: set[str],
-        location: str,
-        auto_id: str,
-        auto_name: str,
-    ) -> list[ValidationIssue]:
-        """Validate variable reference."""
-        # Skip special context variables
-        if node.name in ("trigger", "this", "repeat"):
-            return []
-
-        # Skip if variable is known
-        if node.name in known_vars:
-            return []
-
-        return [
-            ValidationIssue(
-                issue_type=IssueType.TEMPLATE_UNKNOWN_VARIABLE,
-                severity=Severity.WARNING,
-                automation_id=auto_id,
-                automation_name=auto_name,
-                entity_id="",
-                location=location,
-                message=f"Undefined variable '{node.name}'",
-            )
-        ]
 
     def _collect_template_variables(self, ast: nodes.Template) -> set[str]:
         """Collect all variables defined in the template."""

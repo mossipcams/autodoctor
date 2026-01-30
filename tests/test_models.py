@@ -159,11 +159,11 @@ def test_validation_issue_equality():
         automation_id="automation.test",
         automation_name="Different Name",  # Different name
         entity_id="sensor.temp",
-        location="condition[0]",  # Different location
+        location="trigger[0]",  # Same location
         message="Entity not found",
         issue_type=IssueType.ENTITY_NOT_FOUND,
     )
-    # Should be equal because automation_id, issue_type, entity_id, and message match
+    # Should be equal because automation_id, issue_type, entity_id, location, and message match
     assert issue1 == issue2
     assert hash(issue1) == hash(issue2)
 
@@ -184,7 +184,7 @@ def test_validation_issue_set_deduplication():
         automation_id="automation.test",
         automation_name="Different",  # Different name
         entity_id="sensor.temp",
-        location="condition[0]",  # Different location
+        location="trigger[0]",  # Same location as issue1
         message="Entity not found",
         issue_type=IssueType.ENTITY_NOT_FOUND,
     )
@@ -198,7 +198,7 @@ def test_validation_issue_set_deduplication():
         issue_type=IssueType.ENTITY_NOT_FOUND,
     )
 
-    # issue1 and issue2 are duplicates (same key fields)
+    # issue1 and issue2 are duplicates (same key fields including location)
     # issue3 is different (different automation_id)
     issues_set = {issue1, issue2, issue3}
     assert len(issues_set) == 2  # Only 2 unique issues

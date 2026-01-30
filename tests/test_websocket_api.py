@@ -57,7 +57,6 @@ async def test_websocket_get_validation(hass: HomeAssistant):
     hass.data[DOMAIN] = {
         "validation_issues": [],
         "validation_last_run": "2026-01-27T12:00:00+00:00",
-        "fix_engine": None,
     }
 
     connection = MagicMock()
@@ -81,7 +80,6 @@ async def test_websocket_run_validation(hass: HomeAssistant):
     hass.data[DOMAIN] = {
         "validation_issues": [],
         "validation_last_run": "2026-01-27T12:00:00+00:00",
-        "fix_engine": None,
     }
 
     connection = MagicMock()

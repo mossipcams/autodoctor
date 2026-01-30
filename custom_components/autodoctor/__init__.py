@@ -14,15 +14,20 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 
 from .analyzer import AutomationAnalyzer
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_STRICT_SERVICE_VALIDATION,
+    DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
     DOMAIN,
     VERSION,
@@ -205,8 +210,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     analyzer = AutomationAnalyzer()
     validator = ValidationEngine(knowledge_base)
-    jinja_validator = JinjaValidator(hass)
-    service_validator = ServiceCallValidator(hass)
+    strict_template = options.get(
+        CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION, DEFAULT_STRICT_TEMPLATE_VALIDATION
+    )
+    jinja_validator = JinjaValidator(
+        hass, strict_template_validation=strict_template
+    )
+    strict_service = options.get(
+        CONF_STRICT_SERVICE_VALIDATION, DEFAULT_STRICT_SERVICE_VALIDATION
+    )
+    service_validator = ServiceCallValidator(
+        hass, strict_service_validation=strict_service
+    )
     reporter = IssueReporter(hass)
 
     hass.data[DOMAIN] = {
@@ -245,6 +261,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_load_history)
 
+    # Invalidate entity cache when entities are added/removed/renamed
+    @callback
+    def _handle_entity_registry_change(_: Event) -> None:
+        validator.invalidate_entity_cache()
+
+    unsub_entity_reg = hass.bus.async_listen(
+        er.EVENT_ENTITY_REGISTRY_UPDATED,
+        _handle_entity_registry_change,
+    )
+    hass.data[DOMAIN]["unsub_entity_registry_listener"] = unsub_entity_reg
+
     # Listen for options updates to reload the integration
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
@@ -267,10 +294,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if debounce_task is not None and not debounce_task.done():
             debounce_task.cancel()
 
-        # Remove event listener
+        # Remove event listeners
         unsub_reload = data.get("unsub_reload_listener")
         if unsub_reload is not None:
             unsub_reload()
+
+        unsub_entity_reg = data.get("unsub_entity_registry_listener")
+        if unsub_entity_reg is not None:
+            unsub_entity_reg()
 
         # Unregister services
         hass.services.async_remove(DOMAIN, "validate")

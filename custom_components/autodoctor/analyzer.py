@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from .const import MAX_RECURSION_DEPTH
 from .models import ServiceCall, StateReference
 
 _LOGGER = logging.getLogger(__name__)
@@ -911,8 +912,17 @@ class AutomationAnalyzer:
         actions: list[dict[str, Any]],
         automation_id: str,
         automation_name: str,
+        _depth: int = 0,
     ) -> list[StateReference]:
         """Recursively extract state references from actions."""
+        if _depth >= MAX_RECURSION_DEPTH:
+            _LOGGER.warning(
+                "Max recursion depth (%d) reached in automation '%s'",
+                MAX_RECURSION_DEPTH,
+                automation_name,
+            )
+            return []
+
         refs: list[StateReference] = []
 
         if not isinstance(actions, list):
@@ -952,7 +962,7 @@ class AutomationAnalyzer:
                     sequence = option.get("sequence", [])
                     refs.extend(
                         self._extract_from_actions(
-                            sequence, automation_id, automation_name
+                            sequence, automation_id, automation_name, _depth + 1
                         )
                     )
 
@@ -960,7 +970,7 @@ class AutomationAnalyzer:
                 if default:
                     refs.extend(
                         self._extract_from_actions(
-                            default, automation_id, automation_name
+                            default, automation_id, automation_name, _depth + 1
                         )
                     )
 
@@ -986,13 +996,13 @@ class AutomationAnalyzer:
                 else_actions = action.get("else", [])
                 refs.extend(
                     self._extract_from_actions(
-                        then_actions, automation_id, automation_name
+                        then_actions, automation_id, automation_name, _depth + 1
                     )
                 )
                 if else_actions:
                     refs.extend(
                         self._extract_from_actions(
-                            else_actions, automation_id, automation_name
+                            else_actions, automation_id, automation_name, _depth + 1
                         )
                     )
 
@@ -1064,7 +1074,9 @@ class AutomationAnalyzer:
                 # Recurse into sequence
                 sequence = repeat_config.get("sequence", [])
                 refs.extend(
-                    self._extract_from_actions(sequence, automation_id, automation_name)
+                    self._extract_from_actions(
+                        sequence, automation_id, automation_name, _depth + 1
+                    )
                 )
 
             # Extract from wait_template
@@ -1088,7 +1100,7 @@ class AutomationAnalyzer:
                     branch_actions = branch if isinstance(branch, list) else [branch]
                     refs.extend(
                         self._extract_from_actions(
-                            branch_actions, automation_id, automation_name
+                            branch_actions, automation_id, automation_name, _depth + 1
                         )
                     )
 
@@ -1116,8 +1128,17 @@ class AutomationAnalyzer:
         automation_name: str,
         location_prefix: str,
         service_calls: list[ServiceCall],
+        _depth: int = 0,
     ) -> None:
         """Recursively extract service calls from a list of actions."""
+        if _depth >= MAX_RECURSION_DEPTH:
+            _LOGGER.warning(
+                "Max recursion depth (%d) reached extracting service calls in automation '%s'",
+                MAX_RECURSION_DEPTH,
+                automation_name,
+            )
+            return
+
         if not isinstance(actions, list):
             actions = [actions]
 
@@ -1151,7 +1172,7 @@ class AutomationAnalyzer:
                             self._extract_service_calls_from_actions(
                                 sequence, automation_id, automation_name,
                                 f"{location}.choose[{opt_idx}].sequence",
-                                service_calls,
+                                service_calls, _depth + 1,
                             )
 
                 # Default branch
@@ -1159,7 +1180,7 @@ class AutomationAnalyzer:
                 if default:
                     self._extract_service_calls_from_actions(
                         default, automation_id, automation_name,
-                        f"{location}.default", service_calls,
+                        f"{location}.default", service_calls, _depth + 1,
                     )
 
             # If/then/else
@@ -1167,13 +1188,13 @@ class AutomationAnalyzer:
                 then_actions = action.get("then", [])
                 self._extract_service_calls_from_actions(
                     then_actions, automation_id, automation_name,
-                    f"{location}.then", service_calls,
+                    f"{location}.then", service_calls, _depth + 1,
                 )
                 else_actions = action.get("else", [])
                 if else_actions:
                     self._extract_service_calls_from_actions(
                         else_actions, automation_id, automation_name,
-                        f"{location}.else", service_calls,
+                        f"{location}.else", service_calls, _depth + 1,
                     )
 
             # Repeat
@@ -1183,7 +1204,7 @@ class AutomationAnalyzer:
                     sequence = repeat_config.get("sequence", [])
                     self._extract_service_calls_from_actions(
                         sequence, automation_id, automation_name,
-                        f"{location}.repeat.sequence", service_calls,
+                        f"{location}.repeat.sequence", service_calls, _depth + 1,
                     )
 
             # Parallel
@@ -1195,11 +1216,11 @@ class AutomationAnalyzer:
                     if isinstance(branch, list):
                         self._extract_service_calls_from_actions(
                             branch, automation_id, automation_name,
-                            f"{location}.parallel", service_calls,
+                            f"{location}.parallel", service_calls, _depth + 1,
                         )
                     elif isinstance(branch, dict):
                         self._extract_service_calls_from_actions(
                             [branch], automation_id, automation_name,
-                            f"{location}.parallel", service_calls,
+                            f"{location}.parallel", service_calls, _depth + 1,
                         )
 

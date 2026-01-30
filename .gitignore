@@ -31,3 +31,9 @@ htmlcov/
 index.md
 allowed-commands.md
 CLAUDE.md
+
+# Claude Code local files
+.claude/
+
+# GSD planning files
+.planning/

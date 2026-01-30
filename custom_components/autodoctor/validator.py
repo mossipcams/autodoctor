@@ -7,6 +7,7 @@ from difflib import get_close_matches
 
 from homeassistant.helpers import device_registry as dr
 
+from .const import STATE_VALIDATION_WHITELIST
 from .domain_attributes import get_domain_attributes
 from .knowledge_base import StateKnowledgeBase
 from .models import IssueType, Severity, StateReference, ValidationIssue
@@ -50,7 +51,7 @@ class ValidationEngine:
                     issues.append(
                         ValidationIssue(
                             issue_type=IssueType.ENTITY_REMOVED,
-                            severity=Severity.ERROR,
+                            severity=Severity.INFO,
                             automation_id=ref.automation_id,
                             automation_name=ref.automation_name,
                             entity_id=ref.entity_id,
@@ -132,8 +133,24 @@ class ValidationEngine:
         return []
 
     def _validate_state(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the expected state."""
+        """Validate the expected state.
+
+        Only validates domains in STATE_VALIDATION_WHITELIST (binary_sensor,
+        person, sun, device_tracker, input_boolean, group) which have stable,
+        well-defined state values. Other domains (sensor, light, climate, etc.)
+        are skipped because their states are too dynamic or integration-specific.
+        """
         issues: list[ValidationIssue] = []
+
+        # Only validate domains with stable, well-defined state values
+        domain = self.knowledge_base.get_domain(ref.entity_id)
+        if domain not in STATE_VALIDATION_WHITELIST:
+            _LOGGER.debug(
+                "Skipping state validation for %s (domain %s not in whitelist)",
+                ref.entity_id, domain
+            )
+            return issues
+
         valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
 
         if valid_states is None:
@@ -209,7 +226,7 @@ class ValidationEngine:
         issues.append(
             ValidationIssue(
                 issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
-                severity=Severity.ERROR,
+                severity=Severity.WARNING,
                 automation_id=ref.automation_id,
                 automation_name=ref.automation_name,
                 entity_id=ref.entity_id,
@@ -225,12 +242,16 @@ class ValidationEngine:
     def _suggest_state(self, invalid: str, valid_states: set[str]) -> str | None:
         """Suggest a correction for an invalid state."""
         matches = get_close_matches(
-            invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6
+            invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.75
         )
         if matches:
             lower_map = {s.lower(): s for s in valid_states}
             return lower_map.get(matches[0])
         return None
+
+    def invalidate_entity_cache(self) -> None:
+        """Clear the entity cache so it is rebuilt on next use."""
+        self._entity_cache = None
 
     def _ensure_entity_cache(self) -> None:
         """Build entity cache if not present."""
@@ -268,7 +289,7 @@ class ValidationEngine:
 
     def _suggest_attribute(self, invalid: str, valid_attrs: list[str]) -> str | None:
         """Suggest a correction for an invalid attribute."""
-        matches = get_close_matches(invalid, valid_attrs, n=1, cutoff=0.6)
+        matches = get_close_matches(invalid, valid_attrs, n=1, cutoff=0.75)
         return matches[0] if matches else None
 
     def validate_all(self, refs: list[StateReference]) -> list[ValidationIssue]:
@@ -277,3 +298,24 @@ class ValidationEngine:
         for ref in refs:
             issues.extend(self.validate_reference(ref))
         return issues
+
+
+def get_entity_suggestion(invalid_entity: str, all_entities: list[str]) -> str | None:
+    """Get a suggestion for an invalid entity ID.
+
+    Standalone version of ValidationEngine._suggest_entity for use
+    outside the validation engine (e.g., websocket API).
+    """
+    if "." not in invalid_entity:
+        return None
+
+    domain, name = invalid_entity.split(".", 1)
+
+    same_domain = [e for e in all_entities if e.startswith(f"{domain}.")]
+    if not same_domain:
+        return None
+
+    names = {eid.split(".", 1)[1]: eid for eid in same_domain}
+    matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
+
+    return names[matches[0]] if matches else None
