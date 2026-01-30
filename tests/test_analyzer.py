@@ -1310,6 +1310,50 @@ def test_extract_time_trigger_with_multiple():
     assert "sensor.sunset_time" in entity_ids
 
 
+def test_extract_numeric_state_condition():
+    """Test numeric_state condition extraction."""
+    automation = {
+        "id": "test_numeric_cond",
+        "alias": "Test Numeric Condition",
+        "condition": {
+            "condition": "numeric_state",
+            "entity_id": "sensor.temperature",
+            "above": 20,
+            "below": 30
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.temperature"
+    assert refs[0].expected_attribute is None
+    assert refs[0].location == "condition[0]"
+
+
+def test_extract_numeric_state_condition_with_attribute():
+    """Test numeric_state condition with attribute."""
+    automation = {
+        "id": "test_numeric_attr",
+        "alias": "Test Numeric Attribute",
+        "condition": {
+            "condition": "numeric_state",
+            "entity_id": "climate.living_room",
+            "attribute": "temperature",
+            "above": 20
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "temperature"
+    assert refs[0].location == "condition[0]"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {

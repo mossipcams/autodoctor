@@ -485,6 +485,35 @@ class AutomationAnalyzer:
                 )
             )
 
+        elif cond_type == "numeric_state":
+            entity_ids = self._normalize_entity_ids(condition.get("entity_id"))
+            attribute = condition.get("attribute")
+            value_template = condition.get("value_template")
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=attribute,
+                        location=f"{location_prefix}[{index}]",
+                        reference_type="direct",
+                    )
+                )
+
+            # Extract from value_template if present
+            if value_template and isinstance(value_template, str):
+                refs.extend(
+                    self._extract_from_template(
+                        value_template,
+                        f"{location_prefix}[{index}].value_template",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
         return refs
 
     def _extract_from_template(
