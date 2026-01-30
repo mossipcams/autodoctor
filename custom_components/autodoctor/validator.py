@@ -7,6 +7,7 @@ from difflib import get_close_matches
 
 from homeassistant.helpers import device_registry as dr
 
+from .const import STATE_VALIDATION_WHITELIST
 from .domain_attributes import get_domain_attributes
 from .knowledge_base import StateKnowledgeBase
 from .models import IssueType, Severity, StateReference, ValidationIssue
@@ -50,7 +51,7 @@ class ValidationEngine:
                     issues.append(
                         ValidationIssue(
                             issue_type=IssueType.ENTITY_REMOVED,
-                            severity=Severity.ERROR,
+                            severity=Severity.INFO,
                             automation_id=ref.automation_id,
                             automation_name=ref.automation_name,
                             entity_id=ref.entity_id,
@@ -132,8 +133,24 @@ class ValidationEngine:
         return []
 
     def _validate_state(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the expected state."""
+        """Validate the expected state.
+
+        Only validates domains in STATE_VALIDATION_WHITELIST (binary_sensor,
+        person, sun, device_tracker, input_boolean, group) which have stable,
+        well-defined state values. Other domains (sensor, light, climate, etc.)
+        are skipped because their states are too dynamic or integration-specific.
+        """
         issues: list[ValidationIssue] = []
+
+        # Only validate domains with stable, well-defined state values
+        domain = self.knowledge_base.get_domain(ref.entity_id)
+        if domain not in STATE_VALIDATION_WHITELIST:
+            _LOGGER.debug(
+                "Skipping state validation for %s (domain %s not in whitelist)",
+                ref.entity_id, domain
+            )
+            return issues
+
         valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
 
         if valid_states is None:
@@ -209,7 +226,7 @@ class ValidationEngine:
         issues.append(
             ValidationIssue(
                 issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
-                severity=Severity.ERROR,
+                severity=Severity.WARNING,
                 automation_id=ref.automation_id,
                 automation_name=ref.automation_name,
                 entity_id=ref.entity_id,
@@ -225,7 +242,7 @@ class ValidationEngine:
     def _suggest_state(self, invalid: str, valid_states: set[str]) -> str | None:
         """Suggest a correction for an invalid state."""
         matches = get_close_matches(
-            invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.6
+            invalid.lower(), [s.lower() for s in valid_states], n=1, cutoff=0.75
         )
         if matches:
             lower_map = {s.lower(): s for s in valid_states}
@@ -272,7 +289,7 @@ class ValidationEngine:
 
     def _suggest_attribute(self, invalid: str, valid_attrs: list[str]) -> str | None:
         """Suggest a correction for an invalid attribute."""
-        matches = get_close_matches(invalid, valid_attrs, n=1, cutoff=0.6)
+        matches = get_close_matches(invalid, valid_attrs, n=1, cutoff=0.75)
         return matches[0] if matches else None
 
     def validate_all(self, refs: list[StateReference]) -> list[ValidationIssue]:

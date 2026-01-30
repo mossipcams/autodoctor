@@ -49,7 +49,11 @@ class Severity(IntEnum):
 
 
 class IssueType(str, Enum):
-    """Types of validation issues."""
+    """Types of validation issues.
+
+    Note: TEMPLATE_UNKNOWN_VARIABLE was removed in v2.7.0 due to high false
+    positive rate with blueprint automations that define variables dynamically.
+    """
 
     ENTITY_NOT_FOUND = "entity_not_found"
     ENTITY_REMOVED = "entity_removed"
@@ -60,7 +64,6 @@ class IssueType(str, Enum):
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
     TEMPLATE_INVALID_ARGUMENTS = "template_invalid_arguments"
-    TEMPLATE_UNKNOWN_VARIABLE = "template_unknown_variable"
     TEMPLATE_INVALID_ENTITY_ID = "template_invalid_entity_id"
     SERVICE_NOT_FOUND = "service_not_found"
     SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"

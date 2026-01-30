@@ -74,10 +74,8 @@ def test_break_continue_do_not_produce_false_positives():
         ],
     }
     issues = validator.validate_automations([automation])
-    # Only issue should be 'items' being undefined, not 'item' which is the loop variable
-    assert len(issues) == 1
-    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
-    assert "'items'" in issues[0].message
+    # Variable validation removed in v2.7.0 - no issues expected
+    assert len(issues) == 0
 
 
 def test_valid_template_produces_no_issues():
@@ -127,7 +125,7 @@ def test_invalid_template_produces_syntax_error():
 
 def test_unknown_filter_produces_warning():
     """A template using a filter that doesn't exist in HA should produce a warning."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "bad_filter",
         "alias": "Bad Filter",
@@ -149,7 +147,7 @@ def test_unknown_filter_produces_warning():
 
 def test_unknown_test_produces_warning():
     """A template using a test that doesn't exist in HA should produce a warning."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "bad_test",
         "alias": "Bad Test",
@@ -171,7 +169,7 @@ def test_unknown_test_produces_warning():
 
 def test_ha_filters_are_accepted():
     """Common HA filters should not produce warnings."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     templates = [
         "{{ states('sensor.temp') | float }}",
         "{{ states('sensor.temp') | as_timestamp }}",
@@ -201,7 +199,7 @@ def test_ha_filters_are_accepted():
 
 def test_ha_tests_are_accepted():
     """Common HA tests should not produce warnings."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     templates = [
         "{% if states('sensor.temp') is match('\\\\d+') %}t{% endif %}",
         "{% if states('sensor.temp') is search('\\\\d+') %}t{% endif %}",
@@ -224,7 +222,7 @@ def test_ha_tests_are_accepted():
 
 def test_standard_jinja2_filters_are_accepted():
     """Standard Jinja2 built-in filters should not produce warnings."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     templates = [
         "{{ items | join(', ') }}",
         "{{ name | upper }}",
@@ -259,7 +257,7 @@ def test_standard_jinja2_filters_are_accepted():
 
 def test_multiple_unknown_filters_all_reported():
     """Multiple unknown filters in one template should each produce a warning."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "multi_bad_filter",
         "alias": "Multi Bad Filter",
@@ -281,7 +279,7 @@ def test_multiple_unknown_filters_all_reported():
 
 def test_syntax_error_skips_semantic_check():
     """When there's a syntax error, semantic checks should not run."""
-    validator = JinjaValidator()
+    validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "syntax_then_semantic",
         "alias": "Syntax Then Semantic",
@@ -421,8 +419,8 @@ def test_validate_attribute_not_found(hass):
 
 def test_validate_invalid_state(hass):
     """Test state value validation."""
-    # Setup entity in hass
-    hass.states.async_set("light.kitchen", "off")
+    # Setup entity in hass - use binary_sensor which is in STATE_VALIDATION_WHITELIST
+    hass.states.async_set("binary_sensor.motion", "off")
 
     validator = JinjaValidator(hass)
 
@@ -430,7 +428,7 @@ def test_validate_invalid_state(hass):
         StateReference(
             automation_id="automation.test",
             automation_name="Test",
-            entity_id="light.kitchen",
+            entity_id="binary_sensor.motion",
             expected_state="invalid_state",
             expected_attribute=None,
             location="test_location",
@@ -469,8 +467,8 @@ def test_validate_entity_exists_no_issues(hass):
 
 def test_template_validation_end_to_end(hass):
     """Test complete template validation with entity and state checks."""
-    # Setup entity in hass
-    hass.states.async_set("light.kitchen", "off")
+    # Setup entity in hass - use binary_sensor which is in STATE_VALIDATION_WHITELIST
+    hass.states.async_set("binary_sensor.motion", "off")
 
     validator = JinjaValidator(hass)
 
@@ -479,7 +477,7 @@ def test_template_validation_end_to_end(hass):
         "alias": "Test End to End",
         "condition": {
             "condition": "template",
-            "value_template": "{{ is_state('light.nonexistent', 'on') and is_state('light.kitchen', 'invalid_state') }}"
+            "value_template": "{{ is_state('binary_sensor.nonexistent', 'on') and is_state('binary_sensor.motion', 'invalid_state') }}"
         }
     }
 
@@ -512,3 +510,50 @@ def test_template_validation_passes_for_valid_template(hass):
 
     # Should have no issues
     assert len(issues) == 0
+
+def test_unknown_filter_not_flagged_without_strict_mode():
+    """Without strict mode, unknown filters should not produce warnings."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "non_strict",
+        "alias": "Non Strict",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | custom_filter }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_unknown_test_not_flagged_without_strict_mode():
+    """Without strict mode, unknown tests should not produce warnings."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "non_strict_test",
+        "alias": "Non Strict Test",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [
+            {
+                "condition": "template",
+                "value_template": "{% if states('sensor.temp') is custom_test %}true{% endif %}",
+            }
+        ],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_strict_mode_flag_stored_on_validator():
+    """The strict_template_validation flag should be stored correctly."""
+    validator_default = JinjaValidator()
+    assert validator_default._strict_validation is False
+
+    validator_strict = JinjaValidator(strict_template_validation=True)
+    assert validator_strict._strict_validation is True
+

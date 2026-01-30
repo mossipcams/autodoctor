@@ -12,9 +12,13 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_STRICT_SERVICE_VALIDATION,
+    DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
     DOMAIN,
 )
@@ -89,6 +93,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS
                         ),
                     ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                    vol.Optional(
+                        CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION,
+                        default=options.get(
+                            CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION,
+                            DEFAULT_STRICT_SERVICE_VALIDATION,
+    DEFAULT_STRICT_TEMPLATE_VALIDATION,
+                        ),
+                    ): bool,
                 }
             ),
         )

@@ -60,14 +60,14 @@ async def test_validate_invalid_state(hass: HomeAssistant, knowledge_base):
 
 async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
     """Test validation detects case mismatch."""
-    hass.states.async_set("alarm_control_panel.home", "disarmed")
+    hass.states.async_set("binary_sensor.motion", "off")
     await hass.async_block_till_done()
 
     ref = StateReference(
         automation_id="automation.test",
         automation_name="Test",
-        entity_id="alarm_control_panel.home",
-        expected_state="Armed_Away",
+        entity_id="binary_sensor.motion",
+        expected_state="On",
         expected_attribute=None,
         location="condition[0].state",
     )
@@ -78,7 +78,7 @@ async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
     assert len(issues) == 1
     assert issues[0].severity == Severity.WARNING
     assert "case" in issues[0].message.lower()
-    assert issues[0].suggestion == "armed_away"
+    assert issues[0].suggestion == "on"
 
 
 async def test_validate_valid_state(hass: HomeAssistant, knowledge_base):
@@ -253,7 +253,7 @@ async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant):
     # Should report an error with ATTRIBUTE_NOT_FOUND issue type
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.ATTRIBUTE_NOT_FOUND
-    assert issues[0].severity == Severity.ERROR
+    assert issues[0].severity == Severity.WARNING
     assert "nonexistent_attribute" in issues[0].message
 
 

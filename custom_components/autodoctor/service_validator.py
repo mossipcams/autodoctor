@@ -17,14 +17,6 @@ _LOGGER = logging.getLogger(__name__)
 # Target fields are separate from data fields
 _TARGET_FIELDS = frozenset({"entity_id", "device_id", "area_id"})
 
-# Selector type to Python type mapping
-_SELECTOR_TYPE_MAP: dict[str, tuple[type, ...]] = {
-    "number": (int, float),
-    "boolean": (bool,),
-    "text": (str,),
-    "object": (dict,),
-}
-
 # Known entity-capability-dependent parameters that may not appear in service schemas
 # These are valid parameters but depend on the target entity's capabilities
 _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
@@ -52,9 +44,20 @@ def _is_template_value(value: Any) -> bool:
 class ServiceCallValidator:
     """Validates service calls against the Home Assistant service registry."""
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        """Initialize the service call validator."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        strict_service_validation: bool = False,
+    ) -> None:
+        """Initialize the service call validator.
+
+        Args:
+            hass: Home Assistant instance
+            strict_service_validation: If True, warn about unknown service params.
+                Disable if using custom components with non-standard params.
+        """
         self.hass = hass
+        self._strict_validation = strict_service_validation
         self._service_descriptions: dict[str, dict[str, Any]] | None = None
 
     async def async_load_descriptions(self) -> None:
@@ -135,7 +138,10 @@ class ServiceCallValidator:
 
             # Validate parameters
             issues.extend(self._validate_required_params(call, fields))
-            issues.extend(self._validate_unknown_params(call, fields))
+            # Unknown param checking is opt-in — custom components may
+            # add service params that don't appear in the schema
+            if self._strict_validation:
+                issues.extend(self._validate_unknown_params(call, fields))
             issues.extend(self._validate_param_types(call, fields))
 
         return issues
@@ -264,84 +270,76 @@ class ServiceCallValidator:
         value: Any,
         selector: dict[str, Any],
     ) -> ValidationIssue | None:
-        """Check if a value matches the expected selector type."""
-        # Check select options first (more specific)
-        if "select" in selector:
-            select_config = selector["select"]
-            if isinstance(select_config, dict):
-                options = select_config.get("options", [])
-                if options and isinstance(options, list):
-                    # Normalize options — they can be strings or dicts with 'value' key
-                    valid_values = []
-                    for opt in options:
-                        if isinstance(opt, str):
-                            valid_values.append(opt)
-                        elif isinstance(opt, dict) and "value" in opt:
-                            valid_values.append(opt["value"])
+        """Check if a value matches the expected selector type.
 
-                    if valid_values:
-                        # Check if selector allows multiple values
-                        is_multiple = select_config.get("multiple", False)
-
-                        # For list parameters with multiple=True, validate each item
-                        if is_multiple and isinstance(value, list):
-                            invalid_items = [v for v in value if v not in valid_values]
-                            if invalid_items:
-                                return ValidationIssue(
-                                    severity=Severity.WARNING,
-                                    automation_id=call.automation_id,
-                                    automation_name=call.automation_name,
-                                    entity_id="",
-                                    location=call.location,
-                                    message=(
-                                        f"Parameter '{param_name}' has invalid items {invalid_items} "
-                                        f"for service '{call.service}'. "
-                                        f"Valid options: {valid_values}"
-                                    ),
-                                    issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
-                                )
-                        # For single values, check directly
-                        elif value not in valid_values:
-                            return ValidationIssue(
-                                severity=Severity.WARNING,
-                                automation_id=call.automation_id,
-                                automation_name=call.automation_name,
-                                entity_id="",
-                                location=call.location,
-                                message=(
-                                    f"Parameter '{param_name}' value '{value}' "
-                                    f"is not a valid option for service '{call.service}'. "
-                                    f"Valid options: {valid_values}"
-                                ),
-                                issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
-                            )
+        Only validates select options (discrete enums) as these are
+        deterministic. Basic type checking (number, boolean, text) is
+        skipped due to YAML type coercion making it unreliable.
+        """
+        # Only validate select options (discrete enum — high confidence)
+        if "select" not in selector:
             return None
 
-        # Check basic type selectors
-        for selector_type, expected_types in _SELECTOR_TYPE_MAP.items():
-            if selector_type in selector:
-                if not isinstance(value, expected_types):
-                    return ValidationIssue(
-                        severity=Severity.WARNING,
-                        automation_id=call.automation_id,
-                        automation_name=call.automation_name,
-                        entity_id="",
-                        location=call.location,
-                        message=(
-                            f"Parameter '{param_name}' has type "
-                            f"'{type(value).__name__}' but expected "
-                            f"'{selector_type}' for service '{call.service}'"
-                        ),
-                        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
-                    )
-                return None
+        select_config = selector["select"]
+        if not isinstance(select_config, dict):
+            return None
 
-        # Unknown selector type — skip
+        options = select_config.get("options", [])
+        if not options or not isinstance(options, list):
+            return None
+
+        # Normalize options — they can be strings or dicts with 'value' key
+        valid_values = []
+        for opt in options:
+            if isinstance(opt, str):
+                valid_values.append(opt)
+            elif isinstance(opt, dict) and "value" in opt:
+                valid_values.append(opt["value"])
+
+        if not valid_values:
+            return None
+
+        # Check if selector allows multiple values
+        is_multiple = select_config.get("multiple", False)
+
+        # For list parameters with multiple=True, validate each item
+        if is_multiple and isinstance(value, list):
+            invalid_items = [v for v in value if v not in valid_values]
+            if invalid_items:
+                return ValidationIssue(
+                    severity=Severity.WARNING,
+                    automation_id=call.automation_id,
+                    automation_name=call.automation_name,
+                    entity_id="",
+                    location=call.location,
+                    message=(
+                        f"Parameter '{param_name}' has invalid items {invalid_items} "
+                        f"for service '{call.service}'. "
+                        f"Valid options: {valid_values}"
+                    ),
+                    issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                )
+        # For single values, check directly
+        elif value not in valid_values:
+            return ValidationIssue(
+                severity=Severity.WARNING,
+                automation_id=call.automation_id,
+                automation_name=call.automation_name,
+                entity_id="",
+                location=call.location,
+                message=(
+                    f"Parameter '{param_name}' value '{value}' "
+                    f"is not a valid option for service '{call.service}'. "
+                    f"Valid options: {valid_values}"
+                ),
+                issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+            )
+
         return None
 
     def _suggest_param(
         self, invalid: str, valid_params: list[str]
     ) -> str | None:
         """Suggest a correction for an unknown parameter name."""
-        matches = get_close_matches(invalid, valid_params, n=1, cutoff=0.6)
+        matches = get_close_matches(invalid, valid_params, n=1, cutoff=0.75)
         return matches[0] if matches else None

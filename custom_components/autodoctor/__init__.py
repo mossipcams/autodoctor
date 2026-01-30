@@ -21,9 +21,13 @@ from .analyzer import AutomationAnalyzer
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_STRICT_SERVICE_VALIDATION,
+    DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
     DOMAIN,
     VERSION,
@@ -206,8 +210,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     analyzer = AutomationAnalyzer()
     validator = ValidationEngine(knowledge_base)
-    jinja_validator = JinjaValidator(hass)
-    service_validator = ServiceCallValidator(hass)
+    strict_template = options.get(
+        CONF_STRICT_SERVICE_VALIDATION,
+    CONF_STRICT_TEMPLATE_VALIDATION, DEFAULT_STRICT_TEMPLATE_VALIDATION
+    )
+    jinja_validator = JinjaValidator(
+        hass, strict_template_validation=strict_template
+    )
+    strict_service = options.get(
+        CONF_STRICT_SERVICE_VALIDATION, DEFAULT_STRICT_SERVICE_VALIDATION
+    )
+    service_validator = ServiceCallValidator(
+        hass, strict_service_validation=strict_service
+    )
     reporter = IssueReporter(hass)
 
     hass.data[DOMAIN] = {

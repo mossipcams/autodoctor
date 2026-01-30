@@ -235,7 +235,7 @@ async def test_validate_unknown_param(hass: HomeAssistant):
 
     hass.services.async_register("test", "service", test_service)
 
-    validator = ServiceCallValidator(hass)
+    validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
         "test": {
             "service": {
@@ -332,10 +332,9 @@ async def test_validate_invalid_param_type_number(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
+    # Basic type checking removed in v2.7.0 — only select options validated
     type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
-    assert len(type_issues) == 1
-    assert type_issues[0].severity == Severity.WARNING
-    assert "brightness" in type_issues[0].message
+    assert len(type_issues) == 0
 
 
 async def test_validate_valid_param_type_number(hass: HomeAssistant):
@@ -408,8 +407,9 @@ async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
+    # Basic type checking removed in v2.7.0 — only select options validated
     type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
-    assert len(type_issues) == 1
+    assert len(type_issues) == 0
 
 
 async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistant):
@@ -567,7 +567,7 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
 
     hass.services.async_register("test", "service", test_service)
 
-    validator = ServiceCallValidator(hass)
+    validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
         "test": {
             "service": {
@@ -576,9 +576,9 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
                         "required": True,
                         "selector": {"text": {}},
                     },
-                    "brightness": {
+                    "mode": {
                         "required": False,
-                        "selector": {"number": {}},
+                        "selector": {"select": {"options": ["auto", "manual"]}},
                     },
                 }
             }
@@ -591,8 +591,8 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
         service="test.service",
         location="action[0]",
         data={
-            "brightness": "not_a_number",  # Wrong type
-            "unknown_field": "value",       # Unknown param
+            "mode": "turbo",          # Invalid select option
+            "unknown_field": "value",  # Unknown param
             # Missing: required_field
         },
     )
@@ -700,3 +700,49 @@ async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
     # Should NOT report these as unknown - they're valid light.turn_on params
     unknown_param_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
     assert len(unknown_param_issues) == 0, f"False positives: {[i.message for i in unknown_param_issues]}"
+
+async def test_unknown_param_not_flagged_without_strict_mode(hass: HomeAssistant):
+    """Without strict mode, unknown params should not produce warnings."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "known_field": {
+                        "required": False,
+                        "selector": {"text": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"unknown_field": "value"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    assert len(unknown_issues) == 0
+
+
+async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant):
+    """The strict_service_validation flag should be stored correctly."""
+    validator_default = ServiceCallValidator(hass)
+    assert validator_default._strict_validation is False
+
+    validator_strict = ServiceCallValidator(hass, strict_service_validation=True)
+    assert validator_strict._strict_validation is True
+
