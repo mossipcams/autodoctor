@@ -83,6 +83,8 @@ autodoctor/
 | `autodoctor/validation/run` | Run validation on demand |
 | `autodoctor/suppress` | Suppress an issue (optionally learn state) |
 | `autodoctor/clear_suppressions` | Clear all suppressions |
+| `autodoctor/validation/run_steps` | Run validation and return per-group structured results |
+| `autodoctor/validation/steps` | Get cached per-group validation results |
 
 ## Services
 
