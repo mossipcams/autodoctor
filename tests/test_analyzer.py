@@ -1248,6 +1248,68 @@ def test_extract_persistent_notification_trigger():
     assert refs[0].entity_id == "input_text.alert_name"
 
 
+def test_extract_time_trigger_with_entity():
+    """Test time trigger with entity reference."""
+    automation = {
+        "id": "test_time",
+        "alias": "Test Time Trigger",
+        "trigger": {
+            "platform": "time",
+            "at": "input_datetime.wake_up_time"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_datetime.wake_up_time"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0].at"
+
+
+def test_extract_time_trigger_with_time_string():
+    """Test time trigger with time string (no entity reference)."""
+    automation = {
+        "id": "test_time_string",
+        "alias": "Test Time String",
+        "trigger": {
+            "platform": "time",
+            "at": "07:30:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # No entity references for time strings
+    assert len(refs) == 0
+
+
+def test_extract_time_trigger_with_multiple():
+    """Test time trigger with multiple at values."""
+    automation = {
+        "id": "test_time_multi",
+        "alias": "Test Time Multiple",
+        "trigger": {
+            "platform": "time",
+            "at": [
+                "input_datetime.wake_up",
+                "07:30:00",
+                "sensor.sunset_time"
+            ]
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    entity_ids = [r.entity_id for r in refs]
+    assert "input_datetime.wake_up" in entity_ids
+    assert "sensor.sunset_time" in entity_ids
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {

@@ -397,6 +397,26 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif platform == "time":
+            at_values = trigger.get("at")
+            if not isinstance(at_values, list):
+                at_values = [at_values] if at_values else []
+
+            for at_value in at_values:
+                # If it looks like an entity_id (contains a dot but not a colon), validate it
+                if isinstance(at_value, str) and "." in at_value and ":" not in at_value:
+                    refs.append(
+                        StateReference(
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            entity_id=at_value,
+                            expected_state=None,
+                            expected_attribute=None,
+                            location=f"trigger[{index}].at",
+                            reference_type="direct",
+                        )
+                    )
+
         return refs
 
     def _extract_from_condition(
