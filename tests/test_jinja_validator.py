@@ -771,3 +771,176 @@ def test_action_level_variables_recognized():
     issues = validator.validate_automations([automation])
     undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
     assert len(undef_issues) == 0
+
+
+def test_ha_callable_globals_not_flagged():
+    """HA callable globals like float(), int(), sin() should not be flagged as undefined."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "callable_globals",
+        "alias": "Callable Globals Test",
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "wait_template": "{{ float(states('sensor.temp')) > 20.0 }}",
+            },
+            {
+                "data": {
+                    "brightness": "{{ int(states('sensor.level')) }}",
+                    "angle": "{{ sin(3.14) + cos(1.57) }}",
+                    "value": "{{ round(3.14159, 2) }}",
+                    "clamped": "{{ max(0, min(255, int(states('sensor.x')))) }}",
+                }
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0, f"False positive undefined variables: {[i.message for i in undef_issues]}"
+
+
+def test_ha_callable_globals_iif_and_timedelta():
+    """HA globals iif() and timedelta() should not be flagged."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "iif_timedelta",
+        "alias": "IIF and Timedelta Test",
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [
+            {
+                "condition": "template",
+                "value_template": "{{ iif(states('binary_sensor.x') == 'on', true, false) }}",
+            }
+        ],
+        "actions": [
+            {
+                "data": {
+                    "delay": "{{ timedelta(minutes=5) }}",
+                }
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0, f"False positive undefined variables: {[i.message for i in undef_issues]}"
+
+
+def test_sequence_variables_available_to_later_actions():
+    """Variables defined in an earlier action should be available to later actions in the sequence."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "seq_vars",
+        "alias": "Sequence Variables",
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "variables": {
+                    "backup_action": "full",
+                    "name": "daily_backup",
+                    "keep_days": 7,
+                },
+            },
+            {
+                "data": {
+                    "message": "{{ name }}",
+                }
+            },
+            {
+                "if": [
+                    {
+                        "condition": "template",
+                        "value_template": "{{ backup_action == 'full' }}",
+                    }
+                ],
+                "then": [
+                    {
+                        "data": {
+                            "name": "{{ name }}",
+                            "keep_days": "{{ keep_days }}",
+                        }
+                    }
+                ],
+                "else": [
+                    {
+                        "data": {
+                            "name": "{{ name }}",
+                            "keep_days": "{{ keep_days }}",
+                        }
+                    }
+                ],
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0, f"False positive undefined variables: {[i.message for i in undef_issues]}"
+
+
+def test_sequence_variables_in_nested_choose():
+    """Variables from earlier actions should propagate into nested choose blocks."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "nested_seq_vars",
+        "alias": "Nested Sequence Variables",
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "variables": {
+                    "mode": "auto",
+                },
+            },
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ mode == 'auto' }}",
+                            }
+                        ],
+                        "sequence": [
+                            {
+                                "data": {
+                                    "setting": "{{ mode }}",
+                                }
+                            }
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0, f"False positive undefined variables: {[i.message for i in undef_issues]}"
+
+
+def test_truly_undefined_still_flagged_with_sequence_vars():
+    """Truly undefined variables should still be flagged even with sequence variable accumulation."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "seq_partial",
+        "alias": "Sequence Partial",
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "variables": {
+                    "known_var": "value",
+                },
+            },
+            {
+                "data": {
+                    "a": "{{ known_var }}",
+                    "b": "{{ completely_unknown }}",
+                }
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 1
+    assert "completely_unknown" in undef_issues[0].message
