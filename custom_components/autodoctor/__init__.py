@@ -31,6 +31,7 @@ from .jinja_validator import JinjaValidator
 from .knowledge_base import StateKnowledgeBase
 from .learned_states_store import LearnedStatesStore
 from .reporter import IssueReporter
+from .service_validator import ServiceCallValidator
 from .suppression_store import SuppressionStore
 from .validator import ValidationEngine
 from .websocket_api import async_setup_websocket_api
@@ -205,6 +206,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     analyzer = AutomationAnalyzer()
     validator = ValidationEngine(knowledge_base)
     jinja_validator = JinjaValidator(hass)
+    service_validator = ServiceCallValidator(hass)
     reporter = IssueReporter(hass)
 
     hass.data[DOMAIN] = {
@@ -212,6 +214,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "analyzer": analyzer,
         "validator": validator,
         "jinja_validator": jinja_validator,
+        "service_validator": service_validator,
         "reporter": reporter,
         "suppression_store": suppression_store,
         "learned_states_store": learned_states_store,
@@ -345,6 +348,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     analyzer = data.get("analyzer")
     validator = data.get("validator")
     jinja_validator = data.get("jinja_validator")
+    service_validator = data.get("service_validator")
     reporter = data.get("reporter")
     knowledge_base = data.get("knowledge_base")
 
@@ -390,6 +394,23 @@ async def async_validate_all(hass: HomeAssistant) -> list:
             all_issues.extend(jinja_issues)
         except Exception as err:
             _LOGGER.warning("Jinja validation failed: %s", err)
+
+    # Run service call validation
+    if service_validator:
+        try:
+            service_calls = []
+            for automation in automations:
+                service_calls.extend(analyzer.extract_service_calls(automation))
+
+            service_issues = service_validator.validate_service_calls(service_calls)
+            all_issues.extend(service_issues)
+            _LOGGER.debug(
+                "Service validation: found %d issues in %d service calls",
+                len(service_issues),
+                len(service_calls),
+            )
+        except Exception as ex:
+            _LOGGER.exception("Service validation failed: %s", ex)
 
     # Run state reference validation - isolate each automation
     for idx, automation in enumerate(automations):

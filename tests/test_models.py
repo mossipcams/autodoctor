@@ -202,3 +202,69 @@ def test_validation_issue_set_deduplication():
     # issue3 is different (different automation_id)
     issues_set = {issue1, issue2, issue3}
     assert len(issues_set) == 2  # Only 2 unique issues
+
+
+def test_service_call_dataclass():
+    """Test ServiceCall dataclass creation."""
+    from custom_components.autodoctor.models import ServiceCall
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test Automation",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": "light.living_room"},
+        data={"brightness": 255},
+        is_template=False,
+    )
+
+    assert call.automation_id == "automation.test"
+    assert call.service == "light.turn_on"
+    assert call.location == "action[0]"
+    assert call.target == {"entity_id": "light.living_room"}
+    assert call.data == {"brightness": 255}
+    assert call.is_template is False
+
+
+def test_service_call_template_detection():
+    """Test ServiceCall with templated service name."""
+    from custom_components.autodoctor.models import ServiceCall
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="{{ service_var }}",
+        location="action[0]",
+        is_template=True,
+    )
+
+    assert call.is_template is True
+
+
+def test_service_issue_types_exist():
+    """Test new service-related issue types exist."""
+    from custom_components.autodoctor.models import IssueType
+
+    assert hasattr(IssueType, "SERVICE_NOT_FOUND")
+    assert hasattr(IssueType, "SERVICE_MISSING_REQUIRED_PARAM")
+    assert hasattr(IssueType, "SERVICE_INVALID_PARAM_TYPE")
+    assert hasattr(IssueType, "SERVICE_UNKNOWN_PARAM")
+
+    assert IssueType.SERVICE_NOT_FOUND.value == "service_not_found"
+    assert IssueType.SERVICE_MISSING_REQUIRED_PARAM.value == "service_missing_required_param"
+    assert IssueType.SERVICE_INVALID_PARAM_TYPE.value == "service_invalid_param_type"
+    assert IssueType.SERVICE_UNKNOWN_PARAM.value == "service_unknown_param"
+
+
+def test_new_template_issue_types():
+    """Test new template-related issue types exist."""
+    assert hasattr(IssueType, "TEMPLATE_ENTITY_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_INVALID_STATE")
+    assert hasattr(IssueType, "TEMPLATE_ATTRIBUTE_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_DEVICE_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_AREA_NOT_FOUND")
+    assert hasattr(IssueType, "TEMPLATE_ZONE_NOT_FOUND")
+
+    assert IssueType.TEMPLATE_ENTITY_NOT_FOUND.value == "template_entity_not_found"
+    assert IssueType.TEMPLATE_INVALID_STATE.value == "template_invalid_state"
+    assert IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND.value == "template_attribute_not_found"

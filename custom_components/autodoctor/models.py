@@ -26,6 +26,21 @@ class IssueType(str, Enum):
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
+    TEMPLATE_INVALID_ARGUMENTS = "template_invalid_arguments"
+    TEMPLATE_UNKNOWN_VARIABLE = "template_unknown_variable"
+    TEMPLATE_INVALID_ENTITY_ID = "template_invalid_entity_id"
+    SERVICE_NOT_FOUND = "service_not_found"
+    SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"
+    SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
+    SERVICE_UNKNOWN_PARAM = "service_unknown_param"
+
+    # NEW: HA-specific semantic errors
+    TEMPLATE_ENTITY_NOT_FOUND = "template_entity_not_found"
+    TEMPLATE_INVALID_STATE = "template_invalid_state"
+    TEMPLATE_ATTRIBUTE_NOT_FOUND = "template_attribute_not_found"
+    TEMPLATE_DEVICE_NOT_FOUND = "template_device_not_found"
+    TEMPLATE_AREA_NOT_FOUND = "template_area_not_found"
+    TEMPLATE_ZONE_NOT_FOUND = "template_zone_not_found"
 
 
 
@@ -92,3 +107,17 @@ class ValidationIssue:
         """Generate a unique key for suppressing this issue."""
         issue_type = self.issue_type.value if self.issue_type else "unknown"
         return f"{self.automation_id}:{self.entity_id}:{issue_type}"
+
+
+@dataclass
+class ServiceCall:
+    """A service call found in an automation action."""
+
+    automation_id: str
+    automation_name: str
+    service: str
+    location: str
+    target: dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
+    is_template: bool = False
+    source_line: int | None = None

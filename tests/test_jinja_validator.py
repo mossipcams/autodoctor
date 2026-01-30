@@ -2,7 +2,7 @@
 
 import pytest
 from custom_components.autodoctor.jinja_validator import JinjaValidator
-from custom_components.autodoctor.models import IssueType, Severity
+from custom_components.autodoctor.models import IssueType, Severity, StateReference
 
 
 def test_deeply_nested_conditions_do_not_stackoverflow():
@@ -74,7 +74,10 @@ def test_break_continue_do_not_produce_false_positives():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) == 0
+    # Only issue should be 'items' being undefined, not 'item' which is the loop variable
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
+    assert "'items'" in issues[0].message
 
 
 def test_valid_template_produces_no_issues():
@@ -249,7 +252,9 @@ def test_standard_jinja2_filters_are_accepted():
             "actions": [],
         }
         issues = validator.validate_automations([automation])
-        assert len(issues) == 0, f"Unexpected issue for template: {tmpl}: {issues}"
+        # Should not produce filter warnings (undefined variables are OK for this test)
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), \
+            f"Unexpected filter issue for template: {tmpl}: {issues}"
 
 
 def test_multiple_unknown_filters_all_reported():
@@ -292,3 +297,335 @@ def test_syntax_error_skips_semantic_check():
     issues = validator.validate_automations([automation])
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_extract_entity_references_from_is_state():
+    """Test extracting entity references from is_state() calls."""
+    validator = JinjaValidator()
+
+    template = "{{ is_state('light.kitchen', 'on') }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.kitchen"
+    assert refs[0].expected_state == "on"
+    assert refs[0].location == "test_location.is_state"
+
+
+def test_extract_entity_references_from_state_attr():
+    """Test extracting entity references from state_attr() calls."""
+    validator = JinjaValidator()
+
+    template = "{{ state_attr('climate.living_room', 'temperature') }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "temperature"
+    assert refs[0].location == "test_location.state_attr"
+
+
+def test_extract_entity_references_from_states_object():
+    """Test extracting entity references from states.domain.entity syntax."""
+    validator = JinjaValidator()
+
+    template = "{{ states.light.bedroom.state }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.bedroom"
+    assert refs[0].location == "test_location.states_object"
+
+
+def test_extract_entity_references_multiple_patterns():
+    """Test extracting from template with multiple patterns."""
+    validator = JinjaValidator()
+
+    template = "{{ is_state('light.kitchen', 'on') and states.sensor.temp.state | float > 20 }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 2
+    entity_ids = [r.entity_id for r in refs]
+    assert "light.kitchen" in entity_ids
+    assert "sensor.temp" in entity_ids
+
+
+def test_undefined_variable_warns():
+    """Test that undefined variables produce warnings."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "undefined_var",
+        "alias": "Undefined Var",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ unknown_variable }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
+    assert "unknown_variable" in issues[0].message
+
+
+def test_known_global_variables_pass():
+    """Test that known global variables don't produce warnings."""
+    validator = JinjaValidator()
+    templates = [
+        "{{ states('sensor.temp') }}",
+        "{{ now() }}",
+        "{{ utcnow() }}",
+        "{{ state_attr('sensor.temp', 'unit') }}",
+    ]
+    for tmpl in templates:
+        automation = {
+            "id": "global_test",
+            "alias": "Global Test",
+            "triggers": [
+                {
+                    "platform": "template",
+                    "value_template": tmpl,
+                }
+            ],
+            "conditions": [],
+            "actions": [],
+        }
+        issues = validator.validate_automations([automation])
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE for i in issues), \
+            f"Unexpected variable warning for: {tmpl}"
+
+
+def test_set_variable_in_scope():
+    """Test that {% set %} variables are in scope."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "set_var",
+        "alias": "Set Var",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "data": {
+                    "message": "{% set my_var = 42 %}{{ my_var }}",
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE for i in issues)
+
+
+def test_for_loop_variable_in_scope():
+    """Test that loop variables are in scope."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "loop_var",
+        "alias": "Loop Var",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "data": {
+                    "message": "{% for item in items %}{{ item }}{% endfor %}",
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    # Should warn about 'items' being undefined, but not 'item'
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
+    assert "'items'" in issues[0].message
+    assert "'item'" not in issues[0].message or issues[0].message == "Undefined variable 'items'"
+
+
+def test_special_context_variables_allowed():
+    """Test that special context variables are allowed."""
+    validator = JinjaValidator()
+    templates = [
+        "{{ trigger.platform }}",
+        "{{ this.state }}",
+        "{{ repeat.index }}",
+    ]
+    for tmpl in templates:
+        automation = {
+            "id": "context_test",
+            "alias": "Context Test",
+            "triggers": [
+                {
+                    "platform": "template",
+                    "value_template": tmpl,
+                }
+            ],
+            "conditions": [],
+            "actions": [],
+        }
+        issues = validator.validate_automations([automation])
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_VARIABLE for i in issues), \
+            f"Unexpected variable warning for: {tmpl}"
+
+
+def test_validate_entity_not_found(hass):
+    """Test entity existence validation."""
+    validator = JinjaValidator(hass)
+
+    # Create a reference to non-existent entity
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            expected_state=None,
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert "light.nonexistent" in issues[0].message
+
+
+def test_validate_attribute_not_found(hass):
+    """Test attribute existence validation."""
+    # Setup entity in hass
+    hass.states.async_set("climate.living_room", "heat", {"temperature": 20})
+
+    validator = JinjaValidator(hass)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="climate.living_room",
+            expected_state=None,
+            expected_attribute="nonexistent_attr",
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND
+    assert "nonexistent_attr" in issues[0].message
+
+
+def test_validate_invalid_state(hass):
+    """Test state value validation."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "off")
+
+    validator = JinjaValidator(hass)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            expected_state="invalid_state",
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    # Should find invalid state issue
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_INVALID_STATE for i in issues)
+
+
+def test_validate_entity_exists_no_issues(hass):
+    """Test validation passes for existing entity."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = JinjaValidator(hass)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            expected_state=None,
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 0
+
+
+def test_template_validation_end_to_end(hass):
+    """Test complete template validation with entity and state checks."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "off")
+
+    validator = JinjaValidator(hass)
+
+    automation = {
+        "id": "test_e2e",
+        "alias": "Test End to End",
+        "condition": {
+            "condition": "template",
+            "value_template": "{{ is_state('light.nonexistent', 'on') and is_state('light.kitchen', 'invalid_state') }}"
+        }
+    }
+
+    issues = validator.validate_automations([automation])
+
+    # Should find both entity not found and invalid state
+    assert len(issues) >= 2
+    issue_types = {i.issue_type for i in issues}
+    assert IssueType.TEMPLATE_ENTITY_NOT_FOUND in issue_types
+    assert IssueType.TEMPLATE_INVALID_STATE in issue_types
+
+
+def test_template_validation_passes_for_valid_template(hass):
+    """Test template validation passes for valid template."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = JinjaValidator(hass)
+
+    automation = {
+        "id": "test_valid",
+        "alias": "Test Valid",
+        "condition": {
+            "condition": "template",
+            "value_template": "{{ is_state('light.kitchen', 'on') }}"
+        }
+    }
+
+    issues = validator.validate_automations([automation])
+
+    # Should have no issues
+    assert len(issues) == 0

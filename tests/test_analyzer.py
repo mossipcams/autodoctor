@@ -973,6 +973,610 @@ def test_extract_integration_entities():
     assert refs[0].reference_type == "integration"
 
 
+def test_normalize_entity_ids_single_string():
+    """Test normalizing single entity_id string to list."""
+    analyzer = AutomationAnalyzer()
+    result = analyzer._normalize_entity_ids("light.kitchen")
+    assert result == ["light.kitchen"]
+
+
+def test_normalize_entity_ids_list():
+    """Test normalizing entity_id list."""
+    analyzer = AutomationAnalyzer()
+    result = analyzer._normalize_entity_ids(["light.kitchen", "light.bedroom"])
+    assert result == ["light.kitchen", "light.bedroom"]
+
+
+def test_normalize_entity_ids_none():
+    """Test normalizing None entity_id."""
+    analyzer = AutomationAnalyzer()
+    result = analyzer._normalize_entity_ids(None)
+    assert result == []
+
+
+def test_extract_zone_trigger():
+    """Test zone trigger extraction."""
+    automation = {
+        "id": "test_zone",
+        "alias": "Test Zone Trigger",
+        "trigger": {
+            "platform": "zone",
+            "entity_id": "device_tracker.paulus",
+            "zone": "zone.home",
+            "event": "enter"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "device_tracker.paulus"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0].entity_id"
+    assert refs[1].entity_id == "zone.home"
+    assert refs[1].reference_type == "zone"
+    assert refs[1].location == "trigger[0].zone"
+
+
+def test_extract_sun_trigger():
+    """Test sun trigger extraction."""
+    automation = {
+        "id": "test_sun",
+        "alias": "Test Sun Trigger",
+        "trigger": {
+            "platform": "sun",
+            "event": "sunset",
+            "offset": "-01:00:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sun.sun"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0]"
+
+
+def test_extract_calendar_trigger():
+    """Test calendar trigger extraction."""
+    automation = {
+        "id": "test_calendar",
+        "alias": "Test Calendar Trigger",
+        "trigger": {
+            "platform": "calendar",
+            "entity_id": "calendar.events",
+            "event": "start",
+            "offset": "-00:05:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "calendar.events"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0].entity_id"
+
+
+def test_extract_device_trigger():
+    """Test device trigger extraction."""
+    automation = {
+        "id": "test_device",
+        "alias": "Test Device Trigger",
+        "trigger": {
+            "platform": "device",
+            "device_id": "abc123def456",
+            "domain": "mqtt",
+            "type": "button_short_press",
+            "subtype": "button_1"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "abc123def456"
+    assert refs[0].reference_type == "device"
+    assert refs[0].location == "trigger[0].device_id"
+
+
+def test_extract_tag_trigger():
+    """Test tag trigger extraction."""
+    automation = {
+        "id": "test_tag",
+        "alias": "Test Tag Trigger",
+        "trigger": {
+            "platform": "tag",
+            "tag_id": "AABBCCDD",
+            "device_id": "scanner_device_123"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "AABBCCDD"
+    assert refs[0].reference_type == "tag"
+    assert refs[0].location == "trigger[0].tag_id"
+    assert refs[1].entity_id == "scanner_device_123"
+    assert refs[1].reference_type == "device"
+    assert refs[1].location == "trigger[0].device_id"
+
+
+def test_extract_tag_trigger_no_device():
+    """Test tag trigger without device_id."""
+    automation = {
+        "id": "test_tag_no_device",
+        "alias": "Test Tag No Device",
+        "trigger": {
+            "platform": "tag",
+            "tag_id": "EEFFGGHH"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "EEFFGGHH"
+    assert refs[0].reference_type == "tag"
+
+
+def test_extract_geo_location_trigger():
+    """Test geo_location trigger extraction."""
+    automation = {
+        "id": "test_geo",
+        "alias": "Test Geo Location Trigger",
+        "trigger": {
+            "platform": "geo_location",
+            "source": "nsw_rural_fire_service_feed",
+            "zone": "zone.home",
+            "event": "enter"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "zone.home"
+    assert refs[0].reference_type == "zone"
+    assert refs[0].location == "trigger[0].zone"
+
+
+def test_extract_event_trigger_with_template():
+    """Test event trigger with template in event_data."""
+    automation = {
+        "id": "test_event",
+        "alias": "Test Event Trigger",
+        "trigger": {
+            "platform": "event",
+            "event_type": "my_custom_event",
+            "event_data": {
+                "entity": "{{ states('input_text.target') }}"
+            }
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.target"
+    assert refs[0].location == "trigger[0].event_data.entity.states_function"
+
+
+def test_extract_mqtt_trigger_with_template():
+    """Test MQTT trigger with template in topic."""
+    automation = {
+        "id": "test_mqtt",
+        "alias": "Test MQTT Trigger",
+        "trigger": {
+            "platform": "mqtt",
+            "topic": "home/{{ states('input_text.room') }}/light",
+            "payload": "ON"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.room"
+    assert refs[0].location == "trigger[0].topic.states_function"
+
+
+def test_extract_webhook_trigger():
+    """Test webhook trigger (no entity references expected)."""
+    automation = {
+        "id": "test_webhook",
+        "alias": "Test Webhook Trigger",
+        "trigger": {
+            "platform": "webhook",
+            "webhook_id": "my_webhook_123",
+            "allowed_methods": ["POST", "PUT"]
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # No entity references expected for static webhook_id
+    assert len(refs) == 0
+
+
+def test_extract_webhook_trigger_with_template():
+    """Test webhook trigger with template in webhook_id."""
+    automation = {
+        "id": "test_webhook_template",
+        "alias": "Test Webhook Template",
+        "trigger": {
+            "platform": "webhook",
+            "webhook_id": "webhook_{{ states('input_text.name') }}"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.name"
+
+
+def test_extract_persistent_notification_trigger():
+    """Test persistent_notification trigger with template."""
+    automation = {
+        "id": "test_notification",
+        "alias": "Test Notification Trigger",
+        "trigger": {
+            "platform": "persistent_notification",
+            "notification_id": "alert_{{ states('input_text.alert_name') }}",
+            "update_type": "added"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.alert_name"
+
+
+def test_extract_time_trigger_with_entity():
+    """Test time trigger with entity reference."""
+    automation = {
+        "id": "test_time",
+        "alias": "Test Time Trigger",
+        "trigger": {
+            "platform": "time",
+            "at": "input_datetime.wake_up_time"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_datetime.wake_up_time"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "trigger[0].at"
+
+
+def test_extract_time_trigger_with_time_string():
+    """Test time trigger with time string (no entity reference)."""
+    automation = {
+        "id": "test_time_string",
+        "alias": "Test Time String",
+        "trigger": {
+            "platform": "time",
+            "at": "07:30:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # No entity references for time strings
+    assert len(refs) == 0
+
+
+def test_extract_time_trigger_with_multiple():
+    """Test time trigger with multiple at values."""
+    automation = {
+        "id": "test_time_multi",
+        "alias": "Test Time Multiple",
+        "trigger": {
+            "platform": "time",
+            "at": [
+                "input_datetime.wake_up",
+                "07:30:00",
+                "sensor.sunset_time"
+            ]
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    entity_ids = [r.entity_id for r in refs]
+    assert "input_datetime.wake_up" in entity_ids
+    assert "sensor.sunset_time" in entity_ids
+
+
+def test_extract_numeric_state_condition():
+    """Test numeric_state condition extraction."""
+    automation = {
+        "id": "test_numeric_cond",
+        "alias": "Test Numeric Condition",
+        "condition": {
+            "condition": "numeric_state",
+            "entity_id": "sensor.temperature",
+            "above": 20,
+            "below": 30
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.temperature"
+    assert refs[0].expected_attribute is None
+    assert refs[0].location == "condition[0]"
+
+
+def test_extract_numeric_state_condition_with_attribute():
+    """Test numeric_state condition with attribute."""
+    automation = {
+        "id": "test_numeric_attr",
+        "alias": "Test Numeric Attribute",
+        "condition": {
+            "condition": "numeric_state",
+            "entity_id": "climate.living_room",
+            "attribute": "temperature",
+            "above": 20
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "temperature"
+    assert refs[0].location == "condition[0]"
+
+
+def test_extract_numeric_state_condition_with_template():
+    """Test numeric_state condition with value_template."""
+    automation = {
+        "id": "test_numeric_template",
+        "alias": "Test Numeric Template",
+        "condition": {
+            "condition": "numeric_state",
+            "entity_id": "sensor.data",
+            "value_template": "{{ state.attributes.value | float }}",
+            "above": 10
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract entity_id
+    assert len(refs) >= 1
+    entity_ids = [r.entity_id for r in refs]
+    assert "sensor.data" in entity_ids
+
+
+def test_extract_zone_condition():
+    """Test zone condition extraction."""
+    automation = {
+        "id": "test_zone_cond",
+        "alias": "Test Zone Condition",
+        "condition": {
+            "condition": "zone",
+            "entity_id": "device_tracker.paulus",
+            "zone": "zone.home"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "device_tracker.paulus"
+    assert refs[0].location == "condition[0].entity_id"
+    assert refs[1].entity_id == "zone.home"
+    assert refs[1].reference_type == "zone"
+    assert refs[1].location == "condition[0].zone"
+
+
+def test_extract_sun_condition():
+    """Test sun condition extraction."""
+    automation = {
+        "id": "test_sun_cond",
+        "alias": "Test Sun Condition",
+        "condition": {
+            "condition": "sun",
+            "after": "sunset",
+            "after_offset": "-01:00:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sun.sun"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "condition[0]"
+
+
+def test_extract_time_condition_with_entity():
+    """Test time condition with entity references."""
+    automation = {
+        "id": "test_time_cond",
+        "alias": "Test Time Condition",
+        "condition": {
+            "condition": "time",
+            "after": "input_datetime.wake_up",
+            "before": "22:00:00",
+            "weekday": ["mon", "tue", "wed"]
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_datetime.wake_up"
+    assert refs[0].location == "condition[0].after"
+
+
+def test_extract_time_condition_no_entities():
+    """Test time condition with time strings only."""
+    automation = {
+        "id": "test_time_cond_strings",
+        "alias": "Test Time Strings",
+        "condition": {
+            "condition": "time",
+            "after": "08:00:00",
+            "before": "22:00:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # No entity references for time strings
+    assert len(refs) == 0
+
+
+def test_extract_device_condition():
+    """Test device condition extraction."""
+    automation = {
+        "id": "test_device_cond",
+        "alias": "Test Device Condition",
+        "condition": {
+            "condition": "device",
+            "device_id": "abc123def456",
+            "domain": "light",
+            "type": "is_on"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "abc123def456"
+    assert refs[0].reference_type == "device"
+    assert refs[0].location == "condition[0].device_id"
+
+
+def test_extract_numeric_state_trigger_with_attribute():
+    """Test numeric_state trigger now extracts attribute for validation."""
+    automation = {
+        "id": "test_numeric_trigger_attr",
+        "alias": "Test Numeric Trigger Attribute",
+        "trigger": {
+            "platform": "numeric_state",
+            "entity_id": "climate.living_room",
+            "attribute": "temperature",
+            "above": 20
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "temperature"
+    assert refs[0].location == "trigger[0]"
+
+
+def test_extract_direct_service_call():
+    """Test extracting a direct service call."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.living_room"},
+                "data": {"brightness": 255},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+    assert calls[0].location == "action[0]"
+    assert calls[0].is_template is False
+
+
+def test_extract_templated_service_call():
+    """Test extracting a templated service call."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {"service": "{{ service_var }}"}
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].is_template is True
+
+
+def test_extract_service_calls_from_choose():
+    """Test extracting service calls from choose branches."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "choose": [
+                    {
+                        "sequence": [
+                            {"service": "light.turn_on"}
+                        ]
+                    },
+                    {
+                        "sequence": [
+                            {"service": "light.turn_off"}
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 2
+    assert calls[0].service == "light.turn_on"
+    assert calls[0].location == "action[0].choose[0].sequence[0]"
+    assert calls[1].service == "light.turn_off"
+    assert calls[1].location == "action[0].choose[1].sequence[0]"
+
+
 def test_extract_service_call_data_entity_id():
     """Test extraction from service call with data.entity_id."""
     automation = {
