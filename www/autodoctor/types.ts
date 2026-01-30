@@ -59,3 +59,13 @@ export interface ConflictsTabData {
   last_run: string | null;
   suppressed_count: number;
 }
+
+export interface AutomationGroup {
+  automation_id: string;
+  automation_name: string;
+  issues: IssueWithFix[];
+  edit_url: string;
+  has_error: boolean;
+  error_count: number;
+  warning_count: number;
+}
