@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.6.0](https://github.com/mossipcams/autodoctor/compare/v2.5.0...v2.6.0) (2026-01-30)
+
+
+### Features
+
+* add regex patterns for helper function extraction ([a54a77e](https://github.com/mossipcams/autodoctor/commit/a54a77e8456321648c6cf8021dd8df6547f728f9))
+* extract entity references from for-each iterations ([8a41e3c](https://github.com/mossipcams/autodoctor/commit/8a41e3ccd6158c91afaa40f8ec2361123fdb68da))
+* extract entity references from helper functions ([45ffd54](https://github.com/mossipcams/autodoctor/commit/45ffd5490158e962bf81c39adb2ac79f5795b007))
+* extract entity references from service calls ([5926b0a](https://github.com/mossipcams/autodoctor/commit/5926b0a6a0561ed19ce0102f3af2eea65a8a0ca5))
+* extract script references from shorthand syntax ([5f40fe0](https://github.com/mossipcams/autodoctor/commit/5f40fe0233307c8c726225605ad2ec14158b7029))
+
+
+### Documentation
+
+* mark state extraction improvements as implemented ([5ab5521](https://github.com/mossipcams/autodoctor/commit/5ab5521c580df427d0e74d62eb737a45aed5c0a3))
+
 ## [2.5.0](https://github.com/mossipcams/autodoctor/compare/v2.4.0...v2.5.0) (2026-01-29)
 
 

@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from .models import StateReference
+from .models import ServiceCall, StateReference
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +60,21 @@ INTEGRATION_ENTITIES_PATTERN = re.compile(
     rf"integration_entities\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
     re.DOTALL,
 )
+# Pattern for device_id('entity_id')
+DEVICE_ID_PATTERN = re.compile(
+    rf"device_id\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for area_name('entity_id') and area_id('entity_id')
+AREA_NAME_PATTERN = re.compile(
+    rf"area_(?:name|id)\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
+# Pattern for has_value('entity_id')
+HAS_VALUE_PATTERN = re.compile(
+    rf"has_value\s*\(\s*['\"]({_QUOTED_STRING})['\"]\s*\)",
+    re.DOTALL,
+)
 # Pattern to strip Jinja2 comments before parsing
 JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
@@ -83,6 +98,14 @@ class AutomationAnalyzer:
         if hasattr(value, "__iter__") and not isinstance(value, str):
             return [str(v) for v in value]
 
+        return [str(value)]
+
+    def _normalize_entity_ids(self, value: Any) -> list[str]:
+        """Normalize entity_id value(s) to a list of strings."""
+        if value is None:
+            return []
+        if hasattr(value, "__iter__") and not isinstance(value, str):
+            return [str(v) for v in value]
         return [str(value)]
 
     def extract_state_references(
@@ -206,6 +229,209 @@ class AutomationAnalyzer:
                 )
             )
 
+        elif platform == "zone":
+            entity_ids = self._normalize_entity_ids(trigger.get("entity_id"))
+            zone_id = trigger.get("zone")
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].entity_id",
+                        reference_type="direct",
+                    )
+                )
+
+            if zone_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=zone_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].zone",
+                        reference_type="zone",
+                    )
+                )
+
+        elif platform == "sun":
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id="sun.sun",
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"trigger[{index}]",
+                    reference_type="direct",
+                )
+            )
+
+        elif platform == "calendar":
+            entity_ids = self._normalize_entity_ids(trigger.get("entity_id"))
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].entity_id",
+                        reference_type="direct",
+                    )
+                )
+
+        elif platform == "device":
+            device_id = trigger.get("device_id")
+            if device_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
+
+        elif platform == "tag":
+            tag_id = trigger.get("tag_id")
+            if tag_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=tag_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].tag_id",
+                        reference_type="tag",
+                    )
+                )
+
+            device_id = trigger.get("device_id")
+            if device_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
+
+        elif platform == "geo_location":
+            zone = trigger.get("zone")
+            if zone:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=zone,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].zone",
+                        reference_type="zone",
+                    )
+                )
+
+        elif platform == "event":
+            event_data = trigger.get("event_data", {})
+
+            if isinstance(event_data, dict):
+                for key, value in event_data.items():
+                    if isinstance(value, str):
+                        refs.extend(
+                            self._extract_from_template(
+                                value,
+                                f"trigger[{index}].event_data.{key}",
+                                automation_id,
+                                automation_name,
+                            )
+                        )
+
+        elif platform == "mqtt":
+            topic = trigger.get("topic", "")
+            payload = trigger.get("payload", "")
+
+            if isinstance(topic, str):
+                refs.extend(
+                    self._extract_from_template(
+                        topic,
+                        f"trigger[{index}].topic",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+            if isinstance(payload, str):
+                refs.extend(
+                    self._extract_from_template(
+                        payload,
+                        f"trigger[{index}].payload",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+        elif platform == "webhook":
+            webhook_id = trigger.get("webhook_id", "")
+
+            if isinstance(webhook_id, str):
+                refs.extend(
+                    self._extract_from_template(
+                        webhook_id,
+                        f"trigger[{index}].webhook_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+        elif platform == "persistent_notification":
+            notification_id = trigger.get("notification_id", "")
+
+            if isinstance(notification_id, str):
+                refs.extend(
+                    self._extract_from_template(
+                        notification_id,
+                        f"trigger[{index}].notification_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+        elif platform == "time":
+            at_values = trigger.get("at")
+            if not isinstance(at_values, list):
+                at_values = [at_values] if at_values else []
+
+            for at_value in at_values:
+                # If it looks like an entity_id (contains a dot but not a colon), validate it
+                if isinstance(at_value, str) and "." in at_value and ":" not in at_value:
+                    refs.append(
+                        StateReference(
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            entity_id=at_value,
+                            expected_state=None,
+                            expected_attribute=None,
+                            location=f"trigger[{index}].at",
+                            reference_type="direct",
+                        )
+                    )
+
         return refs
 
     def _extract_from_condition(
@@ -273,6 +499,126 @@ class AutomationAnalyzer:
                     automation_name,
                 )
             )
+
+        elif cond_type == "numeric_state":
+            entity_ids = self._normalize_entity_ids(condition.get("entity_id"))
+            attribute = condition.get("attribute")
+            value_template = condition.get("value_template")
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=attribute,
+                        location=f"{location_prefix}[{index}]",
+                        reference_type="direct",
+                    )
+                )
+
+            # Extract from value_template if present
+            if value_template and isinstance(value_template, str):
+                refs.extend(
+                    self._extract_from_template(
+                        value_template,
+                        f"{location_prefix}[{index}].value_template",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+        elif cond_type == "zone":
+            entity_ids = self._normalize_entity_ids(condition.get("entity_id"))
+            zone_id = condition.get("zone")
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].entity_id",
+                        reference_type="direct",
+                    )
+                )
+
+            if zone_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=zone_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].zone",
+                        reference_type="zone",
+                    )
+                )
+
+        elif cond_type == "sun":
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id="sun.sun",
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"{location_prefix}[{index}]",
+                    reference_type="direct",
+                )
+            )
+
+        elif cond_type == "time":
+            # Check after and before for entity IDs
+            after_value = condition.get("after")
+            before_value = condition.get("before")
+
+            # If it looks like an entity_id (contains a dot but not a colon), validate it
+            if after_value and isinstance(after_value, str) and "." in after_value and ":" not in after_value:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=after_value,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].after",
+                        reference_type="direct",
+                    )
+                )
+
+            if before_value and isinstance(before_value, str) and "." in before_value and ":" not in before_value:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=before_value,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].before",
+                        reference_type="direct",
+                    )
+                )
+
+        elif cond_type == "device":
+            device_id = condition.get("device_id")
+
+            if device_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
 
         return refs
 
@@ -428,6 +774,136 @@ class AutomationAnalyzer:
                     )
                 )
 
+        # Extract device_id() calls
+        for match in DEVICE_ID_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.device_id",
+                        reference_type="metadata",
+                    )
+                )
+
+        # Extract area_name/area_id() calls
+        for match in AREA_NAME_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.area_lookup",
+                        reference_type="metadata",
+                    )
+                )
+
+        # Extract has_value() calls
+        for match in HAS_VALUE_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.has_value",
+                        reference_type="entity",
+                    )
+                )
+
+        return refs
+
+    def _extract_from_service_call(
+        self,
+        action: dict[str, Any],
+        index: int,
+        automation_id: str,
+        automation_name: str,
+    ) -> list[StateReference]:
+        """Extract entity references from service calls.
+
+        Args:
+            action: The action dict containing service call
+            index: Action index in the automation
+            automation_id: Automation entity ID
+            automation_name: Automation friendly name
+
+        Returns:
+            List of StateReference objects for entities in service call
+        """
+        refs: list[StateReference] = []
+
+        # Get service name (both 'service' and 'action' keys)
+        service = action.get("service") or action.get("action")
+        if not service:
+            return refs
+
+        # Shorthand script call: service: script.my_script
+        if service.startswith("script.") and service not in ("script.turn_on", "script.reload", "script.turn_off"):
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=service,  # e.g., "script.bedtime_routine"
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"action[{index}].service",
+                    reference_type="script",
+                )
+            )
+            return refs  # Shorthand doesn't have additional entity_id
+
+        # Check data.entity_id
+        data = action.get("data", {})
+        entity_ids = self._normalize_states(data.get("entity_id"))
+
+        # Check target.entity_id (newer syntax)
+        target = action.get("target", {})
+        entity_ids.extend(self._normalize_states(target.get("entity_id")))
+
+        # Determine reference type based on service
+        reference_type = "service_call"
+        if service == "scene.turn_on":
+            reference_type = "scene"
+        elif service == "script.turn_on":
+            reference_type = "script"
+
+        for entity_id in entity_ids:
+            # If it's a template, extract from template
+            if "{{" in entity_id:
+                refs.extend(
+                    self._extract_from_template(
+                        entity_id,
+                        f"action[{index}].data.entity_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+            else:
+                # Direct entity reference
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"action[{index}].service.entity_id",
+                        reference_type=reference_type,
+                    )
+                )
+
         return refs
 
     def _extract_from_actions(
@@ -443,6 +919,13 @@ class AutomationAnalyzer:
             actions = [actions]
 
         for idx, action in enumerate(actions):
+            # Extract from service calls
+            refs.extend(
+                self._extract_from_service_call(
+                    action, idx, automation_id, automation_name
+                )
+            )
+
             # Extract from choose option conditions and sequences
             if "choose" in action:
                 options = action.get("choose") or []
@@ -517,6 +1000,37 @@ class AutomationAnalyzer:
             elif "repeat" in action:
                 repeat_config = action["repeat"]
 
+                # Extract from for_each
+                if "for_each" in repeat_config:
+                    for_each_value = repeat_config["for_each"]
+
+                    # Handle list format (static entities)
+                    if isinstance(for_each_value, list):
+                        for item in for_each_value:
+                            if isinstance(item, str):
+                                refs.append(
+                                    StateReference(
+                                        automation_id=automation_id,
+                                        automation_name=automation_name,
+                                        entity_id=item,
+                                        expected_state=None,
+                                        expected_attribute=None,
+                                        location=f"action[{idx}].repeat.for_each",
+                                        reference_type="for_each",
+                                    )
+                                )
+
+                    # Handle template format
+                    elif isinstance(for_each_value, str):
+                        refs.extend(
+                            self._extract_from_template(
+                                for_each_value,
+                                f"action[{idx}].repeat.for_each",
+                                automation_id,
+                                automation_name,
+                            )
+                        )
+
                 # Check while conditions
                 while_conditions = repeat_config.get("while", [])
                 if not isinstance(while_conditions, list):
@@ -579,4 +1093,40 @@ class AutomationAnalyzer:
                     )
 
         return refs
+
+    def extract_service_calls(self, automation: dict) -> list[ServiceCall]:
+        """Extract all service calls from automation actions."""
+        service_calls: list[ServiceCall] = []
+        actions = automation.get("action", [])
+
+        for idx, action in enumerate(actions):
+            if "service" in action:
+                is_template = "{{" in action["service"] or "{%" in action["service"]
+                service_calls.append(ServiceCall(
+                    automation_id=automation.get("id", "unknown"),
+                    automation_name=automation.get("alias", "Unknown"),
+                    service=action["service"],
+                    location=f"action[{idx}]",
+                    target=action.get("target"),
+                    data=action.get("data"),
+                    is_template=is_template,
+                ))
+
+            # Handle choose branches
+            if "choose" in action:
+                for choose_idx, branch in enumerate(action["choose"]):
+                    for seq_idx, seq_action in enumerate(branch.get("sequence", [])):
+                        if "service" in seq_action:
+                            is_template = "{{" in seq_action["service"] or "{%" in seq_action["service"]
+                            service_calls.append(ServiceCall(
+                                automation_id=automation.get("id", "unknown"),
+                                automation_name=automation.get("alias", "Unknown"),
+                                service=seq_action["service"],
+                                location=f"action[{idx}].choose[{choose_idx}].sequence[{seq_idx}]",
+                                target=seq_action.get("target"),
+                                data=seq_action.get("data"),
+                                is_template=is_template,
+                            ))
+
+        return service_calls
 
