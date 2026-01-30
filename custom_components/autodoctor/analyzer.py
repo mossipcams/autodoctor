@@ -273,6 +273,50 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif platform == "device":
+            device_id = trigger.get("device_id")
+            if device_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
+
+        elif platform == "tag":
+            tag_id = trigger.get("tag_id")
+            if tag_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=tag_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].tag_id",
+                        reference_type="tag",
+                    )
+                )
+
+            device_id = trigger.get("device_id")
+            if device_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
+
         return refs
 
     def _extract_from_condition(
@@ -664,6 +708,22 @@ class AutomationAnalyzer:
                     data=action.get("data"),
                     is_template=is_template,
                 ))
+
+            # Handle choose branches
+            if "choose" in action:
+                for choose_idx, branch in enumerate(action["choose"]):
+                    for seq_idx, seq_action in enumerate(branch.get("sequence", [])):
+                        if "service" in seq_action:
+                            is_template = "{{" in seq_action["service"] or "{%" in seq_action["service"]
+                            service_calls.append(ServiceCall(
+                                automation_id=automation.get("id", "unknown"),
+                                automation_name=automation.get("alias", "Unknown"),
+                                service=seq_action["service"],
+                                location=f"action[{idx}].choose[{choose_idx}].sequence[{seq_idx}]",
+                                target=seq_action.get("target"),
+                                data=seq_action.get("data"),
+                                is_template=is_template,
+                            ))
 
         return service_calls
 

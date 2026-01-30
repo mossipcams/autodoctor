@@ -1062,6 +1062,53 @@ def test_extract_calendar_trigger():
     assert refs[0].location == "trigger[0].entity_id"
 
 
+def test_extract_device_trigger():
+    """Test device trigger extraction."""
+    automation = {
+        "id": "test_device",
+        "alias": "Test Device Trigger",
+        "trigger": {
+            "platform": "device",
+            "device_id": "abc123def456",
+            "domain": "mqtt",
+            "type": "button_short_press",
+            "subtype": "button_1"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "abc123def456"
+    assert refs[0].reference_type == "device"
+    assert refs[0].location == "trigger[0].device_id"
+
+
+def test_extract_tag_trigger():
+    """Test tag trigger extraction."""
+    automation = {
+        "id": "test_tag",
+        "alias": "Test Tag Trigger",
+        "trigger": {
+            "platform": "tag",
+            "tag_id": "AABBCCDD",
+            "device_id": "scanner_device_123"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "AABBCCDD"
+    assert refs[0].reference_type == "tag"
+    assert refs[0].location == "trigger[0].tag_id"
+    assert refs[1].entity_id == "scanner_device_123"
+    assert refs[1].reference_type == "device"
+    assert refs[1].location == "trigger[0].device_id"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
