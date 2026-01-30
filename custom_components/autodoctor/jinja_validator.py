@@ -11,6 +11,7 @@ from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
 from .models import IssueType, Severity, ValidationIssue
+from .template_semantics import FILTER_SIGNATURES, TEST_SIGNATURES
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -166,7 +167,9 @@ class JinjaValidator:
 
         # Check value_template
         value_template = trigger.get("value_template")
+        print(f"DEBUG: _validate_trigger called, value_template={value_template}")
         if value_template and isinstance(value_template, str):
+            print(f"DEBUG: Calling _check_template")
             issues.extend(self._check_template(
                 value_template, f"trigger[{index}].value_template", auto_id, auto_name
             ))
@@ -460,6 +463,177 @@ class JinjaValidator:
         """Check if a string contains Jinja2 template syntax."""
         return bool(TEMPLATE_PATTERN.search(value))
 
+    def _extract_entity_references(
+        self,
+        template: str,
+        location: str,
+        auto_id: str,
+        auto_name: str,
+    ) -> list["StateReference"]:
+        """Extract entity references from template using analyzer patterns.
+
+        Reuses regex patterns from AutomationAnalyzer._extract_from_template()
+        to find all entity references in the template.
+        """
+        # Import analyzer patterns (avoid circular import at module level)
+        from .analyzer import (
+            IS_STATE_PATTERN,
+            IS_STATE_ATTR_PATTERN,
+            STATE_ATTR_PATTERN,
+            STATES_OBJECT_PATTERN,
+            STATES_FUNCTION_PATTERN,
+            EXPAND_PATTERN,
+            AREA_ENTITIES_PATTERN,
+            DEVICE_ENTITIES_PATTERN,
+            INTEGRATION_ENTITIES_PATTERN,
+            JINJA_COMMENT_PATTERN,
+        )
+        from .models import StateReference
+
+        refs: list[StateReference] = []
+
+        # Strip Jinja2 comments before parsing
+        template = JINJA_COMMENT_PATTERN.sub("", template)
+
+        # Extract is_state() calls - captures entity_id AND state value
+        for match in IS_STATE_PATTERN.finditer(template):
+            entity_id, state = match.groups()
+            refs.append(
+                StateReference(
+                    automation_id=auto_id,
+                    automation_name=auto_name,
+                    entity_id=entity_id,
+                    expected_state=state,  # Capture state for validation
+                    expected_attribute=None,
+                    location=f"{location}.is_state",
+                )
+            )
+
+        # Extract is_state_attr() calls - captures entity_id, attribute, AND value
+        for match in IS_STATE_ATTR_PATTERN.finditer(template):
+            entity_id, attribute, _value = match.groups()
+            refs.append(
+                StateReference(
+                    automation_id=auto_id,
+                    automation_name=auto_name,
+                    entity_id=entity_id,
+                    expected_state=None,
+                    expected_attribute=attribute,  # Capture for validation
+                    location=f"{location}.is_state_attr",
+                )
+            )
+
+        # Extract state_attr() calls
+        for match in STATE_ATTR_PATTERN.finditer(template):
+            entity_id, attribute = match.groups()
+            refs.append(
+                StateReference(
+                    automation_id=auto_id,
+                    automation_name=auto_name,
+                    entity_id=entity_id,
+                    expected_state=None,
+                    expected_attribute=attribute,
+                    location=f"{location}.state_attr",
+                )
+            )
+
+        # Extract states.domain.entity references
+        for match in STATES_OBJECT_PATTERN.finditer(template):
+            domain, entity_name = match.groups()
+            entity_id = f"{domain}.{entity_name}"
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.states_object",
+                    )
+                )
+
+        # Extract states('entity_id') function calls
+        for match in STATES_FUNCTION_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.states_function",
+                    )
+                )
+
+        # Extract expand() calls
+        for match in EXPAND_PATTERN.finditer(template):
+            entity_id = match.group(1)
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.expand",
+                        reference_type="group",
+                    )
+                )
+
+        # Extract area_entities() calls
+        for match in AREA_ENTITIES_PATTERN.finditer(template):
+            area_id = match.group(1)
+            if not any(r.entity_id == area_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id=area_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.area_entities",
+                        reference_type="area",
+                    )
+                )
+
+        # Extract device_entities() calls
+        for match in DEVICE_ENTITIES_PATTERN.finditer(template):
+            device_id = match.group(1)
+            if not any(r.entity_id == device_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.device_entities",
+                        reference_type="device",
+                    )
+                )
+
+        # Extract integration_entities() calls
+        for match in INTEGRATION_ENTITIES_PATTERN.finditer(template):
+            integration_id = match.group(1)
+            if not any(r.entity_id == integration_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=auto_id,
+                        automation_name=auto_name,
+                        entity_id=integration_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.integration_entities",
+                        reference_type="integration",
+                    )
+                )
+
+        return refs
+
     def _check_ast_semantics(
         self,
         ast: nodes.Template,
@@ -469,8 +643,11 @@ class JinjaValidator:
     ) -> list[ValidationIssue]:
         """Walk the parsed AST to check for unknown filters and tests."""
         issues: list[ValidationIssue] = []
+        print(f"DEBUG: _check_ast_semantics called")
 
         for node in ast.find_all(nodes.Filter):
+            print(f"DEBUG: Found filter node: {node.name}")
+            _LOGGER.debug(f"Found filter: {node.name}, known: {node.name in self._known_filters}")
             if node.name not in self._known_filters:
                 issues.append(
                     ValidationIssue(
@@ -483,6 +660,10 @@ class JinjaValidator:
                         message=f"Unknown filter '{node.name}' — not a built-in Jinja2 or Home Assistant filter",
                     )
                 )
+            else:
+                # Validate arguments for known filters
+                _LOGGER.debug(f"Calling _validate_filter_args for {node.name}")
+                issues.extend(self._validate_filter_args(node, location, auto_id, auto_name))
 
         for node in ast.find_all(nodes.Test):
             if node.name not in self._known_tests:
@@ -500,6 +681,43 @@ class JinjaValidator:
 
         return issues
 
+    def _validate_filter_args(
+        self,
+        node: nodes.Filter,
+        location: str,
+        auto_id: str,
+        auto_name: str,
+    ) -> list[ValidationIssue]:
+        """Validate filter argument count."""
+        sig = FILTER_SIGNATURES.get(node.name)
+        if not sig:
+            return []  # Unknown filter already handled elsewhere
+
+        # Count arguments - args can be None or a list
+        arg_count = len(node.args) if node.args else 0
+        _LOGGER.debug(f"Validating filter '{node.name}': args={arg_count}, min={sig.min_args}, max={sig.max_args}")
+
+        if arg_count < sig.min_args or (sig.max_args is not None and arg_count > sig.max_args):
+            if sig.max_args is None:
+                expected = f"{sig.min_args}+"
+            elif sig.min_args == sig.max_args:
+                expected = str(sig.min_args)
+            else:
+                expected = f"{sig.min_args}-{sig.max_args}"
+
+            return [
+                ValidationIssue(
+                    issue_type=IssueType.TEMPLATE_INVALID_ARGUMENTS,
+                    severity=Severity.WARNING,
+                    automation_id=auto_id,
+                    automation_name=auto_name,
+                    entity_id="",
+                    location=location,
+                    message=f"Filter '{node.name}' expects {expected} arguments, got {arg_count}",
+                )
+            ]
+        return []
+
     def _check_template(
         self,
         template: str,
@@ -511,8 +729,10 @@ class JinjaValidator:
 
         Returns a list of ValidationIssues (empty if no problems).
         """
+        print(f"DEBUG: _check_template called with template: {template}")
         try:
             ast = self._env.parse(template)
+            print(f"DEBUG: Template parsed successfully")
         except TemplateSyntaxError as err:
             error_msg = str(err.message) if err.message else str(err)
             line_info = f" (line {err.lineno})" if err.lineno else ""
