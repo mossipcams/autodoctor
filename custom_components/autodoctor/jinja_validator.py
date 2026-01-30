@@ -134,13 +134,17 @@ class JinjaValidator:
         """Validate all templates in a single automation."""
         issues: list[ValidationIssue] = []
 
+        # Extract automation-level variables (from variables: section or blueprint inputs)
+        # These are injected into the template context at runtime
+        auto_vars = self._extract_automation_variables(automation)
+
         # Validate triggers
         triggers = automation.get("triggers") or automation.get("trigger", [])
         if not isinstance(triggers, list):
             triggers = [triggers]
         for idx, trigger in enumerate(triggers):
             if isinstance(trigger, dict):
-                issues.extend(self._validate_trigger(trigger, idx, auto_id, auto_name))
+                issues.extend(self._validate_trigger(trigger, idx, auto_id, auto_name, auto_vars))
 
         # Validate conditions
         conditions = automation.get("conditions") or automation.get("condition", [])
@@ -149,7 +153,7 @@ class JinjaValidator:
         for idx, condition in enumerate(conditions):
             issues.extend(
                 self._validate_condition(
-                    condition, idx, auto_id, auto_name, "condition"
+                    condition, idx, auto_id, auto_name, "condition", auto_vars=auto_vars
                 )
             )
 
@@ -157,9 +161,26 @@ class JinjaValidator:
         actions = automation.get("actions") or automation.get("action", [])
         if not isinstance(actions, list):
             actions = [actions]
-        issues.extend(self._validate_actions(actions, auto_id, auto_name))
+        issues.extend(self._validate_actions(actions, auto_id, auto_name, auto_vars=auto_vars))
 
         return issues
+
+    def _extract_automation_variables(self, automation: dict[str, Any]) -> set[str]:
+        """Extract variable names defined at the automation level.
+
+        Collects variables from the automation's 'variables' section.
+        These are injected into the template context at runtime and are
+        available to all templates in the automation (triggers, conditions,
+        actions). Blueprint-based automations use this section to expose
+        blueprint input values as template variables.
+        """
+        auto_vars: set[str] = set()
+
+        variables = automation.get("variables")
+        if isinstance(variables, dict):
+            auto_vars.update(variables.keys())
+
+        return auto_vars
 
     def _validate_trigger(
         self,
@@ -167,17 +188,17 @@ class JinjaValidator:
         index: int,
         auto_id: str,
         auto_name: str,
+        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in a trigger."""
         issues: list[ValidationIssue] = []
 
         # Check value_template
         value_template = trigger.get("value_template")
-        print(f"DEBUG: _validate_trigger called, value_template={value_template}")
         if value_template and isinstance(value_template, str):
-            print(f"DEBUG: Calling _check_template")
             issues.extend(self._check_template(
-                value_template, f"trigger[{index}].value_template", auto_id, auto_name
+                value_template, f"trigger[{index}].value_template", auto_id, auto_name,
+                auto_vars=auto_vars,
             ))
 
         return issues
@@ -190,6 +211,7 @@ class JinjaValidator:
         auto_name: str,
         location_prefix: str,
         _depth: int = 0,
+        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in a condition."""
         issues: list[ValidationIssue] = []
@@ -205,7 +227,8 @@ class JinjaValidator:
         if isinstance(condition, str):
             if self._is_template(condition):
                 issues.extend(self._check_template(
-                    condition, f"{location_prefix}[{index}]", auto_id, auto_name
+                    condition, f"{location_prefix}[{index}]", auto_id, auto_name,
+                    auto_vars=auto_vars,
                 ))
             return issues
 
@@ -220,6 +243,7 @@ class JinjaValidator:
                 f"{location_prefix}[{index}].value_template",
                 auto_id,
                 auto_name,
+                auto_vars=auto_vars,
             ))
 
         # Check nested conditions (and/or/not)
@@ -236,6 +260,7 @@ class JinjaValidator:
                         auto_name,
                         f"{location_prefix}[{index}].{key}",
                         _depth + 1,
+                        auto_vars=auto_vars,
                     )
                 )
 
@@ -252,6 +277,7 @@ class JinjaValidator:
                             auto_name,
                             f"{location_prefix}[{index}].not",
                             _depth + 1,
+                            auto_vars=auto_vars,
                         )
                     )
             else:
@@ -263,6 +289,7 @@ class JinjaValidator:
                         auto_name,
                         f"{location_prefix}[{index}].not",
                         _depth + 1,
+                        auto_vars=auto_vars,
                     )
                 )
 
@@ -275,6 +302,7 @@ class JinjaValidator:
         auto_name: str,
         location_prefix: str = "action",
         _depth: int = 0,
+        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in actions recursively."""
         issues: list[ValidationIssue] = []
@@ -295,12 +323,20 @@ class JinjaValidator:
 
             location = f"{location_prefix}[{idx}]"
 
+            # Collect variables defined at this action level
+            # (actions can have their own variables: section)
+            action_level_vars = auto_vars
+            action_variables = action.get("variables")
+            if isinstance(action_variables, dict):
+                action_level_vars = (auto_vars or set()) | set(action_variables.keys())
+
             # Check service/action data for templates
             data = action.get("data", {})
             if isinstance(data, dict):
                 issues.extend(
                     self._validate_data_templates(
-                        data, f"{location}.data", auto_id, auto_name
+                        data, f"{location}.data", auto_id, auto_name,
+                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -308,7 +344,8 @@ class JinjaValidator:
             wait_template = action.get("wait_template")
             if wait_template and isinstance(wait_template, str):
                 issues.extend(self._check_template(
-                    wait_template, f"{location}.wait_template", auto_id, auto_name
+                    wait_template, f"{location}.wait_template", auto_id, auto_name,
+                    auto_vars=action_level_vars,
                 ))
 
             # Check choose blocks
@@ -329,6 +366,7 @@ class JinjaValidator:
                                 auto_id,
                                 auto_name,
                                 f"{location}.choose[{opt_idx}].conditions",
+                                auto_vars=action_level_vars,
                             )
                         )
 
@@ -341,6 +379,7 @@ class JinjaValidator:
                             auto_name,
                             f"{location}.choose[{opt_idx}].sequence",
                             _depth + 1,
+                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -349,7 +388,8 @@ class JinjaValidator:
                 if default:
                     issues.extend(
                         self._validate_actions(
-                            default, auto_id, auto_name, f"{location}.default", _depth + 1
+                            default, auto_id, auto_name, f"{location}.default", _depth + 1,
+                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -361,14 +401,16 @@ class JinjaValidator:
                 for cond_idx, cond in enumerate(if_conditions):
                     issues.extend(
                         self._validate_condition(
-                            cond, cond_idx, auto_id, auto_name, f"{location}.if"
+                            cond, cond_idx, auto_id, auto_name, f"{location}.if",
+                            auto_vars=action_level_vars,
                         )
                     )
 
                 then_actions = action.get("then", [])
                 issues.extend(
                     self._validate_actions(
-                        then_actions, auto_id, auto_name, f"{location}.then", _depth + 1
+                        then_actions, auto_id, auto_name, f"{location}.then", _depth + 1,
+                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -376,7 +418,8 @@ class JinjaValidator:
                 if else_actions:
                     issues.extend(
                         self._validate_actions(
-                            else_actions, auto_id, auto_name, f"{location}.else", _depth + 1
+                            else_actions, auto_id, auto_name, f"{location}.else", _depth + 1,
+                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -399,6 +442,7 @@ class JinjaValidator:
                                 auto_id,
                                 auto_name,
                                 f"{location}.repeat.{cond_key}",
+                                auto_vars=action_level_vars,
                             )
                         )
 
@@ -406,7 +450,8 @@ class JinjaValidator:
                 sequence = repeat_config.get("sequence", [])
                 issues.extend(
                     self._validate_actions(
-                        sequence, auto_id, auto_name, f"{location}.repeat.sequence", _depth + 1
+                        sequence, auto_id, auto_name, f"{location}.repeat.sequence", _depth + 1,
+                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -424,6 +469,7 @@ class JinjaValidator:
                             auto_name,
                             f"{location}.parallel[{branch_idx}]",
                             _depth + 1,
+                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -435,6 +481,7 @@ class JinjaValidator:
         location: str,
         auto_id: str,
         auto_name: str,
+        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in action data fields."""
         issues: list[ValidationIssue] = []
@@ -442,24 +489,28 @@ class JinjaValidator:
         for key, value in data.items():
             if isinstance(value, str) and self._is_template(value):
                 issues.extend(self._check_template(
-                    value, f"{location}.{key}", auto_id, auto_name
+                    value, f"{location}.{key}", auto_id, auto_name,
+                    auto_vars=auto_vars,
                 ))
             elif isinstance(value, dict):
                 issues.extend(
                     self._validate_data_templates(
-                        value, f"{location}.{key}", auto_id, auto_name
+                        value, f"{location}.{key}", auto_id, auto_name,
+                        auto_vars=auto_vars,
                     )
                 )
             elif isinstance(value, list):
                 for idx, item in enumerate(value):
                     if isinstance(item, str) and self._is_template(item):
                         issues.extend(self._check_template(
-                            item, f"{location}.{key}[{idx}]", auto_id, auto_name
+                            item, f"{location}.{key}[{idx}]", auto_id, auto_name,
+                            auto_vars=auto_vars,
                         ))
                     elif isinstance(item, dict):
                         issues.extend(
                             self._validate_data_templates(
-                                item, f"{location}.{key}[{idx}]", auto_id, auto_name
+                                item, f"{location}.{key}[{idx}]", auto_id, auto_name,
+                                auto_vars=auto_vars,
                             )
                         )
 
@@ -792,17 +843,18 @@ class JinjaValidator:
         location: str,
         auto_id: str,
         auto_name: str,
+        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Walk the parsed AST to check for semantic issues."""
         issues: list[ValidationIssue] = []
-        print(f"DEBUG: _check_ast_semantics called")
 
         # Collect template-defined variables
         template_vars = self._collect_template_variables(ast)
         known_vars = KNOWN_GLOBALS | template_vars
+        if auto_vars:
+            known_vars = known_vars | auto_vars
 
         for node in ast.find_all(nodes.Filter):
-            print(f"DEBUG: Found filter node: {node.name}")
             _LOGGER.debug(f"Found filter: {node.name}, known: {node.name in self._known_filters}")
             if node.name not in self._known_filters:
                 issues.append(
@@ -931,15 +983,14 @@ class JinjaValidator:
         location: str,
         auto_id: str,
         auto_name: str,
+        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Check a template for syntax errors and semantic issues.
 
         Returns a list of ValidationIssues (empty if no problems).
         """
-        print(f"DEBUG: _check_template called with template: {template}")
         try:
             ast = self._env.parse(template)
-            print(f"DEBUG: Template parsed successfully")
         except TemplateSyntaxError as err:
             error_msg = str(err.message) if err.message else str(err)
             line_info = f" (line {err.lineno})" if err.lineno else ""
@@ -972,7 +1023,7 @@ class JinjaValidator:
         issues = []
 
         # 2. Semantic check for filters/tests (existing)
-        issues.extend(self._check_ast_semantics(ast, location, auto_id, auto_name))
+        issues.extend(self._check_ast_semantics(ast, location, auto_id, auto_name, auto_vars=auto_vars))
 
         # 3. NEW: Semantic check for entity references
         refs = self._extract_entity_references(template, location, auto_id, auto_name)
