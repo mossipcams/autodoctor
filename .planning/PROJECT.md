@@ -12,23 +12,23 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 
 ### Validated
 
-- ✓ Automation parsing with 21 trigger types and 10 condition types — existing
-- ✓ State reference validation against entity/device/area registries — existing
-- ✓ Knowledge base with multi-source state truth (device classes, learned states, capabilities, schema, history) — existing
-- ✓ Service call validation against HA service registry — existing
-- ✓ Jinja2 template syntax and semantic validation — existing
-- ✓ WebSocket API for frontend communication (6 commands) — existing
-- ✓ Lovelace card for issue display — existing
-- ✓ Issue suppression with state learning — existing
-- ✓ Conservative validation philosophy with opt-in strict modes — existing
-- ✓ Sensor entities for issue count and health status — existing
+- Automation parsing with 21 trigger types and 10 condition types — existing
+- State reference validation against entity/device/area registries — existing
+- Knowledge base with multi-source state truth (device classes, learned states, capabilities, schema, history) — existing
+- Service call validation against HA service registry — existing
+- Jinja2 template syntax and semantic validation — existing
+- WebSocket API for frontend communication (6 commands) — existing
+- Lovelace card for issue display — existing
+- Issue suppression with state learning — existing
+- Conservative validation philosophy with opt-in strict modes — existing
+- Sensor entities for issue count and health status — existing
 
-### Active
+### Active (v2.7.0)
 
-- [ ] Replicate HA's template system implementation for Jinja2 validation
-- [ ] Comprehensive filter/test/global catalog matching HA's actual template.py
-- [ ] Reduce maintenance burden of hardcoded template semantics lists
-- [ ] Clean up dead code from removed validations (undefined variables, basic type checking)
+- [ ] REQ-1: Replicate HA's template system implementation for Jinja2 validation
+- [ ] REQ-2: Comprehensive filter/test/global catalog matching HA's actual template.py
+- [ ] REQ-3: Reduce maintenance burden of hardcoded template semantics lists
+- [ ] REQ-4: Clean up dead code from removed validations (undefined variables, basic type checking)
 
 ### Out of Scope
 
@@ -36,6 +36,15 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 - Blueprint variable validation — too many false positives statically
 - Automation sequence order dependency checking — beyond static analysis scope
 - Custom integration filter/test discovery — no reliable mechanism exists
+
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| REQ-1 | Phase 2, Phase 4 | Pending |
+| REQ-2 | Phase 3, Phase 4 | Pending |
+| REQ-3 | Phase 3, Phase 4 | Pending |
+| REQ-4 | Phase 1 | Pending |
 
 ## Context
 
@@ -57,12 +66,12 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Conservative-first validation | Better to miss issues than generate false positives | ✓ Good |
-| State validation whitelist (6 domains) | Only validate domains with stable, well-defined states | ✓ Good |
-| Opt-in strict modes for filters/tests/params | Users who want comprehensive checking can enable it | ✓ Good |
-| Remove undefined variable checking | 40% false positive rate with blueprints unacceptable | ✓ Good |
-| Static analysis over runtime rendering | Can validate before automations run, no execution risk | ✓ Good |
-| Hardcoded filter/test lists | Only viable approach since HA doesn't expose introspection APIs | ⚠️ Revisit — maintenance burden, exploring HA replication |
+| Conservative-first validation | Better to miss issues than generate false positives | Good |
+| State validation whitelist (6 domains) | Only validate domains with stable, well-defined states | Good |
+| Opt-in strict modes for filters/tests/params | Users who want comprehensive checking can enable it | Good |
+| Remove undefined variable checking | 40% false positive rate with blueprints unacceptable | Good |
+| Static analysis over runtime rendering | Can validate before automations run, no execution risk | Good |
+| Hardcoded filter/test lists | Only viable approach since HA doesn't expose introspection APIs | Revisit -- v2.7.0 replaces with HA-pattern catalog |
 
 ---
-*Last updated: 2026-01-30 after initialization*
+*Last updated: 2026-01-30 after roadmap creation*
