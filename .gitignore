@@ -35,5 +35,8 @@ CLAUDE.md
 # Claude Code local files
 .claude/
 
+# Mutation testing
+mutants/
+
 # GSD planning files
 .planning/
