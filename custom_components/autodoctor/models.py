@@ -34,6 +34,14 @@ class IssueType(str, Enum):
     SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
     SERVICE_UNKNOWN_PARAM = "service_unknown_param"
 
+    # NEW: HA-specific semantic errors
+    TEMPLATE_ENTITY_NOT_FOUND = "template_entity_not_found"
+    TEMPLATE_INVALID_STATE = "template_invalid_state"
+    TEMPLATE_ATTRIBUTE_NOT_FOUND = "template_attribute_not_found"
+    TEMPLATE_DEVICE_NOT_FOUND = "template_device_not_found"
+    TEMPLATE_AREA_NOT_FOUND = "template_area_not_found"
+    TEMPLATE_ZONE_NOT_FOUND = "template_zone_not_found"
+
 
 
 @dataclass
