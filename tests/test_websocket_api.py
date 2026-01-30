@@ -456,3 +456,11 @@ def test_compute_group_status():
     assert _compute_group_status(mixed_issues) == "fail"
 
 
+@pytest.mark.asyncio
+async def test_existing_commands_still_registered(hass: HomeAssistant):
+    """Test that all 8 commands (6 existing + 2 new) are registered."""
+    with patch(
+        "homeassistant.components.websocket_api.async_register_command"
+    ) as mock_register:
+        await async_setup_websocket_api(hass)
+        assert mock_register.call_count == 8

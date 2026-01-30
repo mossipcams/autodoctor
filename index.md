@@ -43,7 +43,6 @@ autodoctor/
     ├── autodoctor-card-editor.ts    # Card config editor
     ├── autodoc-issue-group.ts       # Issue group sub-component
     ├── autodoc-pipeline.ts          # Validation pipeline sub-component
-    ├── badges.ts                    # Badge rendering helpers
     ├── types.ts                     # Shared TypeScript interfaces
     └── styles.ts                    # Shared CSS design tokens & styles
 ```

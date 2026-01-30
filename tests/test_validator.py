@@ -258,6 +258,58 @@ async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+async def test_light_color_temp_attribute_is_valid(hass: HomeAssistant):
+    """Test that color_temp is recognized as valid for light domain."""
+    # Create a light without color_temp in current state
+    hass.states.async_set("light.bedroom", "on", {"brightness": 255})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Reference color_temp which is not in state but IS a valid domain attribute
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.bedroom",
+        expected_state=None,
+        expected_attribute="color_temp",
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should NOT report error - light domain supports color_temp
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_light_rgb_color_attribute_is_valid(hass: HomeAssistant):
+    """Test that rgb_color is recognized as valid for light domain."""
+    # Create a light without rgb_color in current state
+    hass.states.async_set("light.bedroom", "on", {"brightness": 255})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Reference rgb_color which is not in state but IS a valid domain attribute
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.bedroom",
+        expected_state=None,
+        expected_attribute="rgb_color",
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should NOT report error - light domain supports rgb_color
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "attribute",
     [
