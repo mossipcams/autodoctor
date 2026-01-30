@@ -608,3 +608,157 @@ export const cardLayoutStyles = css`
     }
   }
 `;
+
+/**
+ * Pipeline styles: validation group panels, spinner, reveal animation,
+ * summary rollup bar, and three-state (pass/warning/fail) visual treatment.
+ */
+export const pipelineStyles = css`
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--autodoc-spacing-sm);
+    margin-bottom: var(--autodoc-spacing-lg);
+  }
+
+  /* Individual group panel */
+  .pipeline-group {
+    display: flex;
+    align-items: center;
+    padding: var(--autodoc-spacing-md);
+    border-radius: 8px;
+    background: rgba(127, 127, 127, 0.06);
+    opacity: 0;
+    animation: groupReveal 300ms ease forwards;
+  }
+
+  /* Running state: no animation, always visible */
+  .pipeline-group.running {
+    opacity: 1;
+    animation: none;
+    border-left: 3px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+  }
+
+  /* Status-specific left border */
+  .pipeline-group.pass {
+    border-left: 3px solid var(--autodoc-success);
+  }
+  .pipeline-group.warning {
+    border-left: 3px solid var(--autodoc-warning);
+  }
+  .pipeline-group.fail {
+    border-left: 3px solid var(--autodoc-error);
+  }
+
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: var(--autodoc-spacing-md);
+    width: 100%;
+  }
+
+  /* Status icon circle */
+  .group-status-icon {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+
+  .pipeline-group.pass .group-status-icon {
+    background: rgba(46, 139, 87, 0.15);
+    color: var(--autodoc-success);
+  }
+  .pipeline-group.warning .group-status-icon {
+    background: rgba(196, 144, 8, 0.15);
+    color: var(--autodoc-warning);
+  }
+  .pipeline-group.fail .group-status-icon {
+    background: rgba(217, 72, 72, 0.15);
+    color: var(--autodoc-error);
+  }
+
+  .group-label {
+    flex: 1;
+    font-size: var(--autodoc-name-size);
+    font-weight: 600;
+    color: var(--primary-text-color);
+  }
+
+  .group-count {
+    font-size: var(--autodoc-meta-size);
+    font-weight: 500;
+  }
+  .group-count.pass-text { color: var(--autodoc-success); }
+  .group-count.warning-text { color: var(--autodoc-warning); }
+  .group-count.fail-text { color: var(--autodoc-error); }
+
+  /* Spinner for running state */
+  .group-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Summary rollup bar */
+  .pipeline-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--autodoc-spacing-sm);
+    padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
+    border-radius: 6px;
+    font-size: var(--autodoc-issue-size);
+    font-weight: 500;
+    opacity: 0;
+    animation: groupReveal 300ms ease forwards;
+  }
+
+  .pipeline-summary.pass {
+    background: rgba(46, 139, 87, 0.08);
+    color: var(--autodoc-success);
+  }
+  .pipeline-summary.warning {
+    background: rgba(196, 144, 8, 0.08);
+    color: var(--autodoc-warning);
+  }
+  .pipeline-summary.fail {
+    background: rgba(217, 72, 72, 0.08);
+    color: var(--autodoc-error);
+  }
+
+  @keyframes groupReveal {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .pipeline-group,
+    .pipeline-summary {
+      opacity: 1;
+      animation: none;
+    }
+    .group-spinner {
+      animation: none;
+      border-top-color: var(--primary-color);
+    }
+  }
+`;

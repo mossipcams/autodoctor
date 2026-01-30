@@ -48,3 +48,22 @@ export interface AutomationGroup {
   error_count: number;
   warning_count: number;
 }
+
+export interface ValidationGroup {
+  id: string;
+  label: string;
+  status: "pass" | "warning" | "fail";
+  error_count: number;
+  warning_count: number;
+  issue_count: number;
+  issues: IssueWithFix[];
+  duration_ms: number;
+}
+
+export interface StepsResponse {
+  groups: ValidationGroup[];
+  issues: IssueWithFix[];
+  healthy_count: number;
+  last_run: string | null;
+  suppressed_count: number;
+}
