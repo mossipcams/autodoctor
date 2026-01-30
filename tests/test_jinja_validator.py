@@ -629,3 +629,145 @@ def test_template_validation_passes_for_valid_template(hass):
 
     # Should have no issues
     assert len(issues) == 0
+
+
+def test_automation_variables_not_flagged_as_undefined():
+    """Variables from automation 'variables:' section should not produce warnings."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "blueprint_alarm",
+        "alias": "Wake Up Alarm",
+        "variables": {
+            "sensor": "sensor.alarm_time",
+            "light_entity": "light.bedroom",
+            "start_brightness": 1,
+            "end_brightness": 255,
+        },
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "wait_template": "{{ states(sensor) != 'unavailable' }}",
+            },
+            {
+                "data": {
+                    "brightness": "{{ start_brightness }}",
+                    "entity_id": "{{ light_entity }}",
+                }
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    # Should not flag sensor, light_entity, or start_brightness as undefined
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0, f"False positive undefined variables: {[i.message for i in undef_issues]}"
+
+
+def test_automation_variables_in_conditions():
+    """Variables from automation 'variables:' section are available in conditions."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "blueprint_occ",
+        "alias": "Occupancy Control",
+        "variables": {
+            "cooldown_minutes": 5,
+        },
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [
+            {
+                "condition": "template",
+                "value_template": "{{ cooldown_minutes > 0 }}",
+            }
+        ],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0
+
+
+def test_automation_variables_in_nested_choose():
+    """Variables from automation 'variables:' section are available in nested choose/repeat blocks."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "blueprint_nested",
+        "alias": "Nested Blueprint",
+        "variables": {
+            "light_entity": "light.bedroom",
+            "end_brightness": 255,
+        },
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ light_entity is not none }}",
+                            }
+                        ],
+                        "sequence": [
+                            {
+                                "data": {
+                                    "brightness": "{{ end_brightness }}",
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0, f"False positive undefined variables: {[i.message for i in undef_issues]}"
+
+
+def test_truly_undefined_variable_still_flagged_with_auto_vars():
+    """Truly undefined variables should still be flagged even when automation has variables."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "partial_vars",
+        "alias": "Partial Vars",
+        "variables": {
+            "sensor": "sensor.alarm_time",
+        },
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "wait_template": "{{ states(sensor) != 'unavailable' and totally_unknown > 0 }}",
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    # 'sensor' should NOT be flagged, but 'totally_unknown' should
+    assert len(undef_issues) == 1
+    assert "totally_unknown" in undef_issues[0].message
+
+
+def test_action_level_variables_recognized():
+    """Variables defined at the action level should be recognized."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "action_vars",
+        "alias": "Action Level Vars",
+        "triggers": [{"platform": "time_pattern", "minutes": "*"}],
+        "conditions": [],
+        "actions": [
+            {
+                "variables": {
+                    "my_action_var": "some_value",
+                },
+                "data": {
+                    "message": "{{ my_action_var }}",
+                },
+            },
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    undef_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE]
+    assert len(undef_issues) == 0
