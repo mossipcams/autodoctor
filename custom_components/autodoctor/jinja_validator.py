@@ -11,10 +11,7 @@ from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
 from .models import IssueType, Severity, ValidationIssue
-from .template_semantics import (
-    FILTER_SIGNATURES,
-    TEST_SIGNATURES,
-)
+from .template_semantics import FILTER_SIGNATURES
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant

@@ -57,7 +57,7 @@ autodoctor/
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 ### Data Models
-- **`models.py`** - Core structures: `AutodoctorData` (TypedDict), `ValidationConfig`, `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `ServiceCall`
+- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
@@ -191,9 +191,8 @@ Supports all 10 Home Assistant condition types:
 - `test_jinja_validator.py` - Jinja2 template validation
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle
-- `test_architectural_improvements.py` - Architectural review implementations (config, depth limits, KB sharing, TypedDict)
+- `test_architectural_improvements.py` - Architectural review implementations (config, depth limits, KB sharing)
 - `test_service_validator.py` - Service call validation
-- `test_template_semantics.py` - Template semantic validation
 
 ## Scripts
 

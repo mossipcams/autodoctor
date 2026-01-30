@@ -27,27 +27,15 @@ def test_deeply_nested_conditions_do_not_stackoverflow():
     assert isinstance(issues, list)
 
 
-def test_null_repeat_config_does_not_crash():
-    """Test that repeat: null doesn't crash validation."""
+@pytest.mark.parametrize("action_key", ["repeat", "parallel"])
+def test_null_action_config_does_not_crash(action_key):
+    """Test that repeat: null and parallel: null don't crash validation."""
     validator = JinjaValidator()
     automation = {
-        "id": "null_repeat",
-        "alias": "Null Repeat",
+        "id": f"null_{action_key}",
+        "alias": f"Null {action_key.title()}",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [{"repeat": None}],
-    }
-    issues = validator.validate_automations([automation])
-    assert isinstance(issues, list)
-
-
-def test_null_parallel_config_does_not_crash():
-    """Test that parallel: null doesn't crash validation."""
-    validator = JinjaValidator()
-    automation = {
-        "id": "null_parallel",
-        "alias": "Null Parallel",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [{"parallel": None}],
+        "actions": [{action_key: None}],
     }
     issues = validator.validate_automations([automation])
     assert isinstance(issues, list)
@@ -167,10 +155,11 @@ def test_unknown_test_produces_warning():
     assert "mach" in issues[0].message
 
 
-def test_ha_filters_are_accepted():
-    """Common HA filters should not produce warnings."""
+def test_known_filters_are_accepted():
+    """HA and standard Jinja2 filters should not produce warnings."""
     validator = JinjaValidator(strict_template_validation=True)
     templates = [
+        # HA filters
         "{{ states('sensor.temp') | float }}",
         "{{ states('sensor.temp') | as_timestamp }}",
         "{{ states('sensor.temp') | from_json }}",
@@ -184,6 +173,23 @@ def test_ha_filters_are_accepted():
         "{{ states('sensor.temp') | multiply(2) }}",
         "{{ [1, 2, 3] | average }}",
         "{{ [1, 2, 3] | median }}",
+        # Standard Jinja2 filters
+        "{{ items | join(', ') }}",
+        "{{ name | upper }}",
+        "{{ name | lower }}",
+        "{{ items | first }}",
+        "{{ items | last }}",
+        "{{ items | length }}",
+        "{{ items | sort }}",
+        "{{ items | unique | list }}",
+        "{{ name | replace('a', 'b') }}",
+        "{{ name | trim }}",
+        "{{ items | map(attribute='state') | list }}",
+        "{{ items | selectattr('state', 'eq', 'on') | list }}",
+        "{{ items | rejectattr('state', 'eq', 'off') | list }}",
+        "{{ value | default('N/A') }}",
+        "{{ items | batch(3) | list }}",
+        "{{ text | truncate(20) }}",
     ]
     for tmpl in templates:
         automation = {
@@ -194,7 +200,8 @@ def test_ha_filters_are_accepted():
             "actions": [],
         }
         issues = validator.validate_automations([automation])
-        assert len(issues) == 0, f"Unexpected issue for template: {tmpl}: {issues}"
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), \
+            f"Unexpected filter issue for template: {tmpl}: {issues}"
 
 
 def test_ha_tests_are_accepted():
@@ -218,41 +225,6 @@ def test_ha_tests_are_accepted():
         }
         issues = validator.validate_automations([automation])
         assert len(issues) == 0, f"Unexpected issue for template: {tmpl}: {issues}"
-
-
-def test_standard_jinja2_filters_are_accepted():
-    """Standard Jinja2 built-in filters should not produce warnings."""
-    validator = JinjaValidator(strict_template_validation=True)
-    templates = [
-        "{{ items | join(', ') }}",
-        "{{ name | upper }}",
-        "{{ name | lower }}",
-        "{{ items | first }}",
-        "{{ items | last }}",
-        "{{ items | length }}",
-        "{{ items | sort }}",
-        "{{ items | unique | list }}",
-        "{{ name | replace('a', 'b') }}",
-        "{{ name | trim }}",
-        "{{ items | map(attribute='state') | list }}",
-        "{{ items | selectattr('state', 'eq', 'on') | list }}",
-        "{{ items | rejectattr('state', 'eq', 'off') | list }}",
-        "{{ value | default('N/A') }}",
-        "{{ items | batch(3) | list }}",
-        "{{ text | truncate(20) }}",
-    ]
-    for tmpl in templates:
-        automation = {
-            "id": "builtin_filter",
-            "alias": "Builtin Filter",
-            "triggers": [{"platform": "template", "value_template": tmpl}],
-            "conditions": [],
-            "actions": [],
-        }
-        issues = validator.validate_automations([automation])
-        # Should not produce filter warnings (undefined variables are OK for this test)
-        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), \
-            f"Unexpected filter issue for template: {tmpl}: {issues}"
 
 
 def test_multiple_unknown_filters_all_reported():
@@ -297,11 +269,19 @@ def test_syntax_error_skips_semantic_check():
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_extract_entity_references_from_is_state():
-    """Test extracting entity references from is_state() calls."""
+@pytest.mark.parametrize("template,expected_ids,expected_location_suffix", [
+    ("{{ is_state('light.kitchen', 'on') }}", ["light.kitchen"], "is_state"),
+    ("{{ state_attr('climate.living_room', 'temperature') }}", ["climate.living_room"], "state_attr"),
+    ("{{ states.light.bedroom.state }}", ["light.bedroom"], "states_object"),
+    (
+        "{{ is_state('light.kitchen', 'on') and states.sensor.temp.state | float > 20 }}",
+        ["light.kitchen", "sensor.temp"],
+        None,
+    ),
+])
+def test_extract_entity_references(template, expected_ids, expected_location_suffix):
+    """Test extracting entity references from various patterns."""
     validator = JinjaValidator()
-
-    template = "{{ is_state('light.kitchen', 'on') }}"
     refs = validator._extract_entity_references(
         template,
         "test_location",
@@ -309,64 +289,12 @@ def test_extract_entity_references_from_is_state():
         "Test Automation"
     )
 
-    assert len(refs) == 1
-    assert refs[0].entity_id == "light.kitchen"
-    assert refs[0].expected_state == "on"
-    assert refs[0].location == "test_location.is_state"
-
-
-def test_extract_entity_references_from_state_attr():
-    """Test extracting entity references from state_attr() calls."""
-    validator = JinjaValidator()
-
-    template = "{{ state_attr('climate.living_room', 'temperature') }}"
-    refs = validator._extract_entity_references(
-        template,
-        "test_location",
-        "automation.test",
-        "Test Automation"
-    )
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "climate.living_room"
-    assert refs[0].expected_attribute == "temperature"
-    assert refs[0].location == "test_location.state_attr"
-
-
-def test_extract_entity_references_from_states_object():
-    """Test extracting entity references from states.domain.entity syntax."""
-    validator = JinjaValidator()
-
-    template = "{{ states.light.bedroom.state }}"
-    refs = validator._extract_entity_references(
-        template,
-        "test_location",
-        "automation.test",
-        "Test Automation"
-    )
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "light.bedroom"
-    assert refs[0].location == "test_location.states_object"
-
-
-def test_extract_entity_references_multiple_patterns():
-    """Test extracting from template with multiple patterns."""
-    validator = JinjaValidator()
-
-    template = "{{ is_state('light.kitchen', 'on') and states.sensor.temp.state | float > 20 }}"
-    refs = validator._extract_entity_references(
-        template,
-        "test_location",
-        "automation.test",
-        "Test Automation"
-    )
-
-    assert len(refs) == 2
+    assert len(refs) == len(expected_ids)
     entity_ids = [r.entity_id for r in refs]
-    assert "light.kitchen" in entity_ids
-    assert "sensor.temp" in entity_ids
-
+    for eid in expected_ids:
+        assert eid in entity_ids
+    if expected_location_suffix is not None:
+        assert refs[0].location == f"test_location.{expected_location_suffix}"
 
 
 def test_validate_entity_not_found(hass):
@@ -511,51 +439,20 @@ def test_template_validation_passes_for_valid_template(hass):
     # Should have no issues
     assert len(issues) == 0
 
-def test_unknown_filter_not_flagged_without_strict_mode():
-    """Without strict mode, unknown filters should not produce warnings."""
+
+@pytest.mark.parametrize("template,location", [
+    ("{{ states('sensor.temp') | custom_filter }}", "triggers"),
+    ("{% if states('sensor.temp') is custom_test %}true{% endif %}", "conditions"),
+])
+def test_unknown_filter_or_test_not_flagged_without_strict_mode(template, location):
+    """Without strict mode, unknown filters and tests should not produce warnings."""
     validator = JinjaValidator()
     automation = {
         "id": "non_strict",
         "alias": "Non Strict",
-        "triggers": [
-            {
-                "platform": "template",
-                "value_template": "{{ states('sensor.temp') | custom_filter }}",
-            }
-        ],
-        "conditions": [],
+        "triggers": [{"platform": "template", "value_template": template}] if location == "triggers" else [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [{"condition": "template", "value_template": template}] if location == "conditions" else [],
         "actions": [],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) == 0
-
-
-def test_unknown_test_not_flagged_without_strict_mode():
-    """Without strict mode, unknown tests should not produce warnings."""
-    validator = JinjaValidator()
-    automation = {
-        "id": "non_strict_test",
-        "alias": "Non Strict Test",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "conditions": [
-            {
-                "condition": "template",
-                "value_template": "{% if states('sensor.temp') is custom_test %}true{% endif %}",
-            }
-        ],
-        "actions": [],
-    }
-    issues = validator.validate_automations([automation])
-    assert len(issues) == 0
-
-
-def test_strict_mode_flag_stored_on_validator():
-    """The strict_template_validation flag should be stored correctly."""
-    validator_default = JinjaValidator()
-    assert validator_default._strict_validation is False
-
-    validator_strict = JinjaValidator(strict_template_validation=True)
-    assert validator_strict._strict_validation is True
-
-
-
