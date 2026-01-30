@@ -450,3 +450,187 @@ async def test_media_player_domain_attributes_are_valid(
 
     # Should NOT report error - all these attributes are valid for media_player domain
     assert len(issues) == 0, f"Attribute '{attribute}' should be valid for media_player domain"
+
+
+@pytest.mark.asyncio
+async def test_device_reference_skips_entity_validation(hass: HomeAssistant):
+    """Test that device_id references are validated against device registry, not entity registry."""
+    from types import MappingProxyType
+
+    from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+    from homeassistant.helpers import device_registry as dr
+
+    # Create a real config entry so the device registry accepts it
+    entry = ConfigEntry(
+        data={},
+        discovery_keys=MappingProxyType({}),
+        domain="test",
+        minor_version=1,
+        options={},
+        source="test",
+        subentries_data=None,
+        title="Test",
+        unique_id="test_unique",
+        version=1,
+    )
+    entry._async_set_state(hass, ConfigEntryState.LOADED, None)
+    hass.config_entries._entries[entry.entry_id] = entry
+
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("test", "device1")},
+        name="Test Device",
+    )
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # A device reference with a valid device_id should produce no issues
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=device.id,
+        expected_state=None,
+        expected_attribute=None,
+        location="condition[1].device_id",
+        reference_type="device",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_device_reference_reports_missing_device(hass: HomeAssistant):
+    """Test that a nonexistent device_id is reported as missing device."""
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="d16f9de99699a4e09e3c0aa6c1b8ec15",
+        expected_state=None,
+        expected_attribute=None,
+        location="condition[1].device_id",
+        reference_type="device",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert "Device" in issues[0].message
+    assert "does not exist" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_tag_reference_skips_entity_validation(hass: HomeAssistant):
+    """Test that tag references are skipped (no entity validation)."""
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="some-tag-id-12345",
+        expected_state=None,
+        expected_attribute=None,
+        location="trigger[0].tag_id",
+        reference_type="tag",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_integration_reference_skips_entity_validation(hass: HomeAssistant):
+    """Test that integration references are skipped (no entity validation)."""
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="hue",
+        expected_state=None,
+        expected_attribute=None,
+        location="template.integration_entities",
+        reference_type="integration",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_area_reference_validates_against_area_registry(hass: HomeAssistant):
+    """Test that area references are validated against area registry."""
+    from homeassistant.helpers import area_registry as ar
+
+    area_reg = ar.async_get(hass)
+    area_reg.async_create("Living Room")
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Valid area
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="living_room",
+        expected_state=None,
+        expected_attribute=None,
+        location="template.area_entities",
+        reference_type="area",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_area_reference_reports_missing_area(hass: HomeAssistant):
+    """Test that a nonexistent area is reported as missing."""
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="nonexistent_area",
+        expected_state=None,
+        expected_attribute=None,
+        location="template.area_entities",
+        reference_type="area",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert "Area" in issues[0].message
+    assert "does not exist" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
+    """Test that direct entity references still go through entity validation."""
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.nonexistent",
+        expected_state=None,
+        expected_attribute=None,
+        location="trigger[0].entity_id",
+        reference_type="direct",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert "Entity" in issues[0].message
+    assert "does not exist" in issues[0].message

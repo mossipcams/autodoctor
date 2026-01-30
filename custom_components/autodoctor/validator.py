@@ -5,11 +5,21 @@ from __future__ import annotations
 import logging
 from difflib import get_close_matches
 
+from homeassistant.helpers import device_registry as dr
+
 from .domain_attributes import get_domain_attributes
 from .knowledge_base import StateKnowledgeBase
 from .models import IssueType, Severity, StateReference, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
+
+# Reference types that are not entity IDs and should skip entity validation
+_NON_ENTITY_REFERENCE_TYPES = frozenset({
+    "device",       # device_id (hex hash) — validate against device registry
+    "tag",          # tag_id — no entity validation
+    "area",         # area_id — validate against area registry
+    "integration",  # integration name — no entity validation
+})
 
 
 class ValidationEngine:
@@ -29,6 +39,10 @@ class ValidationEngine:
         issues: list[ValidationIssue] = []
 
         try:
+            # Handle non-entity reference types separately
+            if ref.reference_type in _NON_ENTITY_REFERENCE_TYPES:
+                return self._validate_non_entity_reference(ref)
+
             if not self.knowledge_base.entity_exists(ref.entity_id):
                 # Check if entity existed in history (removed/renamed vs typo)
                 historical_ids = self.knowledge_base.get_historical_entity_ids()
@@ -75,6 +89,47 @@ class ValidationEngine:
             # Return empty - avoid false positives on errors
 
         return issues
+
+    def _validate_non_entity_reference(
+        self, ref: StateReference
+    ) -> list[ValidationIssue]:
+        """Validate references that aren't entity IDs (devices, areas, tags, etc.)."""
+        if ref.reference_type == "device":
+            device_reg = dr.async_get(self.knowledge_base.hass)
+            if not device_reg.async_get(ref.entity_id):
+                return [
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Device '{ref.entity_id}' does not exist",
+                    )
+                ]
+            return []
+
+        if ref.reference_type == "area":
+            from homeassistant.helpers import area_registry as ar
+
+            area_reg = ar.async_get(self.knowledge_base.hass)
+            if not area_reg.async_get_area(ref.entity_id):
+                return [
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Area '{ref.entity_id}' does not exist",
+                    )
+                ]
+            return []
+
+        # tag, integration — skip entity validation (no reliable registry check)
+        return []
 
     def _validate_state(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the expected state."""
