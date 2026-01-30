@@ -2,13 +2,14 @@ import { LitElement, html, CSSResultGroup, TemplateResult, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type {
-  AutodoctorCardConfig,
-  AutomationGroup,
-  IssueWithFix,
-  ValidationIssue,
-  StepsResponse,
-} from "./types";
+import {
+  getSuggestionKey,
+  type AutodoctorCardConfig,
+  type AutomationGroup,
+  type IssueWithFix,
+  type ValidationIssue,
+  type StepsResponse,
+} from "./types.js";
 
 import { autodocTokens, badgeStyles, cardLayoutStyles } from "./styles.js";
 import { renderBadges } from "./badges.js";
@@ -350,12 +351,8 @@ export class AutodoctorCard extends LitElement {
     return `${diffDays}d ago`;
   }
 
-  private _getSuggestionKey(issue: ValidationIssue): string {
-    return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
-  }
-
   private _dismissSuggestion(issue: ValidationIssue): void {
-    const key = this._getSuggestionKey(issue);
+    const key = getSuggestionKey(issue);
     this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
   }
 

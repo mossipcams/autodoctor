@@ -1,8 +1,8 @@
-import { LitElement, html, TemplateResult, nothing } from "lit";
+import { LitElement, html, CSSResultGroup, TemplateResult, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 import { autodocTokens, issueGroupStyles } from "./styles.js";
-import type { AutomationGroup, IssueWithFix, ValidationIssue } from "./types.js";
+import { getSuggestionKey, type AutomationGroup, type IssueWithFix, type ValidationIssue } from "./types.js";
 
 /**
  * Renders a single automation group with its issues, fix suggestions,
@@ -15,7 +15,7 @@ export class AutodocIssueGroup extends LitElement {
   @property({ attribute: false }) group!: AutomationGroup;
   @property({ attribute: false }) dismissedKeys: Set<string> = new Set();
 
-  static styles = [autodocTokens, issueGroupStyles];
+  static styles: CSSResultGroup = [autodocTokens, issueGroupStyles];
 
   protected render(): TemplateResult {
     const group = this.group;
@@ -43,7 +43,7 @@ export class AutodocIssueGroup extends LitElement {
   private _renderIssue(item: IssueWithFix): TemplateResult {
     const { issue, fix } = item;
     const isError = issue.severity === "error";
-    const isDismissed = this.dismissedKeys.has(this._getSuggestionKey(issue));
+    const isDismissed = this.dismissedKeys.has(getSuggestionKey(issue));
 
     return html`
       <div class="issue ${isError ? "error" : "warning"}">
@@ -92,10 +92,6 @@ export class AutodocIssueGroup extends LitElement {
         ${isHigh ? "High" : "Medium"} confidence
       </span>
     `;
-  }
-
-  private _getSuggestionKey(issue: ValidationIssue): string {
-    return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
   }
 
   private _dispatchSuppress(issue: ValidationIssue): void {

@@ -22,21 +22,9 @@ export interface IssueWithFix {
   edit_url: string;
 }
 
-export interface AutodoctorData {
-  issues: IssueWithFix[];
-  healthy_count: number;
-}
-
 export interface AutodoctorCardConfig {
   type: string;
   title?: string;
-}
-
-export interface AutodoctorTabData {
-  issues: IssueWithFix[];
-  healthy_count: number;
-  last_run: string | null;
-  suppressed_count: number;
 }
 
 export interface AutomationGroup {
@@ -66,4 +54,8 @@ export interface StepsResponse {
   healthy_count: number;
   last_run: string | null;
   suppressed_count: number;
+}
+
+export function getSuggestionKey(issue: ValidationIssue): string {
+  return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
 }

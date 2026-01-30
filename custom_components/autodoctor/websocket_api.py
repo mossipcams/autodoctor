@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -13,7 +12,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
 from .validator import get_entity_suggestion
-from .models import IssueType, Severity, VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
+from .models import IssueType, Severity, ValidationIssue, VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
 
 if TYPE_CHECKING:
     from .suppression_store import SuppressionStore
@@ -88,6 +87,19 @@ def _compute_group_status(issues: list) -> str:
         return "warning"
     return "pass"
 
+def _filter_suppressed(
+    issues: list[ValidationIssue],
+    suppression_store: SuppressionStore | None,
+) -> tuple[list[ValidationIssue], int]:
+    """Filter suppressed issues and return visible issues with suppressed count."""
+    if suppression_store:
+        visible = [i for i in issues if not suppression_store.is_suppressed(i.get_suppression_key())]
+        suppressed_count = len(issues) - len(visible)
+    else:
+        visible = issues
+        suppressed_count = 0
+    return visible, suppressed_count
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "autodoctor/issues",
@@ -149,17 +161,7 @@ async def websocket_get_validation(
     all_issues: list = data.get("validation_issues", [])
     last_run = data.get("validation_last_run")
 
-    # Filter out suppressed issues
-    if suppression_store:
-        visible_issues = [
-            issue
-            for issue in all_issues
-            if not suppression_store.is_suppressed(issue.get_suppression_key())
-        ]
-        suppressed_count = len(all_issues) - len(visible_issues)
-    else:
-        visible_issues = all_issues
-        suppressed_count = 0
+    visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
 
     issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
     healthy_count = _get_healthy_count(hass, visible_issues)
@@ -194,17 +196,7 @@ async def websocket_run_validation(
 
         all_issues = await async_validate_all(hass)
 
-        # Filter out suppressed issues
-        if suppression_store:
-            visible_issues = [
-                issue
-                for issue in all_issues
-                if not suppression_store.is_suppressed(issue.get_suppression_key())
-            ]
-            suppressed_count = len(all_issues) - len(visible_issues)
-        else:
-            visible_issues = all_issues
-            suppressed_count = 0
+        visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
 
         issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
         healthy_count = _get_healthy_count(hass, visible_issues)
@@ -253,17 +245,8 @@ async def websocket_run_validation_steps(
 
         for gid in VALIDATION_GROUP_ORDER:
             raw_issues = result["group_issues"][gid]
-
-            # Filter suppressed issues
-            if suppression_store:
-                visible = [
-                    i
-                    for i in raw_issues
-                    if not suppression_store.is_suppressed(i.get_suppression_key())
-                ]
-                total_suppressed += len(raw_issues) - len(visible)
-            else:
-                visible = raw_issues
+            visible, suppressed_count = _filter_suppressed(raw_issues, suppression_store)
+            total_suppressed += suppressed_count
 
             all_visible_issues.extend(visible)
             formatted = _format_issues_with_fixes(hass, visible)
@@ -342,16 +325,8 @@ async def websocket_get_validation_steps(
         # Apply suppression filtering at READ time (not from cache)
         for gid in VALIDATION_GROUP_ORDER:
             raw_issues = cached_groups[gid]["issues"]
-
-            if suppression_store:
-                visible = [
-                    i
-                    for i in raw_issues
-                    if not suppression_store.is_suppressed(i.get_suppression_key())
-                ]
-                total_suppressed += len(raw_issues) - len(visible)
-            else:
-                visible = raw_issues
+            visible, suppressed_count = _filter_suppressed(raw_issues, suppression_store)
+            total_suppressed += suppressed_count
 
             all_visible_issues.extend(visible)
             formatted = _format_issues_with_fixes(hass, visible)

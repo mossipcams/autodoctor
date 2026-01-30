@@ -587,7 +587,7 @@ export const cardLayoutStyles = css`
   }
 
   .run-btn.running .run-icon {
-    animation: rotate 1s linear infinite;
+    animation: spin 1s linear infinite;
   }
 
   .run-text {
@@ -599,14 +599,6 @@ export const cardLayoutStyles = css`
     font-size: var(--autodoc-meta-size);
   }
 
-  @keyframes rotate {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
 `;
 
 /**
