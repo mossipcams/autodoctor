@@ -332,6 +332,71 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif platform == "event":
+            event_data = trigger.get("event_data", {})
+
+            if isinstance(event_data, dict):
+                for key, value in event_data.items():
+                    if isinstance(value, str):
+                        refs.extend(
+                            self._extract_from_template(
+                                value,
+                                f"trigger[{index}].event_data.{key}",
+                                automation_id,
+                                automation_name,
+                            )
+                        )
+
+        elif platform == "mqtt":
+            topic = trigger.get("topic", "")
+            payload = trigger.get("payload", "")
+
+            if isinstance(topic, str):
+                refs.extend(
+                    self._extract_from_template(
+                        topic,
+                        f"trigger[{index}].topic",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+            if isinstance(payload, str):
+                refs.extend(
+                    self._extract_from_template(
+                        payload,
+                        f"trigger[{index}].payload",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+        elif platform == "webhook":
+            webhook_id = trigger.get("webhook_id", "")
+
+            if isinstance(webhook_id, str):
+                refs.extend(
+                    self._extract_from_template(
+                        webhook_id,
+                        f"trigger[{index}].webhook_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
+        elif platform == "persistent_notification":
+            notification_id = trigger.get("notification_id", "")
+
+            if isinstance(notification_id, str):
+                refs.extend(
+                    self._extract_from_template(
+                        notification_id,
+                        f"trigger[{index}].notification_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+
         return refs
 
     def _extract_from_condition(

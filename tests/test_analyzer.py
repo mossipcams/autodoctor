@@ -1150,6 +1150,104 @@ def test_extract_geo_location_trigger():
     assert refs[0].location == "trigger[0].zone"
 
 
+def test_extract_event_trigger_with_template():
+    """Test event trigger with template in event_data."""
+    automation = {
+        "id": "test_event",
+        "alias": "Test Event Trigger",
+        "trigger": {
+            "platform": "event",
+            "event_type": "my_custom_event",
+            "event_data": {
+                "entity": "{{ states('input_text.target') }}"
+            }
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.target"
+    assert refs[0].location == "trigger[0].event_data.entity.states_function"
+
+
+def test_extract_mqtt_trigger_with_template():
+    """Test MQTT trigger with template in topic."""
+    automation = {
+        "id": "test_mqtt",
+        "alias": "Test MQTT Trigger",
+        "trigger": {
+            "platform": "mqtt",
+            "topic": "home/{{ states('input_text.room') }}/light",
+            "payload": "ON"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.room"
+    assert refs[0].location == "trigger[0].topic.states_function"
+
+
+def test_extract_webhook_trigger():
+    """Test webhook trigger (no entity references expected)."""
+    automation = {
+        "id": "test_webhook",
+        "alias": "Test Webhook Trigger",
+        "trigger": {
+            "platform": "webhook",
+            "webhook_id": "my_webhook_123",
+            "allowed_methods": ["POST", "PUT"]
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # No entity references expected for static webhook_id
+    assert len(refs) == 0
+
+
+def test_extract_webhook_trigger_with_template():
+    """Test webhook trigger with template in webhook_id."""
+    automation = {
+        "id": "test_webhook_template",
+        "alias": "Test Webhook Template",
+        "trigger": {
+            "platform": "webhook",
+            "webhook_id": "webhook_{{ states('input_text.name') }}"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.name"
+
+
+def test_extract_persistent_notification_trigger():
+    """Test persistent_notification trigger with template."""
+    automation = {
+        "id": "test_notification",
+        "alias": "Test Notification Trigger",
+        "trigger": {
+            "platform": "persistent_notification",
+            "notification_id": "alert_{{ states('input_text.alert_name') }}",
+            "update_type": "added"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_text.alert_name"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
