@@ -125,3 +125,47 @@ class ServiceCall:
     data: dict[str, Any] | None = None
     is_template: bool = False
     source_line: int | None = None
+
+
+# Validation group definitions: maps group ID to label and member IssueTypes.
+# All 20 IssueType enum members must appear in exactly one group.
+VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
+    "entity_state": {
+        "label": "Entity & State",
+        "issue_types": frozenset({
+            IssueType.ENTITY_NOT_FOUND,
+            IssueType.ENTITY_REMOVED,
+            IssueType.INVALID_STATE,
+            IssueType.CASE_MISMATCH,
+            IssueType.ATTRIBUTE_NOT_FOUND,
+        }),
+    },
+    "services": {
+        "label": "Service Calls",
+        "issue_types": frozenset({
+            IssueType.SERVICE_NOT_FOUND,
+            IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+            IssueType.SERVICE_INVALID_PARAM_TYPE,
+            IssueType.SERVICE_UNKNOWN_PARAM,
+        }),
+    },
+    "templates": {
+        "label": "Templates",
+        "issue_types": frozenset({
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+            IssueType.TEMPLATE_UNKNOWN_FILTER,
+            IssueType.TEMPLATE_UNKNOWN_TEST,
+            IssueType.TEMPLATE_INVALID_ARGUMENTS,
+            IssueType.TEMPLATE_INVALID_ENTITY_ID,
+            IssueType.TEMPLATE_ENTITY_NOT_FOUND,
+            IssueType.TEMPLATE_INVALID_STATE,
+            IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
+            IssueType.TEMPLATE_DEVICE_NOT_FOUND,
+            IssueType.TEMPLATE_AREA_NOT_FOUND,
+            IssueType.TEMPLATE_ZONE_NOT_FOUND,
+        }),
+    },
+}
+
+# Canonical group ordering for response serialization
+VALIDATION_GROUP_ORDER: list[str] = ["entity_state", "services", "templates"]
