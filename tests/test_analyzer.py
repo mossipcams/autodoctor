@@ -2012,3 +2012,167 @@ def test_extract_full_automation_with_all_patterns():
     for_each_entities = {r.entity_id for r in for_each_refs}
     assert "light.bedroom" in for_each_entities
     assert "light.living_room" in for_each_entities
+
+
+def test_extract_service_calls_from_if_then_else():
+    """Test extracting service calls from if/then/else branches."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "if": [{"condition": "state", "entity_id": "sensor.x", "state": "on"}],
+                "then": [{"service": "light.turn_on"}],
+                "else": [{"service": "light.turn_off"}],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 2
+    services = {c.service for c in calls}
+    assert "light.turn_on" in services
+    assert "light.turn_off" in services
+
+
+def test_extract_service_calls_from_repeat_sequence():
+    """Test extracting service calls from repeat sequence."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "repeat": {
+                    "count": 3,
+                    "sequence": [{"service": "light.toggle"}],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.toggle"
+
+
+def test_extract_service_calls_from_parallel():
+    """Test extracting service calls from parallel branches."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "parallel": [
+                    {"service": "light.turn_on"},
+                    {"service": "notify.send_message"},
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 2
+    services = {c.service for c in calls}
+    assert "light.turn_on" in services
+    assert "notify.send_message" in services
+
+
+def test_extract_service_calls_from_choose_default():
+    """Test extracting service calls from choose default branch."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "choose": [
+                    {
+                        "sequence": [{"service": "light.turn_on"}]
+                    }
+                ],
+                "default": [{"service": "light.turn_off"}],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 2
+    services = {c.service for c in calls}
+    assert "light.turn_on" in services
+    assert "light.turn_off" in services
+
+
+def test_extract_service_calls_deeply_nested():
+    """Test extracting service calls from deeply nested structure."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "choose": [
+                    {
+                        "sequence": [
+                            {
+                                "if": [{"condition": "state", "entity_id": "sensor.x", "state": "on"}],
+                                "then": [
+                                    {
+                                        "repeat": {
+                                            "count": 2,
+                                            "sequence": [{"service": "light.turn_on"}],
+                                        }
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+
+
+def test_extract_service_calls_supports_action_key():
+    """Test extracting service calls using 'action' key (newer HA syntax)."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {"action": "light.turn_on", "target": {"entity_id": "light.bedroom"}},
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+
+
+def test_extract_service_calls_supports_actions_key():
+    """Test extracting service calls from 'actions' key (alternate format)."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "actions": [
+            {"service": "light.turn_on"},
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"

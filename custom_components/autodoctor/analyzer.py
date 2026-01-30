@@ -1097,36 +1097,109 @@ class AutomationAnalyzer:
     def extract_service_calls(self, automation: dict) -> list[ServiceCall]:
         """Extract all service calls from automation actions."""
         service_calls: list[ServiceCall] = []
-        actions = automation.get("action", [])
+        actions = automation.get("actions") or automation.get("action", [])
+        if not isinstance(actions, list):
+            actions = [actions]
+
+        automation_id = automation.get("id", "unknown")
+        automation_name = automation.get("alias", "Unknown")
+
+        self._extract_service_calls_from_actions(
+            actions, automation_id, automation_name, "action", service_calls
+        )
+        return service_calls
+
+    def _extract_service_calls_from_actions(
+        self,
+        actions: list[dict[str, Any]],
+        automation_id: str,
+        automation_name: str,
+        location_prefix: str,
+        service_calls: list[ServiceCall],
+    ) -> None:
+        """Recursively extract service calls from a list of actions."""
+        if not isinstance(actions, list):
+            actions = [actions]
 
         for idx, action in enumerate(actions):
-            if "service" in action:
-                is_template = "{{" in action["service"] or "{%" in action["service"]
+            if not isinstance(action, dict):
+                continue
+
+            location = f"{location_prefix}[{idx}]"
+
+            # Direct service call (both 'service' and 'action' keys)
+            service = action.get("service") or action.get("action")
+            if service and isinstance(service, str):
+                is_template = "{{" in service or "{%" in service
                 service_calls.append(ServiceCall(
-                    automation_id=automation.get("id", "unknown"),
-                    automation_name=automation.get("alias", "Unknown"),
-                    service=action["service"],
-                    location=f"action[{idx}]",
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    service=service,
+                    location=location,
                     target=action.get("target"),
                     data=action.get("data"),
                     is_template=is_template,
                 ))
 
-            # Handle choose branches
+            # Choose branches
             if "choose" in action:
-                for choose_idx, branch in enumerate(action["choose"]):
-                    for seq_idx, seq_action in enumerate(branch.get("sequence", [])):
-                        if "service" in seq_action:
-                            is_template = "{{" in seq_action["service"] or "{%" in seq_action["service"]
-                            service_calls.append(ServiceCall(
-                                automation_id=automation.get("id", "unknown"),
-                                automation_name=automation.get("alias", "Unknown"),
-                                service=seq_action["service"],
-                                location=f"action[{idx}].choose[{choose_idx}].sequence[{seq_idx}]",
-                                target=seq_action.get("target"),
-                                data=seq_action.get("data"),
-                                is_template=is_template,
-                            ))
+                options = action.get("choose") or []
+                if isinstance(options, list):
+                    for opt_idx, option in enumerate(options):
+                        if isinstance(option, dict):
+                            sequence = option.get("sequence", [])
+                            self._extract_service_calls_from_actions(
+                                sequence, automation_id, automation_name,
+                                f"{location}.choose[{opt_idx}].sequence",
+                                service_calls,
+                            )
 
-        return service_calls
+                # Default branch
+                default = action.get("default") or []
+                if default:
+                    self._extract_service_calls_from_actions(
+                        default, automation_id, automation_name,
+                        f"{location}.default", service_calls,
+                    )
+
+            # If/then/else
+            if "if" in action:
+                then_actions = action.get("then", [])
+                self._extract_service_calls_from_actions(
+                    then_actions, automation_id, automation_name,
+                    f"{location}.then", service_calls,
+                )
+                else_actions = action.get("else", [])
+                if else_actions:
+                    self._extract_service_calls_from_actions(
+                        else_actions, automation_id, automation_name,
+                        f"{location}.else", service_calls,
+                    )
+
+            # Repeat
+            if "repeat" in action:
+                repeat_config = action["repeat"]
+                if isinstance(repeat_config, dict):
+                    sequence = repeat_config.get("sequence", [])
+                    self._extract_service_calls_from_actions(
+                        sequence, automation_id, automation_name,
+                        f"{location}.repeat.sequence", service_calls,
+                    )
+
+            # Parallel
+            if "parallel" in action:
+                branches = action.get("parallel") or []
+                if not isinstance(branches, list):
+                    branches = [branches]
+                for branch in branches:
+                    if isinstance(branch, list):
+                        self._extract_service_calls_from_actions(
+                            branch, automation_id, automation_name,
+                            f"{location}.parallel", service_calls,
+                        )
+                    elif isinstance(branch, dict):
+                        self._extract_service_calls_from_actions(
+                            [branch], automation_id, automation_name,
+                            f"{location}.parallel", service_calls,
+                        )
 
