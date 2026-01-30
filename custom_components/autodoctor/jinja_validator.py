@@ -11,7 +11,13 @@ from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
 from .models import IssueType, Severity, ValidationIssue
-from .template_semantics import FILTER_SIGNATURES, TEST_SIGNATURES
+from .template_semantics import (
+    ENTITY_ID_FUNCTIONS,
+    ENTITY_ID_PATTERN,
+    FILTER_SIGNATURES,
+    KNOWN_GLOBALS,
+    TEST_SIGNATURES,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -634,6 +640,152 @@ class JinjaValidator:
 
         return refs
 
+    def _validate_entity_references(
+        self,
+        refs: list["StateReference"],
+    ) -> list[ValidationIssue]:
+        """Validate entity references using knowledge base.
+
+        Checks:
+        - Entity existence
+        - State value validity (for is_state calls)
+        - Attribute existence (for state_attr/is_state_attr calls)
+
+        Args:
+            refs: List of StateReferences extracted from templates
+
+        Returns:
+            List of ValidationIssues found
+        """
+        if not self.hass:
+            return []  # Can't validate without hass instance
+
+        issues: list[ValidationIssue] = []
+
+        for ref in refs:
+            # 1. Check entity existence
+            state = self.hass.states.get(ref.entity_id)
+
+            # Handle special reference types
+            if ref.reference_type == "zone":
+                if not state:
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.TEMPLATE_ZONE_NOT_FOUND,
+                            severity=Severity.ERROR,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"Zone '{ref.entity_id}' referenced in template does not exist",
+                        )
+                    )
+                continue
+
+            elif ref.reference_type == "device":
+                # Check device registry
+                from homeassistant.helpers import device_registry as dr
+
+                device_reg = dr.async_get(self.hass)
+                if not device_reg.async_get(ref.entity_id):
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.TEMPLATE_DEVICE_NOT_FOUND,
+                            severity=Severity.ERROR,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"Device '{ref.entity_id}' referenced in template does not exist",
+                        )
+                    )
+                continue
+
+            elif ref.reference_type == "area":
+                # Check area registry
+                from homeassistant.helpers import area_registry as ar
+
+                area_reg = ar.async_get(self.hass)
+                if not area_reg.async_get_area(ref.entity_id):
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.TEMPLATE_AREA_NOT_FOUND,
+                            severity=Severity.ERROR,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"Area '{ref.entity_id}' referenced in template does not exist",
+                        )
+                    )
+                continue
+
+            # Standard entity validation
+            if not state:
+                issues.append(
+                    ValidationIssue(
+                        issue_type=IssueType.TEMPLATE_ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Entity '{ref.entity_id}' referenced in template does not exist",
+                    )
+                )
+                continue
+
+            # 2. Validate attribute existence if specified
+            if ref.expected_attribute:
+                if ref.expected_attribute not in state.attributes:
+                    available_attrs = sorted(state.attributes.keys())[:10]
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
+                            severity=Severity.ERROR,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"Attribute '{ref.expected_attribute}' not found on {ref.entity_id}",
+                            suggestion=f"Available attributes: {', '.join(available_attrs)}",
+                        )
+                    )
+
+            # 3. Validate state value if specified (from is_state calls)
+            if ref.expected_state:
+                # Use knowledge base to check if state is valid
+                from .knowledge_base import StateKnowledgeBase
+
+                kb = StateKnowledgeBase(self.hass)
+                valid_states = kb.get_valid_states(ref.entity_id)
+
+                if valid_states and ref.expected_state not in valid_states:
+                    # Check for case mismatch
+                    if ref.expected_state.lower() in {s.lower() for s in valid_states}:
+                        severity = Severity.WARNING
+                        issue_type = IssueType.CASE_MISMATCH
+                    else:
+                        severity = Severity.ERROR
+                        issue_type = IssueType.TEMPLATE_INVALID_STATE
+
+                    issues.append(
+                        ValidationIssue(
+                            issue_type=issue_type,
+                            severity=severity,
+                            automation_id=ref.automation_id,
+                            automation_name=ref.automation_name,
+                            entity_id=ref.entity_id,
+                            location=ref.location,
+                            message=f"State '{ref.expected_state}' is not valid for {ref.entity_id}",
+                            suggestion=f"Valid states: {', '.join(sorted(valid_states)[:10])}",
+                            valid_states=list(valid_states),
+                        )
+                    )
+
+        return issues
+
+
     def _check_ast_semantics(
         self,
         ast: nodes.Template,
@@ -641,9 +793,13 @@ class JinjaValidator:
         auto_id: str,
         auto_name: str,
     ) -> list[ValidationIssue]:
-        """Walk the parsed AST to check for unknown filters and tests."""
+        """Walk the parsed AST to check for semantic issues."""
         issues: list[ValidationIssue] = []
         print(f"DEBUG: _check_ast_semantics called")
+
+        # Collect template-defined variables
+        template_vars = self._collect_template_variables(ast)
+        known_vars = KNOWN_GLOBALS | template_vars
 
         for node in ast.find_all(nodes.Filter):
             print(f"DEBUG: Found filter node: {node.name}")
@@ -678,6 +834,12 @@ class JinjaValidator:
                         message=f"Unknown test '{node.name}' — not a built-in Jinja2 or Home Assistant test",
                     )
                 )
+
+        # Validate variable references
+        for node in ast.find_all(nodes.Name):
+            # Only validate Name nodes in 'load' context (reading variables)
+            if node.ctx == "load":
+                issues.extend(self._validate_variable(node, known_vars, location, auto_id, auto_name))
 
         return issues
 
@@ -717,6 +879,51 @@ class JinjaValidator:
                 )
             ]
         return []
+
+    def _validate_variable(
+        self,
+        node: nodes.Name,
+        known_vars: set[str],
+        location: str,
+        auto_id: str,
+        auto_name: str,
+    ) -> list[ValidationIssue]:
+        """Validate variable reference."""
+        # Skip special context variables
+        if node.name in ("trigger", "this", "repeat"):
+            return []
+
+        # Skip if variable is known
+        if node.name in known_vars:
+            return []
+
+        return [
+            ValidationIssue(
+                issue_type=IssueType.TEMPLATE_UNKNOWN_VARIABLE,
+                severity=Severity.WARNING,
+                automation_id=auto_id,
+                automation_name=auto_name,
+                entity_id="",
+                location=location,
+                message=f"Undefined variable '{node.name}'",
+            )
+        ]
+
+    def _collect_template_variables(self, ast: nodes.Template) -> set[str]:
+        """Collect all variables defined in the template."""
+        defined_vars = set()
+
+        # Collect from {% set var = ... %}
+        for node in ast.find_all(nodes.Assign):
+            if isinstance(node.target, nodes.Name):
+                defined_vars.add(node.target.name)
+
+        # Collect from {% for var in ... %}
+        for node in ast.find_all(nodes.For):
+            if isinstance(node.target, nodes.Name):
+                defined_vars.add(node.target.name)
+
+        return defined_vars
 
     def _check_template(
         self,
