@@ -363,3 +363,120 @@ def test_extract_entity_references_multiple_patterns():
     entity_ids = [r.entity_id for r in refs]
     assert "light.kitchen" in entity_ids
     assert "sensor.temp" in entity_ids
+
+
+def test_undefined_variable_warns():
+    """Test that undefined variables produce warnings."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "undefined_var",
+        "alias": "Undefined Var",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ unknown_variable }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_UNKNOWN_VARIABLE
+    assert "unknown_variable" in issues[0].message
+
+
+def test_validate_entity_not_found(hass):
+    """Test entity existence validation."""
+    validator = JinjaValidator(hass)
+
+    # Create a reference to non-existent entity
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            expected_state=None,
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert "light.nonexistent" in issues[0].message
+
+
+def test_validate_attribute_not_found(hass):
+    """Test attribute existence validation."""
+    # Setup entity in hass
+    hass.states.async_set("climate.living_room", "heat", {"temperature": 20})
+
+    validator = JinjaValidator(hass)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="climate.living_room",
+            expected_state=None,
+            expected_attribute="nonexistent_attr",
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND
+    assert "nonexistent_attr" in issues[0].message
+
+
+def test_validate_invalid_state(hass):
+    """Test state value validation."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "off")
+
+    validator = JinjaValidator(hass)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            expected_state="invalid_state",
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    # Should find invalid state issue
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_INVALID_STATE for i in issues)
+
+
+def test_validate_entity_exists_no_issues(hass):
+    """Test validation passes for existing entity."""
+    # Setup entity in hass
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = JinjaValidator(hass)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            expected_state=None,
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 0
