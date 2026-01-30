@@ -1354,6 +1354,28 @@ def test_extract_numeric_state_condition_with_attribute():
     assert refs[0].location == "condition[0]"
 
 
+def test_extract_numeric_state_condition_with_template():
+    """Test numeric_state condition with value_template."""
+    automation = {
+        "id": "test_numeric_template",
+        "alias": "Test Numeric Template",
+        "condition": {
+            "condition": "numeric_state",
+            "entity_id": "sensor.data",
+            "value_template": "{{ state.attributes.value | float }}",
+            "above": 10
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract entity_id
+    assert len(refs) >= 1
+    entity_ids = [r.entity_id for r in refs]
+    assert "sensor.data" in entity_ids
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
