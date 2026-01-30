@@ -25,6 +25,24 @@ _SELECTOR_TYPE_MAP: dict[str, tuple[type, ...]] = {
     "object": (dict,),
 }
 
+# Known entity-capability-dependent parameters that may not appear in service schemas
+# These are valid parameters but depend on the target entity's capabilities
+_CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
+    "light.turn_on": frozenset({
+        "brightness", "brightness_pct", "brightness_step", "brightness_step_pct",
+        "color_temp", "color_temp_kelvin", "kelvin",
+        "hs_color", "rgb_color", "rgbw_color", "rgbww_color", "xy_color",
+        "color_name", "white", "profile", "flash", "effect", "transition"
+    }),
+    "light.turn_off": frozenset({"transition", "flash"}),
+    "climate.set_temperature": frozenset({
+        "temperature", "target_temp_high", "target_temp_low"
+    }),
+    "climate.set_hvac_mode": frozenset({"hvac_mode"}),
+    "cover.set_cover_position": frozenset({"position"}),
+    "cover.set_cover_tilt_position": frozenset({"tilt_position"}),
+}
+
 
 def _is_template_value(value: Any) -> bool:
     """Check if a value contains Jinja2 template syntax."""
@@ -185,6 +203,11 @@ class ServiceCallValidator:
                 continue
 
             if param_name not in fields:
+                # Check if this is a known capability-dependent parameter
+                capability_params = _CAPABILITY_DEPENDENT_PARAMS.get(call.service, frozenset())
+                if param_name in capability_params:
+                    continue
+
                 suggestion = self._suggest_param(param_name, list(fields.keys()))
                 issues.append(ValidationIssue(
                     severity=Severity.WARNING,
@@ -256,20 +279,42 @@ class ServiceCallValidator:
                         elif isinstance(opt, dict) and "value" in opt:
                             valid_values.append(opt["value"])
 
-                    if valid_values and value not in valid_values:
-                        return ValidationIssue(
-                            severity=Severity.WARNING,
-                            automation_id=call.automation_id,
-                            automation_name=call.automation_name,
-                            entity_id="",
-                            location=call.location,
-                            message=(
-                                f"Parameter '{param_name}' value '{value}' "
-                                f"is not a valid option for service '{call.service}'. "
-                                f"Valid options: {valid_values}"
-                            ),
-                            issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
-                        )
+                    if valid_values:
+                        # Check if selector allows multiple values
+                        is_multiple = select_config.get("multiple", False)
+
+                        # For list parameters with multiple=True, validate each item
+                        if is_multiple and isinstance(value, list):
+                            invalid_items = [v for v in value if v not in valid_values]
+                            if invalid_items:
+                                return ValidationIssue(
+                                    severity=Severity.WARNING,
+                                    automation_id=call.automation_id,
+                                    automation_name=call.automation_name,
+                                    entity_id="",
+                                    location=call.location,
+                                    message=(
+                                        f"Parameter '{param_name}' has invalid items {invalid_items} "
+                                        f"for service '{call.service}'. "
+                                        f"Valid options: {valid_values}"
+                                    ),
+                                    issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                                )
+                        # For single values, check directly
+                        elif value not in valid_values:
+                            return ValidationIssue(
+                                severity=Severity.WARNING,
+                                automation_id=call.automation_id,
+                                automation_name=call.automation_name,
+                                entity_id="",
+                                location=call.location,
+                                message=(
+                                    f"Parameter '{param_name}' value '{value}' "
+                                    f"is not a valid option for service '{call.service}'. "
+                                    f"Valid options: {valid_values}"
+                                ),
+                                issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                            )
             return None
 
         # Check basic type selectors

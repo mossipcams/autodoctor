@@ -603,3 +603,100 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
     assert IssueType.SERVICE_MISSING_REQUIRED_PARAM in issue_types
     assert IssueType.SERVICE_UNKNOWN_PARAM in issue_types
     assert IssueType.SERVICE_INVALID_PARAM_TYPE in issue_types
+
+
+async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
+    """Test that list parameters are validated per-item, not as whole list.
+
+    This reproduces the false positive from the logs:
+    Parameter 'include_folders' value '['config']' is not a valid option
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("auto_backup", "backup", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "auto_backup": {
+            "backup": {
+                "fields": {
+                    "include_folders": {
+                        "required": False,
+                        "selector": {
+                            "select": {
+                                "options": ["config", "share", "ssl", "media", "addons"],
+                                "multiple": True,
+                            }
+                        },
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="auto_backup.backup",
+        location="action[0]",
+        data={"include_folders": ["config"]},  # Valid list with valid items
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    # Should NOT report any issues - ['config'] contains valid items
+    invalid_param_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(invalid_param_issues) == 0, f"False positive: {[i.message for i in invalid_param_issues]}"
+
+
+async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
+    """Test that brightness, color_temp, kelvin are not flagged as unknown for light.turn_on.
+
+    This reproduces the false positives from the logs:
+    - Unknown parameter 'brightness' for service 'light.turn_on'
+    - Unknown parameter 'color_temp' for service 'light.turn_on'
+    - Unknown parameter 'kelvin' for service 'light.turn_on'
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    # Simulate incomplete service description (common in HA)
+    # These capability-dependent params may not be in the base schema
+    validator._service_descriptions = {
+        "light": {
+            "turn_on": {
+                "fields": {
+                    "entity_id": {
+                        "required": False,
+                        "selector": {"entity": {"domain": "light"}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data={
+            "brightness": 255,
+            "color_temp": 400,
+            "kelvin": 3000,
+        },
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    # Should NOT report these as unknown - they're valid light.turn_on params
+    unknown_param_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    assert len(unknown_param_issues) == 0, f"False positives: {[i.message for i in unknown_param_issues]}"
