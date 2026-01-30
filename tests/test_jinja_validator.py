@@ -2,7 +2,7 @@
 
 import pytest
 from custom_components.autodoctor.jinja_validator import JinjaValidator
-from custom_components.autodoctor.models import IssueType, Severity
+from custom_components.autodoctor.models import IssueType, Severity, StateReference
 
 
 def test_deeply_nested_conditions_do_not_stackoverflow():
@@ -292,3 +292,74 @@ def test_syntax_error_skips_semantic_check():
     issues = validator.validate_automations([automation])
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_extract_entity_references_from_is_state():
+    """Test extracting entity references from is_state() calls."""
+    validator = JinjaValidator()
+
+    template = "{{ is_state('light.kitchen', 'on') }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.kitchen"
+    assert refs[0].expected_state == "on"
+    assert refs[0].location == "test_location.is_state"
+
+
+def test_extract_entity_references_from_state_attr():
+    """Test extracting entity references from state_attr() calls."""
+    validator = JinjaValidator()
+
+    template = "{{ state_attr('climate.living_room', 'temperature') }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "climate.living_room"
+    assert refs[0].expected_attribute == "temperature"
+    assert refs[0].location == "test_location.state_attr"
+
+
+def test_extract_entity_references_from_states_object():
+    """Test extracting entity references from states.domain.entity syntax."""
+    validator = JinjaValidator()
+
+    template = "{{ states.light.bedroom.state }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.bedroom"
+    assert refs[0].location == "test_location.states_object"
+
+
+def test_extract_entity_references_multiple_patterns():
+    """Test extracting from template with multiple patterns."""
+    validator = JinjaValidator()
+
+    template = "{{ is_state('light.kitchen', 'on') and states.sensor.temp.state | float > 20 }}"
+    refs = validator._extract_entity_references(
+        template,
+        "test_location",
+        "automation.test",
+        "Test Automation"
+    )
+
+    assert len(refs) == 2
+    entity_ids = [r.entity_id for r in refs]
+    assert "light.kitchen" in entity_ids
+    assert "sensor.temp" in entity_ids
