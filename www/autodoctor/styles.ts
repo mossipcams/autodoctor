@@ -610,8 +610,9 @@ export const cardLayoutStyles = css`
 `;
 
 /**
- * Pipeline styles: validation group panels, spinner, reveal animation,
- * summary rollup bar, and three-state (pass/warning/fail) visual treatment.
+ * Pipeline styles: validation group panels with neutral/active/result states,
+ * JS-driven stagger transitions, summary rollup bar, and
+ * three-state (pass/warning/fail) visual treatment.
  */
 export const pipelineStyles = css`
   .pipeline {
@@ -621,25 +622,34 @@ export const pipelineStyles = css`
     margin-bottom: var(--autodoc-spacing-lg);
   }
 
-  /* Individual group panel */
+  /* Individual group panel — JS controls visibility via state classes */
   .pipeline-group {
     display: flex;
     align-items: center;
     padding: var(--autodoc-spacing-md);
     border-radius: 8px;
     background: rgba(127, 127, 127, 0.06);
-    opacity: 0;
-    animation: groupReveal 300ms ease forwards;
-  }
-
-  /* Running state: no animation, always visible */
-  .pipeline-group.running {
+    border-left: 3px solid transparent;
     opacity: 1;
-    animation: none;
-    border-left: 3px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+    transition: opacity 200ms ease, border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
   }
 
-  /* Status-specific left border */
+  /* Neutral: dimmed "waiting" state before this group is checked */
+  .pipeline-group.neutral {
+    opacity: 0.45;
+    border-left-color: transparent;
+    background: rgba(127, 127, 127, 0.04);
+  }
+
+  /* Active: highlighted state — the primary running indicator */
+  .pipeline-group.active {
+    opacity: 1;
+    border-left: 3px solid var(--primary-color);
+    background: rgba(var(--rgb-primary-color, 66, 133, 244), 0.08);
+    box-shadow: 0 0 0 1px rgba(var(--rgb-primary-color, 66, 133, 244), 0.15);
+  }
+
+  /* Status-specific left border (result states) */
   .pipeline-group.pass {
     border-left: 3px solid var(--autodoc-success);
   }
@@ -670,6 +680,11 @@ export const pipelineStyles = css`
     flex-shrink: 0;
   }
 
+  .pipeline-group.active .group-status-icon {
+    background: rgba(var(--rgb-primary-color, 66, 133, 244), 0.15);
+    color: var(--primary-color);
+  }
+
   .pipeline-group.pass .group-status-icon {
     background: rgba(46, 139, 87, 0.15);
     color: var(--autodoc-success);
@@ -681,6 +696,14 @@ export const pipelineStyles = css`
   .pipeline-group.fail .group-status-icon {
     background: rgba(217, 72, 72, 0.15);
     color: var(--autodoc-error);
+  }
+
+  /* Active dot indicator (replaces spinner) */
+  .active-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--primary-color);
   }
 
   .group-label {
@@ -698,17 +721,7 @@ export const pipelineStyles = css`
   .group-count.warning-text { color: var(--autodoc-warning); }
   .group-count.fail-text { color: var(--autodoc-error); }
 
-  /* Spinner for running state */
-  .group-spinner {
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--divider-color, rgba(127, 127, 127, 0.3));
-    border-top-color: var(--primary-color);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  /* Summary rollup bar */
+  /* Summary rollup bar — visibility controlled by JS _showSummary */
   .pipeline-summary {
     display: flex;
     align-items: center;
@@ -717,8 +730,8 @@ export const pipelineStyles = css`
     border-radius: 6px;
     font-size: var(--autodoc-issue-size);
     font-weight: 500;
-    opacity: 0;
-    animation: groupReveal 300ms ease forwards;
+    opacity: 1;
+    transition: opacity 200ms ease;
   }
 
   .pipeline-summary.pass {
@@ -734,31 +747,11 @@ export const pipelineStyles = css`
     color: var(--autodoc-error);
   }
 
-  @keyframes groupReveal {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  /* Respect reduced motion */
+  /* Respect reduced motion — CSS layer (JS layer skips stagger loop separately) */
   @media (prefers-reduced-motion: reduce) {
     .pipeline-group,
     .pipeline-summary {
-      opacity: 1;
-      animation: none;
-    }
-    .group-spinner {
-      animation: none;
-      border-top-color: var(--primary-color);
+      transition: none;
     }
   }
 `;
