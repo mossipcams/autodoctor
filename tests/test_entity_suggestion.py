@@ -1,4 +1,4 @@
-"""Tests for entity suggestion (consolidated from fix_engine into validator)."""
+"""Tests for entity suggestion (get_entity_suggestion in validator.py)."""
 
 from custom_components.autodoctor.validator import (
     get_entity_suggestion,

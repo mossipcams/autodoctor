@@ -181,7 +181,7 @@ Supports all 10 Home Assistant condition types:
 - `test_validator.py` - State validation
 - `test_knowledge_base.py` - State knowledge building
 - `test_learned_states_store.py` - Learned states persistence
-- `test_fix_engine.py` - Entity suggestion (fuzzy matching, consolidated into validator)
+- `test_entity_suggestion.py` - Entity suggestion (fuzzy matching via get_entity_suggestion)
 - `test_models.py` - Data model serialization
 - `test_reporter.py` - Issue reporting
 - `test_websocket_api.py` - WebSocket endpoints

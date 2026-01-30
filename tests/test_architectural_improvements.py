@@ -331,14 +331,14 @@ def test_get_entity_suggestion_importable_from_validator():
     """get_entity_suggestion should be importable from validator module."""
     from custom_components.autodoctor.validator import get_entity_suggestion
 
-    # Basic smoke test — same behavior as fix_engine version
+    # Basic smoke test — entity suggestion from validator
     all_entities = ["light.living_room", "light.bedroom", "switch.kitchen"]
     result = get_entity_suggestion("light.livingroom", all_entities)
     assert result == "light.living_room"
 
 
 def test_websocket_api_imports_from_validator_not_fix_engine():
-    """websocket_api should import get_entity_suggestion from validator, not fix_engine."""
+    """websocket_api imports get_entity_suggestion from validator (not the removed fix_engine module)."""
     import ast
 
     import custom_components.autodoctor.websocket_api as ws_mod
