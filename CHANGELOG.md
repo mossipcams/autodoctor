@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.7.0](https://github.com/mossipcams/autodoctor/compare/v2.6.2...v2.7.0) (2026-01-30)
+
+
+### Features
+
+* add full service call parameter validation ([9836c37](https://github.com/mossipcams/autodoctor/commit/9836c379d9ccdc11f6683b066c3f989703568124))
+
+
+### Bug Fixes
+
+* validate device/area/tag/integration references against correct registries ([6360401](https://github.com/mossipcams/autodoctor/commit/6360401ea41046a685dde7ed76a1f91e52dd6b39))
+
 ## [2.6.2](https://github.com/mossipcams/autodoctor/compare/v2.6.1...v2.6.2) (2026-01-30)
 
 
