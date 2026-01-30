@@ -88,6 +88,8 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 | History lookback (days) | 30 | Days of state history to analyze |
 | Validate on reload | Yes | Auto-validate when automations reload |
 | Debounce delay (seconds) | 5 | Wait before validating after reload |
+| Strict template validation | No | Warn about unknown Jinja2 filters and tests |
+| Strict service validation | No | Warn about unknown service call parameters |
 
 ## How It Works
 
