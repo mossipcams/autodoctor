@@ -589,6 +589,22 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif cond_type == "device":
+            device_id = condition.get("device_id")
+
+            if device_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
+
         return refs
 
     def _extract_from_template(

@@ -1460,6 +1460,28 @@ def test_extract_time_condition_no_entities():
     assert len(refs) == 0
 
 
+def test_extract_device_condition():
+    """Test device condition extraction."""
+    automation = {
+        "id": "test_device_cond",
+        "alias": "Test Device Condition",
+        "condition": {
+            "condition": "device",
+            "device_id": "abc123def456",
+            "domain": "light",
+            "type": "is_on"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "abc123def456"
+    assert refs[0].reference_type == "device"
+    assert refs[0].location == "condition[0].device_id"
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {
