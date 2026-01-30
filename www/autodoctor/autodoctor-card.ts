@@ -7,14 +7,11 @@ import type {
   AutomationGroup,
   IssueWithFix,
   ValidationIssue,
-  TabType,
   AutodoctorTabData,
-  ConflictsTabData,
-  Conflict,
 } from "./types";
 
-import { autodocTokens, badgeStyles, conflictStyles, cardLayoutStyles } from "./styles.js";
-import { renderBadges, renderConflictsBadges } from "./badges.js";
+import { autodocTokens, badgeStyles, cardLayoutStyles } from "./styles.js";
+import { renderBadges } from "./badges.js";
 import "./autodoc-issue-group.js";
 
 const CARD_VERSION = "2.1.0";
@@ -30,30 +27,19 @@ export class AutodoctorCard extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @property({ attribute: false }) public config!: AutodoctorCardConfig;
 
-  @state() private _loadingValidation = true;
-  @state() private _loadingConflicts = false;
+  @state() private _loading = true;
   @state() private _error: string | null = null;
-  @state() private _activeTab: TabType = "validation";
   @state() private _validationData: AutodoctorTabData | null = null;
-  @state() private _conflictsData: ConflictsTabData | null = null;
   @state() private _runningValidation = false;
-  @state() private _runningConflicts = false;
   @state() private _dismissedSuggestions = new Set<string>();
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
-  private _conflictsRequestId = 0;
   private _suppressionInProgress = false;
 
   // Cooldown tracking to prevent rapid button clicks
   private _lastValidationClick = 0;
-  private _lastConflictsClick = 0;
   private static readonly CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
-
-  private _isInCooldown(isValidation: boolean): boolean {
-    const lastClick = isValidation ? this._lastValidationClick : this._lastConflictsClick;
-    return Date.now() - lastClick < AutodoctorCard.CLICK_COOLDOWN_MS;
-  }
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -74,21 +60,10 @@ export class AutodoctorCard extends LitElement {
     await this._fetchValidation();
   }
 
-  private _switchTab(tab: TabType): void {
-    this._activeTab = tab;
-
-    // Fetch data if not loaded and not already fetching
-    if (tab === "validation" && !this._validationData && !this._loadingValidation) {
-      this._fetchValidation();
-    } else if (tab === "conflicts" && !this._conflictsData && !this._loadingConflicts) {
-      this._fetchConflicts();
-    }
-  }
-
   private async _fetchValidation(): Promise<void> {
     // Increment request ID to track this specific request
     const requestId = ++this._validationRequestId;
-    this._loadingValidation = true;
+    this._loading = true;
 
     try {
       this._error = null;
@@ -110,7 +85,7 @@ export class AutodoctorCard extends LitElement {
 
     // Only clear loading if this is still the latest request
     if (requestId === this._validationRequestId) {
-      this._loadingValidation = false;
+      this._loading = false;
     }
   }
 
@@ -146,70 +121,6 @@ export class AutodoctorCard extends LitElement {
     // Only clear running flag if this is still the latest request
     if (requestId === this._validationRequestId) {
       this._runningValidation = false;
-    }
-  }
-
-  private async _fetchConflicts(): Promise<void> {
-    // Increment request ID to track this specific request
-    const requestId = ++this._conflictsRequestId;
-    this._loadingConflicts = true;
-
-    try {
-      this._error = null;
-      const data = await this.hass.callWS<ConflictsTabData>({
-        type: "autodoctor/conflicts",
-      });
-
-      // Only update state if this is still the latest request
-      if (requestId === this._conflictsRequestId) {
-        this._conflictsData = data;
-      }
-    } catch (err) {
-      // Only set error if this is still the latest request
-      if (requestId === this._conflictsRequestId) {
-        console.error("Failed to fetch conflicts data:", err);
-        this._error = "Failed to load conflicts data";
-      }
-    }
-
-    // Only clear loading if this is still the latest request
-    if (requestId === this._conflictsRequestId) {
-      this._loadingConflicts = false;
-    }
-  }
-
-  private async _runConflicts(): Promise<void> {
-    // Prevent concurrent runs and enforce cooldown
-    const now = Date.now();
-    if (
-      this._runningConflicts ||
-      now - this._lastConflictsClick < AutodoctorCard.CLICK_COOLDOWN_MS
-    ) {
-      return;
-    }
-    this._lastConflictsClick = now;
-
-    const requestId = ++this._conflictsRequestId;
-    this._runningConflicts = true;
-
-    try {
-      const data = await this.hass.callWS<ConflictsTabData>({
-        type: "autodoctor/conflicts/run",
-      });
-
-      // Only update state if this is still the latest request
-      if (requestId === this._conflictsRequestId) {
-        this._conflictsData = data;
-      }
-    } catch (err) {
-      if (requestId === this._conflictsRequestId) {
-        console.error("Failed to run conflict detection:", err);
-      }
-    }
-
-    // Only clear running flag if this is still the latest request
-    if (requestId === this._conflictsRequestId) {
-      this._runningConflicts = false;
     }
   }
 
@@ -274,11 +185,6 @@ export class AutodoctorCard extends LitElement {
     };
   }
 
-  private get _loading(): boolean {
-    // Return loading state for the current tab
-    return this._activeTab === "validation" ? this._loadingValidation : this._loadingConflicts;
-  }
-
   protected render(): TemplateResult {
     const title = this.config.title || "Autodoctor";
 
@@ -288,11 +194,6 @@ export class AutodoctorCard extends LitElement {
 
     if (this._error) {
       return this._renderError(title);
-    }
-
-    // Handle conflicts tab separately since it has different data structure
-    if (this._activeTab === "conflicts") {
-      return this._renderConflictsTab(title);
     }
 
     const data = this._validationData;
@@ -307,7 +208,7 @@ export class AutodoctorCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._renderHeader(title)} ${this._renderTabs()}
+        ${this._renderHeader(title)}
         <div class="card-content">
           ${this._renderBadges(counts)}
           ${hasIssues
@@ -325,7 +226,7 @@ export class AutodoctorCard extends LitElement {
               )
             : this._renderAllHealthy(counts.healthy)}
         </div>
-        ${this._renderTabFooter()}
+        ${this._renderFooter()}
       </ha-card>
     `;
   }
@@ -353,13 +254,7 @@ export class AutodoctorCard extends LitElement {
         <div class="card-content error-state">
           <div class="error-icon" aria-hidden="true">\u26A0</div>
           <span class="error-text">${this._error}</span>
-          <button
-            class="retry-btn"
-            @click=${() =>
-              this._activeTab === "validation" ? this._fetchValidation() : this._fetchConflicts()}
-          >
-            Try again
-          </button>
+          <button class="retry-btn" @click=${() => this._fetchValidation()}>Try again</button>
         </div>
       </ha-card>
     `;
@@ -368,7 +263,7 @@ export class AutodoctorCard extends LitElement {
   private _renderEmpty(title: string): TemplateResult {
     return html`
       <ha-card>
-        ${this._renderHeader(title)} ${this._renderTabs()}
+        ${this._renderHeader(title)}
         <div class="card-content empty-state">
           <span class="empty-text">No data available</span>
         </div>
@@ -398,25 +293,6 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderTabs(): TemplateResult {
-    return html`
-      <div class="tabs">
-        <button
-          class="tab ${this._activeTab === "validation" ? "active" : ""}"
-          @click=${() => this._switchTab("validation")}
-        >
-          Validation
-        </button>
-        <button
-          class="tab ${this._activeTab === "conflicts" ? "active" : ""}"
-          @click=${() => this._switchTab("conflicts")}
-        >
-          Conflicts
-        </button>
-      </div>
-    `;
-  }
-
   private _renderBadges(counts: {
     errors: number;
     warnings: number;
@@ -426,43 +302,26 @@ export class AutodoctorCard extends LitElement {
     return renderBadges(counts, () => this._clearSuppressions());
   }
 
-  private _renderTabFooter(): TemplateResult {
-    const isValidation = this._activeTab === "validation";
-
-    const isRunning = isValidation ? this._runningValidation : this._runningConflicts;
-
-    const isLoading = isValidation ? this._loadingValidation : this._loadingConflicts;
-
+  private _renderFooter(): TemplateResult {
     // Disable button during any async operation or cooldown period
-    const isDisabled = isRunning || isLoading || this._isInCooldown(isValidation);
-
-    const lastRun = isValidation ? this._validationData?.last_run : this._conflictsData?.last_run;
-
-    const buttonText = isValidation ? "Run Validation" : "Run Conflict Detection";
-
-    const runHandler = () => {
-      if (isValidation) {
-        this._runValidation();
-      } else {
-        this._runConflicts();
-      }
-    };
-
-    // Show running state for any async operation
-    const showRunning = isRunning || isLoading;
+    const isRunning = this._runningValidation || this._loading;
+    const isDisabled =
+      isRunning || Date.now() - this._lastValidationClick < AutodoctorCard.CLICK_COOLDOWN_MS;
 
     return html`
       <div class="footer">
         <button
-          class="run-btn ${showRunning ? "running" : ""}"
-          @click=${runHandler}
+          class="run-btn ${isRunning ? "running" : ""}"
+          @click=${() => this._runValidation()}
           ?disabled=${isDisabled}
         >
-          <span class="run-icon" aria-hidden="true">${showRunning ? "\u21BB" : "\u25B6"}</span>
-          <span class="run-text">${showRunning ? "Running..." : buttonText}</span>
+          <span class="run-icon" aria-hidden="true">${isRunning ? "\u21BB" : "\u25B6"}</span>
+          <span class="run-text">${isRunning ? "Running..." : "Run Validation"}</span>
         </button>
-        ${lastRun
-          ? html` <span class="last-run">Last run: ${this._formatLastRun(lastRun)}</span> `
+        ${this._validationData?.last_run
+          ? html` <span class="last-run"
+              >Last run: ${this._formatLastRun(this._validationData.last_run)}</span
+            >`
           : nothing}
       </div>
     `;
@@ -505,11 +364,7 @@ export class AutodoctorCard extends LitElement {
         entity_id: issue.entity_id,
         issue_type: issue.issue_type || "unknown",
       });
-      if (this._activeTab === "validation") {
-        await this._fetchValidation();
-      } else {
-        await this._fetchConflicts();
-      }
+      await this._fetchValidation();
     } catch (err) {
       console.error("Failed to suppress issue:", err);
     } finally {
@@ -528,11 +383,7 @@ export class AutodoctorCard extends LitElement {
       await this.hass.callWS({
         type: "autodoctor/clear_suppressions",
       });
-      if (this._activeTab === "validation") {
-        await this._fetchValidation();
-      } else {
-        await this._fetchConflicts();
-      }
+      await this._fetchValidation();
     } catch (err) {
       console.error("Failed to clear suppressions:", err);
     } finally {
@@ -540,85 +391,8 @@ export class AutodoctorCard extends LitElement {
     }
   }
 
-  private _renderConflictsTab(title: string): TemplateResult {
-    if (!this._conflictsData) {
-      return this._renderEmpty(title);
-    }
-
-    const { conflicts, suppressed_count } = this._conflictsData;
-    const hasConflicts = conflicts.length > 0;
-
-    // Count by severity
-    const errorCount = conflicts.filter((c) => c.severity === "error").length;
-    const warningCount = conflicts.filter((c) => c.severity === "warning").length;
-
-    return html`
-      <ha-card>
-        ${this._renderHeader(title)} ${this._renderTabs()}
-        <div class="card-content">
-          ${this._renderConflictsBadges(errorCount, warningCount, suppressed_count)}
-          ${hasConflicts
-            ? conflicts.map((conflict) => this._renderConflict(conflict))
-            : this._renderNoConflicts()}
-        </div>
-        ${this._renderTabFooter()}
-      </ha-card>
-    `;
-  }
-
-  private _renderConflictsBadges(
-    errors: number,
-    warnings: number,
-    suppressed: number
-  ): TemplateResult {
-    return renderConflictsBadges(errors, warnings, suppressed);
-  }
-
-  private _renderNoConflicts(): TemplateResult {
-    return html`
-      <div class="all-healthy">
-        <div class="healthy-icon" aria-hidden="true">\u2713</div>
-        <div class="healthy-message">
-          <span class="healthy-title">No conflicts detected</span>
-          <span class="healthy-subtitle">Your automations work harmoniously</span>
-        </div>
-      </div>
-    `;
-  }
-
-  private _renderConflict(conflict: Conflict): TemplateResult {
-    const isError = conflict.severity === "error";
-
-    return html`
-      <div class="conflict-card ${isError ? "severity-error" : "severity-warning"}">
-        <div class="conflict-header">
-          <span class="conflict-severity-icon" aria-hidden="true">${isError ? "\u2715" : "!"}</span>
-          <span class="conflict-entity">${conflict.entity_id}</span>
-        </div>
-        <div class="conflict-automations">
-          <div class="conflict-automation">
-            <span class="conflict-automation-label">A:</span>
-            <span class="conflict-automation-name">${conflict.automation_a_name}</span>
-            <span class="conflict-action">${conflict.action_a}</span>
-          </div>
-          <div class="conflict-vs">vs</div>
-          <div class="conflict-automation">
-            <span class="conflict-automation-label">B:</span>
-            <span class="conflict-automation-name">${conflict.automation_b_name}</span>
-            <span class="conflict-action">${conflict.action_b}</span>
-          </div>
-        </div>
-        <div class="conflict-explanation">${conflict.explanation}</div>
-        <div class="conflict-scenario">
-          <span class="conflict-scenario-label">Scenario:</span>
-          ${conflict.scenario}
-        </div>
-      </div>
-    `;
-  }
-
   static get styles(): CSSResultGroup {
-    return [autodocTokens, badgeStyles, conflictStyles, cardLayoutStyles];
+    return [autodocTokens, badgeStyles, cardLayoutStyles];
   }
 
   public getCardSize(): number {
