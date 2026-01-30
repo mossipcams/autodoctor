@@ -20,19 +20,50 @@ _TARGET_FIELDS = frozenset({"entity_id", "device_id", "area_id"})
 # Known entity-capability-dependent parameters that may not appear in service schemas
 # These are valid parameters but depend on the target entity's capabilities
 _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
+    # Light
     "light.turn_on": frozenset({
         "brightness", "brightness_pct", "brightness_step", "brightness_step_pct",
         "color_temp", "color_temp_kelvin", "kelvin",
         "hs_color", "rgb_color", "rgbw_color", "rgbww_color", "xy_color",
-        "color_name", "white", "profile", "flash", "effect", "transition"
+        "color_name", "white", "profile", "flash", "effect", "transition",
     }),
     "light.turn_off": frozenset({"transition", "flash"}),
+    # Climate
     "climate.set_temperature": frozenset({
-        "temperature", "target_temp_high", "target_temp_low"
+        "temperature", "target_temp_high", "target_temp_low",
     }),
     "climate.set_hvac_mode": frozenset({"hvac_mode"}),
+    # Cover
     "cover.set_cover_position": frozenset({"position"}),
     "cover.set_cover_tilt_position": frozenset({"tilt_position"}),
+    # Media player
+    "media_player.play_media": frozenset({
+        "media_content_id", "media_content_type", "enqueue", "announce",
+    }),
+    "media_player.select_source": frozenset({"source"}),
+    "media_player.select_sound_mode": frozenset({"sound_mode"}),
+    # Fan
+    "fan.set_percentage": frozenset({"percentage"}),
+    "fan.set_preset_mode": frozenset({"preset_mode"}),
+    "fan.set_direction": frozenset({"direction"}),
+    "fan.oscillate": frozenset({"oscillating"}),
+    # Vacuum
+    "vacuum.send_command": frozenset({"command", "params"}),
+    # Alarm control panel
+    "alarm_control_panel.alarm_arm_away": frozenset({"code"}),
+    "alarm_control_panel.alarm_arm_home": frozenset({"code"}),
+    "alarm_control_panel.alarm_arm_night": frozenset({"code"}),
+    "alarm_control_panel.alarm_arm_vacation": frozenset({"code"}),
+    "alarm_control_panel.alarm_disarm": frozenset({"code"}),
+    "alarm_control_panel.alarm_trigger": frozenset({"code"}),
+    # Number
+    "number.set_value": frozenset({"value"}),
+    # Humidifier
+    "humidifier.set_humidity": frozenset({"humidity"}),
+    "humidifier.set_mode": frozenset({"mode"}),
+    # Water heater
+    "water_heater.set_temperature": frozenset({"temperature"}),
+    "water_heater.set_operation_mode": frozenset({"operation_mode"}),
 }
 
 

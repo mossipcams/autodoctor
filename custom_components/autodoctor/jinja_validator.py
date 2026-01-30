@@ -10,11 +10,8 @@ import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
+from .ha_catalog import get_filter_entry, get_known_filters, get_known_tests
 from .models import IssueType, Severity, ValidationIssue
-from .template_semantics import (
-    FILTER_SIGNATURES,
-    TEST_SIGNATURES,
-)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -28,66 +25,6 @@ TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 # Intentionally lower than const.MAX_RECURSION_DEPTH (50) because templates
 # rarely nest deeply and this provides a tighter safety net for parsing.
 _TEMPLATE_MAX_NESTING_DEPTH = 20
-
-# HA-specific filters (added on top of Jinja2 built-ins).
-# Source: https://www.home-assistant.io/docs/configuration/templating
-_HA_FILTERS: frozenset[str] = frozenset({
-    # Datetime / timestamp
-    "as_datetime", "as_timestamp", "as_local", "as_timedelta",
-    "timestamp_custom", "timestamp_local", "timestamp_utc",
-    "relative_time", "time_since", "time_until",
-    # JSON
-    "to_json", "from_json",
-    # Type conversion (override Jinja2 built-ins)
-    "float", "int", "bool",
-    # Validation
-    "is_defined", "is_number", "has_value",
-    # Math
-    "log", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sqrt",
-    "multiply", "add", "average", "median", "statistical_mode",
-    "clamp", "wrap", "remap",
-    # Bitwise
-    "bitwise_and", "bitwise_or", "bitwise_xor", "ord",
-    # Encoding
-    "base64_encode", "base64_decode", "from_hex",
-    # Hashing
-    "md5", "sha1", "sha256", "sha512",
-    # Regex
-    "regex_match", "regex_search", "regex_replace",
-    "regex_findall", "regex_findall_index",
-    # String
-    "slugify", "ordinal",
-    # Collections
-    "set", "shuffle", "flatten",
-    "intersect", "difference", "symmetric_difference", "union", "combine",
-    "contains",
-    # Entity / device / area / floor / label lookups
-    "expand", "closest", "distance",
-    "state_attr", "is_state_attr", "is_state", "state_translated",
-    "is_hidden_entity",
-    "device_entities", "device_attr", "is_device_attr", "device_id", "device_name",
-    "config_entry_id", "config_entry_attr",
-    "area_id", "area_name", "area_entities", "area_devices",
-    "floor_id", "floor_name", "floor_areas", "floor_entities",
-    "label_id", "label_name", "label_description",
-    "label_areas", "label_devices", "label_entities",
-    "integration_entities",
-    # Misc
-    "iif", "version", "pack", "unpack",
-    "apply", "as_function", "merge_response", "typeof",
-})
-
-# HA-specific tests (added on top of Jinja2 built-ins).
-_HA_TESTS: frozenset[str] = frozenset({
-    "match", "search",
-    "is_number", "has_value", "contains",
-    "is_list", "is_set", "is_tuple", "is_datetime", "is_string_like",
-    "is_boolean", "is_callable", "is_float", "is_integer",
-    "is_iterable", "is_mapping", "is_sequence", "is_string",
-    "is_state", "is_state_attr", "is_device_attr", "is_hidden_entity",
-    "apply",
-})
-
 
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
@@ -111,8 +48,8 @@ class JinjaValidator:
         self._strict_validation = strict_template_validation
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
-        self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | _HA_FILTERS
-        self._known_tests: frozenset[str] = frozenset(self._env.tests.keys()) | _HA_TESTS
+        self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | get_known_filters()
+        self._known_tests: frozenset[str] = frozenset(self._env.tests.keys()) | get_known_tests()
 
     def validate_automations(
         self, automations: list[dict[str, Any]]
@@ -922,7 +859,7 @@ class JinjaValidator:
         auto_name: str,
     ) -> list[ValidationIssue]:
         """Validate filter argument count."""
-        sig = FILTER_SIGNATURES.get(node.name)
+        sig = get_filter_entry(node.name)
         if not sig:
             return []  # Unknown filter already handled elsewhere
 
