@@ -10,7 +10,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-homeassistant-custom-component>=0.13.0",
     "tdd-guard-pytest",
-    "mutmut>=3.4.0",
+    "mutmut>=2.5.0,<3",
 ]
 
 [tool.pytest.ini_options]
@@ -48,6 +48,4 @@ paths_to_mutate = [
     "custom_components/autodoctor/jinja_validator.py",
     "custom_components/autodoctor/knowledge_base.py",
 ]
-pytest_add_cli_args_test_selection = [
-    "tests/",
-]
+tests_dir = "tests/"
