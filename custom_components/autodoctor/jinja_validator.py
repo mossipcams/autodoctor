@@ -12,11 +12,7 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from .models import IssueType, Severity, ValidationIssue
 from .template_semantics import (
-    ENTITY_ID_FUNCTIONS,
-    ENTITY_ID_PATTERN,
     FILTER_SIGNATURES,
-    KNOWN_CALLABLE_GLOBALS,
-    KNOWN_GLOBALS,
     TEST_SIGNATURES,
 )
 
@@ -871,7 +867,6 @@ class JinjaValidator:
         location: str,
         auto_id: str,
         auto_name: str,
-        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Walk the parsed AST to check for semantic issues.
 
@@ -956,22 +951,6 @@ class JinjaValidator:
             ]
         return []
 
-    def _collect_template_variables(self, ast: nodes.Template) -> set[str]:
-        """Collect all variables defined in the template."""
-        defined_vars = set()
-
-        # Collect from {% set var = ... %}
-        for node in ast.find_all(nodes.Assign):
-            if isinstance(node.target, nodes.Name):
-                defined_vars.add(node.target.name)
-
-        # Collect from {% for var in ... %}
-        for node in ast.find_all(nodes.For):
-            if isinstance(node.target, nodes.Name):
-                defined_vars.add(node.target.name)
-
-        return defined_vars
-
     def _check_template(
         self,
         template: str,
@@ -1018,7 +997,7 @@ class JinjaValidator:
         issues = []
 
         # 2. Semantic check for filters/tests (existing)
-        issues.extend(self._check_ast_semantics(ast, location, auto_id, auto_name, auto_vars=auto_vars))
+        issues.extend(self._check_ast_semantics(ast, location, auto_id, auto_name))
 
         # 3. NEW: Semantic check for entity references
         refs = self._extract_entity_references(template, location, auto_id, auto_name)

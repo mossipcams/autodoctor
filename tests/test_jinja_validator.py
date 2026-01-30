@@ -557,3 +557,14 @@ def test_strict_mode_flag_stored_on_validator():
     validator_strict = JinjaValidator(strict_template_validation=True)
     assert validator_strict._strict_validation is True
 
+
+def test_check_ast_semantics_has_no_auto_vars_parameter():
+    """_check_ast_semantics should not accept auto_vars (dead parameter removed in v2.7.0 cleanup)."""
+    import inspect
+
+    validator = JinjaValidator()
+    sig = inspect.signature(validator._check_ast_semantics)
+    assert "auto_vars" not in sig.parameters, (
+        "_check_ast_semantics still accepts auto_vars but never uses it"
+    )
+
