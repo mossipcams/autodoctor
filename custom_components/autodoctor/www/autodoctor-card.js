@@ -4,7 +4,7 @@ function t(t,e,s,i){var o,r=arguments.length,a=r<3?e:null===i?i=Object.getOwnPro
  * Copyright 2019 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const e=globalThis,s=e.ShadowRoot&&(void 0===e.ShadyCSS||e.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,i=Symbol(),o=new WeakMap;let r=class{constructor(t,e,s){if(this._$cssResult$=!0,s!==i)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e}get styleSheet(){let t=this.o;const e=this.t;if(s&&void 0===t){const s=void 0!==e&&1===e.length;s&&(t=o.get(e)),void 0===t&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),s&&o.set(e,t))}return t}toString(){return this.cssText}};const a=(t,...e)=>{const s=1===t.length?t[0]:e.reduce((e,s,i)=>e+(t=>{if(!0===t._$cssResult$)return t.cssText;if("number"==typeof t)return t;throw Error("Value passed to 'css' function must be a 'css' function result: "+t+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(s)+t[i+1],t[0]);return new r(s,t,i)},n=s?t=>t:t=>t instanceof CSSStyleSheet?(t=>{let e="";for(const s of t.cssRules)e+=s.cssText;return(t=>new r("string"==typeof t?t:t+"",void 0,i))(e)})(t):t,{is:d,defineProperty:c,getOwnPropertyDescriptor:l,getOwnPropertyNames:u,getOwnPropertySymbols:p,getPrototypeOf:h}=Object,g=globalThis,f=g.trustedTypes,m=f?f.emptyScript:"",v=g.reactiveElementPolyfillSupport,_=(t,e)=>t,y={toAttribute(t,e){switch(e){case Boolean:t=t?m:null;break;case Object:case Array:t=null==t?t:JSON.stringify(t)}return t},fromAttribute(t,e){let s=t;switch(e){case Boolean:s=null!==t;break;case Number:s=null===t?null:Number(t);break;case Object:case Array:try{s=JSON.parse(t)}catch(t){s=null}}return s}},b=(t,e)=>!d(t,e),$={attribute:!0,type:String,converter:y,reflect:!1,useDefault:!1,hasChanged:b};
+const e=globalThis,s=e.ShadowRoot&&(void 0===e.ShadyCSS||e.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,i=Symbol(),o=new WeakMap;let r=class{constructor(t,e,s){if(this._$cssResult$=!0,s!==i)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e}get styleSheet(){let t=this.o;const e=this.t;if(s&&void 0===t){const s=void 0!==e&&1===e.length;s&&(t=o.get(e)),void 0===t&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),s&&o.set(e,t))}return t}toString(){return this.cssText}};const a=(t,...e)=>{const s=1===t.length?t[0]:e.reduce((e,s,i)=>e+(t=>{if(!0===t._$cssResult$)return t.cssText;if("number"==typeof t)return t;throw Error("Value passed to 'css' function must be a 'css' function result: "+t+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(s)+t[i+1],t[0]);return new r(s,t,i)},n=s?t=>t:t=>t instanceof CSSStyleSheet?(t=>{let e="";for(const s of t.cssRules)e+=s.cssText;return(t=>new r("string"==typeof t?t:t+"",void 0,i))(e)})(t):t,{is:d,defineProperty:c,getOwnPropertyDescriptor:l,getOwnPropertyNames:u,getOwnPropertySymbols:p,getPrototypeOf:h}=Object,g=globalThis,m=g.trustedTypes,f=m?m.emptyScript:"",v=g.reactiveElementPolyfillSupport,_=(t,e)=>t,y={toAttribute(t,e){switch(e){case Boolean:t=t?f:null;break;case Object:case Array:t=null==t?t:JSON.stringify(t)}return t},fromAttribute(t,e){let s=t;switch(e){case Boolean:s=null!==t;break;case Number:s=null===t?null:Number(t);break;case Object:case Array:try{s=JSON.parse(t)}catch(t){s=null}}return s}},b=(t,e)=>!d(t,e),$={attribute:!0,type:String,converter:y,reflect:!1,useDefault:!1,hasChanged:b};
 /**
  * @license
  * Copyright 2017 Google LLC
@@ -15,12 +15,12 @@ const e=globalThis,s=e.ShadowRoot&&(void 0===e.ShadyCSS||e.ShadyCSS.nativeShadow
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const w=globalThis,A=t=>t,S=w.trustedTypes,E=S?S.createPolicy("lit-html",{createHTML:t=>t}):void 0,C="$lit$",k=`lit$${Math.random().toFixed(9).slice(2)}$`,P="?"+k,z=`<${P}>`,O=document,R=()=>O.createComment(""),U=t=>null===t||"object"!=typeof t&&"function"!=typeof t,H=Array.isArray,M="[ \t\n\f\r]",T=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,D=/-->/g,I=/>/g,N=RegExp(`>|${M}(?:([^\\s"'>=/]+)(${M}*=${M}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),j=/'/g,L=/"/g,V=/^(?:script|style|textarea|title)$/i,q=(t=>(e,...s)=>({_$litType$:t,strings:e,values:s}))(1),B=Symbol.for("lit-noChange"),W=Symbol.for("lit-nothing"),K=new WeakMap,F=O.createTreeWalker(O,129);function J(t,e){if(!H(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==E?E.createHTML(e):e}const Z=(t,e)=>{const s=t.length-1,i=[];let o,r=2===e?"<svg>":3===e?"<math>":"",a=T;for(let e=0;e<s;e++){const s=t[e];let n,d,c=-1,l=0;for(;l<s.length&&(a.lastIndex=l,d=a.exec(s),null!==d);)l=a.lastIndex,a===T?"!--"===d[1]?a=D:void 0!==d[1]?a=I:void 0!==d[2]?(V.test(d[2])&&(o=RegExp("</"+d[2],"g")),a=N):void 0!==d[3]&&(a=N):a===N?">"===d[0]?(a=o??T,c=-1):void 0===d[1]?c=-2:(c=a.lastIndex-d[2].length,n=d[1],a=void 0===d[3]?N:'"'===d[3]?L:j):a===L||a===j?a=N:a===D||a===I?a=T:(a=N,o=void 0);const u=a===N&&t[e+1].startsWith("/>")?" ":"";r+=a===T?s+z:c>=0?(i.push(n),s.slice(0,c)+C+s.slice(c)+k+u):s+k+(-2===c?e:u)}return[J(t,r+(t[s]||"<?>")+(2===e?"</svg>":3===e?"</math>":"")),i]};class G{constructor({strings:t,_$litType$:e},s){let i;this.parts=[];let o=0,r=0;const a=t.length-1,n=this.parts,[d,c]=Z(t,e);if(this.el=G.createElement(d,s),F.currentNode=this.el.content,2===e||3===e){const t=this.el.content.firstChild;t.replaceWith(...t.childNodes)}for(;null!==(i=F.nextNode())&&n.length<a;){if(1===i.nodeType){if(i.hasAttributes())for(const t of i.getAttributeNames())if(t.endsWith(C)){const e=c[r++],s=i.getAttribute(t).split(k),a=/([.?@])?(.*)/.exec(e);n.push({type:1,index:o,name:a[2],strings:s,ctor:"."===a[1]?et:"?"===a[1]?st:"@"===a[1]?it:tt}),i.removeAttribute(t)}else t.startsWith(k)&&(n.push({type:6,index:o}),i.removeAttribute(t));if(V.test(i.tagName)){const t=i.textContent.split(k),e=t.length-1;if(e>0){i.textContent=S?S.emptyScript:"";for(let s=0;s<e;s++)i.append(t[s],R()),F.nextNode(),n.push({type:2,index:++o});i.append(t[e],R())}}}else if(8===i.nodeType)if(i.data===P)n.push({type:2,index:o});else{let t=-1;for(;-1!==(t=i.data.indexOf(k,t+1));)n.push({type:7,index:o}),t+=k.length-1}o++}}static createElement(t,e){const s=O.createElement("template");return s.innerHTML=t,s}}function X(t,e,s=t,i){if(e===B)return e;let o=void 0!==i?s._$Co?.[i]:s._$Cl;const r=U(e)?void 0:e._$litDirective$;return o?.constructor!==r&&(o?._$AO?.(!1),void 0===r?o=void 0:(o=new r(t),o._$AT(t,s,i)),void 0!==i?(s._$Co??=[])[i]=o:s._$Cl=o),void 0!==o&&(e=X(t,o._$AS(t,e.values),o,i)),e}class Y{constructor(t,e){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=e}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){const{el:{content:e},parts:s}=this._$AD,i=(t?.creationScope??O).importNode(e,!0);F.currentNode=i;let o=F.nextNode(),r=0,a=0,n=s[0];for(;void 0!==n;){if(r===n.index){let e;2===n.type?e=new Q(o,o.nextSibling,this,t):1===n.type?e=new n.ctor(o,n.name,n.strings,this,t):6===n.type&&(e=new ot(o,this,t)),this._$AV.push(e),n=s[++a]}r!==n?.index&&(o=F.nextNode(),r++)}return F.currentNode=O,i}p(t){let e=0;for(const s of this._$AV)void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,e),e+=s.strings.length-2):s._$AI(t[e])),e++}}class Q{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,e,s,i){this.type=2,this._$AH=W,this._$AN=void 0,this._$AA=t,this._$AB=e,this._$AM=s,this.options=i,this._$Cv=i?.isConnected??!0}get parentNode(){let t=this._$AA.parentNode;const e=this._$AM;return void 0!==e&&11===t?.nodeType&&(t=e.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,e=this){t=X(this,t,e),U(t)?t===W||null==t||""===t?(this._$AH!==W&&this._$AR(),this._$AH=W):t!==this._$AH&&t!==B&&this._(t):void 0!==t._$litType$?this.$(t):void 0!==t.nodeType?this.T(t):(t=>H(t)||"function"==typeof t?.[Symbol.iterator])(t)?this.k(t):this._(t)}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t))}_(t){this._$AH!==W&&U(this._$AH)?this._$AA.nextSibling.data=t:this.T(O.createTextNode(t)),this._$AH=t}$(t){const{values:e,_$litType$:s}=t,i="number"==typeof s?this._$AC(t):(void 0===s.el&&(s.el=G.createElement(J(s.h,s.h[0]),this.options)),s);if(this._$AH?._$AD===i)this._$AH.p(e);else{const t=new Y(i,this),s=t.u(this.options);t.p(e),this.T(s),this._$AH=t}}_$AC(t){let e=K.get(t.strings);return void 0===e&&K.set(t.strings,e=new G(t)),e}k(t){H(this._$AH)||(this._$AH=[],this._$AR());const e=this._$AH;let s,i=0;for(const o of t)i===e.length?e.push(s=new Q(this.O(R()),this.O(R()),this,this.options)):s=e[i],s._$AI(o),i++;i<e.length&&(this._$AR(s&&s._$AB.nextSibling,i),e.length=i)}_$AR(t=this._$AA.nextSibling,e){for(this._$AP?.(!1,!0,e);t!==this._$AB;){const e=A(t).nextSibling;A(t).remove(),t=e}}setConnected(t){void 0===this._$AM&&(this._$Cv=t,this._$AP?.(t))}}class tt{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,e,s,i,o){this.type=1,this._$AH=W,this._$AN=void 0,this.element=t,this.name=e,this._$AM=i,this.options=o,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=W}_$AI(t,e=this,s,i){const o=this.strings;let r=!1;if(void 0===o)t=X(this,t,e,0),r=!U(t)||t!==this._$AH&&t!==B,r&&(this._$AH=t);else{const i=t;let a,n;for(t=o[0],a=0;a<o.length-1;a++)n=X(this,i[s+a],e,a),n===B&&(n=this._$AH[a]),r||=!U(n)||n!==this._$AH[a],n===W?t=W:t!==W&&(t+=(n??"")+o[a+1]),this._$AH[a]=n}r&&!i&&this.j(t)}j(t){t===W?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"")}}class et extends tt{constructor(){super(...arguments),this.type=3}j(t){this.element[this.name]=t===W?void 0:t}}class st extends tt{constructor(){super(...arguments),this.type=4}j(t){this.element.toggleAttribute(this.name,!!t&&t!==W)}}class it extends tt{constructor(t,e,s,i,o){super(t,e,s,i,o),this.type=5}_$AI(t,e=this){if((t=X(this,t,e,0)??W)===B)return;const s=this._$AH,i=t===W&&s!==W||t.capture!==s.capture||t.once!==s.once||t.passive!==s.passive,o=t!==W&&(s===W||i);i&&this.element.removeEventListener(this.name,this,s),o&&this.element.addEventListener(this.name,this,t),this._$AH=t}handleEvent(t){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t)}}class ot{constructor(t,e,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=e,this.options=s}get _$AU(){return this._$AM._$AU}_$AI(t){X(this,t)}}const rt=w.litHtmlPolyfillSupport;rt?.(G,Q),(w.litHtmlVersions??=[]).push("3.3.2");const at=globalThis;
+const w=globalThis,A=t=>t,S=w.trustedTypes,E=S?S.createPolicy("lit-html",{createHTML:t=>t}):void 0,C="$lit$",k=`lit$${Math.random().toFixed(9).slice(2)}$`,z="?"+k,P=`<${z}>`,O=document,R=()=>O.createComment(""),U=t=>null===t||"object"!=typeof t&&"function"!=typeof t,H=Array.isArray,I="[ \t\n\f\r]",M=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,T=/-->/g,D=/>/g,N=RegExp(`>|${I}(?:([^\\s"'>=/]+)(${I}*=${I}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),j=/'/g,L=/"/g,V=/^(?:script|style|textarea|title)$/i,B=(t=>(e,...s)=>({_$litType$:t,strings:e,values:s}))(1),q=Symbol.for("lit-noChange"),W=Symbol.for("lit-nothing"),K=new WeakMap,F=O.createTreeWalker(O,129);function G(t,e){if(!H(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==E?E.createHTML(e):e}const Y=(t,e)=>{const s=t.length-1,i=[];let o,r=2===e?"<svg>":3===e?"<math>":"",a=M;for(let e=0;e<s;e++){const s=t[e];let n,d,c=-1,l=0;for(;l<s.length&&(a.lastIndex=l,d=a.exec(s),null!==d);)l=a.lastIndex,a===M?"!--"===d[1]?a=T:void 0!==d[1]?a=D:void 0!==d[2]?(V.test(d[2])&&(o=RegExp("</"+d[2],"g")),a=N):void 0!==d[3]&&(a=N):a===N?">"===d[0]?(a=o??M,c=-1):void 0===d[1]?c=-2:(c=a.lastIndex-d[2].length,n=d[1],a=void 0===d[3]?N:'"'===d[3]?L:j):a===L||a===j?a=N:a===T||a===D?a=M:(a=N,o=void 0);const u=a===N&&t[e+1].startsWith("/>")?" ":"";r+=a===M?s+P:c>=0?(i.push(n),s.slice(0,c)+C+s.slice(c)+k+u):s+k+(-2===c?e:u)}return[G(t,r+(t[s]||"<?>")+(2===e?"</svg>":3===e?"</math>":"")),i]};class J{constructor({strings:t,_$litType$:e},s){let i;this.parts=[];let o=0,r=0;const a=t.length-1,n=this.parts,[d,c]=Y(t,e);if(this.el=J.createElement(d,s),F.currentNode=this.el.content,2===e||3===e){const t=this.el.content.firstChild;t.replaceWith(...t.childNodes)}for(;null!==(i=F.nextNode())&&n.length<a;){if(1===i.nodeType){if(i.hasAttributes())for(const t of i.getAttributeNames())if(t.endsWith(C)){const e=c[r++],s=i.getAttribute(t).split(k),a=/([.?@])?(.*)/.exec(e);n.push({type:1,index:o,name:a[2],strings:s,ctor:"."===a[1]?et:"?"===a[1]?st:"@"===a[1]?it:tt}),i.removeAttribute(t)}else t.startsWith(k)&&(n.push({type:6,index:o}),i.removeAttribute(t));if(V.test(i.tagName)){const t=i.textContent.split(k),e=t.length-1;if(e>0){i.textContent=S?S.emptyScript:"";for(let s=0;s<e;s++)i.append(t[s],R()),F.nextNode(),n.push({type:2,index:++o});i.append(t[e],R())}}}else if(8===i.nodeType)if(i.data===z)n.push({type:2,index:o});else{let t=-1;for(;-1!==(t=i.data.indexOf(k,t+1));)n.push({type:7,index:o}),t+=k.length-1}o++}}static createElement(t,e){const s=O.createElement("template");return s.innerHTML=t,s}}function Z(t,e,s=t,i){if(e===q)return e;let o=void 0!==i?s._$Co?.[i]:s._$Cl;const r=U(e)?void 0:e._$litDirective$;return o?.constructor!==r&&(o?._$AO?.(!1),void 0===r?o=void 0:(o=new r(t),o._$AT(t,s,i)),void 0!==i?(s._$Co??=[])[i]=o:s._$Cl=o),void 0!==o&&(e=Z(t,o._$AS(t,e.values),o,i)),e}class X{constructor(t,e){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=e}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){const{el:{content:e},parts:s}=this._$AD,i=(t?.creationScope??O).importNode(e,!0);F.currentNode=i;let o=F.nextNode(),r=0,a=0,n=s[0];for(;void 0!==n;){if(r===n.index){let e;2===n.type?e=new Q(o,o.nextSibling,this,t):1===n.type?e=new n.ctor(o,n.name,n.strings,this,t):6===n.type&&(e=new ot(o,this,t)),this._$AV.push(e),n=s[++a]}r!==n?.index&&(o=F.nextNode(),r++)}return F.currentNode=O,i}p(t){let e=0;for(const s of this._$AV)void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,e),e+=s.strings.length-2):s._$AI(t[e])),e++}}class Q{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,e,s,i){this.type=2,this._$AH=W,this._$AN=void 0,this._$AA=t,this._$AB=e,this._$AM=s,this.options=i,this._$Cv=i?.isConnected??!0}get parentNode(){let t=this._$AA.parentNode;const e=this._$AM;return void 0!==e&&11===t?.nodeType&&(t=e.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,e=this){t=Z(this,t,e),U(t)?t===W||null==t||""===t?(this._$AH!==W&&this._$AR(),this._$AH=W):t!==this._$AH&&t!==q&&this._(t):void 0!==t._$litType$?this.$(t):void 0!==t.nodeType?this.T(t):(t=>H(t)||"function"==typeof t?.[Symbol.iterator])(t)?this.k(t):this._(t)}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t))}_(t){this._$AH!==W&&U(this._$AH)?this._$AA.nextSibling.data=t:this.T(O.createTextNode(t)),this._$AH=t}$(t){const{values:e,_$litType$:s}=t,i="number"==typeof s?this._$AC(t):(void 0===s.el&&(s.el=J.createElement(G(s.h,s.h[0]),this.options)),s);if(this._$AH?._$AD===i)this._$AH.p(e);else{const t=new X(i,this),s=t.u(this.options);t.p(e),this.T(s),this._$AH=t}}_$AC(t){let e=K.get(t.strings);return void 0===e&&K.set(t.strings,e=new J(t)),e}k(t){H(this._$AH)||(this._$AH=[],this._$AR());const e=this._$AH;let s,i=0;for(const o of t)i===e.length?e.push(s=new Q(this.O(R()),this.O(R()),this,this.options)):s=e[i],s._$AI(o),i++;i<e.length&&(this._$AR(s&&s._$AB.nextSibling,i),e.length=i)}_$AR(t=this._$AA.nextSibling,e){for(this._$AP?.(!1,!0,e);t!==this._$AB;){const e=A(t).nextSibling;A(t).remove(),t=e}}setConnected(t){void 0===this._$AM&&(this._$Cv=t,this._$AP?.(t))}}class tt{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,e,s,i,o){this.type=1,this._$AH=W,this._$AN=void 0,this.element=t,this.name=e,this._$AM=i,this.options=o,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=W}_$AI(t,e=this,s,i){const o=this.strings;let r=!1;if(void 0===o)t=Z(this,t,e,0),r=!U(t)||t!==this._$AH&&t!==q,r&&(this._$AH=t);else{const i=t;let a,n;for(t=o[0],a=0;a<o.length-1;a++)n=Z(this,i[s+a],e,a),n===q&&(n=this._$AH[a]),r||=!U(n)||n!==this._$AH[a],n===W?t=W:t!==W&&(t+=(n??"")+o[a+1]),this._$AH[a]=n}r&&!i&&this.j(t)}j(t){t===W?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"")}}class et extends tt{constructor(){super(...arguments),this.type=3}j(t){this.element[this.name]=t===W?void 0:t}}class st extends tt{constructor(){super(...arguments),this.type=4}j(t){this.element.toggleAttribute(this.name,!!t&&t!==W)}}class it extends tt{constructor(t,e,s,i,o){super(t,e,s,i,o),this.type=5}_$AI(t,e=this){if((t=Z(this,t,e,0)??W)===q)return;const s=this._$AH,i=t===W&&s!==W||t.capture!==s.capture||t.once!==s.once||t.passive!==s.passive,o=t!==W&&(s===W||i);i&&this.element.removeEventListener(this.name,this,s),o&&this.element.addEventListener(this.name,this,t),this._$AH=t}handleEvent(t){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t)}}class ot{constructor(t,e,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=e,this.options=s}get _$AU(){return this._$AM._$AU}_$AI(t){Z(this,t)}}const rt=w.litHtmlPolyfillSupport;rt?.(J,Q),(w.litHtmlVersions??=[]).push("3.3.2");const at=globalThis;
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */class nt extends x{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){const t=super.createRenderRoot();return this.renderOptions.renderBefore??=t.firstChild,t}update(t){const e=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=((t,e,s)=>{const i=s?.renderBefore??e;let o=i._$litPart$;if(void 0===o){const t=s?.renderBefore??null;i._$litPart$=o=new Q(e.insertBefore(R(),t),t,void 0,s??{})}return o._$AI(t),o})(e,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return B}}nt._$litElement$=!0,nt.finalized=!0,at.litElementHydrateSupport?.({LitElement:nt});const dt=at.litElementPolyfillSupport;dt?.({LitElement:nt}),(at.litElementVersions??=[]).push("4.2.2");
+ */class nt extends x{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){const t=super.createRenderRoot();return this.renderOptions.renderBefore??=t.firstChild,t}update(t){const e=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=((t,e,s)=>{const i=s?.renderBefore??e;let o=i._$litPart$;if(void 0===o){const t=s?.renderBefore??null;i._$litPart$=o=new Q(e.insertBefore(R(),t),t,void 0,s??{})}return o._$AI(t),o})(e,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return q}}nt._$litElement$=!0,nt.finalized=!0,at.litElementHydrateSupport?.({LitElement:nt});const dt=at.litElementPolyfillSupport;dt?.({LitElement:nt}),(at.litElementVersions??=[]).push("4.2.2");
 /**
  * @license
  * Copyright 2017 Google LLC
@@ -76,7 +76,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
     width: 100%;
     box-sizing: border-box;
   }
-`,ft=a`
+`,mt=a`
   /* Badges row (in content area) */
   .badges-row {
     display: flex;
@@ -148,7 +148,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
     opacity: 1;
     background: rgba(127, 127, 127, 0.3);
   }
-`,mt=a`
+`,ft=a`
   /* Automation groups */
   .automation-group {
     background: rgba(127, 127, 127, 0.06);
@@ -622,7 +622,155 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
       transform: rotate(360deg);
     }
   }
-`;let _t=class extends nt{constructor(){super(...arguments),this.dismissedKeys=new Set}render(){const t=this.group;return q`
+`,_t=a`
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--autodoc-spacing-sm);
+    margin-bottom: var(--autodoc-spacing-lg);
+  }
+
+  /* Individual group panel */
+  .pipeline-group {
+    display: flex;
+    align-items: center;
+    padding: var(--autodoc-spacing-md);
+    border-radius: 8px;
+    background: rgba(127, 127, 127, 0.06);
+    opacity: 0;
+    animation: groupReveal 300ms ease forwards;
+  }
+
+  /* Running state: no animation, always visible */
+  .pipeline-group.running {
+    opacity: 1;
+    animation: none;
+    border-left: 3px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+  }
+
+  /* Status-specific left border */
+  .pipeline-group.pass {
+    border-left: 3px solid var(--autodoc-success);
+  }
+  .pipeline-group.warning {
+    border-left: 3px solid var(--autodoc-warning);
+  }
+  .pipeline-group.fail {
+    border-left: 3px solid var(--autodoc-error);
+  }
+
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: var(--autodoc-spacing-md);
+    width: 100%;
+  }
+
+  /* Status icon circle */
+  .group-status-icon {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+
+  .pipeline-group.pass .group-status-icon {
+    background: rgba(46, 139, 87, 0.15);
+    color: var(--autodoc-success);
+  }
+  .pipeline-group.warning .group-status-icon {
+    background: rgba(196, 144, 8, 0.15);
+    color: var(--autodoc-warning);
+  }
+  .pipeline-group.fail .group-status-icon {
+    background: rgba(217, 72, 72, 0.15);
+    color: var(--autodoc-error);
+  }
+
+  .group-label {
+    flex: 1;
+    font-size: var(--autodoc-name-size);
+    font-weight: 600;
+    color: var(--primary-text-color);
+  }
+
+  .group-count {
+    font-size: var(--autodoc-meta-size);
+    font-weight: 500;
+  }
+  .group-count.pass-text { color: var(--autodoc-success); }
+  .group-count.warning-text { color: var(--autodoc-warning); }
+  .group-count.fail-text { color: var(--autodoc-error); }
+
+  /* Spinner for running state */
+  .group-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Summary rollup bar */
+  .pipeline-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--autodoc-spacing-sm);
+    padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
+    border-radius: 6px;
+    font-size: var(--autodoc-issue-size);
+    font-weight: 500;
+    opacity: 0;
+    animation: groupReveal 300ms ease forwards;
+  }
+
+  .pipeline-summary.pass {
+    background: rgba(46, 139, 87, 0.08);
+    color: var(--autodoc-success);
+  }
+  .pipeline-summary.warning {
+    background: rgba(196, 144, 8, 0.08);
+    color: var(--autodoc-warning);
+  }
+  .pipeline-summary.fail {
+    background: rgba(217, 72, 72, 0.08);
+    color: var(--autodoc-error);
+  }
+
+  @keyframes groupReveal {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .pipeline-group,
+    .pipeline-summary {
+      opacity: 1;
+      animation: none;
+    }
+    .group-spinner {
+      animation: none;
+      border-top-color: var(--primary-color);
+    }
+  }
+`;let yt=class extends nt{constructor(){super(...arguments),this.dismissedKeys=new Set}render(){const t=this.group;return B`
       <div class="automation-group ${t.has_error?"has-error":"has-warning"}">
         <div class="automation-header">
           <span class="automation-severity-icon" aria-hidden="true"
@@ -639,7 +787,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
           <span class="edit-arrow" aria-hidden="true">\u2192</span>
         </a>
       </div>
-    `}_renderIssue(t){const{issue:e,fix:s}=t,i="error"===e.severity,o=this.dismissedKeys.has(this._getSuggestionKey(e));return q`
+    `}_renderIssue(t){const{issue:e,fix:s}=t,i="error"===e.severity,o=this.dismissedKeys.has(this._getSuggestionKey(e));return B`
       <div class="issue ${i?"error":"warning"}">
         <div class="issue-header">
           <span class="issue-icon" aria-hidden="true">${i?"✕":"!"}</span>
@@ -653,7 +801,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
             \u2298
           </button>
         </div>
-        ${s&&!o?q`
+        ${s&&!o?B`
               <div class="fix-suggestion">
                 <span class="fix-icon" aria-hidden="true">\uD83D\uDCA1</span>
                 <div class="fix-content">
@@ -670,27 +818,58 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
               </div>
             `:W}
       </div>
-    `}_renderConfidencePill(t){if(t<=.6)return W;const e=t>.9;return q`
+    `}_renderConfidencePill(t){if(t<=.6)return W;const e=t>.9;return B`
       <span class="confidence-pill ${e?"high":"medium"}">
         ${e?"High":"Medium"} confidence
       </span>
-    `}_getSuggestionKey(t){return`${t.automation_id}:${t.entity_id}:${t.message}`}_dispatchSuppress(t){this.dispatchEvent(new CustomEvent("suppress-issue",{detail:{issue:t},bubbles:!0,composed:!0}))}_dispatchDismiss(t){this.dispatchEvent(new CustomEvent("dismiss-suggestion",{detail:{issue:t},bubbles:!0,composed:!0}))}};var yt;_t.styles=[gt,mt],t([pt({attribute:!1})],_t.prototype,"group",void 0),t([pt({attribute:!1})],_t.prototype,"dismissedKeys",void 0),_t=t([ct("autodoc-issue-group")],_t);console.info("%c AUTODOCTOR-CARD %c 2.1.0 ","color: white; background: #3498db; font-weight: bold;","color: #3498db; background: white; font-weight: bold;");let bt=yt=class extends nt{constructor(){super(...arguments),this._loading=!0,this._error=null,this._validationData=null,this._runningValidation=!1,this._dismissedSuggestions=new Set,this._validationRequestId=0,this._suppressionInProgress=!1,this._lastValidationClick=0}setConfig(t){this.config=t}static getStubConfig(){return{type:"custom:autodoctor-card"}}static async getConfigElement(){return await Promise.resolve().then(function(){return xt}),document.createElement("autodoctor-card-editor")}async firstUpdated(){await this._fetchValidation()}async _fetchValidation(){const t=++this._validationRequestId;this._loading=!0;try{this._error=null;const e=await this.hass.callWS({type:"autodoctor/validation"});t===this._validationRequestId&&(this._validationData=e)}catch(e){t===this._validationRequestId&&(console.error("Failed to fetch validation data:",e),this._error="Failed to load validation data")}t===this._validationRequestId&&(this._loading=!1)}async _runValidation(){const t=Date.now();if(this._runningValidation||t-this._lastValidationClick<yt.CLICK_COOLDOWN_MS)return;this._lastValidationClick=t;const e=++this._validationRequestId;this._runningValidation=!0;try{const t=await this.hass.callWS({type:"autodoctor/validation/run"});e===this._validationRequestId&&(this._validationData=t)}catch(t){e===this._validationRequestId&&console.error("Failed to run validation:",t)}e===this._validationRequestId&&(this._runningValidation=!1)}_groupIssuesByAutomation(t){const e=new Map;for(const s of t){const{issue:t,edit_url:i}=s,o=t.automation_id;e.has(o)||e.set(o,{automation_id:t.automation_id,automation_name:t.automation_name,issues:[],edit_url:i,has_error:!1,error_count:0,warning_count:0});const r=e.get(o);r.issues.push(s),"error"===t.severity?(r.has_error=!0,r.error_count++):r.warning_count++}return Array.from(e.values())}_getCounts(t){if(!t)return{errors:0,warnings:0,healthy:0,suppressed:0};let e=0,s=0;for(const i of t.issues)"error"===i.issue.severity?e++:s++;return{errors:e,warnings:s,healthy:t.healthy_count,suppressed:t.suppressed_count||0}}render(){const t=this.config.title||"Autodoctor";if(this._loading)return this._renderLoading(t);if(this._error)return this._renderError(t);const e=this._validationData;if(!e)return this._renderEmpty(t);const s=this._groupIssuesByAutomation(e.issues),i=this._getCounts(e),o=e.issues.length>0;return q`
+    `}_getSuggestionKey(t){return`${t.automation_id}:${t.entity_id}:${t.message}`}_dispatchSuppress(t){this.dispatchEvent(new CustomEvent("suppress-issue",{detail:{issue:t},bubbles:!0,composed:!0}))}_dispatchDismiss(t){this.dispatchEvent(new CustomEvent("dismiss-suggestion",{detail:{issue:t},bubbles:!0,composed:!0}))}};yt.styles=[gt,ft],t([pt({attribute:!1})],yt.prototype,"group",void 0),t([pt({attribute:!1})],yt.prototype,"dismissedKeys",void 0),yt=t([ct("autodoc-issue-group")],yt);let bt=class extends nt{constructor(){super(...arguments),this.groups=[],this.running=!1}render(){return B`
+      <div class="pipeline" role="region" aria-label="Validation pipeline">
+        ${this.groups.map((t,e)=>this._renderGroup(t,e))}
+        ${!this.running&&this.groups.length>0?this._renderSummary():W}
+      </div>
+    `}_renderGroup(t,e){const s=this.running?0:150*e;return B`
+      <div
+        class="pipeline-group ${this.running?"running":t.status}"
+        style="animation-delay: ${s}ms"
+      >
+        <div class="group-header">
+          <div class="group-status-icon" aria-hidden="true">
+            ${this.running?B`<div class="group-spinner" role="status" aria-label="Validating ${t.label}"></div>`:this._statusIcon(t.status)}
+          </div>
+          <span class="group-label">${t.label}</span>
+          ${this.running?W:this._renderCounts(t)}
+        </div>
+      </div>
+    `}_statusIcon(t){return B`<span>${{pass:"✓",warning:"!",fail:"✕"}[t]||"?"}</span>`}_renderCounts(t){if(0===t.issue_count)return B`<span class="group-count pass-text">No issues</span>`;const e=[];return t.error_count>0&&e.push(`${t.error_count} error${1!==t.error_count?"s":""}`),t.warning_count>0&&e.push(`${t.warning_count} warning${1!==t.warning_count?"s":""}`),B`<span class="group-count ${t.status}-text">${e.join(", ")}</span>`}_getOverallStatus(){return this.groups.some(t=>"fail"===t.status)?"fail":this.groups.some(t=>"warning"===t.status)?"warning":"pass"}_renderSummary(){const t=this._getOverallStatus(),e=this.groups.reduce((t,e)=>t+e.error_count,0),s=this.groups.reduce((t,e)=>t+e.warning_count,0),i={pass:"All checks passed",warning:`${s} warning${1!==s?"s":""} found`,fail:`${e} error${1!==e?"s":""}${s>0?`, ${s} warning${1!==s?"s":""}`:""} found`};return B`
+      <div
+        class="pipeline-summary ${t}"
+        style="animation-delay: ${150*this.groups.length}ms"
+        role="status"
+      >
+        <span class="summary-icon" aria-hidden="true">${this._statusIcon(t)}</span>
+        <span class="summary-text">${i[t]}</span>
+      </div>
+    `}};var $t;bt.styles=[gt,_t],t([pt({attribute:!1})],bt.prototype,"groups",void 0),t([pt({type:Boolean})],bt.prototype,"running",void 0),bt=t([ct("autodoc-pipeline")],bt);console.info("%c AUTODOCTOR-CARD %c 2.1.0 ","color: white; background: #3498db; font-weight: bold;","color: #3498db; background: white; font-weight: bold;");let xt=$t=class extends nt{constructor(){super(...arguments),this._loading=!0,this._error=null,this._validationData=null,this._runningValidation=!1,this._dismissedSuggestions=new Set,this._validationRequestId=0,this._suppressionInProgress=!1,this._lastValidationClick=0}setConfig(t){this.config=t}static getStubConfig(){return{type:"custom:autodoctor-card"}}static async getConfigElement(){return await Promise.resolve().then(function(){return At}),document.createElement("autodoctor-card-editor")}async firstUpdated(){await this._fetchValidation()}async _fetchValidation(){const t=++this._validationRequestId;this._loading=!0;try{this._error=null;const e=await this.hass.callWS({type:"autodoctor/validation/steps"});t===this._validationRequestId&&(this._validationData=e)}catch(e){t===this._validationRequestId&&(console.error("Failed to fetch validation data:",e),this._error="Failed to load validation data")}t===this._validationRequestId&&(this._loading=!1)}async _runValidation(){const t=Date.now();if(this._runningValidation||t-this._lastValidationClick<$t.CLICK_COOLDOWN_MS)return;this._lastValidationClick=t;const e=++this._validationRequestId;this._runningValidation=!0;try{const t=await this.hass.callWS({type:"autodoctor/validation/run_steps"});e===this._validationRequestId&&(this._validationData=t)}catch(t){e===this._validationRequestId&&console.error("Failed to run validation:",t)}e===this._validationRequestId&&(this._runningValidation=!1)}_groupIssuesByAutomation(t){const e=new Map;for(const s of t){const{issue:t,edit_url:i}=s,o=t.automation_id;e.has(o)||e.set(o,{automation_id:t.automation_id,automation_name:t.automation_name,issues:[],edit_url:i,has_error:!1,error_count:0,warning_count:0});const r=e.get(o);r.issues.push(s),"error"===t.severity?(r.has_error=!0,r.error_count++):r.warning_count++}return Array.from(e.values())}_getCounts(t){if(!t)return{errors:0,warnings:0,healthy:0,suppressed:0};let e=0,s=0;for(const i of t.issues)"error"===i.issue.severity?e++:s++;return{errors:e,warnings:s,healthy:t.healthy_count,suppressed:t.suppressed_count||0}}render(){const t=this.config.title||"Autodoctor";if(this._loading)return this._renderLoading(t);if(this._error)return this._renderError(t);const e=this._validationData;if(!e)return this._renderEmpty(t);const s=this._groupIssuesByAutomation(e.issues),i=this._getCounts(e),o=e.issues.length>0;return B`
       <ha-card>
         ${this._renderHeader(t)}
         <div class="card-content">
           ${this._renderBadges(i)}
-          ${o?s.map(t=>q`
+          ${e.last_run?B`<autodoc-pipeline
+                .groups=${e.groups||[]}
+                ?running=${this._runningValidation}
+              ></autodoc-pipeline>`:W}
+          ${o?s.map(t=>B`
                   <autodoc-issue-group
                     .group=${t}
                     .dismissedKeys=${this._dismissedSuggestions}
                     @suppress-issue=${t=>this._suppressIssue(t.detail.issue)}
                     @dismiss-suggestion=${t=>this._dismissSuggestion(t.detail.issue)}
                   ></autodoc-issue-group>
-                `):this._renderAllHealthy(i.healthy)}
+                `):e.last_run?W:this._renderAllHealthy(i.healthy)}
         </div>
         ${this._renderFooter()}
       </ha-card>
-    `}_renderLoading(t){return q`
+    `}_renderLoading(t){return B`
       <ha-card>
         <div class="header">
           <h2 class="title">${t}</h2>
@@ -700,7 +879,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
           <span class="loading-text">Checking automations...</span>
         </div>
       </ha-card>
-    `}_renderError(t){return q`
+    `}_renderError(t){return B`
       <ha-card>
         <div class="header">
           <h2 class="title">${t}</h2>
@@ -711,18 +890,18 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
           <button class="retry-btn" @click=${()=>this._fetchValidation()}>Try again</button>
         </div>
       </ha-card>
-    `}_renderEmpty(t){return q`
+    `}_renderEmpty(t){return B`
       <ha-card>
         ${this._renderHeader(t)}
         <div class="card-content empty-state">
           <span class="empty-text">No data available</span>
         </div>
       </ha-card>
-    `}_renderHeader(t){return q`
+    `}_renderHeader(t){return B`
       <div class="header">
         <h2 class="title">${t}</h2>
       </div>
-    `}_renderAllHealthy(t){return q`
+    `}_renderAllHealthy(t){return B`
       <div class="all-healthy">
         <div class="healthy-icon" aria-hidden="true">\u2713</div>
         <div class="healthy-message">
@@ -732,16 +911,16 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
           >
         </div>
       </div>
-    `}_renderBadges(t){return function(t,e){return q`
+    `}_renderBadges(t){return function(t,e){return B`
     <div class="badges-row">
-      ${t.errors>0?q`<span
+      ${t.errors>0?B`<span
             class="badge badge-error"
             title="${t.errors} error${1!==t.errors?"s":""}"
           >
             <span class="badge-icon" aria-hidden="true">\u2715</span>
             <span class="badge-count">${t.errors}</span>
           </span>`:W}
-      ${t.warnings>0?q`<span
+      ${t.warnings>0?B`<span
             class="badge badge-warning"
             title="${t.warnings} warning${1!==t.warnings?"s":""}"
           >
@@ -752,7 +931,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
         <span class="badge-icon" aria-hidden="true">\u2713</span>
         <span class="badge-count">${t.healthy}</span>
       </span>
-      ${t.suppressed>0?q`<span class="badge badge-suppressed" title="${t.suppressed} suppressed">
+      ${t.suppressed>0?B`<span class="badge badge-suppressed" title="${t.suppressed} suppressed">
             <span class="badge-icon" aria-hidden="true">\u2298</span>
             <span class="badge-count">${t.suppressed}</span>
             <button
@@ -765,7 +944,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
             </button>
           </span>`:W}
     </div>
-  `}(t,()=>this._clearSuppressions())}_renderFooter(){const t=this._runningValidation||this._loading,e=t||Date.now()-this._lastValidationClick<yt.CLICK_COOLDOWN_MS;return q`
+  `}(t,()=>this._clearSuppressions())}_renderFooter(){const t=this._runningValidation||this._loading,e=t||Date.now()-this._lastValidationClick<$t.CLICK_COOLDOWN_MS;return B`
       <div class="footer">
         <button
           class="run-btn ${t?"running":""}"
@@ -775,11 +954,11 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
           <span class="run-icon" aria-hidden="true">${t?"↻":"▶"}</span>
           <span class="run-text">${t?"Running...":"Run Validation"}</span>
         </button>
-        ${this._validationData?.last_run?q` <span class="last-run"
+        ${this._validationData?.last_run?B` <span class="last-run"
               >Last run: ${this._formatLastRun(this._validationData.last_run)}</span
             >`:W}
       </div>
-    `}_formatLastRun(t){const e=new Date(t),s=(new Date).getTime()-e.getTime(),i=Math.floor(s/6e4);if(i<1)return"just now";if(i<60)return`${i}m ago`;const o=Math.floor(i/60);if(o<24)return`${o}h ago`;return`${Math.floor(o/24)}d ago`}_getSuggestionKey(t){return`${t.automation_id}:${t.entity_id}:${t.message}`}_dismissSuggestion(t){const e=this._getSuggestionKey(t);this._dismissedSuggestions=new Set([...this._dismissedSuggestions,e])}async _suppressIssue(t){if(!this._suppressionInProgress){this._suppressionInProgress=!0;try{await this.hass.callWS({type:"autodoctor/suppress",automation_id:t.automation_id,entity_id:t.entity_id,issue_type:t.issue_type||"unknown"}),await this._fetchValidation()}catch(t){console.error("Failed to suppress issue:",t)}finally{this._suppressionInProgress=!1}}}async _clearSuppressions(){if(!this._suppressionInProgress){this._suppressionInProgress=!0;try{await this.hass.callWS({type:"autodoctor/clear_suppressions"}),await this._fetchValidation()}catch(t){console.error("Failed to clear suppressions:",t)}finally{this._suppressionInProgress=!1}}}static get styles(){return[gt,ft,vt]}getCardSize(){return 3}getGridOptions(){return{columns:12,min_columns:6,rows:"auto"}}};bt.CLICK_COOLDOWN_MS=2e3,t([pt({attribute:!1})],bt.prototype,"hass",void 0),t([pt({attribute:!1})],bt.prototype,"config",void 0),t([ht()],bt.prototype,"_loading",void 0),t([ht()],bt.prototype,"_error",void 0),t([ht()],bt.prototype,"_validationData",void 0),t([ht()],bt.prototype,"_runningValidation",void 0),t([ht()],bt.prototype,"_dismissedSuggestions",void 0),bt=yt=t([ct("autodoctor-card")],bt),window.customCards=window.customCards||[],window.customCards.push({type:"autodoctor-card",name:"Autodoctor Card",description:"Shows automation health and validation issues",preview:!1,documentationURL:"https://github.com/mossipcams/autodoctor"});let $t=class extends nt{setConfig(t){this._config=t}_valueChanged(t){if(!this._config||!this.hass)return;const e=t.target,s={...this._config,[e.id]:e.value||void 0};Object.keys(s).forEach(t=>{void 0===s[t]&&delete s[t]});const i=new CustomEvent("config-changed",{detail:{config:s},bubbles:!0,composed:!0});this.dispatchEvent(i)}render(){return this.hass&&this._config?q`
+    `}_formatLastRun(t){const e=new Date(t),s=(new Date).getTime()-e.getTime(),i=Math.floor(s/6e4);if(i<1)return"just now";if(i<60)return`${i}m ago`;const o=Math.floor(i/60);if(o<24)return`${o}h ago`;return`${Math.floor(o/24)}d ago`}_getSuggestionKey(t){return`${t.automation_id}:${t.entity_id}:${t.message}`}_dismissSuggestion(t){const e=this._getSuggestionKey(t);this._dismissedSuggestions=new Set([...this._dismissedSuggestions,e])}async _suppressIssue(t){if(!this._suppressionInProgress){this._suppressionInProgress=!0;try{await this.hass.callWS({type:"autodoctor/suppress",automation_id:t.automation_id,entity_id:t.entity_id,issue_type:t.issue_type||"unknown"}),await this._fetchValidation()}catch(t){console.error("Failed to suppress issue:",t)}finally{this._suppressionInProgress=!1}}}async _clearSuppressions(){if(!this._suppressionInProgress){this._suppressionInProgress=!0;try{await this.hass.callWS({type:"autodoctor/clear_suppressions"}),await this._fetchValidation()}catch(t){console.error("Failed to clear suppressions:",t)}finally{this._suppressionInProgress=!1}}}static get styles(){return[gt,mt,vt]}getCardSize(){return 3}getGridOptions(){return{columns:12,min_columns:6,rows:"auto"}}};xt.CLICK_COOLDOWN_MS=2e3,t([pt({attribute:!1})],xt.prototype,"hass",void 0),t([pt({attribute:!1})],xt.prototype,"config",void 0),t([ht()],xt.prototype,"_loading",void 0),t([ht()],xt.prototype,"_error",void 0),t([ht()],xt.prototype,"_validationData",void 0),t([ht()],xt.prototype,"_runningValidation",void 0),t([ht()],xt.prototype,"_dismissedSuggestions",void 0),xt=$t=t([ct("autodoctor-card")],xt),window.customCards=window.customCards||[],window.customCards.push({type:"autodoctor-card",name:"Autodoctor Card",description:"Shows automation health and validation issues",preview:!1,documentationURL:"https://github.com/mossipcams/autodoctor"});let wt=class extends nt{setConfig(t){this._config=t}_valueChanged(t){if(!this._config||!this.hass)return;const e=t.target,s={...this._config,[e.id]:e.value||void 0};Object.keys(s).forEach(t=>{void 0===s[t]&&delete s[t]});const i=new CustomEvent("config-changed",{detail:{config:s},bubbles:!0,composed:!0});this.dispatchEvent(i)}render(){return this.hass&&this._config?B`
       <div class="card-config">
         <div class="config-row">
           <label for="title">Title (optional)</label>
@@ -792,7 +971,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
           />
         </div>
       </div>
-    `:q``}static get styles(){return a`
+    `:B``}static get styles(){return a`
       .card-config {
         padding: 16px;
       }
@@ -821,4 +1000,4 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
         outline: none;
         border-color: var(--primary-color);
       }
-    `}};t([pt({attribute:!1})],$t.prototype,"hass",void 0),t([ht()],$t.prototype,"_config",void 0),$t=t([ct("autodoctor-card-editor")],$t);var xt=Object.freeze({__proto__:null,get AutodoctorCardEditor(){return $t}});export{bt as AutodoctorCard};
+    `}};t([pt({attribute:!1})],wt.prototype,"hass",void 0),t([ht()],wt.prototype,"_config",void 0),wt=t([ct("autodoctor-card-editor")],wt);var At=Object.freeze({__proto__:null,get AutodoctorCardEditor(){return wt}});export{xt as AutodoctorCard};

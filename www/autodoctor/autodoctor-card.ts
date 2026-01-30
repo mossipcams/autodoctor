@@ -7,12 +7,13 @@ import type {
   AutomationGroup,
   IssueWithFix,
   ValidationIssue,
-  AutodoctorTabData,
+  StepsResponse,
 } from "./types";
 
 import { autodocTokens, badgeStyles, cardLayoutStyles } from "./styles.js";
 import { renderBadges } from "./badges.js";
 import "./autodoc-issue-group.js";
+import "./autodoc-pipeline.js";
 
 const CARD_VERSION = "2.1.0";
 
@@ -29,7 +30,7 @@ export class AutodoctorCard extends LitElement {
 
   @state() private _loading = true;
   @state() private _error: string | null = null;
-  @state() private _validationData: AutodoctorTabData | null = null;
+  @state() private _validationData: StepsResponse | null = null;
   @state() private _runningValidation = false;
   @state() private _dismissedSuggestions = new Set<string>();
 
@@ -67,8 +68,8 @@ export class AutodoctorCard extends LitElement {
 
     try {
       this._error = null;
-      const data = await this.hass.callWS<AutodoctorTabData>({
-        type: "autodoctor/validation",
+      const data = await this.hass.callWS<StepsResponse>({
+        type: "autodoctor/validation/steps",
       });
 
       // Only update state if this is still the latest request
@@ -104,8 +105,8 @@ export class AutodoctorCard extends LitElement {
     this._runningValidation = true;
 
     try {
-      const data = await this.hass.callWS<AutodoctorTabData>({
-        type: "autodoctor/validation/run",
+      const data = await this.hass.callWS<StepsResponse>({
+        type: "autodoctor/validation/run_steps",
       });
 
       // Only update state if this is still the latest request
@@ -156,7 +157,7 @@ export class AutodoctorCard extends LitElement {
     return Array.from(groups.values());
   }
 
-  private _getCounts(data: AutodoctorTabData | null): {
+  private _getCounts(data: StepsResponse | null): {
     errors: number;
     warnings: number;
     healthy: number;
@@ -211,6 +212,12 @@ export class AutodoctorCard extends LitElement {
         ${this._renderHeader(title)}
         <div class="card-content">
           ${this._renderBadges(counts)}
+          ${data.last_run
+            ? html`<autodoc-pipeline
+                .groups=${data.groups || []}
+                ?running=${this._runningValidation}
+              ></autodoc-pipeline>`
+            : nothing}
           ${hasIssues
             ? groups.map(
                 (group) => html`
@@ -224,7 +231,9 @@ export class AutodoctorCard extends LitElement {
                   ></autodoc-issue-group>
                 `
               )
-            : this._renderAllHealthy(counts.healthy)}
+            : data.last_run
+              ? nothing
+              : this._renderAllHealthy(counts.healthy)}
         </div>
         ${this._renderFooter()}
       </ha-card>
