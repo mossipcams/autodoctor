@@ -83,6 +83,8 @@ autodoctor/
 | `autodoctor/validation/run` | Run validation on demand |
 | `autodoctor/suppress` | Suppress an issue (optionally learn state) |
 | `autodoctor/clear_suppressions` | Clear all suppressions |
+| `autodoctor/validation/run_steps` | Run validation and return per-group structured results |
+| `autodoctor/validation/steps` | Get cached per-group validation results |
 
 ## Services
 
@@ -181,7 +183,7 @@ Supports all 10 Home Assistant condition types:
 - `test_validator.py` - State validation
 - `test_knowledge_base.py` - State knowledge building
 - `test_learned_states_store.py` - Learned states persistence
-- `test_fix_engine.py` - Entity suggestion (fuzzy matching, consolidated into validator)
+- `test_entity_suggestion.py` - Entity suggestion (fuzzy matching via get_entity_suggestion)
 - `test_models.py` - Data model serialization
 - `test_reporter.py` - Issue reporting
 - `test_websocket_api.py` - WebSocket endpoints

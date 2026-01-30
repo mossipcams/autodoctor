@@ -1,5 +1,7 @@
 """Tests for AutomationAnalyzer."""
 
+import pytest
+
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
 
@@ -622,113 +624,64 @@ def test_extract_implicit_state_condition_in_repeat_until():
     )
 
 
-def test_extract_handles_null_entity_id_in_trigger():
-    """Test that null entity_id in trigger doesn't crash extraction."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_null_entity",
-        "alias": "Test Null Entity",
-        "triggers": [
+@pytest.mark.parametrize(
+    "test_id,automation",
+    [
+        (
+            "null_entity_in_trigger",
             {
-                "platform": "state",
-                "entity_id": None,  # Explicitly null
-                "to": "on",
-            }
-        ],
-        "actions": [],
-    }
-    # Should not raise, should return empty list
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_entity_id_in_numeric_state_trigger():
-    """Test null entity_id in numeric_state trigger."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_numeric_null",
-        "alias": "Test Numeric Null",
-        "triggers": [
+                "id": "t", "alias": "T",
+                "triggers": [{"platform": "state", "entity_id": None, "to": "on"}],
+                "actions": [],
+            },
+        ),
+        (
+            "null_entity_in_numeric_trigger",
             {
-                "platform": "numeric_state",
-                "entity_id": None,
-                "above": 50,
-            }
-        ],
-        "actions": [],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_entity_id_in_condition():
-    """Test null entity_id in condition."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_cond_null",
-        "alias": "Test Condition Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "conditions": [
+                "id": "t", "alias": "T",
+                "triggers": [{"platform": "numeric_state", "entity_id": None, "above": 50}],
+                "actions": [],
+            },
+        ),
+        (
+            "null_entity_in_condition",
             {
-                "condition": "state",
-                "entity_id": None,
-                "state": "on",
-            }
-        ],
-        "actions": [],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_choose_options():
-    """Test null choose options don't crash."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_choose_null",
-        "alias": "Test Choose Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [
+                "id": "t", "alias": "T",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "conditions": [{"condition": "state", "entity_id": None, "state": "on"}],
+                "actions": [],
+            },
+        ),
+        (
+            "null_choose",
             {
-                "choose": None,  # Explicitly null
-            }
-        ],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_if_conditions():
-    """Test null if conditions don't crash."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_if_null",
-        "alias": "Test If Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [
+                "id": "t", "alias": "T",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "actions": [{"choose": None}],
+            },
+        ),
+        (
+            "null_if",
             {
-                "if": None,  # Explicitly null
-                "then": [{"service": "light.turn_on"}],
-            }
-        ],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_parallel_branches():
-    """Test null parallel branches don't crash."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_parallel_null",
-        "alias": "Test Parallel Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [
+                "id": "t", "alias": "T",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "actions": [{"if": None, "then": [{"service": "light.turn_on"}]}],
+            },
+        ),
+        (
+            "null_parallel",
             {
-                "parallel": None,  # Explicitly null
-            }
-        ],
-    }
+                "id": "t", "alias": "T",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "actions": [{"parallel": None}],
+            },
+        ),
+    ],
+    ids=lambda x: x if isinstance(x, str) else "",
+)
+def test_extract_handles_null_values(test_id, automation):
+    """Test that null values in various positions don't crash extraction."""
+    analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
     assert isinstance(refs, list)
 
@@ -973,25 +926,19 @@ def test_extract_integration_entities():
     assert refs[0].reference_type == "integration"
 
 
-def test_normalize_entity_ids_single_string():
-    """Test normalizing single entity_id string to list."""
+@pytest.mark.parametrize(
+    "input_val,expected",
+    [
+        ("light.kitchen", ["light.kitchen"]),
+        (["light.kitchen", "light.bedroom"], ["light.kitchen", "light.bedroom"]),
+        (None, []),
+    ],
+    ids=["single_string", "list", "none"],
+)
+def test_normalize_entity_ids(input_val, expected):
+    """Test normalizing entity_id to list."""
     analyzer = AutomationAnalyzer()
-    result = analyzer._normalize_entity_ids("light.kitchen")
-    assert result == ["light.kitchen"]
-
-
-def test_normalize_entity_ids_list():
-    """Test normalizing entity_id list."""
-    analyzer = AutomationAnalyzer()
-    result = analyzer._normalize_entity_ids(["light.kitchen", "light.bedroom"])
-    assert result == ["light.kitchen", "light.bedroom"]
-
-
-def test_normalize_entity_ids_none():
-    """Test normalizing None entity_id."""
-    analyzer = AutomationAnalyzer()
-    result = analyzer._normalize_entity_ids(None)
-    assert result == []
+    assert analyzer._normalize_entity_ids(input_val) == expected
 
 
 def test_extract_zone_trigger():

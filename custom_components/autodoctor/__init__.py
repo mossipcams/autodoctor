@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ from .const import (
     VERSION,
 )
 from .jinja_validator import JinjaValidator
+from .models import IssueType, VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
 from .knowledge_base import StateKnowledgeBase
 from .learned_states_store import LearnedStatesStore
 from .reporter import IssueReporter
@@ -494,6 +496,170 @@ async def async_validate_all(hass: HomeAssistant) -> list:
         }
     )
     return all_issues
+
+
+async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
+    """Run validation and return per-group structured results.
+
+    Calls the same validators as async_validate_all() but times each
+    validator family independently and classifies issues into groups.
+
+    Returns dict with keys: group_issues, group_durations, all_issues, timestamp.
+    """
+    data = hass.data.get(DOMAIN, {})
+    analyzer = data.get("analyzer")
+    validator = data.get("validator")
+    jinja_validator = data.get("jinja_validator")
+    service_validator = data.get("service_validator")
+    reporter = data.get("reporter")
+    knowledge_base = data.get("knowledge_base")
+
+    empty_result = {
+        "group_issues": {gid: [] for gid in VALIDATION_GROUP_ORDER},
+        "group_durations": {gid: 0 for gid in VALIDATION_GROUP_ORDER},
+        "all_issues": [],
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    if not all([analyzer, validator, reporter]):
+        return empty_result
+
+    # Ensure history is loaded before validation
+    if knowledge_base and not knowledge_base.has_history_loaded():
+        _LOGGER.debug("Loading entity history before validation...")
+        await knowledge_base.async_load_history()
+
+    automations = _get_automation_configs(hass)
+    if not automations:
+        _LOGGER.debug("No automations found to validate")
+        return empty_result
+
+    _LOGGER.info("Validating %d automations (with groups)", len(automations))
+
+    # Initialize per-group collectors
+    group_issues: dict[str, list] = {gid: [] for gid in VALIDATION_GROUP_ORDER}
+    group_durations: dict[str, int] = {gid: 0 for gid in VALIDATION_GROUP_ORDER}
+
+    # Build reverse mapping: IssueType -> group_id
+    issue_type_to_group: dict[IssueType, str] = {}
+    for gid, gdef in VALIDATION_GROUPS.items():
+        for it in gdef["issue_types"]:
+            issue_type_to_group[it] = gid
+
+    # --- Templates group timing ---
+    t0 = time.monotonic()
+    if jinja_validator:
+        try:
+            jinja_issues = jinja_validator.validate_automations(automations)
+            _LOGGER.debug(
+                "Jinja validation: found %d template syntax issues",
+                len(jinja_issues),
+            )
+            for issue in jinja_issues:
+                gid = issue_type_to_group.get(issue.issue_type, "templates")
+                group_issues[gid].append(issue)
+        except Exception as err:
+            _LOGGER.warning("Jinja validation failed: %s", err)
+    group_durations["templates"] = round((time.monotonic() - t0) * 1000)
+
+    # --- Services group timing ---
+    t0 = time.monotonic()
+    if service_validator:
+        try:
+            await service_validator.async_load_descriptions()
+            service_calls = []
+            for automation in automations:
+                service_calls.extend(analyzer.extract_service_calls(automation))
+
+            service_issues = service_validator.validate_service_calls(service_calls)
+            _LOGGER.debug(
+                "Service validation: found %d issues in %d service calls",
+                len(service_issues),
+                len(service_calls),
+            )
+            for issue in service_issues:
+                gid = issue_type_to_group.get(issue.issue_type, "services")
+                group_issues[gid].append(issue)
+        except Exception as ex:
+            _LOGGER.warning("Service validation failed: %s", ex)
+    group_durations["services"] = round((time.monotonic() - t0) * 1000)
+
+    # --- Entity & State group timing ---
+    t0 = time.monotonic()
+    failed_automations = 0
+    for automation in automations:
+        auto_id = automation.get("id", "unknown")
+        auto_name = automation.get("alias", auto_id)
+
+        try:
+            refs = analyzer.extract_state_references(automation)
+            _LOGGER.debug(
+                "Automation '%s': extracted %d state references",
+                auto_name,
+                len(refs),
+            )
+            issues = validator.validate_all(refs)
+            _LOGGER.debug(
+                "Automation '%s': found %d issues", auto_name, len(issues)
+            )
+            for issue in issues:
+                gid = issue_type_to_group.get(issue.issue_type, "entity_state")
+                group_issues[gid].append(issue)
+        except Exception as err:
+            failed_automations += 1
+            _LOGGER.warning(
+                "Failed to validate automation '%s' (%s): %s",
+                auto_name,
+                auto_id,
+                err,
+            )
+            continue
+    group_durations["entity_state"] = round((time.monotonic() - t0) * 1000)
+
+    if failed_automations > 0:
+        _LOGGER.warning(
+            "Validation completed with %d failed automations (out of %d)",
+            failed_automations,
+            len(automations),
+        )
+
+    # Combine all issues in canonical group order for flat list
+    all_issues: list = []
+    for gid in VALIDATION_GROUP_ORDER:
+        all_issues.extend(group_issues[gid])
+
+    _LOGGER.info(
+        "Validation complete: %d total issues across %d automations",
+        len(all_issues),
+        len(automations),
+    )
+
+    # Report issues
+    await reporter.async_report_issues(all_issues)
+
+    # Update all validation state atomically
+    timestamp = datetime.now(UTC).isoformat()
+    hass.data[DOMAIN].update(
+        {
+            "issues": all_issues,  # Keep for backwards compatibility
+            "validation_issues": all_issues,
+            "validation_last_run": timestamp,
+            "validation_groups": {
+                gid: {
+                    "issues": group_issues[gid],
+                    "duration_ms": group_durations[gid],
+                }
+                for gid in VALIDATION_GROUP_ORDER
+            },
+        }
+    )
+
+    return {
+        "group_issues": group_issues,
+        "group_durations": group_durations,
+        "all_issues": all_issues,
+        "timestamp": timestamp,
+    }
 
 
 async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> list:

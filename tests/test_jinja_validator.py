@@ -557,3 +557,5 @@ def test_strict_mode_flag_stored_on_validator():
     validator_strict = JinjaValidator(strict_template_validation=True)
     assert validator_strict._strict_validation is True
 
+
+

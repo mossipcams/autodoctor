@@ -91,58 +91,6 @@ def test_validation_issue_to_dict():
     assert result["suggestion"] == "not_home"
 
 
-@pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
-def test_outcome_report_to_issues_all_reachable():
-    """All reachable returns empty list."""
-    from custom_components.autodoctor.models import (
-        OutcomeReport,
-        Verdict,
-        outcome_report_to_issues,
-    )
-
-    report = OutcomeReport(
-        automation_id="automation.test",
-        automation_name="Test Automation",
-        triggers_valid=True,
-        conditions_reachable=True,
-        outcomes=["action.call_service"],
-        unreachable_paths=[],
-        verdict=Verdict.ALL_REACHABLE,
-    )
-    issues = outcome_report_to_issues(report)
-    assert issues == []
-
-
-@pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")
-def test_outcome_report_to_issues_unreachable():
-    """Unreachable paths become ValidationIssue objects."""
-    from custom_components.autodoctor.models import (
-        OutcomeReport,
-        Verdict,
-        outcome_report_to_issues,
-    )
-
-    report = OutcomeReport(
-        automation_id="automation.test",
-        automation_name="Test Automation",
-        triggers_valid=True,
-        conditions_reachable=False,
-        outcomes=["action.call_service"],
-        unreachable_paths=[
-            "condition[0]: state requires 'home' but trigger sets 'away'"
-        ],
-        verdict=Verdict.UNREACHABLE,
-    )
-    issues = outcome_report_to_issues(report)
-
-    assert len(issues) == 1
-    assert issues[0].automation_id == "automation.test"
-    assert issues[0].automation_name == "Test Automation"
-    assert issues[0].severity == Severity.WARNING
-    assert issues[0].issue_type == IssueType.IMPOSSIBLE_CONDITION
-    assert "condition[0]" in issues[0].location
-
-
 def test_validation_issue_equality():
     """Test that ValidationIssue instances with same key fields are equal."""
     issue1 = ValidationIssue(
