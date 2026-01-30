@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -12,8 +11,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
-from .fix_engine import get_entity_suggestion
-from .models import IssueType
+from .validator import get_entity_suggestion
+from .models import IssueType, Severity, ValidationIssue, VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
 
 if TYPE_CHECKING:
     from .suppression_store import SuppressionStore
@@ -28,6 +27,8 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_run_validation)
     websocket_api.async_register_command(hass, websocket_suppress)
     websocket_api.async_register_command(hass, websocket_clear_suppressions)
+    websocket_api.async_register_command(hass, websocket_run_validation_steps)
+    websocket_api.async_register_command(hass, websocket_get_validation_steps)
 
 def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
     """Format issues with fix suggestions using simplified fix engine."""
@@ -73,6 +74,31 @@ def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
 
     automations_with_issues = len(set(i.automation_id for i in issues))
     return max(0, total_automations - automations_with_issues)
+
+def _compute_group_status(issues: list) -> str:
+    """Compute group status from its issues.
+
+    Returns "fail" if any ERROR, "warning" if any WARNING, else "pass".
+    INFO-severity issues do not affect status.
+    """
+    if any(i.severity == Severity.ERROR for i in issues):
+        return "fail"
+    if any(i.severity == Severity.WARNING for i in issues):
+        return "warning"
+    return "pass"
+
+def _filter_suppressed(
+    issues: list[ValidationIssue],
+    suppression_store: SuppressionStore | None,
+) -> tuple[list[ValidationIssue], int]:
+    """Filter suppressed issues and return visible issues with suppressed count."""
+    if suppression_store:
+        visible = [i for i in issues if not suppression_store.is_suppressed(i.get_suppression_key())]
+        suppressed_count = len(issues) - len(visible)
+    else:
+        visible = issues
+        suppressed_count = 0
+    return visible, suppressed_count
 
 @websocket_api.websocket_command(
     {
@@ -135,17 +161,7 @@ async def websocket_get_validation(
     all_issues: list = data.get("validation_issues", [])
     last_run = data.get("validation_last_run")
 
-    # Filter out suppressed issues
-    if suppression_store:
-        visible_issues = [
-            issue
-            for issue in all_issues
-            if not suppression_store.is_suppressed(issue.get_suppression_key())
-        ]
-        suppressed_count = len(all_issues) - len(visible_issues)
-    else:
-        visible_issues = all_issues
-        suppressed_count = 0
+    visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
 
     issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
     healthy_count = _get_healthy_count(hass, visible_issues)
@@ -180,17 +196,7 @@ async def websocket_run_validation(
 
         all_issues = await async_validate_all(hass)
 
-        # Filter out suppressed issues
-        if suppression_store:
-            visible_issues = [
-                issue
-                for issue in all_issues
-                if not suppression_store.is_suppressed(issue.get_suppression_key())
-            ]
-            suppressed_count = len(all_issues) - len(visible_issues)
-        else:
-            visible_issues = all_issues
-            suppressed_count = 0
+        visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
 
         issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
         healthy_count = _get_healthy_count(hass, visible_issues)
@@ -210,6 +216,150 @@ async def websocket_run_validation(
         connection.send_error(
             msg["id"], "validation_failed", f"Validation error: {err}"
         )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/validation/run_steps",
+    }
+)
+@websocket_api.async_response
+async def websocket_run_validation_steps(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Run validation and return per-group structured results."""
+    try:
+        from . import async_validate_all_with_groups
+
+        data = hass.data.get(DOMAIN, {})
+        suppression_store: SuppressionStore | None = data.get("suppression_store")
+
+        result = await async_validate_all_with_groups(hass)
+
+        # Build groups response with suppression filtering
+        groups = []
+        all_visible_issues = []
+        total_suppressed = 0
+
+        for gid in VALIDATION_GROUP_ORDER:
+            raw_issues = result["group_issues"][gid]
+            visible, suppressed_count = _filter_suppressed(raw_issues, suppression_store)
+            total_suppressed += suppressed_count
+
+            all_visible_issues.extend(visible)
+            formatted = _format_issues_with_fixes(hass, visible)
+
+            groups.append(
+                {
+                    "id": gid,
+                    "label": VALIDATION_GROUPS[gid]["label"],
+                    "status": _compute_group_status(visible),
+                    "error_count": sum(
+                        1 for i in visible if i.severity == Severity.ERROR
+                    ),
+                    "warning_count": sum(
+                        1 for i in visible if i.severity == Severity.WARNING
+                    ),
+                    "issue_count": len(visible),
+                    "issues": formatted,
+                    "duration_ms": result["group_durations"][gid],
+                }
+            )
+
+        connection.send_result(
+            msg["id"],
+            {
+                "groups": groups,
+                "issues": _format_issues_with_fixes(hass, all_visible_issues),
+                "healthy_count": _get_healthy_count(hass, all_visible_issues),
+                "last_run": result["timestamp"],
+                "suppressed_count": total_suppressed,
+            },
+        )
+    except Exception as err:
+        _LOGGER.exception("Error in websocket_run_validation_steps: %s", err)
+        connection.send_error(
+            msg["id"], "validation_failed", f"Validation error: {err}"
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/validation/steps",
+    }
+)
+@websocket_api.async_response
+async def websocket_get_validation_steps(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Get cached per-group validation results without re-running validation."""
+    data = hass.data.get(DOMAIN, {})
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+    last_run = data.get("validation_last_run")
+    cached_groups = data.get("validation_groups")
+
+    groups = []
+    all_visible_issues = []
+    total_suppressed = 0
+
+    if cached_groups is None:
+        # No validation has been run yet -- return empty groups
+        for gid in VALIDATION_GROUP_ORDER:
+            groups.append(
+                {
+                    "id": gid,
+                    "label": VALIDATION_GROUPS[gid]["label"],
+                    "status": "pass",
+                    "error_count": 0,
+                    "warning_count": 0,
+                    "issue_count": 0,
+                    "issues": [],
+                    "duration_ms": 0,
+                }
+            )
+    else:
+        # Apply suppression filtering at READ time (not from cache)
+        for gid in VALIDATION_GROUP_ORDER:
+            raw_issues = cached_groups[gid]["issues"]
+            visible, suppressed_count = _filter_suppressed(raw_issues, suppression_store)
+            total_suppressed += suppressed_count
+
+            all_visible_issues.extend(visible)
+            formatted = _format_issues_with_fixes(hass, visible)
+
+            groups.append(
+                {
+                    "id": gid,
+                    "label": VALIDATION_GROUPS[gid]["label"],
+                    "status": _compute_group_status(visible),
+                    "error_count": sum(
+                        1 for i in visible if i.severity == Severity.ERROR
+                    ),
+                    "warning_count": sum(
+                        1 for i in visible if i.severity == Severity.WARNING
+                    ),
+                    "issue_count": len(visible),
+                    "issues": formatted,
+                    "duration_ms": cached_groups[gid]["duration_ms"],
+                }
+            )
+
+    healthy_count = _get_healthy_count(hass, all_visible_issues)
+
+    connection.send_result(
+        msg["id"],
+        {
+            "groups": groups,
+            "issues": _format_issues_with_fixes(hass, all_visible_issues),
+            "healthy_count": healthy_count,
+            "last_run": last_run,
+            "suppressed_count": total_suppressed,
+        },
+    )
 
 
 @websocket_api.websocket_command(

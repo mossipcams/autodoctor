@@ -19,6 +19,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from .const import STATE_VALIDATION_WHITELIST
 from .device_class_states import get_device_class_states
 from .learned_states_store import LearnedStatesStore
 
@@ -91,6 +92,7 @@ class StateKnowledgeBase:
         hass: HomeAssistant,
         history_days: int = 30,
         learned_states_store: LearnedStatesStore | None = None,
+        history_timeout: int = 120,
     ) -> None:
         """Initialize the knowledge base.
 
@@ -98,9 +100,11 @@ class StateKnowledgeBase:
             hass: Home Assistant instance
             history_days: Number of days of history to query
             learned_states_store: Optional store for user-learned states
+            history_timeout: Timeout in seconds for history loading
         """
         self.hass = hass
         self.history_days = history_days
+        self.history_timeout = history_timeout
         self._cache: dict[str, set[str]] = {}
         self._observed_states: dict[str, set[str]] = {}
         self._learned_states_store = learned_states_store
@@ -473,7 +477,11 @@ class StateKnowledgeBase:
         # Serialize history loading to prevent races
         async with self._lock:
             if entity_ids is None:
-                entity_ids = [s.entity_id for s in self.hass.states.async_all()]
+                entity_ids = [
+                    s.entity_id
+                    for s in self.hass.states.async_all()
+                    if s.entity_id.split(".")[0] in STATE_VALIDATION_WHITELIST
+                ]
 
             if not entity_ids:
                 return
@@ -482,17 +490,26 @@ class StateKnowledgeBase:
             end_time = datetime.now(UTC)
 
             try:
-                # Run blocking call in executor
-                history = await self.hass.async_add_executor_job(
-                    get_significant_states,
-                    self.hass,
-                    start_time,
-                    end_time,
-                    entity_ids,
-                    None,
-                    True,
-                    True,
+                # Run blocking call in executor with timeout
+                history = await asyncio.wait_for(
+                    self.hass.async_add_executor_job(
+                        get_significant_states,
+                        self.hass,
+                        start_time,
+                        end_time,
+                        entity_ids,
+                        None,
+                        True,
+                        True,
+                    ),
+                    timeout=self.history_timeout,
                 )
+            except TimeoutError:
+                _LOGGER.warning(
+                    "Timed out loading recorder history after %d seconds",
+                    self.history_timeout,
+                )
+                return
             except Exception as err:
                 _LOGGER.warning("Failed to load recorder history: %s", err)
                 return

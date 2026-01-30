@@ -31,3 +31,13 @@ htmlcov/
 index.md
 allowed-commands.md
 CLAUDE.md
+
+# Claude Code local files
+.claude/
+
+# Mutation testing
+.mutmut-cache/
+mutants/
+
+# GSD planning files
+.planning/

@@ -1,5 +1,58 @@
 # Changelog
 
+## [2.8.0](https://github.com/mossipcams/autodoctor/compare/v2.7.0...v2.8.0) (2026-01-30)
+
+
+### Features
+
+* **08-01:** add async_validate_all_with_groups() to __init__.py ([66f3f83](https://github.com/mossipcams/autodoctor/commit/66f3f83918b336a74bbfb62fd991c3a8d0a76b2f))
+* **08-01:** add run_steps and steps WS handlers to websocket_api.py ([1377632](https://github.com/mossipcams/autodoctor/commit/1377632314e6dfd533275cb9641ac11f855d946a))
+* **08-01:** add VALIDATION_GROUPS mapping and VALIDATION_GROUP_ORDER to models.py ([c0610ed](https://github.com/mossipcams/autodoctor/commit/c0610ed97a23d7e10ae7dd173e6a01fe70bd2e36))
+* **09-01:** extract autodoc-issue-group sub-component ([4de36b3](https://github.com/mossipcams/autodoctor/commit/4de36b3c7b36e070e83ff696dc40590dacb16647))
+* **09-01:** extract shared styles and badge helpers ([76bbd60](https://github.com/mossipcams/autodoctor/commit/76bbd6048e4a8e083bbca665d5bccb120ed3d013))
+* **10-01:** add ValidationGroup/StepsResponse types and pipeline CSS styles ([44d3eae](https://github.com/mossipcams/autodoctor/commit/44d3eaeff06bfdf47a34f99462a3cda27b3d035f))
+* **10-01:** create pipeline component and integrate into parent card ([f4791da](https://github.com/mossipcams/autodoctor/commit/f4791da1e2c27dfe559c3c6b65b821129d4d55fa))
+* **11-01:** add neutral/active CSS states, remove spinner styles, rebuild JS ([1377aae](https://github.com/mossipcams/autodoctor/commit/1377aae53b3f82fae5e5e618b07337641e5db429))
+* **11-01:** add stagger state machine and lifecycle hooks to autodoc-pipeline ([8df489d](https://github.com/mossipcams/autodoctor/commit/8df489d623dc82709b16e12051747a4cdbd5efae))
+* **v2.7.0:** replace hardcoded Jinja2 sets with dataclass catalog, expand service params ([d6290c7](https://github.com/mossipcams/autodoctor/commit/d6290c7790549c386a2f3cbfb014a7ed468fe746))
+
+
+### Bug Fixes
+
+* **02-01:** switch to mutmut 2.x for macOS/Python 3.14 compatibility ([8e94442](https://github.com/mossipcams/autodoctor/commit/8e94442bcb843acd1aa003180e789f8b16778580))
+* **02-01:** switch to mutmut 3.x with also_copy and conftest compatibility ([b1453d8](https://github.com/mossipcams/autodoctor/commit/b1453d869cfd8e64c7765e4dac5b1697a8b650b7))
+* **09-01:** remove dead conflicts tab code from TS source ([8b9c44c](https://github.com/mossipcams/autodoctor/commit/8b9c44c908ef098353de4735cdcaa498352adecd))
+* **quick-001:** fix options.get() TypeError and wrong config key ([96225dc](https://github.com/mossipcams/autodoctor/commit/96225dc1686eced88c92bd38f3b26a2e1976cf35))
+* **quick-001:** fix options.get() TypeError and wrong config key ([711de81](https://github.com/mossipcams/autodoctor/commit/711de810ba62cd7e3477993e72610862850dffe4))
+* **quick-001:** remove unused AutodoctorData and ValidationConfig from models.py ([1c6c4f2](https://github.com/mossipcams/autodoctor/commit/1c6c4f20543f619c98b15eb2f7204511550951da))
+* **quick-001:** remove unused AutodoctorData and ValidationConfig from models.py ([2f89168](https://github.com/mossipcams/autodoctor/commit/2f89168e1a86b6f5e09b7ec8481f084723c8947e))
+* **quick-001:** rename shadowed MAX_RECURSION_DEPTH in jinja_validator.py ([0e37a47](https://github.com/mossipcams/autodoctor/commit/0e37a470c9846bd575fc19f45a0fe79601f7819f))
+* **quick-001:** rename shadowed MAX_RECURSION_DEPTH in jinja_validator.py ([30ce350](https://github.com/mossipcams/autodoctor/commit/30ce35003645d30f9168e2a20d37e1025616bee3))
+* reduce false positives with 6-phase validation narrowing ([0aaa2b2](https://github.com/mossipcams/autodoctor/commit/0aaa2b239865c9b1d91ae0487d6a480e18795fde))
+* reduce false positives with 6-phase validation narrowing ([4644ac9](https://github.com/mossipcams/autodoctor/commit/4644ac9be3877e0cfeed54a3a04784c7da7c3906))
+* repair corrupted config_flow schema and update index.md ([c5fb739](https://github.com/mossipcams/autodoctor/commit/c5fb73947d2bf2b786304e59c47a6d0c0ebc404e))
+* resolve service validation false positives for list params and capability-dependent params ([9f38e51](https://github.com/mossipcams/autodoctor/commit/9f38e519068a6ea7815f02080ac82427488aba7d))
+
+
+### Code Refactoring
+
+* **01-01:** remove dead code from jinja_validator.py ([cc3256d](https://github.com/mossipcams/autodoctor/commit/cc3256d6ab32e3359a218a07161051fb9cf19c23))
+* **01-01:** rename test_fix_engine.py and clean up fix_engine references ([498ddaf](https://github.com/mossipcams/autodoctor/commit/498ddaf2dd50cb1324410df9214cad8f184cb035))
+* **09-01:** slim autodoctor-card.ts from 1529 to 645 lines ([db27b0c](https://github.com/mossipcams/autodoctor/commit/db27b0c6f7c0051d36c4b0b36135772145530aa2))
+* **12:** tech debt review and cleanup ([1ef1bb0](https://github.com/mossipcams/autodoctor/commit/1ef1bb07b272ca058aa54a75ff0674138fa608b3))
+* implement architectural review recommendations ([708d2af](https://github.com/mossipcams/autodoctor/commit/708d2af27491e5fc7ce97cdb6ce1f8670efa4504))
+* remove dead code from template_semantics.py and update index.md ([145df7b](https://github.com/mossipcams/autodoctor/commit/145df7b6c53d7b44fe7665c270d439fdc54ce370))
+
+
+### Documentation
+
+* **08-01:** update index.md with new WS commands ([6d183c2](https://github.com/mossipcams/autodoctor/commit/6d183c28dcf3abf29ea577d7898b5f38ce8015de))
+* **10-01:** update index.md with frontend source file listing ([4ed08c1](https://github.com/mossipcams/autodoctor/commit/4ed08c1c0e6c4fad988c625a03c872a2db4f6adb))
+* add strict validation options to README ([ecb2713](https://github.com/mossipcams/autodoctor/commit/ecb27130c8568f73a1ca84852fd7d968b19f3370))
+* initialize project ([869f56c](https://github.com/mossipcams/autodoctor/commit/869f56cbcd610728bed13feed4bb78a26f056347))
+* map existing codebase ([1b683b5](https://github.com/mossipcams/autodoctor/commit/1b683b59639e7d8cefb9d7a063db776c79f302a9))
+* update PROJECT.md with v2.7.0 roadmap and traceability ([b20462d](https://github.com/mossipcams/autodoctor/commit/b20462da17aa5c6f331eb1a1d1b758c4052d0cf5))
+
 ## [2.7.0](https://github.com/mossipcams/autodoctor/compare/v2.6.2...v2.7.0) (2026-01-30)
 
 

@@ -16,7 +16,11 @@ class Severity(IntEnum):
 
 
 class IssueType(str, Enum):
-    """Types of validation issues."""
+    """Types of validation issues.
+
+    Note: TEMPLATE_UNKNOWN_VARIABLE was removed in v2.7.0 due to high false
+    positive rate with blueprint automations that define variables dynamically.
+    """
 
     ENTITY_NOT_FOUND = "entity_not_found"
     ENTITY_REMOVED = "entity_removed"
@@ -27,7 +31,6 @@ class IssueType(str, Enum):
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
     TEMPLATE_INVALID_ARGUMENTS = "template_invalid_arguments"
-    TEMPLATE_UNKNOWN_VARIABLE = "template_unknown_variable"
     TEMPLATE_INVALID_ENTITY_ID = "template_invalid_entity_id"
     SERVICE_NOT_FOUND = "service_not_found"
     SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"
@@ -76,7 +79,7 @@ class ValidationIssue:
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
-        return hash((self.automation_id, self.issue_type, self.entity_id, self.message))
+        return hash((self.automation_id, self.issue_type, self.entity_id, self.location, self.message))
 
     def __eq__(self, other: object) -> bool:
         """Equality based on key fields for deduplication."""
@@ -86,6 +89,7 @@ class ValidationIssue:
             self.automation_id == other.automation_id
             and self.issue_type == other.issue_type
             and self.entity_id == other.entity_id
+            and self.location == other.location
             and self.message == other.message
         )
 
@@ -121,3 +125,47 @@ class ServiceCall:
     data: dict[str, Any] | None = None
     is_template: bool = False
     source_line: int | None = None
+
+
+# Validation group definitions: maps group ID to label and member IssueTypes.
+# All 20 IssueType enum members must appear in exactly one group.
+VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
+    "entity_state": {
+        "label": "Entity & State",
+        "issue_types": frozenset({
+            IssueType.ENTITY_NOT_FOUND,
+            IssueType.ENTITY_REMOVED,
+            IssueType.INVALID_STATE,
+            IssueType.CASE_MISMATCH,
+            IssueType.ATTRIBUTE_NOT_FOUND,
+        }),
+    },
+    "services": {
+        "label": "Service Calls",
+        "issue_types": frozenset({
+            IssueType.SERVICE_NOT_FOUND,
+            IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+            IssueType.SERVICE_INVALID_PARAM_TYPE,
+            IssueType.SERVICE_UNKNOWN_PARAM,
+        }),
+    },
+    "templates": {
+        "label": "Templates",
+        "issue_types": frozenset({
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+            IssueType.TEMPLATE_UNKNOWN_FILTER,
+            IssueType.TEMPLATE_UNKNOWN_TEST,
+            IssueType.TEMPLATE_INVALID_ARGUMENTS,
+            IssueType.TEMPLATE_INVALID_ENTITY_ID,
+            IssueType.TEMPLATE_ENTITY_NOT_FOUND,
+            IssueType.TEMPLATE_INVALID_STATE,
+            IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
+            IssueType.TEMPLATE_DEVICE_NOT_FOUND,
+            IssueType.TEMPLATE_AREA_NOT_FOUND,
+            IssueType.TEMPLATE_ZONE_NOT_FOUND,
+        }),
+    },
+}
+
+# Canonical group ordering for response serialization
+VALIDATION_GROUP_ORDER: list[str] = ["entity_state", "services", "templates"]
