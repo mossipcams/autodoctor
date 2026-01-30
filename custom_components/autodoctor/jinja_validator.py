@@ -28,8 +28,10 @@ _LOGGER = logging.getLogger(__name__)
 # Pattern to detect if a string contains Jinja2 template syntax
 TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 
-# Maximum recursion depth for nested conditions/actions
-MAX_RECURSION_DEPTH = 20
+# Maximum nesting depth for template condition/action traversal.
+# Intentionally lower than const.MAX_RECURSION_DEPTH (50) because templates
+# rarely nest deeply and this provides a tighter safety net for parsing.
+_TEMPLATE_MAX_NESTING_DEPTH = 20
 
 # HA-specific filters (added on top of Jinja2 built-ins).
 # Source: https://www.home-assistant.io/docs/configuration/templating
@@ -227,7 +229,7 @@ class JinjaValidator:
         """Validate templates in a condition."""
         issues: list[ValidationIssue] = []
 
-        if _depth > MAX_RECURSION_DEPTH:
+        if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
             _LOGGER.warning(
                 "Max recursion depth exceeded in %s at %s, stopping validation",
                 auto_id, location_prefix
@@ -318,7 +320,7 @@ class JinjaValidator:
         """Validate templates in actions recursively."""
         issues: list[ValidationIssue] = []
 
-        if _depth > MAX_RECURSION_DEPTH:
+        if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
             _LOGGER.warning(
                 "Max recursion depth exceeded in %s at %s, stopping validation",
                 auto_id, location_prefix
