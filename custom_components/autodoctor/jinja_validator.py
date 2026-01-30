@@ -94,13 +94,19 @@ _HA_TESTS: frozenset[str] = frozenset({
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
 
-    def __init__(self, hass: HomeAssistant | None = None) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant | None = None,
+        knowledge_base: Any = None,
+    ) -> None:
         """Initialize the Jinja validator.
 
         Args:
             hass: Home Assistant instance (optional, for HA-specific template env)
+            knowledge_base: Shared StateKnowledgeBase instance (avoids creating new ones)
         """
         self.hass = hass
+        self.knowledge_base = knowledge_base
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
         self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | _HA_FILTERS
@@ -812,10 +818,12 @@ class JinjaValidator:
 
             # 3. Validate state value if specified (from is_state calls)
             if ref.expected_state:
-                # Use knowledge base to check if state is valid
-                from .knowledge_base import StateKnowledgeBase
+                # Use shared knowledge base if available, otherwise create one
+                kb = self.knowledge_base
+                if kb is None:
+                    from .knowledge_base import StateKnowledgeBase
 
-                kb = StateKnowledgeBase(self.hass)
+                    kb = StateKnowledgeBase(self.hass)
                 valid_states = kb.get_valid_states(ref.entity_id)
 
                 if valid_states and ref.expected_state not in valid_states:

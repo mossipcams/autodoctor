@@ -4,7 +4,40 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Any
+from typing import Any, TypedDict
+
+
+class AutodoctorData(TypedDict, total=False):
+    """Typed structure for hass.data[DOMAIN]."""
+
+    knowledge_base: Any
+    analyzer: Any
+    validator: Any
+    jinja_validator: Any
+    service_validator: Any
+    reporter: Any
+    suppression_store: Any
+    learned_states_store: Any
+    issues: list[Any]
+    validation_issues: list[Any]
+    validation_last_run: Any
+    entry: Any
+    debounce_task: Any
+    unsub_reload_listener: Any
+
+
+@dataclass
+class ValidationConfig:
+    """Configuration for validation behavior.
+
+    Single source of truth for all validation config, passed to validators.
+    """
+
+    strict_template_validation: bool = False
+    strict_service_validation: bool = False
+    history_days: int = 30
+    validate_on_reload: bool = True
+    debounce_seconds: int = 5
 
 
 class Severity(IntEnum):
@@ -76,7 +109,7 @@ class ValidationIssue:
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
-        return hash((self.automation_id, self.issue_type, self.entity_id, self.message))
+        return hash((self.automation_id, self.issue_type, self.entity_id, self.location, self.message))
 
     def __eq__(self, other: object) -> bool:
         """Equality based on key fields for deduplication."""
@@ -86,6 +119,7 @@ class ValidationIssue:
             self.automation_id == other.automation_id
             and self.issue_type == other.issue_type
             and self.entity_id == other.entity_id
+            and self.location == other.location
             and self.message == other.message
         )
 

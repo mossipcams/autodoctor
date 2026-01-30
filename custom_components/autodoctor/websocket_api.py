@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
-from .fix_engine import get_entity_suggestion
+from .validator import get_entity_suggestion
 from .models import IssueType
 
 if TYPE_CHECKING:

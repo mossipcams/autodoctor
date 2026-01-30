@@ -1,6 +1,6 @@
-"""Tests for simplified fix engine."""
+"""Tests for entity suggestion (consolidated from fix_engine into validator)."""
 
-from custom_components.autodoctor.fix_engine import (
+from custom_components.autodoctor.validator import (
     get_entity_suggestion,
 )
 

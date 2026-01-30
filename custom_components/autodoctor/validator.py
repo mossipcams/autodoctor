@@ -232,6 +232,10 @@ class ValidationEngine:
             return lower_map.get(matches[0])
         return None
 
+    def invalidate_entity_cache(self) -> None:
+        """Clear the entity cache so it is rebuilt on next use."""
+        self._entity_cache = None
+
     def _ensure_entity_cache(self) -> None:
         """Build entity cache if not present."""
         if self._entity_cache is not None:
@@ -277,3 +281,24 @@ class ValidationEngine:
         for ref in refs:
             issues.extend(self.validate_reference(ref))
         return issues
+
+
+def get_entity_suggestion(invalid_entity: str, all_entities: list[str]) -> str | None:
+    """Get a suggestion for an invalid entity ID.
+
+    Standalone version of ValidationEngine._suggest_entity for use
+    outside the validation engine (e.g., websocket API).
+    """
+    if "." not in invalid_entity:
+        return None
+
+    domain, name = invalid_entity.split(".", 1)
+
+    same_domain = [e for e in all_entities if e.startswith(f"{domain}.")]
+    if not same_domain:
+        return None
+
+    names = {eid.split(".", 1)[1]: eid for eid in same_domain}
+    matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
+
+    return names[matches[0]] if matches else None
