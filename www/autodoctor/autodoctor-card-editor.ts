@@ -2,7 +2,7 @@ import { LitElement, html, css, CSSResultGroup, TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type { AutodoctorCardConfig } from "./types";
+import type { AutodoctorCardConfig } from "./types.js";
 
 @customElement("autodoctor-card-editor")
 export class AutodoctorCardEditor extends LitElement {

@@ -17,6 +17,7 @@ autodoctor/
 │   ├── const.py                     # Constants & defaults
 │   ├── device_class_states.py       # Default state mappings
 │   ├── domain_attributes.py         # Domain attribute mappings
+│   ├── ha_catalog.py                # HA Jinja2 filter/test catalog
 │   ├── jinja_validator.py           # Jinja2 template validation
 │   ├── knowledge_base.py            # Valid state knowledge
 │   ├── models.py                    # Core data structures
@@ -25,7 +26,6 @@ autodoctor/
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── service_validator.py         # Service call validation
 │   ├── suppression_store.py         # Dismissed issue persistence
-│   ├── template_semantics.py        # HA-specific Jinja2 signatures
 │   ├── validator.py                 # State reference validation
 │   ├── websocket_api.py             # Frontend communication
 │   ├── www/                         # Frontend assets
@@ -38,7 +38,13 @@ autodoctor/
 │   └── extract_ha_states.py         # Extract valid states from HA source
 ├── tests/                           # Test suite
 ├── docs/plans/                      # Design documents
-└── www/                             # Frontend build assets
+└── www/autodoctor/                  # Frontend source (TypeScript)
+    ├── autodoctor-card.ts           # Main Lovelace card component
+    ├── autodoctor-card-editor.ts    # Card config editor
+    ├── autodoc-issue-group.ts       # Issue group sub-component
+    ├── autodoc-pipeline.ts          # Validation pipeline sub-component
+    ├── types.ts                     # Shared TypeScript interfaces
+    └── styles.ts                    # Shared CSS design tokens & styles
 ```
 
 ## Core Modules
@@ -50,6 +56,7 @@ autodoctor/
 - **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions (21 trigger types, 10 condition types, depth-limited recursion)
 - **`validator.py`** - Validates state references against knowledge base (conservative mode: only validates whitelisted domains with stable states); also provides `get_entity_suggestion()` for fuzzy entity matching
 - **`service_validator.py`** - Validates service calls against HA service registry (existence, required params, capability-dependent param handling, select/enum option validation)
+- **`ha_catalog.py`** - Dataclass-based registry of HA's Jinja2 filters and tests with argument signatures (101 filters, 23 tests). Single source of truth for filter/test knowledge.
 - **`jinja_validator.py`** - Validates Jinja2 template syntax and semantics (entity existence, state validity, attribute existence; opt-in filter/test validation)
 
 ### Knowledge & Suggestions
@@ -188,6 +195,7 @@ Supports all 10 Home Assistant condition types:
 - `test_reporter.py` - Issue reporting
 - `test_websocket_api.py` - WebSocket endpoints
 - `test_websocket_api_learning.py` - Learning on suppression
+- `test_ha_catalog.py` - HA Jinja2 catalog (completeness, signatures, migration)
 - `test_jinja_validator.py` - Jinja2 template validation
 - `test_device_class_states.py` - Default states
 - `test_init.py` - Integration lifecycle

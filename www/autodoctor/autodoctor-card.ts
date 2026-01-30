@@ -1,16 +1,20 @@
-import { LitElement, html, css, CSSResultGroup, TemplateResult, nothing } from "lit";
+import { LitElement, html, CSSResultGroup, TemplateResult, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
-import type {
-  AutodoctorCardConfig,
-  IssueWithFix,
-  ValidationIssue,
-  TabType,
-  AutodoctorTabData,
-  ConflictsTabData,
-  Conflict,
-} from "./types";
+import {
+  getSuggestionKey,
+  type AutodoctorCardConfig,
+  type AutomationGroup,
+  type IssueWithFix,
+  type ValidationIssue,
+  type StepsResponse,
+} from "./types.js";
+
+import { autodocTokens, badgeStyles, cardLayoutStyles } from "./styles.js";
+import { renderBadges } from "./badges.js";
+import "./autodoc-issue-group.js";
+import "./autodoc-pipeline.js";
 
 const CARD_VERSION = "2.1.0";
 
@@ -20,45 +24,24 @@ console.info(
   "color: #3498db; background: white; font-weight: bold;"
 );
 
-interface AutomationGroup {
-  automation_id: string;
-  automation_name: string;
-  issues: IssueWithFix[];
-  edit_url: string;
-  has_error: boolean;
-  error_count: number;
-  warning_count: number;
-}
-
 @customElement("autodoctor-card")
 export class AutodoctorCard extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @property({ attribute: false }) public config!: AutodoctorCardConfig;
 
-  @state() private _loadingValidation = true;
-  @state() private _loadingConflicts = false;
+  @state() private _loading = true;
   @state() private _error: string | null = null;
-  @state() private _activeTab: TabType = "validation";
-  @state() private _validationData: AutodoctorTabData | null = null;
-  @state() private _conflictsData: ConflictsTabData | null = null;
+  @state() private _validationData: StepsResponse | null = null;
   @state() private _runningValidation = false;
-  @state() private _runningConflicts = false;
   @state() private _dismissedSuggestions = new Set<string>();
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
-  private _conflictsRequestId = 0;
   private _suppressionInProgress = false;
 
   // Cooldown tracking to prevent rapid button clicks
   private _lastValidationClick = 0;
-  private _lastConflictsClick = 0;
   private static readonly CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
-
-  private _isInCooldown(isValidation: boolean): boolean {
-    const lastClick = isValidation ? this._lastValidationClick : this._lastConflictsClick;
-    return Date.now() - lastClick < AutodoctorCard.CLICK_COOLDOWN_MS;
-  }
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -79,26 +62,15 @@ export class AutodoctorCard extends LitElement {
     await this._fetchValidation();
   }
 
-  private _switchTab(tab: TabType): void {
-    this._activeTab = tab;
-
-    // Fetch data if not loaded and not already fetching
-    if (tab === "validation" && !this._validationData && !this._loadingValidation) {
-      this._fetchValidation();
-    } else if (tab === "conflicts" && !this._conflictsData && !this._loadingConflicts) {
-      this._fetchConflicts();
-    }
-  }
-
   private async _fetchValidation(): Promise<void> {
     // Increment request ID to track this specific request
     const requestId = ++this._validationRequestId;
-    this._loadingValidation = true;
+    this._loading = true;
 
     try {
       this._error = null;
-      const data = await this.hass.callWS<AutodoctorTabData>({
-        type: "autodoctor/validation",
+      const data = await this.hass.callWS<StepsResponse>({
+        type: "autodoctor/validation/steps",
       });
 
       // Only update state if this is still the latest request
@@ -115,7 +87,7 @@ export class AutodoctorCard extends LitElement {
 
     // Only clear loading if this is still the latest request
     if (requestId === this._validationRequestId) {
-      this._loadingValidation = false;
+      this._loading = false;
     }
   }
 
@@ -134,8 +106,8 @@ export class AutodoctorCard extends LitElement {
     this._runningValidation = true;
 
     try {
-      const data = await this.hass.callWS<AutodoctorTabData>({
-        type: "autodoctor/validation/run",
+      const data = await this.hass.callWS<StepsResponse>({
+        type: "autodoctor/validation/run_steps",
       });
 
       // Only update state if this is still the latest request
@@ -151,70 +123,6 @@ export class AutodoctorCard extends LitElement {
     // Only clear running flag if this is still the latest request
     if (requestId === this._validationRequestId) {
       this._runningValidation = false;
-    }
-  }
-
-  private async _fetchConflicts(): Promise<void> {
-    // Increment request ID to track this specific request
-    const requestId = ++this._conflictsRequestId;
-    this._loadingConflicts = true;
-
-    try {
-      this._error = null;
-      const data = await this.hass.callWS<ConflictsTabData>({
-        type: "autodoctor/conflicts",
-      });
-
-      // Only update state if this is still the latest request
-      if (requestId === this._conflictsRequestId) {
-        this._conflictsData = data;
-      }
-    } catch (err) {
-      // Only set error if this is still the latest request
-      if (requestId === this._conflictsRequestId) {
-        console.error("Failed to fetch conflicts data:", err);
-        this._error = "Failed to load conflicts data";
-      }
-    }
-
-    // Only clear loading if this is still the latest request
-    if (requestId === this._conflictsRequestId) {
-      this._loadingConflicts = false;
-    }
-  }
-
-  private async _runConflicts(): Promise<void> {
-    // Prevent concurrent runs and enforce cooldown
-    const now = Date.now();
-    if (
-      this._runningConflicts ||
-      now - this._lastConflictsClick < AutodoctorCard.CLICK_COOLDOWN_MS
-    ) {
-      return;
-    }
-    this._lastConflictsClick = now;
-
-    const requestId = ++this._conflictsRequestId;
-    this._runningConflicts = true;
-
-    try {
-      const data = await this.hass.callWS<ConflictsTabData>({
-        type: "autodoctor/conflicts/run",
-      });
-
-      // Only update state if this is still the latest request
-      if (requestId === this._conflictsRequestId) {
-        this._conflictsData = data;
-      }
-    } catch (err) {
-      if (requestId === this._conflictsRequestId) {
-        console.error("Failed to run conflict detection:", err);
-      }
-    }
-
-    // Only clear running flag if this is still the latest request
-    if (requestId === this._conflictsRequestId) {
-      this._runningConflicts = false;
     }
   }
 
@@ -250,7 +158,7 @@ export class AutodoctorCard extends LitElement {
     return Array.from(groups.values());
   }
 
-  private _getCounts(data: AutodoctorTabData | null): {
+  private _getCounts(data: StepsResponse | null): {
     errors: number;
     warnings: number;
     healthy: number;
@@ -279,11 +187,6 @@ export class AutodoctorCard extends LitElement {
     };
   }
 
-  private get _loading(): boolean {
-    // Return loading state for the current tab
-    return this._activeTab === "validation" ? this._loadingValidation : this._loadingConflicts;
-  }
-
   protected render(): TemplateResult {
     const title = this.config.title || "Autodoctor";
 
@@ -293,11 +196,6 @@ export class AutodoctorCard extends LitElement {
 
     if (this._error) {
       return this._renderError(title);
-    }
-
-    // Handle conflicts tab separately since it has different data structure
-    if (this._activeTab === "conflicts") {
-      return this._renderConflictsTab(title);
     }
 
     const data = this._validationData;
@@ -312,14 +210,33 @@ export class AutodoctorCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._renderHeader(title)} ${this._renderTabs()}
+        ${this._renderHeader(title)}
         <div class="card-content">
           ${this._renderBadges(counts)}
+          ${data.last_run
+            ? html`<autodoc-pipeline
+                .groups=${data.groups || []}
+                ?running=${this._runningValidation}
+              ></autodoc-pipeline>`
+            : nothing}
           ${hasIssues
-            ? groups.map((group) => this._renderAutomationGroup(group))
-            : this._renderAllHealthy(counts.healthy)}
+            ? groups.map(
+                (group) => html`
+                  <autodoc-issue-group
+                    .group=${group}
+                    .dismissedKeys=${this._dismissedSuggestions}
+                    @suppress-issue=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
+                      this._suppressIssue(e.detail.issue)}
+                    @dismiss-suggestion=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
+                      this._dismissSuggestion(e.detail.issue)}
+                  ></autodoc-issue-group>
+                `
+              )
+            : data.last_run
+              ? nothing
+              : this._renderAllHealthy(counts.healthy)}
         </div>
-        ${this._renderTabFooter()}
+        ${this._renderFooter()}
       </ha-card>
     `;
   }
@@ -345,15 +262,9 @@ export class AutodoctorCard extends LitElement {
           <h2 class="title">${title}</h2>
         </div>
         <div class="card-content error-state">
-          <div class="error-icon" aria-hidden="true">⚠</div>
+          <div class="error-icon" aria-hidden="true">\u26A0</div>
           <span class="error-text">${this._error}</span>
-          <button
-            class="retry-btn"
-            @click=${() =>
-              this._activeTab === "validation" ? this._fetchValidation() : this._fetchConflicts()}
-          >
-            Try again
-          </button>
+          <button class="retry-btn" @click=${() => this._fetchValidation()}>Try again</button>
         </div>
       </ha-card>
     `;
@@ -362,7 +273,7 @@ export class AutodoctorCard extends LitElement {
   private _renderEmpty(title: string): TemplateResult {
     return html`
       <ha-card>
-        ${this._renderHeader(title)} ${this._renderTabs()}
+        ${this._renderHeader(title)}
         <div class="card-content empty-state">
           <span class="empty-text">No data available</span>
         </div>
@@ -381,7 +292,7 @@ export class AutodoctorCard extends LitElement {
   private _renderAllHealthy(healthyCount: number): TemplateResult {
     return html`
       <div class="all-healthy">
-        <div class="healthy-icon" aria-hidden="true">✓</div>
+        <div class="healthy-icon" aria-hidden="true">\u2713</div>
         <div class="healthy-message">
           <span class="healthy-title">All systems healthy</span>
           <span class="healthy-subtitle"
@@ -392,110 +303,35 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderTabs(): TemplateResult {
-    return html`
-      <div class="tabs">
-        <button
-          class="tab ${this._activeTab === "validation" ? "active" : ""}"
-          @click=${() => this._switchTab("validation")}
-        >
-          Validation
-        </button>
-        <button
-          class="tab ${this._activeTab === "conflicts" ? "active" : ""}"
-          @click=${() => this._switchTab("conflicts")}
-        >
-          Conflicts
-        </button>
-      </div>
-    `;
-  }
-
   private _renderBadges(counts: {
     errors: number;
     warnings: number;
     healthy: number;
     suppressed: number;
   }): TemplateResult {
-    return html`
-      <div class="badges-row">
-        ${counts.errors > 0
-          ? html`<span
-              class="badge badge-error"
-              title="${counts.errors} error${counts.errors !== 1 ? "s" : ""}"
-            >
-              <span class="badge-icon" aria-hidden="true">✕</span>
-              <span class="badge-count">${counts.errors}</span>
-            </span>`
-          : nothing}
-        ${counts.warnings > 0
-          ? html`<span
-              class="badge badge-warning"
-              title="${counts.warnings} warning${counts.warnings !== 1 ? "s" : ""}"
-            >
-              <span class="badge-icon" aria-hidden="true">!</span>
-              <span class="badge-count">${counts.warnings}</span>
-            </span>`
-          : nothing}
-        <span class="badge badge-healthy" title="${counts.healthy} healthy">
-          <span class="badge-icon" aria-hidden="true">✓</span>
-          <span class="badge-count">${counts.healthy}</span>
-        </span>
-        ${counts.suppressed > 0
-          ? html`<span class="badge badge-suppressed" title="${counts.suppressed} suppressed">
-              <span class="badge-icon" aria-hidden="true">⊘</span>
-              <span class="badge-count">${counts.suppressed}</span>
-              <button
-                class="clear-suppressions-btn"
-                @click=${this._clearSuppressions}
-                title="Clear all suppressions"
-                aria-label="Clear all suppressions"
-              >
-                ✕
-              </button>
-            </span>`
-          : nothing}
-      </div>
-    `;
+    return renderBadges(counts, () => this._clearSuppressions());
   }
 
-  private _renderTabFooter(): TemplateResult {
-    const isValidation = this._activeTab === "validation";
-
-    const isRunning = isValidation ? this._runningValidation : this._runningConflicts;
-
-    const isLoading = isValidation ? this._loadingValidation : this._loadingConflicts;
-
+  private _renderFooter(): TemplateResult {
     // Disable button during any async operation or cooldown period
-    const isDisabled = isRunning || isLoading || this._isInCooldown(isValidation);
-
-    const lastRun = isValidation ? this._validationData?.last_run : this._conflictsData?.last_run;
-
-    const buttonText = isValidation ? "Run Validation" : "Run Conflict Detection";
-
-    const runHandler = () => {
-      if (isValidation) {
-        this._runValidation();
-      } else {
-        this._runConflicts();
-      }
-    };
-
-    // Show running state for any async operation
-    const showRunning = isRunning || isLoading;
+    const isRunning = this._runningValidation || this._loading;
+    const isDisabled =
+      isRunning || Date.now() - this._lastValidationClick < AutodoctorCard.CLICK_COOLDOWN_MS;
 
     return html`
       <div class="footer">
         <button
-          class="run-btn ${showRunning ? "running" : ""}"
-          @click=${runHandler}
+          class="run-btn ${isRunning ? "running" : ""}"
+          @click=${() => this._runValidation()}
           ?disabled=${isDisabled}
         >
-          <span class="run-icon" aria-hidden="true">${showRunning ? "↻" : "▶"}</span>
-          <span class="run-text">${showRunning ? "Running..." : buttonText}</span>
+          <span class="run-icon" aria-hidden="true">${isRunning ? "\u21BB" : "\u25B6"}</span>
+          <span class="run-text">${isRunning ? "Running..." : "Run Validation"}</span>
         </button>
-        ${lastRun
-          ? html` <span class="last-run">Last run: ${this._formatLastRun(lastRun)}</span> `
+        ${this._validationData?.last_run
+          ? html` <span class="last-run"
+              >Last run: ${this._formatLastRun(this._validationData.last_run)}</span
+            >`
           : nothing}
       </div>
     `;
@@ -515,12 +351,8 @@ export class AutodoctorCard extends LitElement {
     return `${diffDays}d ago`;
   }
 
-  private _getSuggestionKey(issue: ValidationIssue): string {
-    return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
-  }
-
   private _dismissSuggestion(issue: ValidationIssue): void {
-    const key = this._getSuggestionKey(issue);
+    const key = getSuggestionKey(issue);
     this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
   }
 
@@ -538,11 +370,7 @@ export class AutodoctorCard extends LitElement {
         entity_id: issue.entity_id,
         issue_type: issue.issue_type || "unknown",
       });
-      if (this._activeTab === "validation") {
-        await this._fetchValidation();
-      } else {
-        await this._fetchConflicts();
-      }
+      await this._fetchValidation();
     } catch (err) {
       console.error("Failed to suppress issue:", err);
     } finally {
@@ -561,11 +389,7 @@ export class AutodoctorCard extends LitElement {
       await this.hass.callWS({
         type: "autodoctor/clear_suppressions",
       });
-      if (this._activeTab === "validation") {
-        await this._fetchValidation();
-      } else {
-        await this._fetchConflicts();
-      }
+      await this._fetchValidation();
     } catch (err) {
       console.error("Failed to clear suppressions:", err);
     } finally {
@@ -573,936 +397,8 @@ export class AutodoctorCard extends LitElement {
     }
   }
 
-  private _renderAutomationGroup(group: AutomationGroup): TemplateResult {
-    return html`
-      <div class="automation-group ${group.has_error ? "has-error" : "has-warning"}">
-        <div class="automation-header">
-          <span class="automation-severity-icon" aria-hidden="true"
-            >${group.has_error ? "✕" : "!"}</span
-          >
-          <span class="automation-name">${group.automation_name}</span>
-          <span class="automation-badge">${group.issues.length}</span>
-        </div>
-        <div class="automation-issues">${group.issues.map((item) => this._renderIssue(item))}</div>
-        <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
-          <span class="edit-text">Edit automation</span>
-          <span class="edit-arrow" aria-hidden="true">→</span>
-        </a>
-      </div>
-    `;
-  }
-
-  private _renderIssue(item: IssueWithFix): TemplateResult {
-    const { issue, fix } = item;
-    const isError = issue.severity === "error";
-    const isDismissed = this._dismissedSuggestions.has(this._getSuggestionKey(issue));
-
-    return html`
-      <div class="issue ${isError ? "error" : "warning"}">
-        <div class="issue-header">
-          <span class="issue-icon" aria-hidden="true">${isError ? "✕" : "!"}</span>
-          <span class="issue-message">${issue.message}</span>
-          <button
-            class="suppress-btn"
-            @click=${() => this._suppressIssue(issue)}
-            aria-label="Suppress this issue"
-            title="Don't show this issue again"
-          >
-            ⊘
-          </button>
-        </div>
-        ${fix && !isDismissed
-          ? html`
-              <div class="fix-suggestion">
-                <span class="fix-icon" aria-hidden="true">💡</span>
-                <div class="fix-content">
-                  <span class="fix-description">${fix.description}</span>
-                  ${this._renderConfidencePill(fix.confidence)}
-                </div>
-                <button
-                  class="dismiss-btn"
-                  @click=${() => this._dismissSuggestion(issue)}
-                  aria-label="Dismiss suggestion"
-                >
-                  ✕
-                </button>
-              </div>
-            `
-          : nothing}
-      </div>
-    `;
-  }
-
-  private _renderConfidencePill(confidence: number): TemplateResult | typeof nothing {
-    if (confidence <= 0.6) {
-      return nothing;
-    }
-
-    const isHigh = confidence > 0.9;
-    return html`
-      <span class="confidence-pill ${isHigh ? "high" : "medium"}">
-        ${isHigh ? "High" : "Medium"} confidence
-      </span>
-    `;
-  }
-
-  private _renderConflictsTab(title: string): TemplateResult {
-    if (!this._conflictsData) {
-      return this._renderEmpty(title);
-    }
-
-    const { conflicts, suppressed_count } = this._conflictsData;
-    const hasConflicts = conflicts.length > 0;
-
-    // Count by severity
-    const errorCount = conflicts.filter((c) => c.severity === "error").length;
-    const warningCount = conflicts.filter((c) => c.severity === "warning").length;
-
-    return html`
-      <ha-card>
-        ${this._renderHeader(title)} ${this._renderTabs()}
-        <div class="card-content">
-          ${this._renderConflictsBadges(errorCount, warningCount, suppressed_count)}
-          ${hasConflicts
-            ? conflicts.map((conflict) => this._renderConflict(conflict))
-            : this._renderNoConflicts()}
-        </div>
-        ${this._renderTabFooter()}
-      </ha-card>
-    `;
-  }
-
-  private _renderConflictsBadges(
-    errors: number,
-    warnings: number,
-    suppressed: number
-  ): TemplateResult {
-    return html`
-      <div class="badges-row">
-        ${errors > 0
-          ? html`<span
-              class="badge badge-error"
-              title="${errors} conflict${errors !== 1 ? "s" : ""}"
-            >
-              <span class="badge-icon" aria-hidden="true">✕</span>
-              <span class="badge-count">${errors}</span>
-            </span>`
-          : nothing}
-        ${warnings > 0
-          ? html`<span
-              class="badge badge-warning"
-              title="${warnings} warning${warnings !== 1 ? "s" : ""}"
-            >
-              <span class="badge-icon" aria-hidden="true">!</span>
-              <span class="badge-count">${warnings}</span>
-            </span>`
-          : nothing}
-        ${errors === 0 && warnings === 0
-          ? html`<span class="badge badge-healthy" title="No conflicts">
-              <span class="badge-icon" aria-hidden="true">✓</span>
-              <span class="badge-count">0</span>
-            </span>`
-          : nothing}
-        ${suppressed > 0
-          ? html`<span class="badge badge-suppressed" title="${suppressed} suppressed">
-              <span class="badge-icon" aria-hidden="true">⊘</span>
-              <span class="badge-count">${suppressed}</span>
-            </span>`
-          : nothing}
-      </div>
-    `;
-  }
-
-  private _renderNoConflicts(): TemplateResult {
-    return html`
-      <div class="all-healthy">
-        <div class="healthy-icon" aria-hidden="true">✓</div>
-        <div class="healthy-message">
-          <span class="healthy-title">No conflicts detected</span>
-          <span class="healthy-subtitle">Your automations work harmoniously</span>
-        </div>
-      </div>
-    `;
-  }
-
-  private _renderConflict(conflict: Conflict): TemplateResult {
-    const isError = conflict.severity === "error";
-
-    return html`
-      <div class="conflict-card ${isError ? "severity-error" : "severity-warning"}">
-        <div class="conflict-header">
-          <span class="conflict-severity-icon" aria-hidden="true">${isError ? "✕" : "!"}</span>
-          <span class="conflict-entity">${conflict.entity_id}</span>
-        </div>
-        <div class="conflict-automations">
-          <div class="conflict-automation">
-            <span class="conflict-automation-label">A:</span>
-            <span class="conflict-automation-name">${conflict.automation_a_name}</span>
-            <span class="conflict-action">${conflict.action_a}</span>
-          </div>
-          <div class="conflict-vs">vs</div>
-          <div class="conflict-automation">
-            <span class="conflict-automation-label">B:</span>
-            <span class="conflict-automation-name">${conflict.automation_b_name}</span>
-            <span class="conflict-action">${conflict.action_b}</span>
-          </div>
-        </div>
-        <div class="conflict-explanation">${conflict.explanation}</div>
-        <div class="conflict-scenario">
-          <span class="conflict-scenario-label">Scenario:</span>
-          ${conflict.scenario}
-        </div>
-      </div>
-    `;
-  }
-
   static get styles(): CSSResultGroup {
-    return css`
-      :host {
-        /* Typography */
-        --autodoc-font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
-        --autodoc-title-size: 1.1rem;
-        --autodoc-name-size: 0.95rem;
-        --autodoc-issue-size: 0.875rem;
-        --autodoc-meta-size: 0.8rem;
-
-        /* Colors */
-        --autodoc-error: #d94848;
-        --autodoc-warning: #c49008;
-        --autodoc-success: #2e8b57;
-
-        /* Spacing */
-        --autodoc-spacing-xs: 4px;
-        --autodoc-spacing-sm: 8px;
-        --autodoc-spacing-md: 12px;
-        --autodoc-spacing-lg: 16px;
-        --autodoc-spacing-xl: 24px;
-
-        /* Transitions */
-        --autodoc-transition-fast: 150ms ease;
-        --autodoc-transition-normal: 200ms ease;
-
-        font-family: var(--autodoc-font-family);
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        :host {
-          --autodoc-transition-fast: 0ms;
-          --autodoc-transition-normal: 0ms;
-        }
-      }
-
-      :host {
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
-      }
-
-      ha-card {
-        overflow: hidden;
-        width: 100%;
-        box-sizing: border-box;
-      }
-
-      /* Header */
-      .header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: var(--autodoc-spacing-lg);
-        border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-      }
-
-      .title {
-        margin: 0;
-        font-size: var(--autodoc-title-size);
-        font-weight: 600;
-        color: var(--primary-text-color);
-      }
-
-      /* Tabs */
-      .tabs {
-        display: flex;
-        flex-wrap: nowrap;
-        width: 100%;
-        box-sizing: border-box;
-        border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-      }
-
-      .tab {
-        flex: 1 1 0%;
-        min-width: 0;
-        max-width: 100%;
-        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-xs);
-        background: transparent;
-        border: none;
-        border-bottom: 2px solid transparent;
-        color: var(--secondary-text-color);
-        font-family: var(--autodoc-font-family);
-        font-size: var(--autodoc-issue-size);
-        font-weight: 500;
-        cursor: pointer;
-        transition:
-          color var(--autodoc-transition-fast),
-          border-color var(--autodoc-transition-fast);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        box-sizing: border-box;
-      }
-
-      .tab:hover {
-        color: var(--primary-text-color);
-      }
-
-      .tab.active {
-        color: var(--primary-color);
-        border-bottom-color: var(--primary-color);
-      }
-
-      .tab:focus {
-        outline: none;
-        background: var(--divider-color, rgba(127, 127, 127, 0.1));
-      }
-
-      /* Badges row (in content area) */
-      .badges-row {
-        display: flex;
-        gap: var(--autodoc-spacing-sm);
-        margin-bottom: var(--autodoc-spacing-md);
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 3px;
-        padding: 3px 8px;
-        border-radius: 12px;
-        font-size: var(--autodoc-meta-size);
-        font-weight: 600;
-        transition: transform var(--autodoc-transition-fast);
-        cursor: default;
-      }
-
-      .badge:hover {
-        transform: scale(1.05);
-      }
-
-      .badge-icon {
-        font-size: 0.7em;
-      }
-
-      .badge-error {
-        background: rgba(217, 72, 72, 0.15);
-        color: var(--autodoc-error);
-      }
-
-      .badge-warning {
-        background: rgba(196, 144, 8, 0.15);
-        color: var(--autodoc-warning);
-      }
-
-      .badge-healthy {
-        background: rgba(46, 139, 87, 0.15);
-        color: var(--autodoc-success);
-      }
-
-      .badge-suppressed {
-        background: rgba(127, 127, 127, 0.15);
-        color: var(--secondary-text-color);
-      }
-
-      .clear-suppressions-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 14px;
-        height: 14px;
-        margin-left: 2px;
-        padding: 0;
-        background: transparent;
-        border: none;
-        border-radius: 50%;
-        color: inherit;
-        font-size: 0.6em;
-        cursor: pointer;
-        opacity: 0.6;
-        transition:
-          opacity var(--autodoc-transition-fast),
-          background var(--autodoc-transition-fast);
-      }
-
-      .clear-suppressions-btn:hover {
-        opacity: 1;
-        background: rgba(127, 127, 127, 0.3);
-      }
-
-      /* Card content */
-      .card-content {
-        padding: var(--autodoc-spacing-lg);
-      }
-
-      /* Loading state */
-      .loading-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: var(--autodoc-spacing-xl);
-        gap: var(--autodoc-spacing-md);
-      }
-
-      .spinner {
-        width: 24px;
-        height: 24px;
-        border: 3px solid var(--divider-color, rgba(127, 127, 127, 0.3));
-        border-top-color: var(--primary-color);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .loading-text {
-        color: var(--secondary-text-color);
-        font-size: var(--autodoc-issue-size);
-      }
-
-      /* Error state */
-      .error-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: var(--autodoc-spacing-xl);
-        gap: var(--autodoc-spacing-md);
-        text-align: center;
-      }
-
-      .error-icon {
-        font-size: 2rem;
-        color: var(--autodoc-error);
-      }
-
-      .error-text {
-        color: var(--autodoc-error);
-        font-size: var(--autodoc-issue-size);
-      }
-
-      .retry-btn {
-        margin-top: var(--autodoc-spacing-sm);
-        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-lg);
-        background: transparent;
-        color: var(--primary-color);
-        border: 1px solid var(--primary-color);
-        border-radius: 6px;
-        font-size: var(--autodoc-issue-size);
-        cursor: pointer;
-        transition:
-          background var(--autodoc-transition-fast),
-          color var(--autodoc-transition-fast);
-      }
-
-      .retry-btn:hover {
-        background: var(--primary-color);
-        color: var(--text-primary-color, #fff);
-      }
-
-      /* Empty state */
-      .empty-state {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--autodoc-spacing-xl);
-      }
-
-      .empty-text {
-        color: var(--secondary-text-color);
-        font-size: var(--autodoc-issue-size);
-      }
-
-      /* All healthy state */
-      .all-healthy {
-        display: flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-md);
-        padding: var(--autodoc-spacing-lg);
-        background: rgba(46, 139, 87, 0.08);
-        border-radius: 8px;
-      }
-
-      .healthy-icon {
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(46, 139, 87, 0.15);
-        color: var(--autodoc-success);
-        border-radius: 50%;
-        font-size: 1.25rem;
-        font-weight: bold;
-      }
-
-      .healthy-message {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .healthy-title {
-        font-size: var(--autodoc-name-size);
-        font-weight: 600;
-        color: var(--autodoc-success);
-      }
-
-      .healthy-subtitle {
-        font-size: var(--autodoc-meta-size);
-        color: var(--secondary-text-color);
-      }
-
-      /* Automation groups */
-      .automation-group {
-        background: rgba(127, 127, 127, 0.06);
-        border-left: 3px solid var(--autodoc-error);
-        border-radius: 0 8px 8px 0;
-        padding: var(--autodoc-spacing-md);
-        margin-bottom: var(--autodoc-spacing-md);
-      }
-
-      .automation-group:last-child {
-        margin-bottom: 0;
-      }
-
-      .automation-group.has-warning {
-        border-left-color: var(--autodoc-warning);
-      }
-
-      .automation-header {
-        display: flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-sm);
-      }
-
-      .automation-severity-icon {
-        width: 20px;
-        height: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(217, 72, 72, 0.15);
-        color: var(--autodoc-error);
-        border-radius: 50%;
-        font-size: 0.7rem;
-        font-weight: bold;
-      }
-
-      .automation-group.has-warning .automation-severity-icon {
-        background: rgba(196, 144, 8, 0.15);
-        color: var(--autodoc-warning);
-      }
-
-      .automation-name {
-        flex: 1;
-        font-size: var(--autodoc-name-size);
-        font-weight: 600;
-        color: var(--primary-text-color);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .automation-badge {
-        background: var(--autodoc-error);
-        color: #fff;
-        font-size: var(--autodoc-meta-size);
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 10px;
-        min-width: 18px;
-        text-align: center;
-      }
-
-      .automation-group.has-warning .automation-badge {
-        background: var(--autodoc-warning);
-      }
-
-      /* Issues */
-      .automation-issues {
-        margin-top: var(--autodoc-spacing-md);
-        padding-left: 28px;
-      }
-
-      .issue {
-        padding: var(--autodoc-spacing-sm) 0;
-        border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
-      }
-
-      .issue:last-child {
-        border-bottom: none;
-        padding-bottom: 0;
-      }
-
-      .issue-header {
-        display: flex;
-        align-items: flex-start;
-        gap: var(--autodoc-spacing-sm);
-      }
-
-      .issue-icon {
-        flex-shrink: 0;
-        font-size: 0.65rem;
-        font-weight: bold;
-        margin-top: 3px;
-      }
-
-      .issue.error .issue-icon {
-        color: var(--autodoc-error);
-      }
-
-      .issue.warning .issue-icon {
-        color: var(--autodoc-warning);
-      }
-
-      .issue-message {
-        flex: 1;
-        font-size: var(--autodoc-issue-size);
-        color: var(--secondary-text-color);
-        line-height: 1.4;
-      }
-
-      .suppress-btn {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        padding: 0;
-        background: transparent;
-        border: none;
-        border-radius: 50%;
-        color: var(--secondary-text-color);
-        font-size: 0.75rem;
-        cursor: pointer;
-        opacity: 0;
-        transition:
-          opacity var(--autodoc-transition-fast),
-          background var(--autodoc-transition-fast);
-      }
-
-      .issue:hover .suppress-btn {
-        opacity: 0.6;
-      }
-
-      .suppress-btn:hover {
-        opacity: 1;
-        background: var(--divider-color, rgba(127, 127, 127, 0.2));
-      }
-
-      .suppress-btn:focus {
-        outline: 2px solid var(--primary-color);
-        outline-offset: 1px;
-        opacity: 1;
-      }
-
-      /* Fix suggestions */
-      .fix-suggestion {
-        display: flex;
-        align-items: flex-start;
-        gap: var(--autodoc-spacing-sm);
-        margin-top: var(--autodoc-spacing-sm);
-        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
-        background: var(--primary-background-color, rgba(255, 255, 255, 0.5));
-        border-radius: 6px;
-      }
-
-      .fix-icon {
-        flex-shrink: 0;
-        font-size: 0.875rem;
-      }
-
-      .fix-content {
-        flex: 1;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--autodoc-spacing-sm);
-      }
-
-      .fix-description {
-        font-size: var(--autodoc-issue-size);
-        color: var(--primary-text-color);
-        line-height: 1.4;
-      }
-
-      .confidence-pill {
-        display: inline-block;
-        font-size: var(--autodoc-meta-size);
-        font-weight: 500;
-        padding: 2px 8px;
-        border-radius: 10px;
-      }
-
-      .confidence-pill.high {
-        background: rgba(46, 139, 87, 0.15);
-        color: var(--autodoc-success);
-      }
-
-      .confidence-pill.medium {
-        background: rgba(196, 144, 8, 0.15);
-        color: var(--autodoc-warning);
-      }
-
-      .dismiss-btn {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        padding: 0;
-        background: transparent;
-        border: none;
-        border-radius: 50%;
-        color: var(--secondary-text-color);
-        font-size: 0.7rem;
-        cursor: pointer;
-        opacity: 0.6;
-        transition:
-          opacity var(--autodoc-transition-fast),
-          background var(--autodoc-transition-fast);
-      }
-
-      .dismiss-btn:hover {
-        opacity: 1;
-        background: var(--divider-color, rgba(127, 127, 127, 0.2));
-      }
-
-      .dismiss-btn:focus {
-        outline: 2px solid var(--primary-color);
-        outline-offset: 1px;
-        opacity: 1;
-      }
-
-      /* Edit link */
-      .edit-link {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-xs);
-        margin-top: var(--autodoc-spacing-md);
-        margin-left: 28px;
-        color: var(--primary-color);
-        text-decoration: none;
-        font-size: var(--autodoc-issue-size);
-        transition: gap var(--autodoc-transition-fast);
-      }
-
-      .edit-link:hover {
-        text-decoration: underline;
-        gap: var(--autodoc-spacing-sm);
-      }
-
-      .edit-link:focus {
-        outline: 2px solid var(--primary-color);
-        outline-offset: 2px;
-        border-radius: 2px;
-      }
-
-      .edit-arrow {
-        transition: transform var(--autodoc-transition-fast);
-      }
-
-      .edit-link:hover .edit-arrow {
-        transform: translateX(2px);
-      }
-
-      /* Footer */
-      .footer {
-        display: flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-md);
-        padding: var(--autodoc-spacing-md) var(--autodoc-spacing-lg);
-        border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-      }
-
-      .run-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-sm);
-        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
-        background: var(--primary-color);
-        color: var(--text-primary-color, #fff);
-        border: none;
-        border-radius: 6px;
-        font-family: var(--autodoc-font-family);
-        font-size: var(--autodoc-issue-size);
-        font-weight: 500;
-        cursor: pointer;
-        transition:
-          opacity var(--autodoc-transition-fast),
-          transform var(--autodoc-transition-fast);
-      }
-
-      .run-btn:hover:not(:disabled) {
-        opacity: 0.9;
-        transform: translateY(-1px);
-      }
-
-      .run-btn:focus {
-        outline: 2px solid var(--primary-color);
-        outline-offset: 2px;
-      }
-
-      .run-btn:disabled {
-        cursor: not-allowed;
-        opacity: 0.7;
-      }
-
-      .run-icon {
-        font-size: 0.8rem;
-      }
-
-      .run-btn.running .run-icon {
-        animation: rotate 1s linear infinite;
-      }
-
-      .run-text {
-        font-family: var(--autodoc-font-family);
-      }
-
-      .last-run {
-        color: var(--secondary-text-color);
-        font-size: var(--autodoc-meta-size);
-      }
-
-      @keyframes rotate {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      /* Conflict cards */
-      .conflict-card {
-        background: rgba(127, 127, 127, 0.06);
-        border-left: 3px solid var(--autodoc-error);
-        border-radius: 0 8px 8px 0;
-        padding: var(--autodoc-spacing-md);
-        margin-bottom: var(--autodoc-spacing-md);
-      }
-
-      .conflict-card:last-child {
-        margin-bottom: 0;
-      }
-
-      .conflict-card.severity-warning {
-        border-left-color: var(--autodoc-warning);
-      }
-
-      .conflict-header {
-        display: flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-sm);
-        margin-bottom: var(--autodoc-spacing-sm);
-      }
-
-      .conflict-severity-icon {
-        width: 20px;
-        height: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(217, 72, 72, 0.15);
-        color: var(--autodoc-error);
-        border-radius: 50%;
-        font-size: 0.7rem;
-        font-weight: bold;
-      }
-
-      .conflict-card.severity-warning .conflict-severity-icon {
-        background: rgba(196, 144, 8, 0.15);
-        color: var(--autodoc-warning);
-      }
-
-      .conflict-entity {
-        font-size: var(--autodoc-name-size);
-        font-weight: 600;
-        color: var(--primary-text-color);
-        font-family: monospace;
-      }
-
-      .conflict-automations {
-        display: flex;
-        flex-direction: column;
-        gap: var(--autodoc-spacing-xs);
-        padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
-        background: var(--primary-background-color, rgba(255, 255, 255, 0.5));
-        border-radius: 6px;
-        margin-bottom: var(--autodoc-spacing-sm);
-      }
-
-      .conflict-automation {
-        display: flex;
-        align-items: center;
-        gap: var(--autodoc-spacing-sm);
-        font-size: var(--autodoc-issue-size);
-      }
-
-      .conflict-automation-label {
-        color: var(--secondary-text-color);
-        font-weight: 600;
-        min-width: 16px;
-      }
-
-      .conflict-automation-name {
-        color: var(--primary-text-color);
-        font-weight: 500;
-      }
-
-      .conflict-action {
-        color: var(--secondary-text-color);
-        font-style: italic;
-      }
-
-      .conflict-action::before {
-        content: "→ ";
-      }
-
-      .conflict-vs {
-        text-align: center;
-        color: var(--secondary-text-color);
-        font-size: var(--autodoc-meta-size);
-        font-weight: 600;
-        text-transform: uppercase;
-      }
-
-      .conflict-explanation {
-        font-size: var(--autodoc-issue-size);
-        color: var(--primary-text-color);
-        line-height: 1.4;
-        margin-bottom: var(--autodoc-spacing-sm);
-      }
-
-      .conflict-scenario {
-        font-size: var(--autodoc-meta-size);
-        color: var(--secondary-text-color);
-        padding: var(--autodoc-spacing-sm);
-        background: rgba(127, 127, 127, 0.08);
-        border-radius: 4px;
-      }
-
-      .conflict-scenario-label {
-        font-weight: 600;
-        margin-right: var(--autodoc-spacing-xs);
-      }
-    `;
+    return [autodocTokens, badgeStyles, cardLayoutStyles];
   }
 
   public getCardSize(): number {

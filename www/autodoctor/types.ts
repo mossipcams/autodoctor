@@ -22,40 +22,40 @@ export interface IssueWithFix {
   edit_url: string;
 }
 
-export interface AutodoctorData {
-  issues: IssueWithFix[];
-  healthy_count: number;
-}
-
 export interface AutodoctorCardConfig {
   type: string;
   title?: string;
 }
 
-export type TabType = "validation" | "conflicts";
+export interface AutomationGroup {
+  automation_id: string;
+  automation_name: string;
+  issues: IssueWithFix[];
+  edit_url: string;
+  has_error: boolean;
+  error_count: number;
+  warning_count: number;
+}
 
-export interface AutodoctorTabData {
+export interface ValidationGroup {
+  id: string;
+  label: string;
+  status: "pass" | "warning" | "fail";
+  error_count: number;
+  warning_count: number;
+  issue_count: number;
+  issues: IssueWithFix[];
+  duration_ms: number;
+}
+
+export interface StepsResponse {
+  groups: ValidationGroup[];
   issues: IssueWithFix[];
   healthy_count: number;
   last_run: string | null;
   suppressed_count: number;
 }
 
-export interface Conflict {
-  entity_id: string;
-  automation_a: string;
-  automation_b: string;
-  automation_a_name: string;
-  automation_b_name: string;
-  action_a: string;
-  action_b: string;
-  severity: string;
-  explanation: string;
-  scenario: string;
-}
-
-export interface ConflictsTabData {
-  conflicts: Conflict[];
-  last_run: string | null;
-  suppressed_count: number;
+export function getSuggestionKey(issue: ValidationIssue): string {
+  return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
 }

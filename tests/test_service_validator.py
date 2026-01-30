@@ -746,3 +746,75 @@ async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant)
     validator_strict = ServiceCallValidator(hass, strict_service_validation=True)
     assert validator_strict._strict_validation is True
 
+
+@pytest.mark.parametrize("service,param", [
+    ("media_player.play_media", "media_content_id"),
+    ("media_player.play_media", "media_content_type"),
+    ("media_player.select_source", "source"),
+    ("media_player.select_sound_mode", "sound_mode"),
+    ("fan.set_percentage", "percentage"),
+    ("fan.set_preset_mode", "preset_mode"),
+    ("fan.set_direction", "direction"),
+    ("vacuum.send_command", "command"),
+    ("alarm_control_panel.alarm_arm_away", "code"),
+    ("alarm_control_panel.alarm_arm_home", "code"),
+    ("alarm_control_panel.alarm_disarm", "code"),
+    ("number.set_value", "value"),
+    ("humidifier.set_humidity", "humidity"),
+    ("humidifier.set_mode", "mode"),
+    ("water_heater.set_temperature", "temperature"),
+    ("water_heater.set_operation_mode", "operation_mode"),
+])
+async def test_capability_dependent_params_not_flagged(
+    hass: HomeAssistant, service: str, param: str
+):
+    """Capability-dependent params should not be flagged as unknown."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    domain, svc = service.split(".", 1)
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register(domain, svc, test_service)
+
+    validator = ServiceCallValidator(hass, strict_service_validation=True)
+    validator._service_descriptions = {
+        domain: {
+            svc: {
+                "fields": {
+                    "entity_id": {
+                        "required": False,
+                        "selector": {"entity": {"domain": domain}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service=service,
+        location="action[0]",
+        data={param: "test_value"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    assert len(unknown_issues) == 0, (
+        f"Parameter '{param}' flagged as unknown for '{service}': "
+        f"{[i.message for i in unknown_issues]}"
+    )
+
+
+async def test_refresh_service_descriptions(hass: HomeAssistant):
+    """Validator can refresh service descriptions on demand."""
+    validator = ServiceCallValidator(hass)
+    assert validator._service_descriptions is None
+
+    await validator.async_load_descriptions()
+    # After load, descriptions should be set (dict, possibly empty)
+    assert validator._service_descriptions is not None
+

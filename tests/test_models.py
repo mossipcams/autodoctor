@@ -7,6 +7,7 @@ from custom_components.autodoctor.models import (
     Severity,
     StateReference,
     ValidationIssue,
+    VALIDATION_GROUPS,
 )
 
 
@@ -268,3 +269,30 @@ def test_new_template_issue_types():
     assert IssueType.TEMPLATE_ENTITY_NOT_FOUND.value == "template_entity_not_found"
     assert IssueType.TEMPLATE_INVALID_STATE.value == "template_invalid_state"
     assert IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND.value == "template_attribute_not_found"
+
+
+def test_validation_groups_cover_all_issue_types():
+    """Test that every IssueType member appears in exactly one VALIDATION_GROUPS group."""
+    all_enum_members = set(IssueType)
+
+    # Collect all issue types from all groups
+    all_grouped: list[IssueType] = []
+    grouped_set: set[IssueType] = set()
+    for group_id, group_def in VALIDATION_GROUPS.items():
+        issue_types = group_def["issue_types"]
+        all_grouped.extend(issue_types)
+        grouped_set |= issue_types
+
+    # Every IssueType member must appear in some group (no missing members)
+    missing = all_enum_members - grouped_set
+    assert not missing, f"IssueType members missing from VALIDATION_GROUPS: {missing}"
+
+    # No extra entries that aren't real IssueType members
+    extras = grouped_set - all_enum_members
+    assert not extras, f"VALIDATION_GROUPS contains non-IssueType entries: {extras}"
+
+    # No duplicates across groups (each member in exactly one group)
+    assert len(all_grouped) == len(all_enum_members), (
+        f"Duplicate IssueType members across VALIDATION_GROUPS: "
+        f"expected {len(all_enum_members)} entries, found {len(all_grouped)}"
+    )
