@@ -18,38 +18,10 @@ from custom_components.autodoctor.const import (
 from custom_components.autodoctor.jinja_validator import JinjaValidator
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import (
-    AutodoctorData,
     StateReference,
-    ValidationConfig,
 )
 from custom_components.autodoctor.validator import get_entity_suggestion
 import custom_components.autodoctor.websocket_api as ws_mod
-
-
-def test_validation_config_exists():
-    """ValidationConfig dataclass should be importable from models."""
-    config = ValidationConfig()
-    assert config.strict_template_validation is False
-    assert config.strict_service_validation is False
-    assert config.history_days == 30
-    assert config.validate_on_reload is True
-    assert config.debounce_seconds == 5
-
-
-def test_validation_config_custom_values():
-    """ValidationConfig should accept custom values."""
-    config = ValidationConfig(
-        strict_template_validation=True,
-        strict_service_validation=True,
-        history_days=7,
-        validate_on_reload=False,
-        debounce_seconds=10,
-    )
-    assert config.strict_template_validation is True
-    assert config.strict_service_validation is True
-    assert config.history_days == 7
-    assert config.validate_on_reload is False
-    assert config.debounce_seconds == 10
 
 
 def test_state_validation_whitelist_exists():
@@ -353,28 +325,6 @@ async def test_async_load_history_filters_to_whitelisted_domains():
     assert "sensor.temperature" not in captured_set
     assert "light.living_room" not in captured_set
     assert "switch.kitchen" not in captured_set
-
-
-def test_autodoctor_data_typeddict_exists():
-    """AutodoctorData TypedDict should be importable from models."""
-    from custom_components.autodoctor.models import AutodoctorData
-
-    # Verify it has the expected keys by checking annotations
-    annotations = AutodoctorData.__annotations__
-    assert "knowledge_base" in annotations
-    assert "analyzer" in annotations
-    assert "validator" in annotations
-    assert "jinja_validator" in annotations
-    assert "service_validator" in annotations
-    assert "reporter" in annotations
-    assert "suppression_store" in annotations
-    assert "learned_states_store" in annotations
-    assert "issues" in annotations
-    assert "validation_issues" in annotations
-    assert "validation_last_run" in annotations
-    assert "entry" in annotations
-    assert "debounce_task" in annotations
-    assert "unsub_reload_listener" in annotations
 
 
 def test_get_entity_suggestion_importable_from_validator():

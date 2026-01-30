@@ -4,40 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Any, TypedDict
-
-
-class AutodoctorData(TypedDict, total=False):
-    """Typed structure for hass.data[DOMAIN]."""
-
-    knowledge_base: Any
-    analyzer: Any
-    validator: Any
-    jinja_validator: Any
-    service_validator: Any
-    reporter: Any
-    suppression_store: Any
-    learned_states_store: Any
-    issues: list[Any]
-    validation_issues: list[Any]
-    validation_last_run: Any
-    entry: Any
-    debounce_task: Any
-    unsub_reload_listener: Any
-
-
-@dataclass
-class ValidationConfig:
-    """Configuration for validation behavior.
-
-    Single source of truth for all validation config, passed to validators.
-    """
-
-    strict_template_validation: bool = False
-    strict_service_validation: bool = False
-    history_days: int = 30
-    validate_on_reload: bool = True
-    debounce_seconds: int = 5
+from typing import Any
 
 
 class Severity(IntEnum):
