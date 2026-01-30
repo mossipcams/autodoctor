@@ -398,6 +398,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     # Run service call validation
     if service_validator:
         try:
+            await service_validator.async_load_descriptions()
             service_calls = []
             for automation in automations:
                 service_calls.extend(analyzer.extract_service_calls(automation))

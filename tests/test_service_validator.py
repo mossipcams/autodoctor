@@ -77,3 +77,529 @@ async def test_validate_skips_templated_service(hass: HomeAssistant):
 
     # Should skip validation for templates
     assert len(issues) == 0
+
+
+async def test_validate_missing_required_param(hass: HomeAssistant):
+    """Test validation for missing required parameter."""
+    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+
+    # Register a test service
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+
+    # Mock service descriptions to include a required field
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "brightness": {
+                        "required": True,
+                        "selector": {"number": {"min": 0, "max": 255}},
+                    },
+                    "color": {
+                        "required": False,
+                        "selector": {"text": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"color": "red"},  # Missing required 'brightness'
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
+    assert len(missing_issues) == 1
+    assert missing_issues[0].severity == Severity.ERROR
+    assert "brightness" in missing_issues[0].message
+
+
+async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
+    """Test that required param in target is not flagged as missing."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "entity_id": {
+                        "required": True,
+                        "selector": {"entity": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={},
+        target={"entity_id": "light.kitchen"},  # Required param in target
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
+    assert len(missing_issues) == 0
+
+
+async def test_validate_skips_required_check_when_templated(hass: HomeAssistant):
+    """Test that required param check is skipped for templated service calls."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    validator = ServiceCallValidator(hass)
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="{{ my_service }}",
+        location="action[0]",
+        is_template=True,
+        data={},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    # Templated services should be completely skipped
+    assert len(issues) == 0
+
+
+async def test_validate_skips_required_check_when_data_is_templated(hass: HomeAssistant):
+    """Test required param check skipped when data values contain templates."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "brightness": {
+                        "required": True,
+                        "selector": {"number": {}},
+                    },
+                    "entity_id": {
+                        "required": True,
+                        "selector": {"entity": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"brightness": "{{ brightness_var }}", "entity_id": "light.kitchen"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    # Should not flag brightness as missing since it's present (even though templated)
+    missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
+    assert len(missing_issues) == 0
+
+
+async def test_validate_unknown_param(hass: HomeAssistant):
+    """Test validation for unknown parameter."""
+    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "brightness": {
+                        "required": False,
+                        "selector": {"number": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"brigthness": 128},  # Typo: brigthness instead of brightness
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    assert len(unknown_issues) == 1
+    assert unknown_issues[0].severity == Severity.WARNING
+    assert "brigthness" in unknown_issues[0].message
+    # Should suggest 'brightness' via fuzzy match
+    assert unknown_issues[0].suggestion == "brightness"
+
+
+async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant):
+    """Test unknown param check skips services with no fields defined."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {}  # No fields defined
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"anything": "goes"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    assert len(unknown_issues) == 0
+
+
+async def test_validate_invalid_param_type_number(hass: HomeAssistant):
+    """Test validation for invalid parameter type (expected number, got string)."""
+    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "brightness": {
+                        "required": False,
+                        "selector": {"number": {"min": 0, "max": 255}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"brightness": "not_a_number"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(type_issues) == 1
+    assert type_issues[0].severity == Severity.WARNING
+    assert "brightness" in type_issues[0].message
+
+
+async def test_validate_valid_param_type_number(hass: HomeAssistant):
+    """Test that valid number type passes."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "brightness": {
+                        "required": False,
+                        "selector": {"number": {"min": 0, "max": 255}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"brightness": 128},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(type_issues) == 0
+
+
+async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
+    """Test validation for invalid parameter type (expected boolean)."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "enabled": {
+                        "required": False,
+                        "selector": {"boolean": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"enabled": "yes"},  # String instead of bool
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(type_issues) == 1
+
+
+async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistant):
+    """Test that type validation is skipped for templated values."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "brightness": {
+                        "required": False,
+                        "selector": {"number": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"brightness": "{{ brightness_var }}"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(type_issues) == 0
+
+
+async def test_validate_select_option_valid(hass: HomeAssistant):
+    """Test validation passes for valid select option."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "mode": {
+                        "required": False,
+                        "selector": {"select": {"options": ["auto", "manual", "off"]}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"mode": "auto"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(type_issues) == 0
+
+
+async def test_validate_select_option_invalid(hass: HomeAssistant):
+    """Test validation flags invalid select option."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "mode": {
+                        "required": False,
+                        "selector": {"select": {"options": ["auto", "manual", "off"]}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"mode": "turbo"},  # Not in options
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    assert len(type_issues) == 1
+    assert "turbo" in type_issues[0].message
+
+
+async def test_validate_no_description_available(hass: HomeAssistant):
+    """Test validation when no service description is available."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {}  # No descriptions loaded
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={"anything": "value"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    # Should only check existence, no param validation without descriptions
+    param_issues = [
+        i for i in issues
+        if i.issue_type in (
+            IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+            IssueType.SERVICE_UNKNOWN_PARAM,
+            IssueType.SERVICE_INVALID_PARAM_TYPE,
+        )
+    ]
+    assert len(param_issues) == 0
+
+
+async def test_validate_all_checks_combined(hass: HomeAssistant):
+    """Test all validation checks work together."""
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("test", "service", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "required_field": {
+                        "required": True,
+                        "selector": {"text": {}},
+                    },
+                    "brightness": {
+                        "required": False,
+                        "selector": {"number": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={
+            "brightness": "not_a_number",  # Wrong type
+            "unknown_field": "value",       # Unknown param
+            # Missing: required_field
+        },
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    issue_types = {i.issue_type for i in issues}
+    assert IssueType.SERVICE_MISSING_REQUIRED_PARAM in issue_types
+    assert IssueType.SERVICE_UNKNOWN_PARAM in issue_types
+    assert IssueType.SERVICE_INVALID_PARAM_TYPE in issue_types
