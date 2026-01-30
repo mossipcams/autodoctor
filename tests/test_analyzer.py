@@ -1376,6 +1376,90 @@ def test_extract_numeric_state_condition_with_template():
     assert "sensor.data" in entity_ids
 
 
+def test_extract_zone_condition():
+    """Test zone condition extraction."""
+    automation = {
+        "id": "test_zone_cond",
+        "alias": "Test Zone Condition",
+        "condition": {
+            "condition": "zone",
+            "entity_id": "device_tracker.paulus",
+            "zone": "zone.home"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "device_tracker.paulus"
+    assert refs[0].location == "condition[0].entity_id"
+    assert refs[1].entity_id == "zone.home"
+    assert refs[1].reference_type == "zone"
+    assert refs[1].location == "condition[0].zone"
+
+
+def test_extract_sun_condition():
+    """Test sun condition extraction."""
+    automation = {
+        "id": "test_sun_cond",
+        "alias": "Test Sun Condition",
+        "condition": {
+            "condition": "sun",
+            "after": "sunset",
+            "after_offset": "-01:00:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sun.sun"
+    assert refs[0].reference_type == "direct"
+    assert refs[0].location == "condition[0]"
+
+
+def test_extract_time_condition_with_entity():
+    """Test time condition with entity references."""
+    automation = {
+        "id": "test_time_cond",
+        "alias": "Test Time Condition",
+        "condition": {
+            "condition": "time",
+            "after": "input_datetime.wake_up",
+            "before": "22:00:00",
+            "weekday": ["mon", "tue", "wed"]
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_datetime.wake_up"
+    assert refs[0].location == "condition[0].after"
+
+
+def test_extract_time_condition_no_entities():
+    """Test time condition with time strings only."""
+    automation = {
+        "id": "test_time_cond_strings",
+        "alias": "Test Time Strings",
+        "condition": {
+            "condition": "time",
+            "after": "08:00:00",
+            "before": "22:00:00"
+        }
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # No entity references for time strings
+    assert len(refs) == 0
+
+
 def test_extract_direct_service_call():
     """Test extracting a direct service call."""
     automation = {

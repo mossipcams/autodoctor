@@ -514,6 +514,81 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif cond_type == "zone":
+            entity_ids = self._normalize_entity_ids(condition.get("entity_id"))
+            zone_id = condition.get("zone")
+
+            for entity_id in entity_ids:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].entity_id",
+                        reference_type="direct",
+                    )
+                )
+
+            if zone_id:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=zone_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].zone",
+                        reference_type="zone",
+                    )
+                )
+
+        elif cond_type == "sun":
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id="sun.sun",
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"{location_prefix}[{index}]",
+                    reference_type="direct",
+                )
+            )
+
+        elif cond_type == "time":
+            # Check after and before for entity IDs
+            after_value = condition.get("after")
+            before_value = condition.get("before")
+
+            # If it looks like an entity_id (contains a dot but not a colon), validate it
+            if after_value and isinstance(after_value, str) and "." in after_value and ":" not in after_value:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=after_value,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].after",
+                        reference_type="direct",
+                    )
+                )
+
+            if before_value and isinstance(before_value, str) and "." in before_value and ":" not in before_value:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=before_value,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location_prefix}[{index}].before",
+                        reference_type="direct",
+                    )
+                )
+
         return refs
 
     def _extract_from_template(
