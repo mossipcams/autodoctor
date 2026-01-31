@@ -204,27 +204,6 @@ def test_extract_service_calls_depth_limit_if_repeat_parallel():
     assert len([c for c in analyzer.extract_service_calls(auto_par) if c.service == "switch.toggle"]) == 0
 
 
-def test_jinja_validator_accepts_knowledge_base():
-    """JinjaValidator should accept knowledge_base parameter."""
-    from unittest.mock import MagicMock
-
-    from custom_components.autodoctor.jinja_validator import JinjaValidator
-    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-
-    mock_hass = MagicMock()
-    kb = StateKnowledgeBase(mock_hass)
-    validator = JinjaValidator(hass=mock_hass, knowledge_base=kb)
-    assert validator.knowledge_base is kb
-
-
-def test_jinja_validator_without_kb_still_works():
-    """JinjaValidator should still work without knowledge_base (backwards compat)."""
-    from custom_components.autodoctor.jinja_validator import JinjaValidator
-
-    validator = JinjaValidator()
-    assert validator.knowledge_base is None
-
-
 def test_jinja_validator_delegates_entity_validation_to_engine():
     """JinjaValidator should delegate entity validation to the validation engine."""
     from unittest.mock import MagicMock
@@ -233,11 +212,10 @@ def test_jinja_validator_delegates_entity_validation_to_engine():
     from custom_components.autodoctor.models import StateReference
 
     mock_hass = MagicMock()
-    mock_kb = MagicMock()
     mock_engine = MagicMock()
     mock_engine.validate_all.return_value = []
     validator = JinjaValidator(
-        hass=mock_hass, knowledge_base=mock_kb, validation_engine=mock_engine
+        hass=mock_hass, validation_engine=mock_engine
     )
 
     ref = StateReference(

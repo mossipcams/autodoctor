@@ -61,7 +61,6 @@ class JinjaValidator:
     def __init__(
         self,
         hass: HomeAssistant | None = None,
-        knowledge_base: Any = None,
         strict_template_validation: bool = False,
         validation_engine: ValidationEngine | None = None,
     ) -> None:
@@ -69,7 +68,6 @@ class JinjaValidator:
 
         Args:
             hass: Home Assistant instance (optional, for HA-specific template env)
-            knowledge_base: Shared StateKnowledgeBase instance (avoids creating new ones)
             strict_template_validation: If True, warn about unknown filters/tests.
                 Disable if using custom components that add custom Jinja filters.
             validation_engine: Shared ValidationEngine instance for delegating
@@ -77,7 +75,6 @@ class JinjaValidator:
                 validation is skipped (backward compatibility).
         """
         self.hass = hass
-        self.knowledge_base = knowledge_base
         self._strict_validation = strict_template_validation
         self._validation_engine = validation_engine
         # Use a sandboxed environment for safe parsing
