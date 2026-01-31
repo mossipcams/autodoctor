@@ -28,6 +28,7 @@ def test_deeply_nested_conditions_do_not_stackoverflow():
     # Should not raise RecursionError, should return (possibly with warning logged)
     issues = validator.validate_automations([automation])
     assert isinstance(issues, list)
+    assert len(issues) == 0
 
 
 @pytest.mark.parametrize("action_key", ["repeat", "parallel"])
@@ -42,6 +43,7 @@ def test_null_action_config_does_not_crash(action_key):
     }
     issues = validator.validate_automations([automation])
     assert isinstance(issues, list)
+    assert len(issues) == 0
 
 
 def test_break_continue_do_not_produce_false_positives():
@@ -479,7 +481,17 @@ def test_unknown_filter_or_test_not_flagged_without_strict_mode(template, locati
 def test_delegation_calls_validation_engine():
     """Verify _validate_entity_references delegates to validation_engine.validate_all."""
     mock_engine = MagicMock(spec=ValidationEngine)
-    mock_engine.validate_all.return_value = []
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            location="trigger[0].value_template.is_state",
+            message="Entity 'light.kitchen' does not exist",
+        )
+    ]
 
     validator = JinjaValidator(validation_engine=mock_engine)
 
@@ -494,9 +506,13 @@ def test_delegation_calls_validation_engine():
         )
     ]
 
-    validator._validate_entity_references(refs)
+    issues = validator._validate_entity_references(refs)
 
     mock_engine.validate_all.assert_called_once_with(refs)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.kitchen"
 
 
 def test_delegation_remaps_entity_not_found():
@@ -530,6 +546,8 @@ def test_delegation_remaps_entity_not_found():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.nonexistent"
 
 
 def test_delegation_remaps_entity_removed():
@@ -563,6 +581,8 @@ def test_delegation_remaps_entity_removed():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.INFO
+    assert issues[0].entity_id == "light.old"
 
 
 def test_delegation_remaps_invalid_state():
@@ -596,6 +616,8 @@ def test_delegation_remaps_invalid_state():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_INVALID_STATE
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "binary_sensor.motion"
 
 
 def test_delegation_remaps_attribute_not_found():
@@ -629,6 +651,8 @@ def test_delegation_remaps_attribute_not_found():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND
+    assert issues[0].severity == Severity.WARNING
+    assert issues[0].entity_id == "climate.living_room"
 
 
 def test_delegation_preserves_case_mismatch():
@@ -662,6 +686,8 @@ def test_delegation_preserves_case_mismatch():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.CASE_MISMATCH
+    assert issues[0].severity == Severity.WARNING
+    assert issues[0].entity_id == "binary_sensor.motion"
 
 
 def test_delegation_preserves_location():
@@ -694,6 +720,8 @@ def test_delegation_preserves_location():
     issues = validator._validate_entity_references(refs)
 
     assert issues[0].location == "trigger[0].value_template.is_state"
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.nonexistent"
 
 
 def test_no_validation_engine_returns_empty():
@@ -920,3 +948,1016 @@ def test_non_syntax_exception_does_not_produce_template_syntax_error():
 
     # Restore original parse
     validator._env.parse = original_parse
+
+
+# --- _check_special_reference mutation hardening (JV-01, JV-02) ---
+
+
+def test_check_special_reference_zone_found(hass):
+    """Zone entity exists -- no issue returned.
+
+    Kills: Eq->IsNot/Gt/LtE on reference_type == 'zone',
+           AddNot on 'if not exists'.
+    """
+    hass.states.async_set("zone.home", "zoning", {"latitude": 51.5, "longitude": -0.1})
+
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="zone.home",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="zone",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is None
+
+
+def test_check_special_reference_zone_not_found(hass):
+    """Zone entity does NOT exist -- issue returned.
+
+    Kills: AddNot on 'if not exists' (found case returns None, not-found returns issue).
+    """
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="zone.nonexistent",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="zone",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is not None
+    assert issue.issue_type == IssueType.TEMPLATE_ZONE_NOT_FOUND
+    assert issue.severity == Severity.ERROR
+    assert "zone.nonexistent" in issue.message
+
+
+def test_check_special_reference_device_found(hass, device_registry):
+    """Device exists in device registry -- no issue returned.
+
+    Kills: Eq->IsNot/Gt/LtE on reference_type == 'device'.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    config_entry = MockConfigEntry(domain="test", data={})
+    config_entry.add_to_hass(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={("test", "device1")},
+    )
+
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=device.id,
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="device",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is None
+
+
+def test_check_special_reference_device_not_found(hass):
+    """Device does NOT exist -- issue returned.
+
+    Kills: AddNot on 'if not exists' for device path.
+    """
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="nonexistent_device_id",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="device",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is not None
+    assert issue.issue_type == IssueType.TEMPLATE_DEVICE_NOT_FOUND
+    assert issue.severity == Severity.ERROR
+    assert "nonexistent_device_id" in issue.message
+
+
+def test_check_special_reference_area_found(hass, area_registry):
+    """Area exists in area registry -- no issue returned.
+
+    Kills: Eq->IsNot/Gt/LtE on reference_type == 'area'.
+    """
+    area = area_registry.async_create("Living Room")
+
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=area.id,
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="area",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is None
+
+
+def test_check_special_reference_area_not_found(hass):
+    """Area does NOT exist -- issue returned.
+
+    Kills: AddNot on 'if not exists' for area path.
+    """
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="nonexistent_area",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="area",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is not None
+    assert issue.issue_type == IssueType.TEMPLATE_AREA_NOT_FOUND
+    assert issue.severity == Severity.ERROR
+    assert "nonexistent_area" in issue.message
+
+
+# --- _validate_filter_args boundary tests (JV-03, JV-04) ---
+
+
+def test_filter_args_under_minimum_produces_error():
+    """0 args when min=1 -- should produce TEMPLATE_INVALID_ARGUMENTS.
+
+    Kills: Lt->Eq (0 < 1 is True; 0 == 1 is False -- mutation misses error),
+           Lt->Gt (0 > 1 is False -- mutation misses error),
+           Lt->IsNot (different semantics).
+    """
+    validator = JinjaValidator(strict_template_validation=True)
+    # multiply has min_args=1, max_args=2. Provide 0 args.
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | multiply }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    arg_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_INVALID_ARGUMENTS]
+    assert len(arg_issues) == 1
+    assert "multiply" in arg_issues[0].message
+
+
+def test_filter_args_at_minimum_no_error():
+    """Exactly min_args should NOT produce an error -- distinguishes < from <=.
+
+    Kills: Lt->LtE mutation (1 <= 1 would incorrectly flag valid input).
+    """
+    validator = JinjaValidator(strict_template_validation=True)
+    # multiply has min_args=1. Provide exactly 1 arg.
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | multiply(2) }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    arg_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_INVALID_ARGUMENTS]
+    assert len(arg_issues) == 0
+
+
+def test_filter_args_over_maximum_produces_error():
+    """More args than max_args -- should produce TEMPLATE_INVALID_ARGUMENTS.
+
+    Kills: Gt->Lt (4 < 3 is False -- mutation misses error),
+           Gt->Eq (4 == 3 is False -- mutation misses error).
+    """
+    validator = JinjaValidator(strict_template_validation=True)
+    # clamp has min_args=2, max_args=3. Provide 4 args.
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | float | clamp(0, 100, 50, 'extra') }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    arg_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_INVALID_ARGUMENTS]
+    assert len(arg_issues) == 1
+    assert "clamp" in arg_issues[0].message
+
+
+def test_filter_args_at_maximum_no_error():
+    """Exactly max_args should NOT produce an error -- distinguishes > from >=.
+
+    Kills: Gt->GtE mutation (3 >= 3 would incorrectly flag valid input).
+    """
+    validator = JinjaValidator(strict_template_validation=True)
+    # clamp has min_args=2, max_args=3. Provide exactly 3 args.
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | float | clamp(0, 100, 50) }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    arg_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_INVALID_ARGUMENTS]
+    assert len(arg_issues) == 0
+
+
+def test_filter_args_exact_count_branch_under():
+    """Filter with min_args == max_args == 1, given 0 args.
+
+    Kills: Eq mutations on min_args == max_args (line 681). When min==max,
+    the message uses str(min_args) (exact count) not a range like "1-2".
+    """
+    validator = JinjaValidator(strict_template_validation=True)
+    # atan2 has min_args=1, max_args=1 (exact count).
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | float | atan2 }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    arg_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_INVALID_ARGUMENTS]
+    assert len(arg_issues) == 1
+    assert "atan2" in arg_issues[0].message
+    # Exact count: message says "expects 1 arguments" (not "1-2")
+    assert "1" in arg_issues[0].message
+
+
+def test_filter_args_exact_count_branch_over():
+    """Filter with min_args == max_args == 0, given 1 arg.
+
+    Kills: Eq mutations on min_args == max_args (line 681). Tests the over-max
+    direction for a filter where the exact count is 0.
+    """
+    validator = JinjaValidator(strict_template_validation=True)
+    # as_datetime has min_args=0, max_args=0 (exact count: 0 args expected).
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "triggers": [
+            {
+                "platform": "template",
+                "value_template": "{{ states('sensor.temp') | as_datetime('extra') }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    arg_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_INVALID_ARGUMENTS]
+    assert len(arg_issues) == 1
+    assert "as_datetime" in arg_issues[0].message
+    # Exact count: message says "expects 0 arguments"
+    assert "0" in arg_issues[0].message
+
+
+# --- ZeroIterationForLoop mutation hardening (JV-05) ---
+
+
+def test_choose_conditions_loop_finds_template_error():
+    """Choose option with bad template in condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(opt_conditions)` (line 313).
+    If mutated to empty iterable, the condition's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_choose_cond",
+        "alias": "ZIL Choose Cond",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {"condition": "template", "value_template": "{{ broken > }}"}
+                        ],
+                        "sequence": [],
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_options_loop_finds_template_error():
+    """Choose block with option whose sequence has bad template.
+
+    Kills: ZeroIterationForLoop on `for opt_idx, option in enumerate(action.get("choose", []))` (line 307).
+    If mutated to empty iterable, the entire option (including sequence) is never validated.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_choose_opt",
+        "alias": "ZIL Choose Opt",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_if_conditions_loop_finds_template_error():
+    """If action with bad template in condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(if_conditions)` (line 351).
+    If mutated to empty iterable, the if condition's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_if_cond",
+        "alias": "ZIL If Cond",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "if": [{"condition": "template", "value_template": "{{ broken > }}"}],
+                "then": [],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_while_conditions_loop_finds_template_error():
+    """Repeat action with bad template in while condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(repeat_conditions)` (line 384)
+    via the "while" key. If mutated to empty iterable, the while condition is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_repeat_while",
+        "alias": "ZIL Repeat While",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "repeat": {
+                    "while": [
+                        {"condition": "template", "value_template": "{{ broken > }}"}
+                    ],
+                    "sequence": [],
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_until_conditions_loop_finds_template_error():
+    """Repeat action with bad template in until condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(repeat_conditions)` (line 384)
+    via the "until" key. If mutated to empty iterable, the until condition is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_repeat_until",
+        "alias": "ZIL Repeat Until",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "repeat": {
+                    "until": [
+                        {"condition": "template", "value_template": "{{ broken > }}"}
+                    ],
+                    "sequence": [],
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_parallel_branches_loop_finds_template_error():
+    """Parallel action with bad template in branch.
+
+    Kills: ZeroIterationForLoop on `for branch_idx, branch in enumerate(branches)` (line 409).
+    If mutated to empty iterable, the branch's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_parallel",
+        "alias": "ZIL Parallel",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "parallel": [{"data": {"msg": "{{ broken > }}"}}]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_nested_conditions_loop_finds_template_error():
+    """Top-level 'and' condition with nested bad template condition.
+
+    Kills: ZeroIterationForLoop on `for nested_idx, nested_cond in enumerate(nested)` (line 232).
+    If mutated to empty iterable, the nested condition's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_nested_cond",
+        "alias": "ZIL Nested Cond",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [
+            {
+                "condition": "and",
+                "conditions": [
+                    {"condition": "template", "value_template": "{{ broken > }}"}
+                ],
+            }
+        ],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+# --- Depth arithmetic mutation hardening (JV-06) ---
+
+
+def test_choose_nested_two_levels_finds_deep_error():
+    """Choose inside choose with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at choose sequence recursion (line 333).
+    Proves recursion physically reaches depth 2.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_choose",
+        "alias": "Depth 2 Choose",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [
+                            {
+                                "choose": [
+                                    {
+                                        "conditions": [],
+                                        "sequence": [
+                                            {"data": {"msg": "{{ broken > }}"}}
+                                        ],
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_if_then_nested_two_levels_finds_deep_error():
+    """If/then inside if/then with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at if/then recursion (line 362).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_if",
+        "alias": "Depth 2 If",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "if": [],
+                "then": [
+                    {
+                        "if": [],
+                        "then": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_nested_two_levels_finds_deep_error():
+    """Repeat inside repeat with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at repeat sequence recursion (line 401).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_repeat",
+        "alias": "Depth 2 Repeat",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "repeat": {
+                    "while": [],
+                    "sequence": [
+                        {
+                            "repeat": {
+                                "while": [],
+                                "sequence": [
+                                    {"data": {"msg": "{{ broken > }}"}}
+                                ],
+                            }
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_parallel_nested_two_levels_finds_deep_error():
+    """Parallel inside parallel with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at parallel recursion (line 417).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_parallel",
+        "alias": "Depth 2 Parallel",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "parallel": [
+                    {
+                        "parallel": [
+                            {"data": {"msg": "{{ broken > }}"}}
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_nesting_at_depth_limit_stops_validation():
+    """Nesting 22 levels deep should hit depth limit and stop.
+
+    Template error at bottom should NOT be found.
+    Kills: _depth + 1 -> _depth - 1 (depth never reaches 20, so no stop)
+           _depth + 1 -> _depth * 1 (depth stays 0, so no stop)
+           _depth + 1 -> _depth + 0 (depth stays 0, so no stop)
+    """
+    validator = JinjaValidator()
+
+    # Build 22-level nested choose
+    inner = [{"data": {"msg": "{{ broken > }}"}}]
+    for _ in range(22):
+        inner = [{"choose": [{"conditions": [], "sequence": inner}]}]
+
+    automation = {
+        "id": "depth_limit",
+        "alias": "Depth Limit",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": inner,
+    }
+    issues = validator.validate_automations([automation])
+    # Depth limit reached -- template error at bottom should NOT be found
+    assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_nesting_just_under_depth_limit_finds_error():
+    """Nesting 19 levels deep should be under limit and find the error.
+
+    Paired with test_nesting_at_depth_limit_stops_validation to kill
+    depth arithmetic mutations: if depth never increments, both tests
+    can't pass simultaneously.
+    """
+    validator = JinjaValidator()
+
+    inner = [{"data": {"msg": "{{ broken > }}"}}]
+    for _ in range(19):
+        inner = [{"choose": [{"conditions": [], "sequence": inner}]}]
+
+    automation = {
+        "id": "under_limit",
+        "alias": "Under Limit",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": inner,
+    }
+    issues = validator.validate_automations([automation])
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_default_nested_finds_deep_error():
+    """Choose with default containing nested choose with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at choose default recursion (line 343).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_default",
+        "alias": "Depth 2 Default",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [],
+                "default": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [],
+                                "sequence": [
+                                    {"data": {"msg": "{{ broken > }}"}}
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_if_else_nested_finds_deep_error():
+    """If/else with nested if/then containing bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at if/else recursion (line 371).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_else",
+        "alias": "Depth 2 Else",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "if": [],
+                "else": [
+                    {
+                        "if": [],
+                        "then": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+# --- Template detection, dedup, and guard mutation hardening (JV-07, JV-08, JV-09) ---
+
+
+def test_non_string_data_value_not_treated_as_template():
+    """Non-string value in action data is NOT treated as a template.
+
+    Kills: and->or swap on `isinstance(value, str) and self._is_template(value)` (line 436).
+    If `and` becomes `or`, `isinstance(42, str)` is False but `or` would try
+    `self._is_template(42)` which expects a string -- causing a crash or incorrect behavior.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "non_string_data",
+        "alias": "Non String Data",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"data": {"count": 42, "flag": True, "nothing": None}}],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_template_string_in_data_is_validated():
+    """Template string in action data IS validated for syntax errors.
+
+    Positive counterpart to test_non_string_data_value_not_treated_as_template.
+    Confirms the isinstance(str) + _is_template path works for real templates.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "template_data",
+        "alias": "Template Data",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"data": {"msg": "{{ broken > }}"}}],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_data_list_with_non_string_items_not_validated():
+    """Non-string items in a data list are skipped; only template strings are validated.
+
+    Kills: and->or swap on `isinstance(item, str) and self._is_template(item)` (line 450).
+    If `and` becomes `or`, non-string items (42, True, None) would be passed to
+    `_is_template` or `_check_template`, potentially crashing. Only the template
+    string should produce an issue.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "list_mixed",
+        "alias": "List Mixed",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"data": {"targets": [42, True, None, "{{ broken > }}"]}}],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_entity_dedup_prevents_duplicate_refs():
+    """Same entity via two dedup=True patterns produces exactly 1 ref.
+
+    Kills: AddNot on `any(r.entity_id == entity_id for r in refs)` (line 519),
+           Eq->NotEq on entity_id comparison inside any().
+    If dedup logic is negated or inverted, duplicate refs would appear.
+    """
+    validator = JinjaValidator()
+    refs = validator._extract_entity_references(
+        "{{ states.sensor.temp.state }} and {{ states('sensor.temp') }}",
+        "test_loc", "automation.test", "Test"
+    )
+    entity_ids = [r.entity_id for r in refs]
+    assert entity_ids.count("sensor.temp") == 1
+
+
+def test_entity_dedup_continue_not_break():
+    """Dedup uses continue (not break) so later entities are still found.
+
+    Kills: continue->break swap on dedup path (line 520).
+    Template has a dedup pair (sensor.temp via two patterns) followed by a
+    different entity (light.kitchen). If continue becomes break, the loop
+    exits early and light.kitchen is never found.
+    """
+    validator = JinjaValidator()
+    refs = validator._extract_entity_references(
+        "{{ states.sensor.temp.state }} and {{ states('sensor.temp') }} and {{ states('light.kitchen') }}",
+        "test_loc", "automation.test", "Test"
+    )
+    entity_ids = [r.entity_id for r in refs]
+    assert entity_ids.count("sensor.temp") == 1
+    assert "light.kitchen" in entity_ids
+    assert len(refs) == 2
+
+
+def test_non_dict_action_skipped_dict_action_validated():
+    """Non-dict action (string) is skipped; dict action with bad template is found.
+
+    Kills: AddNot on `not isinstance(action, dict)` (line 274) causing dict
+           actions to be skipped and string actions to be processed (crash).
+           Also kills continue->break swap: if break is used at the string
+           action, the dict action is never reached.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "guard_test",
+        "alias": "Guard Test",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            "scene.activate_script",  # non-dict, should be skipped
+            {"data": {"msg": "{{ broken > }}"}},  # dict, should be validated
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_all_dict_actions_with_errors_all_found():
+    """Multiple dict actions with bad templates -- ALL errors are found.
+
+    Positive counterpart proving every dict action in the list is processed,
+    not just the first one.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "multi_dict",
+        "alias": "Multi Dict",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {"data": {"msg": "{{ broken > }}"}},
+            {"data": {"msg": "{{ also broken > }}"}},
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 2
+    assert all(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+# --- Action key detection mutation hardening (JV-10) ---
+# NOTE: "choose" in action (line 306) AddNot is already killed by
+# test_choose_conditions_loop_finds_template_error (Plan 02 / JV-05).
+# "repeat" in action (line 377) AddNot is already killed by
+# test_repeat_while_conditions_loop_finds_template_error (Plan 02 / JV-05).
+# Tests below target the REMAINING action key guards: default, else, if/then.
+
+
+def test_choose_action_key_detected_and_validated():
+    """Choose action with bad template in condition is found.
+
+    Targets: `"choose" in action` guard (line 306) -- JV-10.
+    NOTE: Also killed by test_choose_conditions_loop_finds_template_error (JV-05),
+    but included here with distinct structure (bad template in option sequence
+    data, not just conditions) for completeness.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_choose",
+        "alias": "Key Choose",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "choose": [{
+                "conditions": [],
+                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
+            }]
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_action_key_detected_and_validated():
+    """Repeat action with bad template in while condition is found.
+
+    Targets: `"repeat" in action` guard (line 377) -- JV-10.
+    NOTE: Also killed by test_repeat_while_conditions_loop_finds_template_error
+    (JV-05), but included here for explicit JV-10 coverage with a distinct
+    automation ID and docstring.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_repeat",
+        "alias": "Key Repeat",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "repeat": {
+                "while": [{"condition": "template", "value_template": "{{ broken > }}"}],
+                "sequence": [],
+            }
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_default_key_detected_and_validated():
+    """Choose action with non-empty default containing bad template is found.
+
+    Targets: `if default:` guard (line 340) -- JV-10.
+    If AddNot inverts to `if not default:`, a non-empty default block is NOT
+    processed and the bad template inside is missed.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_default",
+        "alias": "Key Default",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "choose": [],
+            "default": [{"data": {"msg": "{{ broken > }}"}}],
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_empty_default_no_crash():
+    """Choose action with empty default produces no issues and does not crash.
+
+    Negative counterpart: empty default (falsy) should NOT be processed.
+    If `if default:` becomes `if not default:`, the empty list IS processed
+    but since it's empty, no crash -- the real kill comes from
+    test_choose_default_key_detected_and_validated above.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_empty_default",
+        "alias": "Key Empty Default",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "choose": [],
+            "default": [],
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_if_else_key_detected_and_validated():
+    """If/else action with bad template in else block is found.
+
+    Targets: `if else_actions:` guard (line 368) -- JV-10.
+    If AddNot inverts to `if not else_actions:`, a non-empty else block is NOT
+    processed and the bad template inside is missed.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_if_else",
+        "alias": "Key If Else",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "if": [],
+            "else": [{"data": {"msg": "{{ broken > }}"}}],
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)

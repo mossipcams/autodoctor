@@ -37,10 +37,13 @@ export class AutodoctorCard extends LitElement {
   @state() private _runningValidation = false;
   @state() private _dismissedSuggestions = new Set<string>();
   @state() private _view: "issues" | "suppressions" = "issues";
+  @state() private _toastMessage = "";
+  @state() private _toastVisible = false;
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
   private _suppressionInProgress = false;
+  private _toastTimeout?: ReturnType<typeof setTimeout>;
 
   // Cooldown tracking to prevent rapid button clicks
   private _lastValidationClick = 0;
@@ -226,7 +229,7 @@ export class AutodoctorCard extends LitElement {
           ${this._view === "suppressions"
             ? html`<autodoc-suppressions
                 .hass=${this.hass}
-                @suppressions-changed=${() => this._onSuppressionsChanged()}
+                @suppressions-changed=${(e: CustomEvent<{ action?: string }>) => this._onSuppressionsChanged(e.detail?.action)}
               ></autodoc-suppressions>`
             : hasIssues
               ? groups.map(
@@ -246,6 +249,7 @@ export class AutodoctorCard extends LitElement {
                 : this._renderFirstRun()}
         </div>
         ${this._renderFooter()}
+        <div class="toast ${this._toastVisible ? 'show' : ''}">${this._toastMessage}</div>
       </ha-card>
     `;
   }
@@ -349,7 +353,7 @@ export class AutodoctorCard extends LitElement {
           ?disabled=${isDisabled}
         >
           <span class="run-icon" aria-hidden="true">${isRunning ? "\u21BB" : "\u25B6"}</span>
-          <span class="run-text">${isRunning ? "Running..." : "Run Validation"}</span>
+          <span class="run-text">${isRunning ? "Running..." : isDisabled ? "Please wait..." : "Run Validation"}</span>
         </button>
         ${this._validationData?.last_run
           ? html` <span class="last-run"
@@ -394,6 +398,7 @@ export class AutodoctorCard extends LitElement {
         issue_type: issue.issue_type || "unknown",
       });
       await this._fetchValidation();
+      this._showToast("Issue suppressed");
     } catch (err) {
       console.error("Failed to suppress issue:", err);
     } finally {
@@ -401,12 +406,30 @@ export class AutodoctorCard extends LitElement {
     }
   }
 
-  private async _onSuppressionsChanged(): Promise<void> {
+  private async _onSuppressionsChanged(action?: string): Promise<void> {
     await this._fetchValidation();
     // If no more suppressions, go back to issues view
     if ((this._validationData?.suppressed_count || 0) === 0) {
       this._view = "issues";
     }
+    if (action === "restore") {
+      this._showToast("Issue restored");
+    } else if (action === "clear-all") {
+      this._showToast("All suppressions cleared");
+    } else {
+      this._showToast("Suppressions updated");
+    }
+  }
+
+  private _showToast(message: string): void {
+    this._toastMessage = message;
+    this._toastVisible = true;
+    if (this._toastTimeout) {
+      clearTimeout(this._toastTimeout);
+    }
+    this._toastTimeout = setTimeout(() => {
+      this._toastVisible = false;
+    }, 3000);
   }
 
   static get styles(): CSSResultGroup {
