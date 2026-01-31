@@ -70,6 +70,22 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     "number.set_value": frozenset({"value"}),
     # --- Input text ---
     "input_text.set_value": frozenset({"value"}),
+    # --- Input number ---
+    "input_number.set_value": frozenset({"value"}),
+    # --- Input select ---
+    "input_select.select_option": frozenset({"option"}),
+    # --- Input datetime ---
+    "input_datetime.set_datetime": frozenset({
+        "date", "time", "datetime", "timestamp",
+    }),
+    # --- Select ---
+    "select.select_option": frozenset({"option"}),
+    # --- Text ---
+    "text.set_value": frozenset({"value"}),
+    # --- Lock ---
+    "lock.lock": frozenset({"code"}),
+    "lock.unlock": frozenset({"code"}),
+    "lock.open": frozenset({"code"}),
     # --- Humidifier ---
     "humidifier.set_humidity": frozenset({"humidity"}),
     "humidifier.set_mode": frozenset({"mode"}),
