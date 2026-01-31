@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.13.0](https://github.com/mossipcams/autodoctor/compare/v2.12.0...v2.13.0) (2026-01-31)
+
+
+### Features
+
+* **006:** confirmation dialog, tooltips, word-break, suppress visibility ([1beedc7](https://github.com/mossipcams/autodoctor/commit/1beedc7d65a6a98c3077f892716c1bae1e53f48c))
+* **006:** toast feedback, cooldown text, and suppressions event wiring ([d0ca4fc](https://github.com/mossipcams/autodoctor/commit/d0ca4fcd5fb3b75f32d525c04f9ff635c394ac56))
+
 ## [2.12.0](https://github.com/mossipcams/autodoctor/compare/v2.11.0...v2.12.0) (2026-01-31)
 
 
