@@ -242,6 +242,7 @@ export const issueGroupStyles = css`
     font-size: var(--autodoc-issue-size);
     color: var(--secondary-text-color);
     line-height: 1.4;
+    word-break: break-word;
   }
 
   .suppress-btn {
@@ -258,14 +259,10 @@ export const issueGroupStyles = css`
     color: var(--secondary-text-color);
     font-size: 0.75rem;
     cursor: pointer;
-    opacity: 0.4;
+    opacity: 0.6;
     transition:
       opacity var(--autodoc-transition-fast),
       background var(--autodoc-transition-fast);
-  }
-
-  .issue:hover .suppress-btn {
-    opacity: 0.6;
   }
 
   .suppress-btn:hover {

@@ -26,7 +26,7 @@ export class AutodocIssueGroup extends LitElement {
           <span class="automation-severity-icon" aria-hidden="true"
             >${group.has_error ? "\u2715" : "!"}</span
           >
-          <span class="automation-name">${group.automation_name}</span>
+          <span class="automation-name" title="${group.automation_name}">${group.automation_name}</span>
           <span class="automation-badge">${group.issues.length}</span>
         </div>
         <div class="automation-issues">
@@ -56,7 +56,7 @@ export class AutodocIssueGroup extends LitElement {
             aria-label="Suppress this issue"
             title="Don't show this issue again"
           >
-            \u2298
+            <span aria-hidden="true">\u2298</span><span class="suppress-label">Suppress</span>
           </button>
         </div>
         ${fix && !isDismissed
@@ -72,7 +72,7 @@ export class AutodocIssueGroup extends LitElement {
                   @click=${() => this._dispatchDismiss(issue)}
                   aria-label="Dismiss suggestion"
                 >
-                  \u2715
+                  <span aria-hidden="true">\u2715</span><span class="dismiss-label">Dismiss</span>
                 </button>
               </div>
             `
