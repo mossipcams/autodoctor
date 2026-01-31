@@ -1689,3 +1689,146 @@ def test_if_else_nested_finds_deep_error():
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
     assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+# --- Template detection, dedup, and guard mutation hardening (JV-07, JV-08, JV-09) ---
+
+
+def test_non_string_data_value_not_treated_as_template():
+    """Non-string value in action data is NOT treated as a template.
+
+    Kills: and->or swap on `isinstance(value, str) and self._is_template(value)` (line 436).
+    If `and` becomes `or`, `isinstance(42, str)` is False but `or` would try
+    `self._is_template(42)` which expects a string -- causing a crash or incorrect behavior.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "non_string_data",
+        "alias": "Non String Data",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"data": {"count": 42, "flag": True, "nothing": None}}],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_template_string_in_data_is_validated():
+    """Template string in action data IS validated for syntax errors.
+
+    Positive counterpart to test_non_string_data_value_not_treated_as_template.
+    Confirms the isinstance(str) + _is_template path works for real templates.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "template_data",
+        "alias": "Template Data",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"data": {"msg": "{{ broken > }}"}}],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_data_list_with_non_string_items_not_validated():
+    """Non-string items in a data list are skipped; only template strings are validated.
+
+    Kills: and->or swap on `isinstance(item, str) and self._is_template(item)` (line 450).
+    If `and` becomes `or`, non-string items (42, True, None) would be passed to
+    `_is_template` or `_check_template`, potentially crashing. Only the template
+    string should produce an issue.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "list_mixed",
+        "alias": "List Mixed",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"data": {"targets": [42, True, None, "{{ broken > }}"]}}],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_entity_dedup_prevents_duplicate_refs():
+    """Same entity via two dedup=True patterns produces exactly 1 ref.
+
+    Kills: AddNot on `any(r.entity_id == entity_id for r in refs)` (line 519),
+           Eq->NotEq on entity_id comparison inside any().
+    If dedup logic is negated or inverted, duplicate refs would appear.
+    """
+    validator = JinjaValidator()
+    refs = validator._extract_entity_references(
+        "{{ states.sensor.temp.state }} and {{ states('sensor.temp') }}",
+        "test_loc", "automation.test", "Test"
+    )
+    entity_ids = [r.entity_id for r in refs]
+    assert entity_ids.count("sensor.temp") == 1
+
+
+def test_entity_dedup_continue_not_break():
+    """Dedup uses continue (not break) so later entities are still found.
+
+    Kills: continue->break swap on dedup path (line 520).
+    Template has a dedup pair (sensor.temp via two patterns) followed by a
+    different entity (light.kitchen). If continue becomes break, the loop
+    exits early and light.kitchen is never found.
+    """
+    validator = JinjaValidator()
+    refs = validator._extract_entity_references(
+        "{{ states.sensor.temp.state }} and {{ states('sensor.temp') }} and {{ states('light.kitchen') }}",
+        "test_loc", "automation.test", "Test"
+    )
+    entity_ids = [r.entity_id for r in refs]
+    assert entity_ids.count("sensor.temp") == 1
+    assert "light.kitchen" in entity_ids
+    assert len(refs) == 2
+
+
+def test_non_dict_action_skipped_dict_action_validated():
+    """Non-dict action (string) is skipped; dict action with bad template is found.
+
+    Kills: AddNot on `not isinstance(action, dict)` (line 274) causing dict
+           actions to be skipped and string actions to be processed (crash).
+           Also kills continue->break swap: if break is used at the string
+           action, the dict action is never reached.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "guard_test",
+        "alias": "Guard Test",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            "scene.activate_script",  # non-dict, should be skipped
+            {"data": {"msg": "{{ broken > }}"}},  # dict, should be validated
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_all_dict_actions_with_errors_all_found():
+    """Multiple dict actions with bad templates -- ALL errors are found.
+
+    Positive counterpart proving every dict action in the list is processed,
+    not just the first one.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "multi_dict",
+        "alias": "Multi Dict",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {"data": {"msg": "{{ broken > }}"}},
+            {"data": {"msg": "{{ also broken > }}"}},
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 2
+    assert all(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
