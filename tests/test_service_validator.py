@@ -776,6 +776,7 @@ async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant)
     ("alarm_control_panel.alarm_arm_home", "code"),
     ("alarm_control_panel.alarm_disarm", "code"),
     ("number.set_value", "value"),
+    ("input_text.set_value", "value"),
     ("humidifier.set_humidity", "humidity"),
     ("humidifier.set_mode", "mode"),
     ("water_heater.set_temperature", "temperature"),

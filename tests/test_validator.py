@@ -658,6 +658,31 @@ async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+async def test_for_each_reference_skips_entity_validation(hass: HomeAssistant):
+    """Test that for_each references skip entity validation.
+
+    repeat.for_each items may be device IDs (hex hashes) or arbitrary
+    strings that are not entity IDs.  They should never be validated
+    against the entity registry.
+    """
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="d16f9de99699a4e09e3c0aa6c1b8ec15",
+        expected_state=None,
+        expected_attribute=None,
+        location="action[0].repeat.for_each",
+        reference_type="for_each",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
 async def test_transition_from_invalid_produces_issue(hass: HomeAssistant):
     """Test that an invalid transition_from value produces an INVALID_STATE issue with suggestion."""
     hass.states.async_set("binary_sensor.motion", "off")
