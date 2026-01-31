@@ -68,6 +68,8 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     "alarm_control_panel.alarm_trigger": frozenset({"code"}),
     # --- Number ---
     "number.set_value": frozenset({"value"}),
+    # --- Input text ---
+    "input_text.set_value": frozenset({"value"}),
     # --- Humidifier ---
     "humidifier.set_humidity": frozenset({"humidity"}),
     "humidifier.set_mode": frozenset({"mode"}),
