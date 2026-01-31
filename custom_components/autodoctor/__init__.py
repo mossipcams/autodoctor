@@ -400,6 +400,13 @@ _PREFERRED_ISSUE_TYPES: frozenset[IssueType] = frozenset({
 })
 
 
+# IMPORTANT: Correctness depends on VALIDATION_GROUP_ORDER processing
+# "entity_state" before "templates". The dedup loop iterates group_issues
+# in dict insertion order (which mirrors VALIDATION_GROUP_ORDER). Since
+# entity_state issues are seen first, they become the authority --
+# duplicate TEMPLATE_* issues from the templates group are dropped.
+# Reordering VALIDATION_GROUP_ORDER to put "templates" before
+# "entity_state" would invert the preference and break dedup.
 def _dedup_cross_family(group_issues: dict[str, list]) -> dict[str, list]:
     """Deduplicate cross-family issues that represent the same problem.
 
