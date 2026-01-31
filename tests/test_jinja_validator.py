@@ -1444,3 +1444,248 @@ def test_nested_conditions_loop_finds_template_error():
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
     assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+# --- Depth arithmetic mutation hardening (JV-06) ---
+
+
+def test_choose_nested_two_levels_finds_deep_error():
+    """Choose inside choose with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at choose sequence recursion (line 333).
+    Proves recursion physically reaches depth 2.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_choose",
+        "alias": "Depth 2 Choose",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [
+                            {
+                                "choose": [
+                                    {
+                                        "conditions": [],
+                                        "sequence": [
+                                            {"data": {"msg": "{{ broken > }}"}}
+                                        ],
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_if_then_nested_two_levels_finds_deep_error():
+    """If/then inside if/then with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at if/then recursion (line 362).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_if",
+        "alias": "Depth 2 If",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "if": [],
+                "then": [
+                    {
+                        "if": [],
+                        "then": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_nested_two_levels_finds_deep_error():
+    """Repeat inside repeat with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at repeat sequence recursion (line 401).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_repeat",
+        "alias": "Depth 2 Repeat",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "repeat": {
+                    "while": [],
+                    "sequence": [
+                        {
+                            "repeat": {
+                                "while": [],
+                                "sequence": [
+                                    {"data": {"msg": "{{ broken > }}"}}
+                                ],
+                            }
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_parallel_nested_two_levels_finds_deep_error():
+    """Parallel inside parallel with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at parallel recursion (line 417).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_parallel",
+        "alias": "Depth 2 Parallel",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "parallel": [
+                    {
+                        "parallel": [
+                            {"data": {"msg": "{{ broken > }}"}}
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_nesting_at_depth_limit_stops_validation():
+    """Nesting 22 levels deep should hit depth limit and stop.
+
+    Template error at bottom should NOT be found.
+    Kills: _depth + 1 -> _depth - 1 (depth never reaches 20, so no stop)
+           _depth + 1 -> _depth * 1 (depth stays 0, so no stop)
+           _depth + 1 -> _depth + 0 (depth stays 0, so no stop)
+    """
+    validator = JinjaValidator()
+
+    # Build 22-level nested choose
+    inner = [{"data": {"msg": "{{ broken > }}"}}]
+    for _ in range(22):
+        inner = [{"choose": [{"conditions": [], "sequence": inner}]}]
+
+    automation = {
+        "id": "depth_limit",
+        "alias": "Depth Limit",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": inner,
+    }
+    issues = validator.validate_automations([automation])
+    # Depth limit reached -- template error at bottom should NOT be found
+    assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_nesting_just_under_depth_limit_finds_error():
+    """Nesting 19 levels deep should be under limit and find the error.
+
+    Paired with test_nesting_at_depth_limit_stops_validation to kill
+    depth arithmetic mutations: if depth never increments, both tests
+    can't pass simultaneously.
+    """
+    validator = JinjaValidator()
+
+    inner = [{"data": {"msg": "{{ broken > }}"}}]
+    for _ in range(19):
+        inner = [{"choose": [{"conditions": [], "sequence": inner}]}]
+
+    automation = {
+        "id": "under_limit",
+        "alias": "Under Limit",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": inner,
+    }
+    issues = validator.validate_automations([automation])
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_default_nested_finds_deep_error():
+    """Choose with default containing nested choose with bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at choose default recursion (line 343).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_default",
+        "alias": "Depth 2 Default",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [],
+                "default": [
+                    {
+                        "choose": [
+                            {
+                                "conditions": [],
+                                "sequence": [
+                                    {"data": {"msg": "{{ broken > }}"}}
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_if_else_nested_finds_deep_error():
+    """If/else with nested if/then containing bad template at depth 2.
+
+    Kills: _depth + 1 arithmetic mutations at if/else recursion (line 371).
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "depth2_else",
+        "alias": "Depth 2 Else",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "if": [],
+                "else": [
+                    {
+                        "if": [],
+                        "then": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
