@@ -1213,3 +1213,100 @@ async def test_multiple_unknown_params_all_checked(hass: HomeAssistant):
         i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
     ]
     assert len(unknown_issues) == 3
+
+
+# --- Fuzzy match parameter mutations (SV-04) ---
+
+
+async def test_suggest_target_entity_fuzzy_match_sensitivity(hass: HomeAssistant):
+    """Entity suggestion returns match for close typo, None for distant input.
+
+    Kills: NumberReplacer on cutoff=0.75 (1.0 rejects close match, 0.0 accepts
+    distant match) and n=1 (n=0 returns empty list).
+    """
+    hass.states.async_set("light.living_room", "on")
+    hass.states.async_set("light.bedroom", "on")
+
+    validator = ServiceCallValidator(hass)
+
+    # Close typo: "living_roam" vs "living_room" (~0.9 similarity) -- matches at 0.75
+    result = validator._suggest_target_entity("light.living_roam")
+    assert result == "light.living_room"
+
+    # Distant input: completely different name -- no match at 0.75
+    result = validator._suggest_target_entity("light.zzzzzzzzz")
+    assert result is None
+
+    # No dot in entity_id -- early return None
+    result = validator._suggest_target_entity("nodot")
+    assert result is None
+
+
+async def test_suggest_param_fuzzy_match_sensitivity(hass: HomeAssistant):
+    """Param suggestion returns match for close typo, None for distant input.
+
+    Kills: NumberReplacer on cutoff=0.75 and n=1 in _suggest_param.
+    """
+    validator = ServiceCallValidator(hass)
+
+    # Close typo: "brigthness" vs "brightness" (~0.9 similarity)
+    result = validator._suggest_param(
+        "brigthness", ["brightness", "color_temp", "transition"]
+    )
+    assert result == "brightness"
+
+    # Distant input: no match at 0.75
+    result = validator._suggest_param(
+        "zzzzz", ["brightness", "color_temp", "transition"]
+    )
+    assert result is None
+
+
+async def test_suggest_service_fuzzy_match_sensitivity(hass: HomeAssistant):
+    """Service suggestion returns match for close/moderate typos, None for distant.
+
+    _suggest_service uses cutoff=0.6 (lower than others' 0.75).
+    Kills: NumberReplacer on cutoff=0.6 and n=1 in _suggest_service.
+    """
+    async def handler(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", handler)
+    hass.services.async_register("light", "turn_off", handler)
+    hass.services.async_register("light", "toggle", handler)
+
+    validator = ServiceCallValidator(hass)
+
+    # Close typo: "turn_of" vs "turn_off" (~0.92 similarity)
+    result = validator._suggest_service("light.turn_of")
+    assert result == "light.turn_off"
+
+    # Moderate typo that works at 0.6 cutoff: "toggl" vs "toggle" (~0.83)
+    result = validator._suggest_service("light.toggl")
+    assert result == "light.toggle"
+
+    # Distant input: no match even at 0.6
+    result = validator._suggest_service("light.zzzzzzzzz")
+    assert result is None
+
+    # No dot: early return None
+    result = validator._suggest_service("nodot")
+    assert result is None
+
+
+async def test_suggest_target_entity_with_multiple_same_domain(hass: HomeAssistant):
+    """With multiple entities in same domain, best match is returned (n=1).
+
+    Kills: NumberReplacer on n=1 -- n=0 returns empty list (None result),
+    so asserting a match IS returned catches the mutation.
+    """
+    hass.states.async_set("light.kitchen", "on")
+    hass.states.async_set("light.kitchen_ceiling", "on")
+    hass.states.async_set("light.kitchen_island", "on")
+    hass.states.async_set("light.bedroom", "on")
+
+    validator = ServiceCallValidator(hass)
+
+    # "kitchn" vs "kitchen" -- best match is "light.kitchen"
+    result = validator._suggest_target_entity("light.kitchn")
+    assert result == "light.kitchen"
