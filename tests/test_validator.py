@@ -32,8 +32,11 @@ async def test_validate_missing_entity(hass: HomeAssistant, knowledge_base):
     issues = validator.validate_reference(ref)
 
     assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_NOT_FOUND
     assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "binary_sensor.nonexistent"
     assert "does not exist" in issues[0].message.lower()
+    assert issues[0].suggestion is None
 
 
 async def test_validate_person_away_is_valid(hass: HomeAssistant, knowledge_base):
@@ -78,7 +81,9 @@ async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
     issues = validator.validate_reference(ref)
 
     assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.CASE_MISMATCH
     assert issues[0].severity == Severity.WARNING
+    assert issues[0].entity_id == "binary_sensor.motion"
     assert "case" in issues[0].message.lower()
     assert issues[0].suggestion == "on"
 
@@ -126,10 +131,13 @@ async def test_validate_detects_removed_entity(hass: HomeAssistant):
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.ENTITY_REMOVED
+    assert issues[0].severity == Severity.INFO
+    assert issues[0].entity_id == "sensor.old_sensor"
     assert (
         "existed in history" in issues[0].message.lower()
         or "removed" in issues[0].message.lower()
     )
+    assert issues[0].suggestion is None
 
 
 def test_validate_reference_handles_knowledge_base_error():
@@ -256,7 +264,9 @@ async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant):
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.ATTRIBUTE_NOT_FOUND
     assert issues[0].severity == Severity.WARNING
+    assert issues[0].entity_id == "light.bedroom"
     assert "nonexistent_attribute" in issues[0].message
+    assert issues[0].suggestion is None
 
 
 @pytest.mark.asyncio
@@ -522,6 +532,9 @@ async def test_device_reference_reports_missing_device(hass: HomeAssistant):
     issues = validator.validate_reference(ref)
 
     assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "d16f9de99699a4e09e3c0aa6c1b8ec15"
     assert "Device" in issues[0].message
     assert "does not exist" in issues[0].message
 
@@ -611,6 +624,9 @@ async def test_area_reference_reports_missing_area(hass: HomeAssistant):
     issues = validator.validate_reference(ref)
 
     assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "nonexistent_area"
     assert "Area" in issues[0].message
     assert "does not exist" in issues[0].message
 
@@ -634,6 +650,9 @@ async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
     issues = validator.validate_reference(ref)
 
     assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.nonexistent"
     assert "Entity" in issues[0].message
     assert "does not exist" in issues[0].message
 
@@ -664,6 +683,7 @@ async def test_transition_from_invalid_produces_issue(hass: HomeAssistant):
     assert len(from_issues) == 1
     assert from_issues[0].issue_type == IssueType.INVALID_STATE
     assert from_issues[0].severity == Severity.ERROR
+    assert from_issues[0].entity_id == "binary_sensor.motion"
     assert from_issues[0].suggestion == "off"
 
 
@@ -715,3 +735,102 @@ async def test_transition_from_none_produces_no_issue(hass: HomeAssistant):
 
     # Should have no issues
     assert len(issues) == 0
+
+
+# --- reference_type comparison and entity cache guard (VL-01, VL-02) ---
+
+
+@pytest.mark.asyncio
+async def test_area_reference_type_comparison_boundary(hass: HomeAssistant):
+    """Verify area and device references take different code paths (VL-01).
+
+    Kills Eq->NotEq / Eq->LtE on `ref.reference_type == "area"` (line 119).
+    If mutated to != "area", the area ref falls through to return [] (0 issues).
+    If mutated to <= "area", the device ref ("device" > "area" lexically) skips.
+    """
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Area ref with nonexistent area -- should produce Area-specific message
+    area_ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="nonexistent_area",
+        expected_state=None,
+        expected_attribute=None,
+        location="test",
+        reference_type="area",
+    )
+    area_issues = validator.validate_reference(area_ref)
+    assert len(area_issues) == 1
+    assert area_issues[0].issue_type == IssueType.ENTITY_NOT_FOUND
+    assert "Area" in area_issues[0].message
+
+    # Device ref with nonexistent device -- should produce Device-specific message
+    device_ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fake_device_id",
+        expected_state=None,
+        expected_attribute=None,
+        location="test",
+        reference_type="device",
+    )
+    device_issues = validator.validate_reference(device_ref)
+    assert len(device_issues) == 1
+    assert device_issues[0].issue_type == IssueType.ENTITY_NOT_FOUND
+    assert "Device" in device_issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_entity_cache_populates_multiple_domains(hass: HomeAssistant):
+    """Verify entity cache populates all domains from hass.states (VL-02).
+
+    Kills AddNot on `if domain not in self._entity_cache` (line 281).
+    If inverted to `if domain in self._entity_cache`, the bucket is never
+    created on first encounter, leaving the cache empty {}.
+    """
+    hass.states.async_set("light.kitchen", "on")
+    hass.states.async_set("light.bedroom", "on")
+    hass.states.async_set("sensor.temperature", "22")
+    hass.states.async_set("switch.fan", "off")
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+    validator._ensure_entity_cache()
+
+    assert validator._entity_cache is not None
+    assert "light" in validator._entity_cache
+    assert "sensor" in validator._entity_cache
+    assert "switch" in validator._entity_cache
+    assert len(validator._entity_cache["light"]) == 2
+    assert "light.kitchen" in validator._entity_cache["light"]
+    assert "sensor.temperature" in validator._entity_cache["sensor"]
+
+
+@pytest.mark.asyncio
+async def test_entity_cache_guard_not_in_vs_in(hass: HomeAssistant):
+    """Verify cache is built once and not rebuilt until invalidated (VL-02).
+
+    First call builds cache with current entities. Second call (cache not None)
+    skips rebuilding. After invalidate_entity_cache(), rebuild picks up new entities.
+    """
+    hass.states.async_set("light.test", "on")
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+    validator._ensure_entity_cache()
+    assert "light" in validator._entity_cache
+
+    # Add a new entity after cache is built
+    hass.states.async_set("sensor.new_entity", "on")
+
+    # Second call should NOT rebuild -- cache is already populated
+    validator._ensure_entity_cache()
+    assert "sensor" not in validator._entity_cache  # NOT present, proves no rebuild
+
+    # After invalidation, rebuild picks up the new entity
+    validator.invalidate_entity_cache()
+    assert validator._entity_cache is None
+    validator._ensure_entity_cache()
+    assert "sensor" in validator._entity_cache  # NOW present after rebuild
