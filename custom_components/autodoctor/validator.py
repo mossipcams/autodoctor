@@ -138,40 +138,53 @@ class ValidationEngine:
         return []
 
     def _validate_state(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the expected state.
+        """Validate the expected state."""
+        return self._check_state_value(ref, ref.expected_state, "State")
+
+    def _validate_transition_from(self, ref: StateReference) -> list[ValidationIssue]:
+        """Validate the transition_from state value."""
+        return self._check_state_value(ref, ref.transition_from, "Transition from state")
+
+    def _check_state_value(
+        self,
+        ref: StateReference,
+        state_value: str,
+        label: str,
+    ) -> list[ValidationIssue]:
+        """Check a state value against valid states for the entity's domain.
+
+        Shared logic for _validate_state and _validate_transition_from.
 
         Only validates domains in STATE_VALIDATION_WHITELIST (alarm_control_panel,
         binary_sensor, climate, cover, device_tracker, group, input_boolean,
-        lock, person, sun) which have stable, well-defined state values. Other
-        domains (sensor, light, etc.) are skipped because their states are too
-        dynamic or integration-specific.
-        """
-        issues: list[ValidationIssue] = []
+        lock, person, sun) which have stable, well-defined state values.
 
-        # Only validate domains with stable, well-defined state values
+        Args:
+            ref: The state reference being validated
+            state_value: The state value to check (expected_state or transition_from)
+            label: Human-readable label for error messages (e.g. "State", "Transition from state")
+        """
         domain = self.knowledge_base.get_domain(ref.entity_id)
         if domain not in STATE_VALIDATION_WHITELIST:
             _LOGGER.debug(
                 "Skipping state validation for %s (domain %s not in whitelist)",
                 ref.entity_id, domain
             )
-            return issues
+            return []
 
         valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
-
         if valid_states is None:
-            return issues
+            return []
 
-        expected = ref.expected_state
         valid_states_list = list(valid_states)
 
-        if expected in valid_states:
-            return issues
+        if state_value in valid_states:
+            return []
 
         lower_map = {s.lower(): s for s in valid_states}
-        if expected.lower() in lower_map:
-            correct_case = lower_map[expected.lower()]
-            issues.append(
+        if state_value.lower() in lower_map:
+            correct_case = lower_map[state_value.lower()]
+            return [
                 ValidationIssue(
                     issue_type=IssueType.CASE_MISMATCH,
                     severity=Severity.WARNING,
@@ -179,15 +192,14 @@ class ValidationEngine:
                     automation_name=ref.automation_name,
                     entity_id=ref.entity_id,
                     location=ref.location,
-                    message=f"State '{expected}' has incorrect case, should be '{correct_case}'",
+                    message=f"{label} '{state_value}' has incorrect case, should be '{correct_case}'",
                     suggestion=correct_case,
                     valid_states=valid_states_list,
                 )
-            )
-            return issues
+            ]
 
-        suggestion = self._suggest_state(expected, valid_states)
-        issues.append(
+        suggestion = self._suggest_state(state_value, valid_states)
+        return [
             ValidationIssue(
                 issue_type=IssueType.INVALID_STATE,
                 severity=Severity.ERROR,
@@ -195,70 +207,11 @@ class ValidationEngine:
                 automation_name=ref.automation_name,
                 entity_id=ref.entity_id,
                 location=ref.location,
-                message=f"State '{expected}' is not valid for {ref.entity_id}",
+                message=f"{label} '{state_value}' is not valid for {ref.entity_id}",
                 suggestion=suggestion,
                 valid_states=valid_states_list,
             )
-        )
-
-        return issues
-
-    def _validate_transition_from(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the transition_from state value.
-
-        Uses the same domain whitelist and valid-states logic as _validate_state,
-        but checks ref.transition_from instead of ref.expected_state.
-        """
-        issues: list[ValidationIssue] = []
-
-        domain = self.knowledge_base.get_domain(ref.entity_id)
-        if domain not in STATE_VALIDATION_WHITELIST:
-            return issues
-
-        valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
-        if valid_states is None:
-            return issues
-
-        from_state = ref.transition_from
-        valid_states_list = list(valid_states)
-
-        if from_state in valid_states:
-            return issues
-
-        lower_map = {s.lower(): s for s in valid_states}
-        if from_state.lower() in lower_map:
-            correct_case = lower_map[from_state.lower()]
-            issues.append(
-                ValidationIssue(
-                    issue_type=IssueType.CASE_MISMATCH,
-                    severity=Severity.WARNING,
-                    automation_id=ref.automation_id,
-                    automation_name=ref.automation_name,
-                    entity_id=ref.entity_id,
-                    location=ref.location,
-                    message=f"Transition from state '{from_state}' has incorrect case, should be '{correct_case}'",
-                    suggestion=correct_case,
-                    valid_states=valid_states_list,
-                )
-            )
-            return issues
-
-        suggestion = self._suggest_state(from_state, valid_states)
-        issues.append(
-            ValidationIssue(
-                issue_type=IssueType.INVALID_STATE,
-                severity=Severity.ERROR,
-                automation_id=ref.automation_id,
-                automation_name=ref.automation_name,
-                entity_id=ref.entity_id,
-                location=ref.location,
-                message=f"Invalid transition_from state '{from_state}' for {ref.entity_id}",
-                suggestion=suggestion,
-                valid_states=valid_states_list,
-            )
-        )
-
-        return issues
+        ]
 
     def _validate_attribute(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the expected attribute exists.

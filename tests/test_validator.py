@@ -660,7 +660,7 @@ async def test_transition_from_invalid_produces_issue(hass: HomeAssistant):
     issues = validator.validate_reference(ref)
 
     # Should have exactly one issue for the invalid transition_from
-    from_issues = [i for i in issues if "transition_from" in i.message]
+    from_issues = [i for i in issues if "Transition from state" in i.message]
     assert len(from_issues) == 1
     assert from_issues[0].issue_type == IssueType.INVALID_STATE
     assert from_issues[0].severity == Severity.ERROR
