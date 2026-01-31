@@ -1,6 +1,6 @@
 """Domain-specific attribute mappings for validation.
 
-Covers 17 HA domains with attributes commonly used in automations via
+Covers 23 HA domains with attributes commonly used in automations via
 state_attr() calls. Only includes attributes exposed in state.attributes,
 not internal Python properties (is_on, is_closed, native_value, native_unit_of_measurement).
 """
@@ -12,6 +12,9 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     "light": [
         "brightness",
         "color_temp",
+        "color_temp_kelvin",
+        "min_color_temp_kelvin",
+        "max_color_temp_kelvin",
         "hs_color",
         "rgb_color",
         "xy_color",
@@ -20,6 +23,7 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "white_value",
         "color_mode",
         "supported_color_modes",
+        "supported_features",
         "effect",
         "effect_list",
     ],
@@ -55,6 +59,11 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "media_series_title",
         "media_season",
         "media_episode",
+        "media_image_url",
+        "app_id",
+        "app_name",
+        "entity_picture_local",
+        "group_members",
         "source",
         "source_list",
         "sound_mode",
@@ -130,6 +139,34 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "last_triggered",
         "mode",
         "current",
+    ],
+    "siren": [
+        "available_tones",
+        "supported_features",
+    ],
+    "remote": [
+        "activity_list",
+        "current_activity",
+        "supported_features",
+    ],
+    "camera": [
+        "is_streaming",
+        "frontend_stream_type",
+        "access_token",
+    ],
+    "text": [
+        "min",
+        "max",
+        "pattern",
+        "mode",
+    ],
+    "event": [
+        "event_type",
+        "event_types",
+    ],
+    "valve": [
+        "current_valve_position",
+        "supported_features",
     ],
 }
 

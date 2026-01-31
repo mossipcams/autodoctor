@@ -465,6 +465,119 @@ async def test_media_player_domain_attributes_are_valid(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "color_temp_kelvin",
+        "min_color_temp_kelvin",
+        "max_color_temp_kelvin",
+        "supported_features",
+    ],
+)
+async def test_light_extended_attributes_are_valid(
+    hass: HomeAssistant, attribute: str
+):
+    """Test that extended light attributes (kelvin, supported_features) are recognized."""
+    hass.states.async_set("light.bedroom", "on", {"brightness": 255})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.bedroom",
+        expected_state=None,
+        expected_attribute=attribute,
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for light domain"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "media_image_url",
+        "app_id",
+        "app_name",
+        "entity_picture_local",
+        "group_members",
+    ],
+)
+async def test_media_player_extended_attributes_are_valid(
+    hass: HomeAssistant, attribute: str
+):
+    """Test that extended media_player attributes are recognized."""
+    hass.states.async_set("media_player.living_room", "playing", {"volume_level": 0.5})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="media_player.living_room",
+        expected_state=None,
+        expected_attribute=attribute,
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for media_player domain"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "domain,entity_id,state,attribute",
+    [
+        ("siren", "siren.alarm", "off", "available_tones"),
+        ("siren", "siren.alarm", "off", "supported_features"),
+        ("remote", "remote.tv", "on", "activity_list"),
+        ("remote", "remote.tv", "on", "current_activity"),
+        ("remote", "remote.tv", "on", "supported_features"),
+        ("camera", "camera.front", "idle", "is_streaming"),
+        ("camera", "camera.front", "idle", "frontend_stream_type"),
+        ("camera", "camera.front", "idle", "access_token"),
+        ("text", "text.note", "hello", "min"),
+        ("text", "text.note", "hello", "max"),
+        ("text", "text.note", "hello", "pattern"),
+        ("text", "text.note", "hello", "mode"),
+        ("event", "event.doorbell", "2024-01-01T00:00:00", "event_type"),
+        ("event", "event.doorbell", "2024-01-01T00:00:00", "event_types"),
+        ("valve", "valve.water", "open", "current_valve_position"),
+        ("valve", "valve.water", "open", "supported_features"),
+    ],
+)
+async def test_new_domain_attributes_are_valid(
+    hass: HomeAssistant, domain: str, entity_id: str, state: str,
+    attribute: str
+):
+    """Test that attributes for newer HA domains are recognized as valid."""
+    hass.states.async_set(entity_id, state, {})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=entity_id,
+        expected_state=None,
+        expected_attribute=attribute,
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for {domain} domain"
+
+
+@pytest.mark.asyncio
 async def test_device_reference_skips_entity_validation(hass: HomeAssistant):
     """Test that device_id references are validated against device registry, not entity registry."""
     from types import MappingProxyType
