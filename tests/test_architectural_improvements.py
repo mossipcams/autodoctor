@@ -257,6 +257,36 @@ def test_jinja_validator_uses_shared_kb_for_state_validation():
     mock_kb.get_valid_states.assert_called_once_with("binary_sensor.motion")
 
 
+def test_init_passes_knowledge_base_to_jinja_validator():
+    """__init__.py must pass the shared knowledge_base to JinjaValidator constructor.
+
+    Without this, JinjaValidator falls back to creating a new StateKnowledgeBase
+    on every _validate_entity_references() call instead of reusing the shared one.
+    """
+    import ast as _ast
+    import pathlib
+
+    init_path = pathlib.Path(__file__).parent.parent / "custom_components" / "autodoctor" / "__init__.py"
+    tree = _ast.parse(init_path.read_text())
+
+    # Find the JinjaValidator(...) call in __init__.py
+    jinja_calls = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Call):
+            func = node.func
+            if isinstance(func, _ast.Name) and func.id == "JinjaValidator":
+                jinja_calls.append(node)
+
+    assert len(jinja_calls) == 1, f"Expected 1 JinjaValidator call, found {len(jinja_calls)}"
+
+    call = jinja_calls[0]
+    keyword_names = [kw.arg for kw in call.keywords]
+    assert "knowledge_base" in keyword_names, (
+        f"JinjaValidator call in __init__.py is missing knowledge_base keyword argument. "
+        f"Found keywords: {keyword_names}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_async_load_history_filters_to_whitelisted_domains():
     """async_load_history with no entity_ids should filter to whitelisted domains."""
