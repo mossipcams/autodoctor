@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.11.0](https://github.com/mossipcams/autodoctor/compare/v2.10.0...v2.11.0) (2026-01-31)
+
+
+### Features
+
+* **005:** card design fixes + suppressions management view ([4cb25dd](https://github.com/mossipcams/autodoctor/commit/4cb25dd09074dd37fb9564959ee954b5a9e19c79))
+* **005:** SuppressionStore enhancements + list/unsuppress WS endpoints ([4201368](https://github.com/mossipcams/autodoctor/commit/4201368033165ac27eec8a8b65b42a3e4e2e2ca9))
+
 ## [2.10.0](https://github.com/mossipcams/autodoctor/compare/v2.9.0...v2.10.0) (2026-01-31)
 
 
