@@ -31,8 +31,14 @@ async def test_capability_constants_defined(hass: HomeAssistant):
 async def test_knowledge_base_initialization(hass: HomeAssistant):
     """Test knowledge base can be created."""
     kb = StateKnowledgeBase(hass)
-    assert kb is not None
-    assert kb.hass == hass
+    assert kb.hass is hass
+    assert kb.history_days == 30
+    assert kb.history_timeout == 120
+    assert kb._cache == {}
+    assert kb._observed_states == {}
+    assert kb._learned_states_store is None
+    assert kb._zone_names is None
+    assert kb._area_names is None
 
 
 async def test_get_valid_states_for_known_domain(hass: HomeAssistant):
@@ -46,6 +52,7 @@ async def test_get_valid_states_for_known_domain(hass: HomeAssistant):
     states = kb.get_valid_states("binary_sensor.motion")
     assert "on" in states
     assert "off" in states
+    assert states == {"on", "off", "unavailable", "unknown"}
 
 
 async def test_get_valid_states_unknown_entity(hass: HomeAssistant):
@@ -96,7 +103,9 @@ async def test_clear_cache(hass: HomeAssistant):
 
     assert "binary_sensor.motion" in kb._cache
     assert kb._zone_names is not None
+    assert "Home" in kb._zone_names
     assert kb._area_names is not None
+    assert "Living Room" in kb._area_names
 
     # Clear cache
     kb.clear_cache()
@@ -122,6 +131,8 @@ async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant):
     assert "heat" in states
     assert "cool" in states
     assert "auto" in states
+    # Device class defaults + schema introspection + unavailable/unknown
+    assert states >= {"off", "heat", "cool", "auto", "heat_cool", "dry", "fan_only", "unavailable", "unknown"}
 
 
 async def test_schema_introspection_select_options(hass: HomeAssistant):
@@ -139,6 +150,7 @@ async def test_schema_introspection_select_options(hass: HomeAssistant):
     assert "low" in states
     assert "medium" in states
     assert "high" in states
+    assert states == {"low", "medium", "high", "unavailable", "unknown"}
 
 
 async def test_schema_introspection_light_effect_list(hass: HomeAssistant):
@@ -156,11 +168,13 @@ async def test_schema_introspection_light_effect_list(hass: HomeAssistant):
     states = kb.get_valid_states("light.strip")
     assert "on" in states
     assert "off" in states
+    assert states == {"on", "off", "unavailable", "unknown"}
 
     # But we should be able to get valid attributes
     attrs = kb.get_valid_attributes("light.strip", "effect")
     assert "rainbow" in attrs
     assert "strobe" in attrs
+    assert attrs == {"rainbow", "strobe", "solid"}
 
 
 @pytest.mark.asyncio
@@ -189,6 +203,9 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
     assert "active" in states
     assert "idle" in states
     assert "error" in states
+    assert states == {"active", "idle", "error", "unavailable", "unknown"}
+    assert "unavailable" not in kb.get_observed_states("input_select.mode")
+    assert "unknown" not in kb.get_observed_states("input_select.mode")
 
 
 @pytest.mark.asyncio
@@ -322,6 +339,7 @@ async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
     # Should still include device class defaults
     assert "cleaning" in states
     assert "docked" in states
+    assert states >= {"segment_cleaning", "cleaning", "docked", "idle", "paused", "returning", "error", "unavailable", "unknown"}
 
 
 async def test_zone_names_are_cached(hass: HomeAssistant):
@@ -340,6 +358,13 @@ async def test_zone_names_are_cached(hass: HomeAssistant):
     assert zones1 is zones2
     # Should contain the zone name
     assert "Home" in zones1
+    assert zones1 == {"Home"}
+    # Prove cache returns stale data after underlying state changes
+    hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
+    await hass.async_block_till_done()
+    zones3 = kb._get_zone_names()
+    assert zones3 is zones1  # Same cached object
+    assert "Work" not in zones3  # Stale — new zone not visible
 
 
 async def test_area_names_are_cached(hass: HomeAssistant):
@@ -361,6 +386,13 @@ async def test_area_names_are_cached(hass: HomeAssistant):
     assert areas1 is areas2
     # Should contain the area name
     assert "Living Room" in areas1
+    assert areas1 == {"Living Room", "living room"}
+    # Prove cache returns stale data after underlying registry changes
+    area_registry.async_create("Kitchen")
+    await hass.async_block_till_done()
+    areas3 = kb._get_area_names()
+    assert areas3 is areas1  # Same cached object
+    assert "Kitchen" not in areas3  # Stale — new area not visible
 
 
 @pytest.mark.asyncio
@@ -527,6 +559,7 @@ async def test_get_valid_states_uses_capabilities(hass: HomeAssistant):
     assert "mode1" in valid_states
     assert "mode2" in valid_states
     assert "mode3" in valid_states
+    assert valid_states == {"mode1", "mode2", "mode3", "unavailable", "unknown"}
 
 
 async def test_attribute_maps_to_capability(hass: HomeAssistant):
@@ -661,6 +694,7 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert "option_a" in select_states
     assert "option_b" in select_states
     assert "option_c" in select_states
+    assert select_states == {"option_a", "option_b", "option_c", "unavailable", "unknown"}
 
     # Verify climate hvac_modes are valid (no false positives)
     climate_states = kb.get_valid_states("climate.thermostat")
@@ -668,6 +702,7 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert "cool" in climate_states
     assert "auto" in climate_states
     assert "off" in climate_states
+    assert climate_states >= {"heat", "cool", "auto", "off", "heat_cool", "dry", "fan_only", "unavailable", "unknown"}
 
     # Verify climate attribute values are valid
     fan_values = kb.get_valid_attributes("climate.thermostat", "fan_mode")
@@ -803,3 +838,109 @@ async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant):
     # Also lowercase area names (added by _get_area_names)
     assert "kitchen" in states
     assert "bedroom" in states
+    assert states >= {"home", "not_home", "Home", "Work", "Kitchen", "Bedroom", "kitchen", "bedroom", "unavailable", "unknown"}
+
+
+# --- Bermuda/area sensor detection (KB-06) ---
+
+
+async def test_sensor_domain_returns_none_non_sensor_returns_set(hass: HomeAssistant):
+    """Sensor entities return None; non-sensor entities return a set.
+
+    Kills: Eq mutations on 'domain == "sensor"' (line 294).
+    If == becomes !=, sensor would get a set and non-sensor would get None.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("sensor.temperature", "22.5")
+    hass.states.async_set("binary_sensor.motion", "on")
+    await hass.async_block_till_done()
+
+    # Sensor domain returns None (too free-form to validate)
+    assert kb.get_valid_states("sensor.temperature") is None
+
+    # Non-sensor domain returns a set with expected states
+    result = kb.get_valid_states("binary_sensor.motion")
+    assert isinstance(result, set)
+    assert "on" in result
+    assert "off" in result
+
+
+# --- Bermuda tracker state filtering (KB-07) ---
+
+
+async def test_bermuda_tracker_collects_bermuda_sensor_states(hass: HomeAssistant):
+    """Bermuda tracker collects valid states from bermuda sensors.
+
+    Kills: AddNot on 'if is_bermuda_tracker' (line 349) -- skipping the block
+    means bermuda sensor states are not added.
+    Kills: AddNot on 'if state.state not in ("unavailable", "unknown")' (line 353) --
+    inverting means only unavailable/unknown are collected, excluding valid states.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # Set up zone (device_trackers need this)
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    from homeassistant.helpers import area_registry as ar
+
+    area_reg = ar.async_get(hass)
+    area_reg.async_create("Kitchen")
+    await hass.async_block_till_done()
+
+    # Create bermuda device_tracker
+    hass.states.async_set("device_tracker.bermuda_phone", "home")
+
+    # Create bermuda sensors: one valid, one unavailable
+    hass.states.async_set("sensor.bermuda_area_kitchen", "kitchen")
+    hass.states.async_set("sensor.bermuda_area_garage", "unavailable")
+    await hass.async_block_till_done()
+
+    # Mock: all entities are bermuda platform, no capabilities
+    mock_registry = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.platform = "bermuda"
+    mock_entry.capabilities = None
+    mock_registry.async_get.return_value = mock_entry
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry,
+    ):
+        states = kb.get_valid_states("device_tracker.bermuda_phone")
+
+    # "kitchen" from bermuda sensor (valid state, not unavailable/unknown)
+    assert "kitchen" in states
+
+
+# --- Zone entity friendly_name fallback (KB-08) ---
+
+
+async def test_zone_without_friendly_name_uses_entity_id_suffix(hass: HomeAssistant):
+    """Zone without friendly_name falls back to entity_id.split('.')[1].
+
+    Kills: NumberReplacer on [1] -- [0] would produce 'zone',
+    [2] would raise IndexError.
+    """
+    hass.states.async_set("zone.my_office", "zoning", {})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    zones = kb._get_zone_names()
+
+    assert "my_office" in zones
+    assert "zone" not in zones  # Would be [0] if index mutated
+
+
+async def test_zone_with_and_without_friendly_name(hass: HomeAssistant):
+    """Both friendly_name path and fallback path produce correct results.
+
+    Verifies the two zone-name extraction paths work together.
+    """
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    hass.states.async_set("zone.my_office", "zoning", {})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    zones = kb._get_zone_names()
+
+    assert zones == {"Home", "my_office"}
