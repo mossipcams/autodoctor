@@ -420,7 +420,7 @@ export class AutodoctorCard extends LitElement {
   public getGridOptions() {
     return {
       columns: 12,
-      min_columns: 6,
+      min_columns: 4,
       rows: "auto",
     };
   }
