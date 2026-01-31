@@ -216,7 +216,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_STRICT_TEMPLATE_VALIDATION, DEFAULT_STRICT_TEMPLATE_VALIDATION
     )
     jinja_validator = JinjaValidator(
-        hass, strict_template_validation=strict_template
+        hass, knowledge_base=knowledge_base, strict_template_validation=strict_template
     )
     strict_service = options.get(
         CONF_STRICT_SERVICE_VALIDATION, DEFAULT_STRICT_SERVICE_VALIDATION
