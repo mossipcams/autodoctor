@@ -92,11 +92,24 @@ export const badgeStyles = css`
   .badge-suppressed {
     background: rgba(127, 127, 127, 0.15);
     color: var(--secondary-text-color);
+    margin-left: auto;
   }
 
   .badge-active {
     outline: 2px solid var(--primary-color);
     outline-offset: 1px;
+  }
+
+  /* Mobile: larger tap targets for badges */
+  @media (max-width: 600px) {
+    .badge {
+      padding: 5px 10px;
+      font-size: var(--autodoc-issue-size);
+    }
+
+    .badges-row {
+      flex-wrap: wrap;
+    }
   }
 
 `;
@@ -571,6 +584,27 @@ export const cardLayoutStyles = css`
   .last-run {
     color: var(--secondary-text-color);
     font-size: var(--autodoc-meta-size);
+  }
+
+  /* Mobile responsive */
+  @media (max-width: 600px) {
+    .card-content {
+      padding: var(--autodoc-spacing-md);
+    }
+
+    .header {
+      padding: var(--autodoc-spacing-md);
+    }
+
+    .footer {
+      padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
+    }
+
+    .run-btn {
+      padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-lg);
+      font-size: var(--autodoc-name-size);
+      min-height: 40px;
+    }
   }
 
 `;
