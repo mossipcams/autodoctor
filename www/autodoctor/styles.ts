@@ -7,7 +7,6 @@ import { css } from "lit";
 export const autodocTokens = css`
   :host {
     /* Typography */
-    --autodoc-font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
     --autodoc-title-size: 1.1rem;
     --autodoc-name-size: 0.95rem;
     --autodoc-issue-size: 0.875rem;
@@ -28,8 +27,6 @@ export const autodocTokens = css`
     /* Transitions */
     --autodoc-transition-fast: 150ms ease;
     --autodoc-transition-normal: 200ms ease;
-
-    font-family: var(--autodoc-font-family);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -97,30 +94,11 @@ export const badgeStyles = css`
     color: var(--secondary-text-color);
   }
 
-  .clear-suppressions-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    margin-left: 2px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 50%;
-    color: inherit;
-    font-size: 0.6em;
-    cursor: pointer;
-    opacity: 0.6;
-    transition:
-      opacity var(--autodoc-transition-fast),
-      background var(--autodoc-transition-fast);
+  .badge-active {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
   }
 
-  .clear-suppressions-btn:hover {
-    opacity: 1;
-    background: rgba(127, 127, 127, 0.3);
-  }
 `;
 
 /**
@@ -252,7 +230,7 @@ export const issueGroupStyles = css`
     color: var(--secondary-text-color);
     font-size: 0.75rem;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.4;
     transition:
       opacity var(--autodoc-transition-fast),
       background var(--autodoc-transition-fast);
@@ -286,7 +264,8 @@ export const issueGroupStyles = css`
 
   .fix-icon {
     flex-shrink: 0;
-    font-size: 0.875rem;
+    width: 16px;
+    height: 16px;
   }
 
   .fix-content {
@@ -558,7 +537,6 @@ export const cardLayoutStyles = css`
     color: var(--text-primary-color, #fff);
     border: none;
     border-radius: 6px;
-    font-family: var(--autodoc-font-family);
     font-size: var(--autodoc-issue-size);
     font-weight: 500;
     cursor: pointer;
@@ -590,10 +568,6 @@ export const cardLayoutStyles = css`
     animation: spin 1s linear infinite;
   }
 
-  .run-text {
-    font-family: var(--autodoc-font-family);
-  }
-
   .last-run {
     color: var(--secondary-text-color);
     font-size: var(--autodoc-meta-size);
@@ -614,7 +588,7 @@ export const pipelineStyles = css`
     margin-bottom: var(--autodoc-spacing-lg);
   }
 
-  /* Individual group panel — JS controls visibility via state classes */
+  /* Individual group panel -- JS controls visibility via state classes */
   .pipeline-group {
     display: flex;
     align-items: center;
@@ -633,7 +607,7 @@ export const pipelineStyles = css`
     background: rgba(127, 127, 127, 0.04);
   }
 
-  /* Active: highlighted state — the primary running indicator */
+  /* Active: highlighted state -- the primary running indicator */
   .pipeline-group.active {
     opacity: 1;
     border-left: 3px solid var(--primary-color);
@@ -696,6 +670,12 @@ export const pipelineStyles = css`
     height: 8px;
     border-radius: 50%;
     background: var(--primary-color);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.75); }
   }
 
   .group-label {
@@ -713,7 +693,7 @@ export const pipelineStyles = css`
   .group-count.warning-text { color: var(--autodoc-warning); }
   .group-count.fail-text { color: var(--autodoc-error); }
 
-  /* Summary rollup bar — visibility controlled by JS _showSummary */
+  /* Summary rollup bar -- visibility controlled by JS _showSummary */
   .pipeline-summary {
     display: flex;
     align-items: center;
@@ -739,11 +719,14 @@ export const pipelineStyles = css`
     color: var(--autodoc-error);
   }
 
-  /* Respect reduced motion — CSS layer (JS layer skips stagger loop separately) */
+  /* Respect reduced motion -- CSS layer (JS layer skips stagger loop separately) */
   @media (prefers-reduced-motion: reduce) {
     .pipeline-group,
     .pipeline-summary {
       transition: none;
+    }
+    .active-dot {
+      animation: none;
     }
   }
 `;
