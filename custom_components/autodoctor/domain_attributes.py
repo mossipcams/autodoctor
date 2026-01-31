@@ -2,7 +2,7 @@
 
 Covers 17 HA domains with attributes commonly used in automations via
 state_attr() calls. Only includes attributes exposed in state.attributes,
-not internal Python properties like is_on or is_closed.
+not internal Python properties (is_on, is_closed, native_value, native_unit_of_measurement).
 """
 
 from __future__ import annotations
@@ -94,8 +94,6 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     ],
     "sensor": [
         "device_class",
-        "native_value",
-        "native_unit_of_measurement",
         "state_class",
         "options",
     ],
