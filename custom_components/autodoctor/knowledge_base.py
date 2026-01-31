@@ -339,6 +339,7 @@ class StateKnowledgeBase:
             _LOGGER.debug("Entity %s: added zone names to valid states", entity_id)
 
         # For Bermuda BLE entities (detected by platform), add HA area names from area registry
+        # Bermuda sensors report lowercase area names matching HA area IDs
         if is_area_sensor or is_bermuda_tracker:
             valid_states.update(self._get_area_names())
             _LOGGER.debug("Entity %s: added HA area names to valid states", entity_id)

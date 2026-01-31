@@ -233,6 +233,36 @@ def test_jinja_validator_delegates_entity_validation_to_engine():
     mock_engine.validate_all.assert_called_once_with([ref])
 
 
+def test_init_passes_validation_engine_to_jinja_validator():
+    """__init__.py must pass the shared validation_engine to JinjaValidator constructor.
+
+    Without this, JinjaValidator cannot delegate entity/attribute/state validation
+    to the shared ValidationEngine instance.
+    """
+    import ast as _ast
+    import pathlib
+
+    init_path = pathlib.Path(__file__).parent.parent / "custom_components" / "autodoctor" / "__init__.py"
+    tree = _ast.parse(init_path.read_text())
+
+    # Find the JinjaValidator(...) call in __init__.py
+    jinja_calls = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Call):
+            func = node.func
+            if isinstance(func, _ast.Name) and func.id == "JinjaValidator":
+                jinja_calls.append(node)
+
+    assert len(jinja_calls) == 1, f"Expected 1 JinjaValidator call, found {len(jinja_calls)}"
+
+    call = jinja_calls[0]
+    keyword_names = [kw.arg for kw in call.keywords]
+    assert "validation_engine" in keyword_names, (
+        f"JinjaValidator call in __init__.py is missing validation_engine keyword argument. "
+        f"Found keywords: {keyword_names}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_async_load_history_filters_to_whitelisted_domains():
     """async_load_history with no entity_ids should filter to whitelisted domains."""
