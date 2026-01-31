@@ -929,6 +929,9 @@ class AutomationAnalyzer:
             actions = [actions]
 
         for idx, action in enumerate(actions):
+            if not isinstance(action, dict):
+                continue
+
             # Extract from service calls
             refs.extend(
                 self._extract_from_service_call(
@@ -975,7 +978,7 @@ class AutomationAnalyzer:
                     )
 
             # Extract from if conditions (all types, not just template)
-            elif "if" in action:
+            if "if" in action:
                 conditions = action.get("if", [])
                 if not isinstance(conditions, list):
                     conditions = [conditions]
@@ -1007,92 +1010,93 @@ class AutomationAnalyzer:
                     )
 
             # Extract from repeat while/until conditions (all types, not just template)
-            elif "repeat" in action:
+            if "repeat" in action:
                 repeat_config = action["repeat"]
+                if isinstance(repeat_config, dict):
+                    # Extract from for_each
+                    if "for_each" in repeat_config:
+                        for_each_value = repeat_config["for_each"]
 
-                # Extract from for_each
-                if "for_each" in repeat_config:
-                    for_each_value = repeat_config["for_each"]
-
-                    # Handle list format (static entities)
-                    if isinstance(for_each_value, list):
-                        for item in for_each_value:
-                            if isinstance(item, str):
-                                refs.append(
-                                    StateReference(
-                                        automation_id=automation_id,
-                                        automation_name=automation_name,
-                                        entity_id=item,
-                                        expected_state=None,
-                                        expected_attribute=None,
-                                        location=f"action[{idx}].repeat.for_each",
-                                        reference_type="for_each",
+                        # Handle list format (static entities)
+                        if isinstance(for_each_value, list):
+                            for item in for_each_value:
+                                if isinstance(item, str):
+                                    refs.append(
+                                        StateReference(
+                                            automation_id=automation_id,
+                                            automation_name=automation_name,
+                                            entity_id=item,
+                                            expected_state=None,
+                                            expected_attribute=None,
+                                            location=f"action[{idx}].repeat.for_each",
+                                            reference_type="for_each",
+                                        )
                                     )
-                                )
 
-                    # Handle template format
-                    elif isinstance(for_each_value, str):
+                        # Handle template format
+                        elif isinstance(for_each_value, str):
+                            refs.extend(
+                                self._extract_from_template(
+                                    for_each_value,
+                                    f"action[{idx}].repeat.for_each",
+                                    automation_id,
+                                    automation_name,
+                                )
+                            )
+
+                    # Check while conditions
+                    while_conditions = repeat_config.get("while", [])
+                    if not isinstance(while_conditions, list):
+                        while_conditions = [while_conditions]
+                    for cond_idx, condition in enumerate(while_conditions):
                         refs.extend(
-                            self._extract_from_template(
-                                for_each_value,
-                                f"action[{idx}].repeat.for_each",
+                            self._extract_from_condition(
+                                condition,
+                                cond_idx,
                                 automation_id,
                                 automation_name,
+                                f"action[{idx}].repeat.while",
                             )
                         )
 
-                # Check while conditions
-                while_conditions = repeat_config.get("while", [])
-                if not isinstance(while_conditions, list):
-                    while_conditions = [while_conditions]
-                for cond_idx, condition in enumerate(while_conditions):
+                    # Check until conditions
+                    until_conditions = repeat_config.get("until", [])
+                    if not isinstance(until_conditions, list):
+                        until_conditions = [until_conditions]
+                    for cond_idx, condition in enumerate(until_conditions):
+                        refs.extend(
+                            self._extract_from_condition(
+                                condition,
+                                cond_idx,
+                                automation_id,
+                                automation_name,
+                                f"action[{idx}].repeat.until",
+                            )
+                        )
+
+                    # Recurse into sequence
+                    sequence = repeat_config.get("sequence", [])
                     refs.extend(
-                        self._extract_from_condition(
-                            condition,
-                            cond_idx,
-                            automation_id,
-                            automation_name,
-                            f"action[{idx}].repeat.while",
+                        self._extract_from_actions(
+                            sequence, automation_id, automation_name, _depth + 1
                         )
                     )
-
-                # Check until conditions
-                until_conditions = repeat_config.get("until", [])
-                if not isinstance(until_conditions, list):
-                    until_conditions = [until_conditions]
-                for cond_idx, condition in enumerate(until_conditions):
-                    refs.extend(
-                        self._extract_from_condition(
-                            condition,
-                            cond_idx,
-                            automation_id,
-                            automation_name,
-                            f"action[{idx}].repeat.until",
-                        )
-                    )
-
-                # Recurse into sequence
-                sequence = repeat_config.get("sequence", [])
-                refs.extend(
-                    self._extract_from_actions(
-                        sequence, automation_id, automation_name, _depth + 1
-                    )
-                )
 
             # Extract from wait_template
-            elif "wait_template" in action:
+            if "wait_template" in action:
                 template = action["wait_template"]
-                refs.extend(
-                    self._extract_from_template(
-                        template,
-                        f"action[{idx}].wait_template",
-                        automation_id,
-                        automation_name,
+                if isinstance(template, str):
+                    refs.extend(
+                        self._extract_from_template(
+                            template,
+                            f"action[{idx}].wait_template",
+                            automation_id,
+                            automation_name,
+                        )
                     )
-                )
 
             # Extract from parallel branches
-            elif "parallel" in action:
+            if "parallel" in action:
                 branches = action.get("parallel") or []
                 if not isinstance(branches, list):
                     branches = [branches]

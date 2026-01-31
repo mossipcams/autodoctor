@@ -15,6 +15,7 @@ from .models import IssueType, Severity, ValidationIssue
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from .validator import ValidationEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +27,34 @@ TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 # rarely nest deeply and this provides a tighter safety net for parsing.
 _TEMPLATE_MAX_NESTING_DEPTH = 20
 
+
+def _ensure_list(value: Any) -> list:
+    """Wrap a value in a list if it isn't one already."""
+    if not isinstance(value, list):
+        return [value] if value is not None else []
+    return value
+
+
+# Issue type remapping: validator.py types -> jinja template types.
+# When delegating entity/attribute/state validation to validator.py,
+# remap the returned issue types to TEMPLATE_* variants so they stay
+# in the "templates" VALIDATION_GROUP and preserve suppression keys.
+_ISSUE_TYPE_REMAP: dict[IssueType, IssueType] = {
+    IssueType.ENTITY_NOT_FOUND: IssueType.TEMPLATE_ENTITY_NOT_FOUND,
+    IssueType.ENTITY_REMOVED: IssueType.TEMPLATE_ENTITY_NOT_FOUND,
+    IssueType.INVALID_STATE: IssueType.TEMPLATE_INVALID_STATE,
+    IssueType.ATTRIBUTE_NOT_FOUND: IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
+    # CASE_MISMATCH stays as-is (same type in both families)
+}
+
+# Lookup table for special (non-entity) reference types validated by registry.
+_SPECIAL_REF_TYPES: dict[str, tuple[IssueType, str]] = {
+    "zone": (IssueType.TEMPLATE_ZONE_NOT_FOUND, "Zone"),
+    "device": (IssueType.TEMPLATE_DEVICE_NOT_FOUND, "Device"),
+    "area": (IssueType.TEMPLATE_AREA_NOT_FOUND, "Area"),
+}
+
+
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
 
@@ -34,6 +63,7 @@ class JinjaValidator:
         hass: HomeAssistant | None = None,
         knowledge_base: Any = None,
         strict_template_validation: bool = False,
+        validation_engine: ValidationEngine | None = None,
     ) -> None:
         """Initialize the Jinja validator.
 
@@ -42,10 +72,14 @@ class JinjaValidator:
             knowledge_base: Shared StateKnowledgeBase instance (avoids creating new ones)
             strict_template_validation: If True, warn about unknown filters/tests.
                 Disable if using custom components that add custom Jinja filters.
+            validation_engine: Shared ValidationEngine instance for delegating
+                entity/attribute/state validation. If None, entity reference
+                validation is skipped (backward compatibility).
         """
         self.hass = hass
         self.knowledge_base = knowledge_base
         self._strict_validation = strict_template_validation
+        self._validation_engine = validation_engine
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
         self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | get_known_filters()
@@ -85,17 +119,13 @@ class JinjaValidator:
         auto_vars = self._extract_automation_variables(automation)
 
         # Validate triggers
-        triggers = automation.get("triggers") or automation.get("trigger", [])
-        if not isinstance(triggers, list):
-            triggers = [triggers]
+        triggers = _ensure_list(automation.get("triggers") or automation.get("trigger", []))
         for idx, trigger in enumerate(triggers):
             if isinstance(trigger, dict):
                 issues.extend(self._validate_trigger(trigger, idx, auto_id, auto_name, auto_vars))
 
         # Validate conditions
-        conditions = automation.get("conditions") or automation.get("condition", [])
-        if not isinstance(conditions, list):
-            conditions = [conditions]
+        conditions = _ensure_list(automation.get("conditions") or automation.get("condition", []))
         for idx, condition in enumerate(conditions):
             issues.extend(
                 self._validate_condition(
@@ -104,9 +134,7 @@ class JinjaValidator:
             )
 
         # Validate actions
-        actions = automation.get("actions") or automation.get("action", [])
-        if not isinstance(actions, list):
-            actions = [actions]
+        actions = _ensure_list(automation.get("actions") or automation.get("action", []))
         issues.extend(self._validate_actions(actions, auto_id, auto_name, auto_vars=auto_vars))
 
         return issues
@@ -146,6 +174,15 @@ class JinjaValidator:
                 value_template, f"trigger[{index}].value_template", auto_id, auto_name,
                 auto_vars=auto_vars,
             ))
+
+        # Check to/from fields for Jinja expressions (template triggers)
+        for field_name in ("to", "from"):
+            field_value = trigger.get(field_name)
+            if field_value and isinstance(field_value, str) and self._is_template(field_value):
+                issues.extend(self._check_template(
+                    field_value, f"trigger[{index}].{field_name}", auto_id, auto_name,
+                    auto_vars=auto_vars,
+                ))
 
         return issues
 
@@ -193,10 +230,8 @@ class JinjaValidator:
             ))
 
         # Check nested conditions (and/or/not)
-        for key in ("conditions", "and", "or"):
-            nested = condition.get(key, [])
-            if not isinstance(nested, list):
-                nested = [nested]
+        for key in ("conditions", "and", "or", "not"):
+            nested = _ensure_list(condition.get(key, []))
             for nested_idx, nested_cond in enumerate(nested):
                 issues.extend(
                     self._validate_condition(
@@ -205,35 +240,6 @@ class JinjaValidator:
                         auto_id,
                         auto_name,
                         f"{location_prefix}[{index}].{key}",
-                        _depth + 1,
-                        auto_vars=auto_vars,
-                    )
-                )
-
-        # Check 'not' condition
-        not_cond = condition.get("not")
-        if not_cond:
-            if isinstance(not_cond, list):
-                for nested_idx, nested_cond in enumerate(not_cond):
-                    issues.extend(
-                        self._validate_condition(
-                            nested_cond,
-                            nested_idx,
-                            auto_id,
-                            auto_name,
-                            f"{location_prefix}[{index}].not",
-                            _depth + 1,
-                            auto_vars=auto_vars,
-                        )
-                    )
-            else:
-                issues.extend(
-                    self._validate_condition(
-                        not_cond,
-                        0,
-                        auto_id,
-                        auto_name,
-                        f"{location_prefix}[{index}].not",
                         _depth + 1,
                         auto_vars=auto_vars,
                     )
@@ -260,8 +266,7 @@ class JinjaValidator:
             )
             return issues
 
-        if not isinstance(actions, list):
-            actions = [actions]
+        actions = _ensure_list(actions)
 
         # Accumulate variables across the action sequence.
         # In HA, a variables: action makes those names available to all
@@ -307,9 +312,7 @@ class JinjaValidator:
                         continue
 
                     # Validate conditions in option
-                    opt_conditions = option.get("conditions", [])
-                    if not isinstance(opt_conditions, list):
-                        opt_conditions = [opt_conditions]
+                    opt_conditions = _ensure_list(option.get("conditions", []))
                     for cond_idx, cond in enumerate(opt_conditions):
                         issues.extend(
                             self._validate_condition(
@@ -347,9 +350,7 @@ class JinjaValidator:
 
             # Check if/then/else blocks
             if "if" in action:
-                if_conditions = action.get("if", [])
-                if not isinstance(if_conditions, list):
-                    if_conditions = [if_conditions]
+                if_conditions = _ensure_list(action.get("if", []))
                 for cond_idx, cond in enumerate(if_conditions):
                     issues.extend(
                         self._validate_condition(
@@ -383,9 +384,7 @@ class JinjaValidator:
 
                 # Check while/until conditions
                 for cond_key in ("while", "until"):
-                    repeat_conditions = repeat_config.get(cond_key, [])
-                    if not isinstance(repeat_conditions, list):
-                        repeat_conditions = [repeat_conditions]
+                    repeat_conditions = _ensure_list(repeat_config.get(cond_key, []))
                     for cond_idx, cond in enumerate(repeat_conditions):
                         issues.extend(
                             self._validate_condition(
@@ -409,9 +408,7 @@ class JinjaValidator:
 
             # Check parallel blocks
             if "parallel" in action:
-                branches = action["parallel"]
-                if not isinstance(branches, list):
-                    branches = [branches]
+                branches = _ensure_list(action["parallel"])
                 for branch_idx, branch in enumerate(branches):
                     branch_actions = branch if isinstance(branch, list) else [branch]
                     issues.extend(
@@ -499,160 +496,85 @@ class JinjaValidator:
         )
         from .models import StateReference
 
+        # Descriptor table: (pattern, location_suffix, entity_group_indices,
+        #                     state_group, attr_group, dedup, reference_type)
+        _PATTERNS = [
+            (IS_STATE_PATTERN, "is_state", (0,), 1, None, False, "direct"),
+            (IS_STATE_ATTR_PATTERN, "is_state_attr", (0,), None, 1, False, "direct"),
+            (STATE_ATTR_PATTERN, "state_attr", (0,), None, 1, False, "direct"),
+            (STATES_OBJECT_PATTERN, "states_object", (0, 1), None, None, True, "direct"),
+            (STATES_FUNCTION_PATTERN, "states_function", (0,), None, None, True, "direct"),
+            (EXPAND_PATTERN, "expand", (0,), None, None, True, "group"),
+            (AREA_ENTITIES_PATTERN, "area_entities", (0,), None, None, True, "area"),
+            (DEVICE_ENTITIES_PATTERN, "device_entities", (0,), None, None, True, "device"),
+            (INTEGRATION_ENTITIES_PATTERN, "integration_entities", (0,), None, None, True, "integration"),
+        ]
+
         refs: list[StateReference] = []
 
         # Strip Jinja2 comments before parsing
         template = JINJA_COMMENT_PATTERN.sub("", template)
 
-        # Extract is_state() calls - captures entity_id AND state value
-        for match in IS_STATE_PATTERN.finditer(template):
-            entity_id, state = match.groups()
-            refs.append(
-                StateReference(
-                    automation_id=auto_id,
-                    automation_name=auto_name,
-                    entity_id=entity_id,
-                    expected_state=state,  # Capture state for validation
-                    expected_attribute=None,
-                    location=f"{location}.is_state",
-                )
-            )
-
-        # Extract is_state_attr() calls - captures entity_id, attribute, AND value
-        for match in IS_STATE_ATTR_PATTERN.finditer(template):
-            entity_id, attribute, _value = match.groups()
-            refs.append(
-                StateReference(
-                    automation_id=auto_id,
-                    automation_name=auto_name,
-                    entity_id=entity_id,
-                    expected_state=None,
-                    expected_attribute=attribute,  # Capture for validation
-                    location=f"{location}.is_state_attr",
-                )
-            )
-
-        # Extract state_attr() calls
-        for match in STATE_ATTR_PATTERN.finditer(template):
-            entity_id, attribute = match.groups()
-            refs.append(
-                StateReference(
-                    automation_id=auto_id,
-                    automation_name=auto_name,
-                    entity_id=entity_id,
-                    expected_state=None,
-                    expected_attribute=attribute,
-                    location=f"{location}.state_attr",
-                )
-            )
-
-        # Extract states.domain.entity references
-        for match in STATES_OBJECT_PATTERN.finditer(template):
-            domain, entity_name = match.groups()
-            entity_id = f"{domain}.{entity_name}"
-            if not any(r.entity_id == entity_id for r in refs):
+        for pattern, loc_suffix, eid_groups, state_grp, attr_grp, dedup, ref_type in _PATTERNS:
+            for match in pattern.finditer(template):
+                groups = match.groups()
+                entity_id = ".".join(groups[i] for i in eid_groups)
+                if dedup and any(r.entity_id == entity_id for r in refs):
+                    continue
                 refs.append(
                     StateReference(
                         automation_id=auto_id,
                         automation_name=auto_name,
                         entity_id=entity_id,
-                        expected_state=None,
-                        expected_attribute=None,
-                        location=f"{location}.states_object",
-                    )
-                )
-
-        # Extract states('entity_id') function calls
-        for match in STATES_FUNCTION_PATTERN.finditer(template):
-            entity_id = match.group(1)
-            if not any(r.entity_id == entity_id for r in refs):
-                refs.append(
-                    StateReference(
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id=entity_id,
-                        expected_state=None,
-                        expected_attribute=None,
-                        location=f"{location}.states_function",
-                    )
-                )
-
-        # Extract expand() calls
-        for match in EXPAND_PATTERN.finditer(template):
-            entity_id = match.group(1)
-            if not any(r.entity_id == entity_id for r in refs):
-                refs.append(
-                    StateReference(
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id=entity_id,
-                        expected_state=None,
-                        expected_attribute=None,
-                        location=f"{location}.expand",
-                        reference_type="group",
-                    )
-                )
-
-        # Extract area_entities() calls
-        for match in AREA_ENTITIES_PATTERN.finditer(template):
-            area_id = match.group(1)
-            if not any(r.entity_id == area_id for r in refs):
-                refs.append(
-                    StateReference(
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id=area_id,
-                        expected_state=None,
-                        expected_attribute=None,
-                        location=f"{location}.area_entities",
-                        reference_type="area",
-                    )
-                )
-
-        # Extract device_entities() calls
-        for match in DEVICE_ENTITIES_PATTERN.finditer(template):
-            device_id = match.group(1)
-            if not any(r.entity_id == device_id for r in refs):
-                refs.append(
-                    StateReference(
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id=device_id,
-                        expected_state=None,
-                        expected_attribute=None,
-                        location=f"{location}.device_entities",
-                        reference_type="device",
-                    )
-                )
-
-        # Extract integration_entities() calls
-        for match in INTEGRATION_ENTITIES_PATTERN.finditer(template):
-            integration_id = match.group(1)
-            if not any(r.entity_id == integration_id for r in refs):
-                refs.append(
-                    StateReference(
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id=integration_id,
-                        expected_state=None,
-                        expected_attribute=None,
-                        location=f"{location}.integration_entities",
-                        reference_type="integration",
+                        expected_state=groups[state_grp] if state_grp is not None else None,
+                        expected_attribute=groups[attr_grp] if attr_grp is not None else None,
+                        location=f"{location}.{loc_suffix}",
+                        reference_type=ref_type,
                     )
                 )
 
         return refs
 
+    def _check_special_reference(self, ref: "StateReference") -> ValidationIssue | None:
+        """Check a zone/device/area reference and return an issue if not found."""
+        issue_type, label = _SPECIAL_REF_TYPES[ref.reference_type]
+        exists = False
+
+        if ref.reference_type == "zone":
+            exists = self.hass.states.get(ref.entity_id) is not None
+        elif ref.reference_type == "device":
+            from homeassistant.helpers import device_registry as dr
+
+            exists = dr.async_get(self.hass).async_get(ref.entity_id) is not None
+        elif ref.reference_type == "area":
+            from homeassistant.helpers import area_registry as ar
+
+            exists = ar.async_get(self.hass).async_get_area(ref.entity_id) is not None
+
+        if not exists:
+            return ValidationIssue(
+                issue_type=issue_type,
+                severity=Severity.ERROR,
+                automation_id=ref.automation_id,
+                automation_name=ref.automation_name,
+                entity_id=ref.entity_id,
+                location=ref.location,
+                message=f"{label} '{ref.entity_id}' referenced in template does not exist",
+            )
+        return None
+
     def _validate_entity_references(
         self,
         refs: list["StateReference"],
     ) -> list[ValidationIssue]:
-        """Validate entity references using knowledge base.
+        """Validate entity references by delegating to ValidationEngine.
 
-        Checks:
-        - Entity existence
-        - State value validity (for is_state calls)
-        - Attribute existence (for state_attr/is_state_attr calls)
+        Delegates entity existence, attribute checking, and state validation
+        to validator.py (the canonical implementation), then remaps issue types
+        to TEMPLATE_* variants so they stay in the "templates" validation group.
+
+        Special reference types (zone, device, area) are still handled directly
+        since validator.py's non-entity handling uses different issue types.
 
         Args:
             refs: List of StateReferences extracted from templates
@@ -660,140 +582,29 @@ class JinjaValidator:
         Returns:
             List of ValidationIssues found
         """
-        if not self.hass:
-            return []  # Can't validate without hass instance
+        if not self._validation_engine:
+            return []  # No engine available, skip entity validation
 
+        # Separate special refs (zone/device/area) from standard entity refs
+        standard_refs: list[StateReference] = []
         issues: list[ValidationIssue] = []
 
         for ref in refs:
-            # 1. Check entity existence
-            state = self.hass.states.get(ref.entity_id)
+            if ref.reference_type in _SPECIAL_REF_TYPES:
+                issue = self._check_special_reference(ref)
+                if issue:
+                    issues.append(issue)
+            else:
+                standard_refs.append(ref)
 
-            # Handle special reference types
-            if ref.reference_type == "zone":
-                if not state:
-                    issues.append(
-                        ValidationIssue(
-                            issue_type=IssueType.TEMPLATE_ZONE_NOT_FOUND,
-                            severity=Severity.ERROR,
-                            automation_id=ref.automation_id,
-                            automation_name=ref.automation_name,
-                            entity_id=ref.entity_id,
-                            location=ref.location,
-                            message=f"Zone '{ref.entity_id}' referenced in template does not exist",
-                        )
-                    )
-                continue
+        # Delegate standard entity/attribute/state validation to validator.py
+        engine_issues = self._validation_engine.validate_all(standard_refs)
 
-            elif ref.reference_type == "device":
-                # Check device registry
-                from homeassistant.helpers import device_registry as dr
-
-                device_reg = dr.async_get(self.hass)
-                if not device_reg.async_get(ref.entity_id):
-                    issues.append(
-                        ValidationIssue(
-                            issue_type=IssueType.TEMPLATE_DEVICE_NOT_FOUND,
-                            severity=Severity.ERROR,
-                            automation_id=ref.automation_id,
-                            automation_name=ref.automation_name,
-                            entity_id=ref.entity_id,
-                            location=ref.location,
-                            message=f"Device '{ref.entity_id}' referenced in template does not exist",
-                        )
-                    )
-                continue
-
-            elif ref.reference_type == "area":
-                # Check area registry
-                from homeassistant.helpers import area_registry as ar
-
-                area_reg = ar.async_get(self.hass)
-                if not area_reg.async_get_area(ref.entity_id):
-                    issues.append(
-                        ValidationIssue(
-                            issue_type=IssueType.TEMPLATE_AREA_NOT_FOUND,
-                            severity=Severity.ERROR,
-                            automation_id=ref.automation_id,
-                            automation_name=ref.automation_name,
-                            entity_id=ref.entity_id,
-                            location=ref.location,
-                            message=f"Area '{ref.entity_id}' referenced in template does not exist",
-                        )
-                    )
-                continue
-
-            # Standard entity validation
-            if not state:
-                issues.append(
-                    ValidationIssue(
-                        issue_type=IssueType.TEMPLATE_ENTITY_NOT_FOUND,
-                        severity=Severity.ERROR,
-                        automation_id=ref.automation_id,
-                        automation_name=ref.automation_name,
-                        entity_id=ref.entity_id,
-                        location=ref.location,
-                        message=f"Entity '{ref.entity_id}' referenced in template does not exist",
-                    )
-                )
-                continue
-
-            # 2. Validate attribute existence if specified
-            if ref.expected_attribute:
-                if ref.expected_attribute not in state.attributes:
-                    available_attrs = sorted(state.attributes.keys())[:10]
-                    issues.append(
-                        ValidationIssue(
-                            issue_type=IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
-                            severity=Severity.ERROR,
-                            automation_id=ref.automation_id,
-                            automation_name=ref.automation_name,
-                            entity_id=ref.entity_id,
-                            location=ref.location,
-                            message=f"Attribute '{ref.expected_attribute}' not found on {ref.entity_id}",
-                            suggestion=f"Available attributes: {', '.join(available_attrs)}",
-                        )
-                    )
-
-            # 3. Validate state value if specified (from is_state calls)
-            #    Only for domains in the whitelist with stable state values.
-            if ref.expected_state:
-                from .const import STATE_VALIDATION_WHITELIST
-
-                entity_domain = ref.entity_id.split(".")[0] if "." in ref.entity_id else ""
-                if entity_domain not in STATE_VALIDATION_WHITELIST:
-                    continue
-
-                # Use shared knowledge base if available, otherwise create one
-                kb = self.knowledge_base
-                if kb is None:
-                    from .knowledge_base import StateKnowledgeBase
-
-                    kb = StateKnowledgeBase(self.hass)
-                valid_states = kb.get_valid_states(ref.entity_id)
-
-                if valid_states and ref.expected_state not in valid_states:
-                    # Check for case mismatch
-                    if ref.expected_state.lower() in {s.lower() for s in valid_states}:
-                        severity = Severity.WARNING
-                        issue_type = IssueType.CASE_MISMATCH
-                    else:
-                        severity = Severity.ERROR
-                        issue_type = IssueType.TEMPLATE_INVALID_STATE
-
-                    issues.append(
-                        ValidationIssue(
-                            issue_type=issue_type,
-                            severity=severity,
-                            automation_id=ref.automation_id,
-                            automation_name=ref.automation_name,
-                            entity_id=ref.entity_id,
-                            location=ref.location,
-                            message=f"State '{ref.expected_state}' is not valid for {ref.entity_id}",
-                            suggestion=f"Valid states: {', '.join(sorted(valid_states)[:10])}",
-                            valid_states=list(valid_states),
-                        )
-                    )
+        # Remap issue types to TEMPLATE_* variants
+        for issue in engine_issues:
+            if issue.issue_type in _ISSUE_TYPE_REMAP:
+                issue.issue_type = _ISSUE_TYPE_REMAP[issue.issue_type]
+            issues.append(issue)
 
         return issues
 
@@ -817,7 +628,7 @@ class JinjaValidator:
         # about, leading to false positives when strict mode is off.
         if self._strict_validation:
             for node in ast.find_all(nodes.Filter):
-                _LOGGER.debug(f"Found filter: {node.name}, known: {node.name in self._known_filters}")
+                _LOGGER.debug("Found filter: %s, known: %s", node.name, node.name in self._known_filters)
                 if node.name not in self._known_filters:
                     issues.append(
                         ValidationIssue(
@@ -832,7 +643,7 @@ class JinjaValidator:
                     )
                 else:
                     # Validate arguments for known filters
-                    _LOGGER.debug(f"Calling _validate_filter_args for {node.name}")
+                    _LOGGER.debug("Calling _validate_filter_args for %s", node.name)
                     issues.extend(self._validate_filter_args(node, location, auto_id, auto_name))
 
             for node in ast.find_all(nodes.Test):
@@ -865,7 +676,7 @@ class JinjaValidator:
 
         # Count arguments - args can be None or a list
         arg_count = len(node.args) if node.args else 0
-        _LOGGER.debug(f"Validating filter '{node.name}': args={arg_count}, min={sig.min_args}, max={sig.max_args}")
+        _LOGGER.debug("Validating filter '%s': args=%d, min=%d, max=%s", node.name, arg_count, sig.min_args, sig.max_args)
 
         if arg_count < sig.min_args or (sig.max_args is not None and arg_count > sig.max_args):
             if sig.max_args is None:
@@ -917,19 +728,14 @@ class JinjaValidator:
                     suggestion=None,
                 )
             ]
-        except Exception as err:
-            return [
-                ValidationIssue(
-                    issue_type=IssueType.TEMPLATE_SYNTAX_ERROR,
-                    severity=Severity.ERROR,
-                    automation_id=auto_id,
-                    automation_name=auto_name,
-                    entity_id="",
-                    location=location,
-                    message=f"Template error: {err}",
-                    suggestion=None,
-                )
-            ]
+        except Exception:
+            _LOGGER.warning(
+                "Unexpected error checking template at %s in %s, skipping",
+                location,
+                auto_id,
+                exc_info=True,
+            )
+            return []
 
         issues = []
 

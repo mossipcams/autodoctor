@@ -79,13 +79,18 @@ class ValidationEngine:
                 state_issues = self._validate_state(ref)
                 issues.extend(state_issues)
 
+            if ref.transition_from is not None:
+                from_issues = self._validate_transition_from(ref)
+                issues.extend(from_issues)
+
             if ref.expected_attribute is not None:
                 attr_issues = self._validate_attribute(ref)
                 issues.extend(attr_issues)
 
-        except Exception as err:
+        except (KeyError, AttributeError, TypeError, ValueError) as err:
             _LOGGER.warning(
-                "Error validating %s in %s: %s", ref.entity_id, ref.automation_id, err
+                "Error validating %s in %s: %s: %s",
+                ref.entity_id, ref.automation_id, type(err).__name__, err,
             )
             # Return empty - avoid false positives on errors
 
@@ -190,6 +195,63 @@ class ValidationEngine:
                 entity_id=ref.entity_id,
                 location=ref.location,
                 message=f"State '{expected}' is not valid for {ref.entity_id}",
+                suggestion=suggestion,
+                valid_states=valid_states_list,
+            )
+        )
+
+        return issues
+
+    def _validate_transition_from(self, ref: StateReference) -> list[ValidationIssue]:
+        """Validate the transition_from state value.
+
+        Uses the same domain whitelist and valid-states logic as _validate_state,
+        but checks ref.transition_from instead of ref.expected_state.
+        """
+        issues: list[ValidationIssue] = []
+
+        domain = self.knowledge_base.get_domain(ref.entity_id)
+        if domain not in STATE_VALIDATION_WHITELIST:
+            return issues
+
+        valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
+        if valid_states is None:
+            return issues
+
+        from_state = ref.transition_from
+        valid_states_list = list(valid_states)
+
+        if from_state in valid_states:
+            return issues
+
+        lower_map = {s.lower(): s for s in valid_states}
+        if from_state.lower() in lower_map:
+            correct_case = lower_map[from_state.lower()]
+            issues.append(
+                ValidationIssue(
+                    issue_type=IssueType.CASE_MISMATCH,
+                    severity=Severity.WARNING,
+                    automation_id=ref.automation_id,
+                    automation_name=ref.automation_name,
+                    entity_id=ref.entity_id,
+                    location=ref.location,
+                    message=f"Transition from state '{from_state}' has incorrect case, should be '{correct_case}'",
+                    suggestion=correct_case,
+                    valid_states=valid_states_list,
+                )
+            )
+            return issues
+
+        suggestion = self._suggest_state(from_state, valid_states)
+        issues.append(
+            ValidationIssue(
+                issue_type=IssueType.INVALID_STATE,
+                severity=Severity.ERROR,
+                automation_id=ref.automation_id,
+                automation_name=ref.automation_name,
+                entity_id=ref.entity_id,
+                location=ref.location,
+                message=f"Invalid transition_from state '{from_state}' for {ref.entity_id}",
                 suggestion=suggestion,
                 valid_states=valid_states_list,
             )

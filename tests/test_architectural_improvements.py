@@ -225,8 +225,8 @@ def test_jinja_validator_without_kb_still_works():
     assert validator.knowledge_base is None
 
 
-def test_jinja_validator_uses_shared_kb_for_state_validation():
-    """JinjaValidator should use the shared KB rather than creating a new one."""
+def test_jinja_validator_delegates_entity_validation_to_engine():
+    """JinjaValidator should delegate entity validation to the validation engine."""
     from unittest.mock import MagicMock
 
     from custom_components.autodoctor.jinja_validator import JinjaValidator
@@ -234,8 +234,11 @@ def test_jinja_validator_uses_shared_kb_for_state_validation():
 
     mock_hass = MagicMock()
     mock_kb = MagicMock()
-    mock_kb.get_valid_states.return_value = ["on", "off"]
-    validator = JinjaValidator(hass=mock_hass, knowledge_base=mock_kb)
+    mock_engine = MagicMock()
+    mock_engine.validate_all.return_value = []
+    validator = JinjaValidator(
+        hass=mock_hass, knowledge_base=mock_kb, validation_engine=mock_engine
+    )
 
     ref = StateReference(
         automation_id="automation.test",
@@ -246,15 +249,10 @@ def test_jinja_validator_uses_shared_kb_for_state_validation():
         location="template",
     )
 
-    # Set up entity state so validation proceeds to state checking
-    mock_hass.states.get.return_value = MagicMock(
-        state="on", attributes={}
-    )
-
     validator._validate_entity_references([ref])
 
-    # The shared KB's get_valid_states should have been called
-    mock_kb.get_valid_states.assert_called_once_with("binary_sensor.motion")
+    # The validation engine's validate_all should have been called
+    mock_engine.validate_all.assert_called_once_with([ref])
 
 
 @pytest.mark.asyncio
