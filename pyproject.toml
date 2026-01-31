@@ -1,8 +1,15 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "autodoctor"
 version = "1.1.0"
 description = "Home Assistant integration that validates automations to detect state-related issues"
 requires-python = ">=3.12"
+
+[tool.setuptools.packages.find]
+include = ["custom_components*"]
 
 [project.optional-dependencies]
 dev = [
@@ -42,17 +49,5 @@ ignore = [
 quote-style = "double"
 
 [tool.mutmut]
-paths_to_mutate = [
-    "custom_components/autodoctor/validator.py",
-    "custom_components/autodoctor/service_validator.py",
-    "custom_components/autodoctor/jinja_validator.py",
-    "custom_components/autodoctor/knowledge_base.py",
-]
-also_copy = [
-    "custom_components",
-    "conftest.py",
-]
-pytest_add_cli_args_test_selection = [
-    "tests/",
-    "--ignore=mutants",
-]
+paths_to_mutate = "custom_components/autodoctor/validator.py:custom_components/autodoctor/service_validator.py:custom_components/autodoctor/jinja_validator.py:custom_components/autodoctor/knowledge_base.py"
+tests_dir = "tests/"

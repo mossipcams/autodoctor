@@ -41,6 +41,16 @@ export const autodocTokens = css`
     width: 100%;
     box-sizing: border-box;
   }
+
+  /* Mobile: larger text for readability */
+  @media (max-width: 600px) {
+    :host {
+      --autodoc-title-size: 1.25rem;
+      --autodoc-name-size: 1.05rem;
+      --autodoc-issue-size: 1rem;
+      --autodoc-meta-size: 0.9rem;
+    }
+  }
 `;
 
 /**
@@ -103,8 +113,13 @@ export const badgeStyles = css`
   /* Mobile: larger tap targets for badges */
   @media (max-width: 600px) {
     .badge {
-      padding: 5px 10px;
+      padding: 6px 12px;
       font-size: var(--autodoc-issue-size);
+      min-height: 36px;
+    }
+
+    .badge-icon {
+      font-size: 1em;
     }
 
     .badges-row {
@@ -227,6 +242,7 @@ export const issueGroupStyles = css`
     font-size: var(--autodoc-issue-size);
     color: var(--secondary-text-color);
     line-height: 1.4;
+    word-break: break-word;
   }
 
   .suppress-btn {
@@ -243,14 +259,10 @@ export const issueGroupStyles = css`
     color: var(--secondary-text-color);
     font-size: 0.75rem;
     cursor: pointer;
-    opacity: 0.4;
+    opacity: 0.6;
     transition:
       opacity var(--autodoc-transition-fast),
       background var(--autodoc-transition-fast);
-  }
-
-  .issue:hover .suppress-btn {
-    opacity: 0.6;
   }
 
   .suppress-btn:hover {
@@ -375,6 +387,77 @@ export const issueGroupStyles = css`
   .edit-link:hover .edit-arrow {
     transform: translateX(2px);
   }
+
+  /* Mobile: suppress/dismiss label visibility */
+  .suppress-label,
+  .dismiss-label {
+    display: none;
+  }
+
+  /* Mobile: touch-friendly issue groups */
+  @media (max-width: 600px) {
+    .automation-issues {
+      padding-left: 16px;
+    }
+
+    .automation-severity-icon {
+      width: 24px;
+      height: 24px;
+      font-size: 0.8rem;
+    }
+
+    /* Suppress button: show label, 44px touch target */
+    .suppress-btn {
+      width: auto;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 6px;
+      opacity: 0.7;
+    }
+
+    .suppress-label {
+      display: inline;
+      font-size: var(--autodoc-meta-size);
+    }
+
+    /* Dismiss button: 44px touch target */
+    .dismiss-btn {
+      width: auto;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 6px;
+    }
+
+    .dismiss-label {
+      display: inline;
+      font-size: var(--autodoc-meta-size);
+    }
+
+    .issue-icon {
+      font-size: 0.75rem;
+    }
+
+    .edit-link {
+      margin-left: 16px;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .fix-suggestion {
+      padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-sm);
+    }
+  }
 `;
 
 /**
@@ -386,6 +469,7 @@ export const cardLayoutStyles = css`
     overflow: hidden;
     width: 100%;
     box-sizing: border-box;
+    position: relative;
   }
 
   /* Header */
@@ -597,14 +681,49 @@ export const cardLayoutStyles = css`
     }
 
     .footer {
-      padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-md);
+      padding: var(--autodoc-spacing-md);
+      flex-wrap: wrap;
     }
 
     .run-btn {
       padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-lg);
       font-size: var(--autodoc-name-size);
-      min-height: 40px;
+      min-height: 44px;
     }
+
+    .run-icon {
+      font-size: 0.9rem;
+    }
+
+    .retry-btn {
+      min-height: 44px;
+      padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-xl);
+      font-size: var(--autodoc-name-size);
+    }
+  }
+
+  /* Toast notification */
+  .toast {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: var(--primary-text-color);
+    color: var(--card-background-color, #fff);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: var(--autodoc-meta-size);
+    font-weight: 500;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--autodoc-transition-normal), transform var(--autodoc-transition-normal);
+    z-index: 10;
+    white-space: nowrap;
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
   }
 
 `;

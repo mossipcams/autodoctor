@@ -10,6 +10,9 @@ export class AutodocSuppressions extends LitElement {
   @state() private _suppressions: SuppressionEntry[] = [];
   @state() private _loading = true;
   @state() private _error: string | null = null;
+  @state() private _confirmingClearAll = false;
+
+  private _confirmTimeout?: ReturnType<typeof setTimeout>;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -40,6 +43,7 @@ export class AutodocSuppressions extends LitElement {
       this._suppressions = this._suppressions.filter((s) => s.key !== key);
       this.dispatchEvent(
         new CustomEvent("suppressions-changed", {
+          detail: { action: "restore" },
           bubbles: true,
           composed: true,
         })
@@ -55,6 +59,7 @@ export class AutodocSuppressions extends LitElement {
       this._suppressions = [];
       this.dispatchEvent(
         new CustomEvent("suppressions-changed", {
+          detail: { action: "clear-all" },
           bubbles: true,
           composed: true,
         })
@@ -62,6 +67,33 @@ export class AutodocSuppressions extends LitElement {
     } catch (err) {
       console.error("Failed to clear suppressions:", err);
     }
+  }
+
+  private _confirmClearAll(): void {
+    if (this._confirmTimeout) {
+      clearTimeout(this._confirmTimeout);
+      this._confirmTimeout = undefined;
+    }
+    this._confirmingClearAll = false;
+    this._clearAll();
+  }
+
+  private _startConfirmClearAll(): void {
+    this._confirmingClearAll = true;
+    if (this._confirmTimeout) {
+      clearTimeout(this._confirmTimeout);
+    }
+    this._confirmTimeout = setTimeout(() => {
+      this._confirmingClearAll = false;
+    }, 5000);
+  }
+
+  private _cancelConfirmClearAll(): void {
+    if (this._confirmTimeout) {
+      clearTimeout(this._confirmTimeout);
+      this._confirmTimeout = undefined;
+    }
+    this._confirmingClearAll = false;
   }
 
   protected render(): TemplateResult {
@@ -82,7 +114,13 @@ export class AutodocSuppressions extends LitElement {
             >${this._suppressions.length} suppressed
             issue${this._suppressions.length !== 1 ? "s" : ""}</span
           >
-          <button class="clear-all-btn" @click=${this._clearAll}>Clear all</button>
+          ${this._confirmingClearAll
+            ? html`<span class="confirm-prompt">
+                <span class="confirm-text">Are you sure?</span>
+                <button class="confirm-yes-btn" @click=${() => this._confirmClearAll()}>Yes</button>
+                <button class="confirm-cancel-btn" @click=${() => this._cancelConfirmClearAll()}>Cancel</button>
+              </span>`
+            : html`<button class="clear-all-btn" @click=${() => this._startConfirmClearAll()}>Clear all</button>`}
         </div>
         ${this._suppressions.map((s) => this._renderSuppression(s))}
       </div>
@@ -93,10 +131,10 @@ export class AutodocSuppressions extends LitElement {
     return html`
       <div class="suppression-item">
         <div class="suppression-info">
-          <span class="suppression-automation"
+          <span class="suppression-automation" title="${entry.automation_name || entry.automation_id}"
             >${entry.automation_name || entry.automation_id}</span
           >
-          <span class="suppression-detail"
+          <span class="suppression-detail" title="${entry.entity_id}${entry.message ? ` \u2014 ${entry.message}` : ""}"
             >${entry.entity_id}${entry.message ? ` \u2014 ${entry.message}` : ""}</span
           >
         </div>
@@ -223,6 +261,64 @@ export class AutodocSuppressions extends LitElement {
         .restore-btn:hover {
           background: rgba(var(--rgb-primary-color, 66, 133, 244), 0.1);
           color: var(--primary-color);
+        }
+
+        .confirm-prompt {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: var(--autodoc-meta-size);
+        }
+
+        .confirm-text {
+          color: var(--secondary-text-color);
+          font-weight: 500;
+        }
+
+        .confirm-yes-btn,
+        .confirm-cancel-btn {
+          background: transparent;
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+          border-radius: 4px;
+          padding: 2px 8px;
+          cursor: pointer;
+          font-size: var(--autodoc-meta-size);
+          transition: background var(--autodoc-transition-fast);
+        }
+
+        .confirm-yes-btn {
+          color: var(--autodoc-error);
+          border-color: var(--autodoc-error);
+        }
+
+        .confirm-yes-btn:hover {
+          background: rgba(217, 72, 72, 0.1);
+        }
+
+        .confirm-cancel-btn {
+          color: var(--secondary-text-color);
+        }
+
+        .confirm-cancel-btn:hover {
+          background: rgba(127, 127, 127, 0.1);
+        }
+
+        /* Mobile: touch-friendly suppressions */
+        @media (max-width: 600px) {
+          .restore-btn {
+            width: 44px;
+            height: 44px;
+          }
+
+          .clear-all-btn {
+            min-height: 44px;
+            padding: 8px 14px;
+            font-size: var(--autodoc-issue-size);
+          }
+
+          .suppression-item {
+            padding: var(--autodoc-spacing-md);
+          }
         }
       `,
     ];
