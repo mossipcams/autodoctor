@@ -1254,3 +1254,193 @@ def test_filter_args_exact_count_branch_over():
     assert "as_datetime" in arg_issues[0].message
     # Exact count: message says "expects 0 arguments"
     assert "0" in arg_issues[0].message
+
+
+# --- ZeroIterationForLoop mutation hardening (JV-05) ---
+
+
+def test_choose_conditions_loop_finds_template_error():
+    """Choose option with bad template in condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(opt_conditions)` (line 313).
+    If mutated to empty iterable, the condition's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_choose_cond",
+        "alias": "ZIL Choose Cond",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {"condition": "template", "value_template": "{{ broken > }}"}
+                        ],
+                        "sequence": [],
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_options_loop_finds_template_error():
+    """Choose block with option whose sequence has bad template.
+
+    Kills: ZeroIterationForLoop on `for opt_idx, option in enumerate(action.get("choose", []))` (line 307).
+    If mutated to empty iterable, the entire option (including sequence) is never validated.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_choose_opt",
+        "alias": "ZIL Choose Opt",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_if_conditions_loop_finds_template_error():
+    """If action with bad template in condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(if_conditions)` (line 351).
+    If mutated to empty iterable, the if condition's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_if_cond",
+        "alias": "ZIL If Cond",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "if": [{"condition": "template", "value_template": "{{ broken > }}"}],
+                "then": [],
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_while_conditions_loop_finds_template_error():
+    """Repeat action with bad template in while condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(repeat_conditions)` (line 384)
+    via the "while" key. If mutated to empty iterable, the while condition is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_repeat_while",
+        "alias": "ZIL Repeat While",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "repeat": {
+                    "while": [
+                        {"condition": "template", "value_template": "{{ broken > }}"}
+                    ],
+                    "sequence": [],
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_until_conditions_loop_finds_template_error():
+    """Repeat action with bad template in until condition.
+
+    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(repeat_conditions)` (line 384)
+    via the "until" key. If mutated to empty iterable, the until condition is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_repeat_until",
+        "alias": "ZIL Repeat Until",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "repeat": {
+                    "until": [
+                        {"condition": "template", "value_template": "{{ broken > }}"}
+                    ],
+                    "sequence": [],
+                }
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_parallel_branches_loop_finds_template_error():
+    """Parallel action with bad template in branch.
+
+    Kills: ZeroIterationForLoop on `for branch_idx, branch in enumerate(branches)` (line 409).
+    If mutated to empty iterable, the branch's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_parallel",
+        "alias": "ZIL Parallel",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "parallel": [{"data": {"msg": "{{ broken > }}"}}]
+            }
+        ],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_nested_conditions_loop_finds_template_error():
+    """Top-level 'and' condition with nested bad template condition.
+
+    Kills: ZeroIterationForLoop on `for nested_idx, nested_cond in enumerate(nested)` (line 232).
+    If mutated to empty iterable, the nested condition's bad template is never checked.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "zil_nested_cond",
+        "alias": "ZIL Nested Cond",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [
+            {
+                "condition": "and",
+                "conditions": [
+                    {"condition": "template", "value_template": "{{ broken > }}"}
+                ],
+            }
+        ],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
