@@ -32,7 +32,9 @@ async def test_validate_service_not_found(hass: HomeAssistant):
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.SERVICE_NOT_FOUND
     assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == ""
     assert "nonexistent.service" in issues[0].message
+    assert issues[0].suggestion is None
 
 
 async def test_validate_service_exists_no_issues(hass: HomeAssistant):
@@ -122,7 +124,9 @@ async def test_validate_missing_required_param(hass: HomeAssistant):
     missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
     assert len(missing_issues) == 1
     assert missing_issues[0].severity == Severity.ERROR
+    assert missing_issues[0].entity_id == ""
     assert "brightness" in missing_issues[0].message
+    assert missing_issues[0].suggestion is None
 
 
 async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
@@ -262,6 +266,7 @@ async def test_validate_unknown_param(hass: HomeAssistant):
     unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
     assert len(unknown_issues) == 1
     assert unknown_issues[0].severity == Severity.WARNING
+    assert unknown_issues[0].entity_id == ""
     assert "brigthness" in unknown_issues[0].message
     # Should suggest 'brightness' via fuzzy match
     assert unknown_issues[0].suggestion == "brightness"
@@ -332,7 +337,7 @@ async def test_validate_invalid_param_type_number(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    # Basic type checking removed in v2.7.0 — only select options validated
+    # Type checking removed v2.7.0 — verify no false positives
     type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
     assert len(type_issues) == 0
 
@@ -407,7 +412,7 @@ async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    # Basic type checking removed in v2.7.0 — only select options validated
+    # Type checking removed v2.7.0 — verify no false positives
     type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
     assert len(type_issues) == 0
 
@@ -488,7 +493,7 @@ async def test_validate_select_option_valid(hass: HomeAssistant):
 
 async def test_validate_select_option_invalid(hass: HomeAssistant):
     """Test validation flags invalid select option."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
 
     async def test_service(call):
         pass
@@ -521,6 +526,8 @@ async def test_validate_select_option_invalid(hass: HomeAssistant):
 
     type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
     assert len(type_issues) == 1
+    assert type_issues[0].severity == Severity.WARNING
+    assert type_issues[0].entity_id == ""
     assert "turbo" in type_issues[0].message
 
 
@@ -560,7 +567,7 @@ async def test_validate_no_description_available(hass: HomeAssistant):
 
 async def test_validate_all_checks_combined(hass: HomeAssistant):
     """Test all validation checks work together."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
 
     async def test_service(call):
         pass
@@ -603,6 +610,15 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
     assert IssueType.SERVICE_MISSING_REQUIRED_PARAM in issue_types
     assert IssueType.SERVICE_UNKNOWN_PARAM in issue_types
     assert IssueType.SERVICE_INVALID_PARAM_TYPE in issue_types
+
+    # Verify severity for each issue type
+    for issue in issues:
+        if issue.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM:
+            assert issue.severity == Severity.ERROR
+        elif issue.issue_type == IssueType.SERVICE_UNKNOWN_PARAM:
+            assert issue.severity == Severity.WARNING
+        elif issue.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE:
+            assert issue.severity == Severity.WARNING
 
 
 async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
@@ -811,7 +827,7 @@ async def test_capability_dependent_params_not_flagged(
 
 async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant):
     """Test SERVICE_NOT_FOUND includes fuzzy suggestion for close match."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
 
     # Register "turn_off" so "turn_of" (typo) can be suggested
     async def test_service(call):
@@ -834,13 +850,15 @@ async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant):
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.SERVICE_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == ""
     assert "Did you mean 'light.turn_off'?" in issues[0].message
     assert issues[0].suggestion == "light.turn_off"
 
 
 async def test_service_not_found_no_suggestion_wrong_domain(hass: HomeAssistant):
     """Test SERVICE_NOT_FOUND without suggestion when domain has no services."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
 
     validator = ServiceCallValidator(hass)
 
@@ -855,13 +873,15 @@ async def test_service_not_found_no_suggestion_wrong_domain(hass: HomeAssistant)
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.SERVICE_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == ""
     assert "Did you mean" not in issues[0].message
     assert issues[0].suggestion is None
 
 
 async def test_service_not_found_no_suggestion_no_close_match(hass: HomeAssistant):
     """Test SERVICE_NOT_FOUND without suggestion when no close match exists."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
 
     async def test_service(call):
         pass
@@ -882,13 +902,15 @@ async def test_service_not_found_no_suggestion_no_close_match(hass: HomeAssistan
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.SERVICE_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == ""
     assert "Did you mean" not in issues[0].message
     assert issues[0].suggestion is None
 
 
 async def test_unknown_target_key_flagged(hass: HomeAssistant):
     """Test that non-standard keys in target dict are flagged."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
 
     async def test_service(call):
         pass
@@ -922,6 +944,8 @@ async def test_unknown_target_key_flagged(hass: HomeAssistant):
 
     unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
     assert len(unknown_issues) == 1
+    assert unknown_issues[0].severity == Severity.WARNING
+    assert unknown_issues[0].entity_id == ""
     assert "Unknown target key 'entitiy_id'" in unknown_issues[0].message
     assert "entity_id" in (unknown_issues[0].suggestion or "")
 
@@ -973,3 +997,219 @@ async def test_refresh_service_descriptions(hass: HomeAssistant):
     # After load, descriptions should be set (dict, possibly empty)
     assert validator._service_descriptions is not None
 
+
+# --- Template entity skipping, entity existence, and loop hardening (SV-01, SV-02, SV-03) ---
+
+
+async def test_template_entity_id_skips_validation(hass: HomeAssistant):
+    """Entity ID containing '{{' in target should skip validation entirely.
+
+    Kills: AddNot on 'if "{{" in entity_id' -- if the condition is inverted,
+    the template entity would be validated and produce a target-not-found issue.
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": "{{ my_entity }}"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 0
+
+
+async def test_non_template_entity_validated(hass: HomeAssistant):
+    """Non-template entity_id IS validated and produces issue when missing.
+
+    Contrast test for SV-01: proves non-template entities are validated.
+    Kills AddNot on template check (both directions covered).
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": "light.nonexistent"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 1
+    assert target_issues[0].severity == Severity.WARNING
+    assert target_issues[0].entity_id == "light.nonexistent"
+
+
+async def test_existing_target_entity_no_issue(hass: HomeAssistant):
+    """Existing entity_id in target should NOT produce SERVICE_TARGET_NOT_FOUND.
+
+    Kills: Is->IsNot on 'hass.states.get(entity_id) is None' -- if mutated
+    to 'is not None', existing entities would be incorrectly flagged.
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": "light.kitchen"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 0
+
+
+async def test_multiple_nonexistent_entities_all_produce_issues(hass: HomeAssistant):
+    """Multiple nonexistent entity_ids must ALL produce issues.
+
+    Kills: ReplaceContinueWithBreak on entity_id loop in _validate_target_entities.
+    If break replaces continue, only the first entity would be checked and the
+    loop would exit early, producing only 1 issue instead of 3.
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": ["light.fake1", "light.fake2", "light.fake3"]},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 3
+    flagged_entities = {i.entity_id for i in target_issues}
+    assert flagged_entities == {"light.fake1", "light.fake2", "light.fake3"}
+
+
+async def test_multiple_required_fields_all_checked(hass: HomeAssistant):
+    """Multiple missing required fields must ALL produce issues.
+
+    Kills: ReplaceContinueWithBreak on _validate_required_params loop.
+    If break replaces continue, only the first missing field would be reported.
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {
+            "field_a": {"required": True},
+            "field_b": {"required": True},
+            "field_c": {"required": True},
+        }}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data={},
+        target={"entity_id": "light.kitchen"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
+    assert len(missing_issues) == 3
+
+
+async def test_multiple_unknown_params_all_checked(hass: HomeAssistant):
+    """Multiple unknown params must ALL produce issues in strict mode.
+
+    Kills: ReplaceContinueWithBreak on _validate_unknown_params data loop.
+    If break replaces continue, only the first unknown param would be reported.
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = ServiceCallValidator(hass, strict_service_validation=True)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {
+            "brightness": {"required": False},
+        }}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data={"unknown1": "a", "unknown2": "b", "unknown3": "c"},
+        target={"entity_id": "light.kitchen"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
+    assert len(unknown_issues) == 3
