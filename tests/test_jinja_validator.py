@@ -28,6 +28,7 @@ def test_deeply_nested_conditions_do_not_stackoverflow():
     # Should not raise RecursionError, should return (possibly with warning logged)
     issues = validator.validate_automations([automation])
     assert isinstance(issues, list)
+    assert len(issues) == 0
 
 
 @pytest.mark.parametrize("action_key", ["repeat", "parallel"])
@@ -42,6 +43,7 @@ def test_null_action_config_does_not_crash(action_key):
     }
     issues = validator.validate_automations([automation])
     assert isinstance(issues, list)
+    assert len(issues) == 0
 
 
 def test_break_continue_do_not_produce_false_positives():
@@ -479,7 +481,17 @@ def test_unknown_filter_or_test_not_flagged_without_strict_mode(template, locati
 def test_delegation_calls_validation_engine():
     """Verify _validate_entity_references delegates to validation_engine.validate_all."""
     mock_engine = MagicMock(spec=ValidationEngine)
-    mock_engine.validate_all.return_value = []
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            location="trigger[0].value_template.is_state",
+            message="Entity 'light.kitchen' does not exist",
+        )
+    ]
 
     validator = JinjaValidator(validation_engine=mock_engine)
 
@@ -494,9 +506,13 @@ def test_delegation_calls_validation_engine():
         )
     ]
 
-    validator._validate_entity_references(refs)
+    issues = validator._validate_entity_references(refs)
 
     mock_engine.validate_all.assert_called_once_with(refs)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.kitchen"
 
 
 def test_delegation_remaps_entity_not_found():
@@ -530,6 +546,8 @@ def test_delegation_remaps_entity_not_found():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.nonexistent"
 
 
 def test_delegation_remaps_entity_removed():
@@ -563,6 +581,8 @@ def test_delegation_remaps_entity_removed():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+    assert issues[0].severity == Severity.INFO
+    assert issues[0].entity_id == "light.old"
 
 
 def test_delegation_remaps_invalid_state():
@@ -596,6 +616,8 @@ def test_delegation_remaps_invalid_state():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_INVALID_STATE
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "binary_sensor.motion"
 
 
 def test_delegation_remaps_attribute_not_found():
@@ -629,6 +651,8 @@ def test_delegation_remaps_attribute_not_found():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND
+    assert issues[0].severity == Severity.WARNING
+    assert issues[0].entity_id == "climate.living_room"
 
 
 def test_delegation_preserves_case_mismatch():
@@ -662,6 +686,8 @@ def test_delegation_preserves_case_mismatch():
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.CASE_MISMATCH
+    assert issues[0].severity == Severity.WARNING
+    assert issues[0].entity_id == "binary_sensor.motion"
 
 
 def test_delegation_preserves_location():
@@ -694,6 +720,8 @@ def test_delegation_preserves_location():
     issues = validator._validate_entity_references(refs)
 
     assert issues[0].location == "trigger[0].value_template.is_state"
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "light.nonexistent"
 
 
 def test_no_validation_engine_returns_empty():
@@ -920,3 +948,149 @@ def test_non_syntax_exception_does_not_produce_template_syntax_error():
 
     # Restore original parse
     validator._env.parse = original_parse
+
+
+# --- _check_special_reference mutation hardening (JV-01, JV-02) ---
+
+
+def test_check_special_reference_zone_found(hass):
+    """Zone entity exists -- no issue returned.
+
+    Kills: Eq->IsNot/Gt/LtE on reference_type == 'zone',
+           AddNot on 'if not exists'.
+    """
+    hass.states.async_set("zone.home", "zoning", {"latitude": 51.5, "longitude": -0.1})
+
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="zone.home",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="zone",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is None
+
+
+def test_check_special_reference_zone_not_found(hass):
+    """Zone entity does NOT exist -- issue returned.
+
+    Kills: AddNot on 'if not exists' (found case returns None, not-found returns issue).
+    """
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="zone.nonexistent",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="zone",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is not None
+    assert issue.issue_type == IssueType.TEMPLATE_ZONE_NOT_FOUND
+    assert issue.severity == Severity.ERROR
+    assert "zone.nonexistent" in issue.message
+
+
+def test_check_special_reference_device_found(hass, device_registry):
+    """Device exists in device registry -- no issue returned.
+
+    Kills: Eq->IsNot/Gt/LtE on reference_type == 'device'.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    config_entry = MockConfigEntry(domain="test", data={})
+    config_entry.add_to_hass(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={("test", "device1")},
+    )
+
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=device.id,
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="device",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is None
+
+
+def test_check_special_reference_device_not_found(hass):
+    """Device does NOT exist -- issue returned.
+
+    Kills: AddNot on 'if not exists' for device path.
+    """
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="nonexistent_device_id",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="device",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is not None
+    assert issue.issue_type == IssueType.TEMPLATE_DEVICE_NOT_FOUND
+    assert issue.severity == Severity.ERROR
+    assert "nonexistent_device_id" in issue.message
+
+
+def test_check_special_reference_area_found(hass, area_registry):
+    """Area exists in area registry -- no issue returned.
+
+    Kills: Eq->IsNot/Gt/LtE on reference_type == 'area'.
+    """
+    area = area_registry.async_create("Living Room")
+
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=area.id,
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="area",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is None
+
+
+def test_check_special_reference_area_not_found(hass):
+    """Area does NOT exist -- issue returned.
+
+    Kills: AddNot on 'if not exists' for area path.
+    """
+    validator = JinjaValidator(hass)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="nonexistent_area",
+        expected_state=None,
+        expected_attribute=None,
+        location="test_location",
+        reference_type="area",
+    )
+    issue = validator._check_special_reference(ref)
+    assert issue is not None
+    assert issue.issue_type == IssueType.TEMPLATE_AREA_NOT_FOUND
+    assert issue.severity == Severity.ERROR
+    assert "nonexistent_area" in issue.message
