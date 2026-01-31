@@ -140,10 +140,11 @@ class ValidationEngine:
     def _validate_state(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the expected state.
 
-        Only validates domains in STATE_VALIDATION_WHITELIST (binary_sensor,
-        person, sun, device_tracker, input_boolean, group) which have stable,
-        well-defined state values. Other domains (sensor, light, climate, etc.)
-        are skipped because their states are too dynamic or integration-specific.
+        Only validates domains in STATE_VALIDATION_WHITELIST (alarm_control_panel,
+        binary_sensor, climate, cover, device_tracker, group, input_boolean,
+        lock, person, sun) which have stable, well-defined state values. Other
+        domains (sensor, light, etc.) are skipped because their states are too
+        dynamic or integration-specific.
         """
         issues: list[ValidationIssue] = []
 
