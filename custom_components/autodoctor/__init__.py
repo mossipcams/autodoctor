@@ -216,7 +216,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_STRICT_TEMPLATE_VALIDATION, DEFAULT_STRICT_TEMPLATE_VALIDATION
     )
     jinja_validator = JinjaValidator(
-        hass, knowledge_base=knowledge_base, strict_template_validation=strict_template
+        hass,
+        strict_template_validation=strict_template,
+        validation_engine=validator,
     )
     strict_service = options.get(
         CONF_STRICT_SERVICE_VALIDATION, DEFAULT_STRICT_SERVICE_VALIDATION
@@ -374,167 +376,97 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     )
 
 
-async def async_validate_all(hass: HomeAssistant) -> list:
-    """Validate all automations."""
-    data = hass.data.get(DOMAIN, {})
-    analyzer = data.get("analyzer")
-    validator = data.get("validator")
-    jinja_validator = data.get("jinja_validator")
-    service_validator = data.get("service_validator")
-    reporter = data.get("reporter")
-    knowledge_base = data.get("knowledge_base")
+# Cross-family semantic equivalence for deduplication (C5).
+# Issue types within the same family represent the same underlying problem
+# detected through different code paths. When both families report on the
+# same (automation_id, entity_id), keep only the more authoritative one.
+_SEMANTIC_FAMILIES: dict[IssueType, str] = {
+    IssueType.ENTITY_NOT_FOUND: "entity_missing",
+    IssueType.TEMPLATE_ENTITY_NOT_FOUND: "entity_missing",
+    IssueType.ENTITY_REMOVED: "entity_missing",
+    IssueType.INVALID_STATE: "invalid_state",
+    IssueType.TEMPLATE_INVALID_STATE: "invalid_state",
+    IssueType.ATTRIBUTE_NOT_FOUND: "attribute_missing",
+    IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND: "attribute_missing",
+}
 
-    if not all([analyzer, validator, reporter]):
-        return []
-
-    # Ensure history is loaded before validation
-    if knowledge_base and not knowledge_base.has_history_loaded():
-        _LOGGER.debug("Loading entity history before validation...")
-        await knowledge_base.async_load_history()
-
-    automations = _get_automation_configs(hass)
-    if not automations:
-        _LOGGER.debug("No automations found to validate")
-        return []
-
-    _LOGGER.info("Validating %d automations", len(automations))
-
-    # Log first automation structure for debugging
-    if automations:
-        first = automations[0]
-        _LOGGER.debug(
-            "First automation keys: %s",
-            list(first.keys()) if isinstance(first, dict) else type(first),
-        )
-        _LOGGER.debug(
-            "First automation sample: %s",
-            {k: type(v).__name__ for k, v in first.items()}
-            if isinstance(first, dict)
-            else first,
-        )
-
-    all_issues = []
-    failed_automations = 0
-
-    # Run Jinja template validation first
-    if jinja_validator:
-        try:
-            jinja_issues = jinja_validator.validate_automations(automations)
-            _LOGGER.debug(
-                "Jinja validation: found %d template syntax issues", len(jinja_issues)
-            )
-            all_issues.extend(jinja_issues)
-        except Exception as err:
-            _LOGGER.warning("Jinja validation failed: %s", err)
-
-    # Run service call validation
-    if service_validator:
-        try:
-            await service_validator.async_load_descriptions()
-            service_calls = []
-            for automation in automations:
-                service_calls.extend(analyzer.extract_service_calls(automation))
-
-            service_issues = service_validator.validate_service_calls(service_calls)
-            all_issues.extend(service_issues)
-            _LOGGER.debug(
-                "Service validation: found %d issues in %d service calls",
-                len(service_issues),
-                len(service_calls),
-            )
-        except Exception as ex:
-            _LOGGER.exception("Service validation failed: %s", ex)
-
-    # Run state reference validation - isolate each automation
-    for idx, automation in enumerate(automations):
-        auto_id = automation.get("id", "unknown")
-        auto_name = automation.get("alias", auto_id)
-
-        try:
-            # Log trigger info for first few automations
-            if idx < 3:
-                _LOGGER.debug(
-                    "Automation '%s' trigger: %s",
-                    auto_name,
-                    automation.get("trigger", automation.get("triggers", "NO TRIGGER KEY")),
-                )
-            refs = analyzer.extract_state_references(automation)
-            _LOGGER.debug(
-                "Automation '%s': extracted %d state references", auto_name, len(refs)
-            )
-            issues = validator.validate_all(refs)
-            _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
-            all_issues.extend(issues)
-        except Exception as err:
-            failed_automations += 1
-            _LOGGER.warning(
-                "Failed to validate automation '%s' (%s): %s",
-                auto_name, auto_id, err
-            )
-            continue
-
-    if failed_automations > 0:
-        _LOGGER.warning(
-            "Validation completed with %d failed automations (out of %d)",
-            failed_automations, len(automations)
-        )
-
-    _LOGGER.info(
-        "Validation complete: %d total issues across %d automations",
-        len(all_issues),
-        len(automations),
-    )
-    await reporter.async_report_issues(all_issues)
-
-    # Update all validation state atomically to prevent partial reads
-    timestamp = datetime.now(UTC).isoformat()
-    hass.data[DOMAIN].update(
-        {
-            "issues": all_issues,  # Keep for backwards compatibility
-            "validation_issues": all_issues,
-            "validation_last_run": timestamp,
-        }
-    )
-    return all_issues
+# Issue types from validator.py (entity_state family) are preferred over
+# TEMPLATE_* variants because validator.py is the authority.
+_PREFERRED_ISSUE_TYPES: frozenset[IssueType] = frozenset({
+    IssueType.ENTITY_NOT_FOUND,
+    IssueType.ENTITY_REMOVED,
+    IssueType.INVALID_STATE,
+    IssueType.ATTRIBUTE_NOT_FOUND,
+})
 
 
-async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
-    """Run validation and return per-group structured results.
+# IMPORTANT: Correctness depends on VALIDATION_GROUP_ORDER processing
+# "entity_state" before "templates". The dedup loop iterates group_issues
+# in dict insertion order (which mirrors VALIDATION_GROUP_ORDER). Since
+# entity_state issues are seen first, they become the authority --
+# duplicate TEMPLATE_* issues from the templates group are dropped.
+# Reordering VALIDATION_GROUP_ORDER to put "templates" before
+# "entity_state" would invert the preference and break dedup.
+def _dedup_cross_family(group_issues: dict[str, list]) -> dict[str, list]:
+    """Deduplicate cross-family issues that represent the same problem.
 
-    Calls the same validators as async_validate_all() but times each
-    validator family independently and classifies issues into groups.
+    Two issues are considered duplicates if they share the same
+    (automation_id, entity_id, semantic_family). When duplicates exist,
+    the non-TEMPLATE variant (from validator.py) is preferred.
 
-    Returns dict with keys: group_issues, group_durations, all_issues, timestamp.
+    Does NOT modify __hash__/__eq__ on ValidationIssue.
+    """
+    # Build a map of dedup_key -> (best_issue, group_id)
+    seen: dict[tuple, tuple] = {}  # dedup_key -> (issue, gid)
+
+    for gid, issues in group_issues.items():
+        deduped = []
+        for issue in issues:
+            family = _SEMANTIC_FAMILIES.get(issue.issue_type)
+            if family is None:
+                # Not in a semantic family -- never deduped
+                deduped.append(issue)
+                continue
+
+            dedup_key = (issue.automation_id, issue.entity_id, family)
+
+            if dedup_key not in seen:
+                # First occurrence -- keep it provisionally
+                seen[dedup_key] = (issue, gid)
+                deduped.append(issue)
+            else:
+                existing_issue, existing_gid = seen[dedup_key]
+                # Prefer the non-TEMPLATE (authority) variant
+                if (
+                    issue.issue_type in _PREFERRED_ISSUE_TYPES
+                    and existing_issue.issue_type not in _PREFERRED_ISSUE_TYPES
+                ):
+                    # Replace: remove old from its group, keep new
+                    group_issues[existing_gid] = [
+                        i for i in group_issues[existing_gid] if i is not existing_issue
+                    ]
+                    seen[dedup_key] = (issue, gid)
+                    deduped.append(issue)
+                # else: existing is preferred or equal, skip new issue
+        group_issues[gid] = deduped
+
+    return group_issues
+
+
+async def _async_run_validators(
+    hass: HomeAssistant,
+    automations: list[dict],
+) -> dict:
+    """Run all validators on the given automations.
+
+    This is the shared validation core used by all three public entry points.
+    Returns a dict with keys: group_issues, group_durations, all_issues, timestamp.
     """
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
     validator = data.get("validator")
     jinja_validator = data.get("jinja_validator")
     service_validator = data.get("service_validator")
-    reporter = data.get("reporter")
-    knowledge_base = data.get("knowledge_base")
-
-    empty_result = {
-        "group_issues": {gid: [] for gid in VALIDATION_GROUP_ORDER},
-        "group_durations": {gid: 0 for gid in VALIDATION_GROUP_ORDER},
-        "all_issues": [],
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-    if not all([analyzer, validator, reporter]):
-        return empty_result
-
-    # Ensure history is loaded before validation
-    if knowledge_base and not knowledge_base.has_history_loaded():
-        _LOGGER.debug("Loading entity history before validation...")
-        await knowledge_base.async_load_history()
-
-    automations = _get_automation_configs(hass)
-    if not automations:
-        _LOGGER.debug("No automations found to validate")
-        return empty_result
-
-    _LOGGER.info("Validating %d automations (with groups)", len(automations))
 
     # Initialize per-group collectors
     group_issues: dict[str, list] = {gid: [] for gid in VALIDATION_GROUP_ORDER}
@@ -623,6 +555,16 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
             len(automations),
         )
 
+    # Deduplicate cross-family issues at the collection point (C5)
+    pre_dedup_count = sum(len(issues) for issues in group_issues.values())
+    group_issues = _dedup_cross_family(group_issues)
+    post_dedup_count = sum(len(issues) for issues in group_issues.values())
+    if pre_dedup_count != post_dedup_count:
+        _LOGGER.debug(
+            "Cross-family deduplication removed %d duplicate issues",
+            pre_dedup_count - post_dedup_count,
+        )
+
     # Combine all issues in canonical group order for flat list
     all_issues: list = []
     for gid in VALIDATION_GROUP_ORDER:
@@ -634,26 +576,7 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
         len(automations),
     )
 
-    # Report issues
-    await reporter.async_report_issues(all_issues)
-
-    # Update all validation state atomically
     timestamp = datetime.now(UTC).isoformat()
-    hass.data[DOMAIN].update(
-        {
-            "issues": all_issues,  # Keep for backwards compatibility
-            "validation_issues": all_issues,
-            "validation_last_run": timestamp,
-            "validation_groups": {
-                gid: {
-                    "issues": group_issues[gid],
-                    "duration_ms": group_durations[gid],
-                }
-                for gid in VALIDATION_GROUP_ORDER
-            },
-        }
-    )
-
     return {
         "group_issues": group_issues,
         "group_durations": group_durations,
@@ -662,12 +585,85 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
     }
 
 
-async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> list:
-    """Validate a specific automation."""
+async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
+    """Run validation on all automations and return per-group structured results.
+
+    This is THE primary validation entry point. All other validation functions
+    route through _async_run_validators which this function also uses.
+
+    Returns dict with keys: group_issues, group_durations, all_issues, timestamp.
+    """
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
     validator = data.get("validator")
-    jinja_validator = data.get("jinja_validator")
+    reporter = data.get("reporter")
+    knowledge_base = data.get("knowledge_base")
+
+    empty_result = {
+        "group_issues": {gid: [] for gid in VALIDATION_GROUP_ORDER},
+        "group_durations": {gid: 0 for gid in VALIDATION_GROUP_ORDER},
+        "all_issues": [],
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    if not all([analyzer, validator, reporter]):
+        return empty_result
+
+    # Ensure history is loaded before validation
+    if knowledge_base and not knowledge_base.has_history_loaded():
+        _LOGGER.debug("Loading entity history before validation...")
+        await knowledge_base.async_load_history()
+
+    automations = _get_automation_configs(hass)
+    if not automations:
+        _LOGGER.debug("No automations found to validate")
+        return empty_result
+
+    _LOGGER.info("Validating %d automations (with groups)", len(automations))
+
+    result = await _async_run_validators(hass, automations)
+
+    # Report issues
+    await reporter.async_report_issues(result["all_issues"])
+
+    # Update all validation state atomically
+    hass.data[DOMAIN].update(
+        {
+            "issues": result["all_issues"],  # Keep for backwards compatibility
+            "validation_issues": result["all_issues"],
+            "validation_last_run": result["timestamp"],
+            "validation_groups": {
+                gid: {
+                    "issues": result["group_issues"][gid],
+                    "duration_ms": result["group_durations"][gid],
+                }
+                for gid in VALIDATION_GROUP_ORDER
+            },
+        }
+    )
+
+    return result
+
+
+async def async_validate_all(hass: HomeAssistant) -> list:
+    """Validate all automations and return flat issue list.
+
+    Thin wrapper around async_validate_all_with_groups that returns
+    just the flat list for backward compatibility.
+    """
+    result = await async_validate_all_with_groups(hass)
+    return result["all_issues"]
+
+
+async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> list:
+    """Validate a specific automation.
+
+    Routes through the shared validation core so that ALL validator families
+    (jinja, service, entity/state) are included.
+    """
+    data = hass.data.get(DOMAIN, {})
+    analyzer = data.get("analyzer")
+    validator = data.get("validator")
     reporter = data.get("reporter")
 
     if not all([analyzer, validator, reporter]):
@@ -683,16 +679,7 @@ async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> 
         _LOGGER.warning("Automation %s not found", automation_id)
         return []
 
-    issues = []
+    result = await _async_run_validators(hass, [automation])
 
-    # Run Jinja validation
-    if jinja_validator:
-        jinja_issues = jinja_validator.validate_automations([automation])
-        issues.extend(jinja_issues)
-
-    # Run state reference validation
-    refs = analyzer.extract_state_references(automation)
-    issues.extend(validator.validate_all(refs))
-
-    await reporter.async_report_issues(issues)
-    return issues
+    await reporter.async_report_issues(result["all_issues"])
+    return result["all_issues"]

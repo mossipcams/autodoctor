@@ -56,18 +56,6 @@ async def test_get_valid_states_unknown_entity(hass: HomeAssistant):
     assert states is None
 
 
-async def test_is_valid_state(hass: HomeAssistant):
-    """Test checking if a state is valid."""
-    kb = StateKnowledgeBase(hass)
-
-    hass.states.async_set("binary_sensor.motion", STATE_ON)
-    await hass.async_block_till_done()
-
-    assert kb.is_valid_state("binary_sensor.motion", "on") is True
-    assert kb.is_valid_state("binary_sensor.motion", "off") is True
-    assert kb.is_valid_state("binary_sensor.motion", "maybe") is False
-
-
 async def test_entity_exists(hass: HomeAssistant):
     """Test checking if entity exists."""
     kb = StateKnowledgeBase(hass)

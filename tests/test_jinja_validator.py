@@ -1,8 +1,11 @@
 """Tests for JinjaValidator."""
 
 import pytest
-from custom_components.autodoctor.jinja_validator import JinjaValidator
-from custom_components.autodoctor.models import IssueType, Severity, StateReference
+from unittest.mock import MagicMock
+from custom_components.autodoctor.jinja_validator import JinjaValidator, _ISSUE_TYPE_REMAP
+from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+from custom_components.autodoctor.models import IssueType, Severity, StateReference, ValidationIssue
+from custom_components.autodoctor.validator import ValidationEngine
 
 
 def test_deeply_nested_conditions_do_not_stackoverflow():
@@ -298,8 +301,10 @@ def test_extract_entity_references(template, expected_ids, expected_location_suf
 
 
 def test_validate_entity_not_found(hass):
-    """Test entity existence validation."""
-    validator = JinjaValidator(hass)
+    """Test entity existence validation delegates to ValidationEngine."""
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
 
     # Create a reference to non-existent entity
     refs = [
@@ -321,11 +326,13 @@ def test_validate_entity_not_found(hass):
 
 
 def test_validate_attribute_not_found(hass):
-    """Test attribute existence validation."""
+    """Test attribute existence validation delegates and remaps issue type."""
     # Setup entity in hass
     hass.states.async_set("climate.living_room", "heat", {"temperature": 20})
 
-    validator = JinjaValidator(hass)
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
 
     refs = [
         StateReference(
@@ -346,11 +353,13 @@ def test_validate_attribute_not_found(hass):
 
 
 def test_validate_invalid_state(hass):
-    """Test state value validation."""
+    """Test state value validation delegates and remaps issue type."""
     # Setup entity in hass - use binary_sensor which is in STATE_VALIDATION_WHITELIST
     hass.states.async_set("binary_sensor.motion", "off")
 
-    validator = JinjaValidator(hass)
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
 
     refs = [
         StateReference(
@@ -375,7 +384,9 @@ def test_validate_entity_exists_no_issues(hass):
     # Setup entity in hass
     hass.states.async_set("light.kitchen", "on")
 
-    validator = JinjaValidator(hass)
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
 
     refs = [
         StateReference(
@@ -398,7 +409,9 @@ def test_template_validation_end_to_end(hass):
     # Setup entity in hass - use binary_sensor which is in STATE_VALIDATION_WHITELIST
     hass.states.async_set("binary_sensor.motion", "off")
 
-    validator = JinjaValidator(hass)
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
 
     automation = {
         "id": "test_e2e",
@@ -423,7 +436,9 @@ def test_template_validation_passes_for_valid_template(hass):
     # Setup entity in hass
     hass.states.async_set("light.kitchen", "on")
 
-    validator = JinjaValidator(hass)
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
 
     automation = {
         "id": "test_valid",
@@ -456,3 +471,452 @@ def test_unknown_filter_or_test_not_flagged_without_strict_mode(template, locati
     }
     issues = validator.validate_automations([automation])
     assert len(issues) == 0
+
+
+# --- Delegation tests (Task 1: H5/C2) ---
+
+
+def test_delegation_calls_validation_engine():
+    """Verify _validate_entity_references delegates to validation_engine.validate_all."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = []
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.kitchen",
+            expected_state="on",
+            expected_attribute=None,
+            location="trigger[0].value_template.is_state",
+        )
+    ]
+
+    validator._validate_entity_references(refs)
+
+    mock_engine.validate_all.assert_called_once_with(refs)
+
+
+def test_delegation_remaps_entity_not_found():
+    """Verify ENTITY_NOT_FOUND is remapped to TEMPLATE_ENTITY_NOT_FOUND."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            location="trigger[0].value_template.is_state",
+            message="Entity 'light.nonexistent' does not exist",
+        )
+    ]
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            expected_state=None,
+            expected_attribute=None,
+            location="trigger[0].value_template.is_state",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+
+
+def test_delegation_remaps_entity_removed():
+    """Verify ENTITY_REMOVED is remapped to TEMPLATE_ENTITY_NOT_FOUND."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_REMOVED,
+            severity=Severity.INFO,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.old",
+            location="action[0].data.entity_id",
+            message="Entity 'light.old' existed in history but is now missing",
+        )
+    ]
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.old",
+            expected_state=None,
+            expected_attribute=None,
+            location="action[0].data.entity_id",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND
+
+
+def test_delegation_remaps_invalid_state():
+    """Verify INVALID_STATE is remapped to TEMPLATE_INVALID_STATE."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.INVALID_STATE,
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="binary_sensor.motion",
+            location="trigger[0].value_template.is_state",
+            message="State 'bogus' is not valid for binary_sensor.motion",
+        )
+    ]
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="binary_sensor.motion",
+            expected_state="bogus",
+            expected_attribute=None,
+            location="trigger[0].value_template.is_state",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_INVALID_STATE
+
+
+def test_delegation_remaps_attribute_not_found():
+    """Verify ATTRIBUTE_NOT_FOUND is remapped to TEMPLATE_ATTRIBUTE_NOT_FOUND."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
+            severity=Severity.WARNING,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="climate.living_room",
+            location="condition[0].value_template.state_attr",
+            message="Attribute 'nonexistent' does not exist on climate.living_room",
+        )
+    ]
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="climate.living_room",
+            expected_state=None,
+            expected_attribute="nonexistent",
+            location="condition[0].value_template.state_attr",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND
+
+
+def test_delegation_preserves_case_mismatch():
+    """Verify CASE_MISMATCH is NOT remapped (same type in both families)."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.CASE_MISMATCH,
+            severity=Severity.WARNING,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="binary_sensor.motion",
+            location="trigger[0].value_template.is_state",
+            message="State 'On' has incorrect case, should be 'on'",
+        )
+    ]
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="binary_sensor.motion",
+            expected_state="On",
+            expected_attribute=None,
+            location="trigger[0].value_template.is_state",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.CASE_MISMATCH
+
+
+def test_delegation_preserves_location():
+    """Verify template-specific location strings are preserved through delegation."""
+    mock_engine = MagicMock(spec=ValidationEngine)
+    mock_engine.validate_all.return_value = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            location="trigger[0].value_template.is_state",
+            message="Entity 'light.nonexistent' does not exist",
+        )
+    ]
+
+    validator = JinjaValidator(validation_engine=mock_engine)
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            expected_state=None,
+            expected_attribute=None,
+            location="trigger[0].value_template.is_state",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+
+    assert issues[0].location == "trigger[0].value_template.is_state"
+
+
+def test_no_validation_engine_returns_empty():
+    """Without validation_engine, _validate_entity_references returns empty list."""
+    validator = JinjaValidator()
+
+    refs = [
+        StateReference(
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.nonexistent",
+            expected_state=None,
+            expected_attribute=None,
+            location="test_location",
+        )
+    ]
+
+    issues = validator._validate_entity_references(refs)
+    assert issues == []
+
+
+def test_issue_type_remap_dict_completeness():
+    """Verify _ISSUE_TYPE_REMAP covers all expected source types."""
+    assert IssueType.ENTITY_NOT_FOUND in _ISSUE_TYPE_REMAP
+    assert IssueType.ENTITY_REMOVED in _ISSUE_TYPE_REMAP
+    assert IssueType.INVALID_STATE in _ISSUE_TYPE_REMAP
+    assert IssueType.ATTRIBUTE_NOT_FOUND in _ISSUE_TYPE_REMAP
+    # CASE_MISMATCH intentionally not in remap
+    assert IssueType.CASE_MISMATCH not in _ISSUE_TYPE_REMAP
+
+
+# --- Trigger to/from field validation tests (Task 2: H2) ---
+
+
+def test_trigger_to_with_jinja_is_validated():
+    """Template trigger with Jinja expression in 'to' field should be validated."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "trigger_to_jinja",
+        "alias": "Trigger To Jinja",
+        "triggers": [
+            {
+                "platform": "template",
+                "to": "{{ states('sensor.temp') > 25 }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    # Valid Jinja, no syntax errors expected
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_trigger_to_with_bad_jinja_produces_syntax_error():
+    """Template trigger with bad Jinja in 'to' should produce syntax error."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "trigger_to_bad_jinja",
+        "alias": "Trigger To Bad Jinja",
+        "triggers": [
+            {
+                "platform": "template",
+                "to": "{{ states('sensor.temp') > }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+    assert "trigger[0].to" in issues[0].location
+
+
+def test_trigger_from_with_jinja_entity_is_validated(hass):
+    """Template trigger with Jinja in 'from' field extracts and validates entities."""
+    hass.states.async_set("light.kitchen", "on")
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
+
+    automation = {
+        "id": "trigger_from_jinja",
+        "alias": "Trigger From Jinja",
+        "triggers": [
+            {
+                "platform": "template",
+                "from": "{{ is_state('light.kitchen', 'on') }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    # Entity exists, no issues expected
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_trigger_to_plain_string_not_treated_as_template():
+    """Plain string 'to' field (no Jinja syntax) should NOT be treated as template."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "trigger_to_plain",
+        "alias": "Trigger To Plain",
+        "triggers": [
+            {
+                "platform": "state",
+                "entity_id": "light.kitchen",
+                "to": "on",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_trigger_from_plain_string_not_treated_as_template():
+    """Plain string 'from' field (no Jinja syntax) should NOT be treated as template."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "trigger_from_plain",
+        "alias": "Trigger From Plain",
+        "triggers": [
+            {
+                "platform": "state",
+                "entity_id": "light.kitchen",
+                "from": "off",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_trigger_to_and_from_both_validated():
+    """Both to and from fields with Jinja should be validated."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "trigger_both",
+        "alias": "Trigger Both",
+        "triggers": [
+            {
+                "platform": "template",
+                "to": "{{ broken > }}",
+                "from": "{{ also broken > }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    # Both to and from have syntax errors
+    assert len(issues) == 2
+    locations = {i.location for i in issues}
+    assert "trigger[0].to" in locations
+    assert "trigger[0].from" in locations
+    assert all(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_trigger_from_with_nonexistent_entity(hass):
+    """Jinja 'from' field referencing a nonexistent entity produces issue."""
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    validator = JinjaValidator(hass, validation_engine=engine)
+
+    automation = {
+        "id": "trigger_from_missing",
+        "alias": "Trigger From Missing Entity",
+        "triggers": [
+            {
+                "platform": "template",
+                "from": "{{ is_state('light.nonexistent', 'on') }}",
+            }
+        ],
+        "conditions": [],
+        "actions": [],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND for i in issues)
+    # Verify location includes the from field
+    entity_issues = [i for i in issues if i.issue_type == IssueType.TEMPLATE_ENTITY_NOT_FOUND]
+    assert any("trigger[0].from" in i.location for i in entity_issues)
+
+
+# --- Exception classification tests (Task 1: C3) ---
+
+
+def test_jinja_syntax_error_produces_template_syntax_error():
+    """A jinja2.TemplateSyntaxError should produce TEMPLATE_SYNTAX_ERROR."""
+    validator = JinjaValidator()
+    # {% if %} is invalid Jinja syntax (missing expression after 'if')
+    issues = validator._check_template(
+        "{% if %}", "test_location", "automation.test", "Test"
+    )
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+
+
+def test_non_syntax_exception_does_not_produce_template_syntax_error():
+    """A non-TemplateSyntaxError exception in _check_template should NOT produce TEMPLATE_SYNTAX_ERROR."""
+    validator = JinjaValidator()
+
+    # Monkey-patch the environment's parse method to raise a non-syntax exception
+    original_parse = validator._env.parse
+
+    def raise_key_error(source, *args, **kwargs):
+        raise KeyError("simulated registry lookup failure")
+
+    validator._env.parse = raise_key_error
+
+    issues = validator._check_template(
+        "{{ states('sensor.temp') }}", "test_location", "automation.test", "Test"
+    )
+
+    # Should NOT produce any issues (exception is logged and skipped)
+    assert len(issues) == 0
+
+    # Restore original parse
+    validator._env.parse = original_parse

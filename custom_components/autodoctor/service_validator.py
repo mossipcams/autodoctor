@@ -17,10 +17,20 @@ _LOGGER = logging.getLogger(__name__)
 # Target fields are separate from data fields
 _TARGET_FIELDS = frozenset({"entity_id", "device_id", "area_id"})
 
-# Known entity-capability-dependent parameters that may not appear in service schemas
-# These are valid parameters but depend on the target entity's capabilities
+# Entity-capability-dependent parameters that may not appear in service schemas.
+#
+# Home Assistant service descriptions advertise a base set of fields, but many
+# parameters only apply when the target entity supports a specific capability
+# (e.g. brightness for dimmable lights, color_temp for color-capable lights).
+# These parameters are valid but absent from the schema, so strict unknown-param
+# checking would false-positive on them.
+#
+# **Maintenance:** When adding a new service/domain, group entries under a domain
+# comment and list every capability-dependent parameter that HA documents for that
+# service.  Do NOT add parameters that are always in the schema -- only those that
+# are conditionally present based on entity features.
 _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
-    # Light
+    # --- Light ---
     "light.turn_on": frozenset({
         "brightness", "brightness_pct", "brightness_step", "brightness_step_pct",
         "color_temp", "color_temp_kelvin", "kelvin",
@@ -28,40 +38,40 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
         "color_name", "white", "profile", "flash", "effect", "transition",
     }),
     "light.turn_off": frozenset({"transition", "flash"}),
-    # Climate
+    # --- Climate ---
     "climate.set_temperature": frozenset({
         "temperature", "target_temp_high", "target_temp_low",
     }),
     "climate.set_hvac_mode": frozenset({"hvac_mode"}),
-    # Cover
+    # --- Cover ---
     "cover.set_cover_position": frozenset({"position"}),
     "cover.set_cover_tilt_position": frozenset({"tilt_position"}),
-    # Media player
+    # --- Media player ---
     "media_player.play_media": frozenset({
         "media_content_id", "media_content_type", "enqueue", "announce",
     }),
     "media_player.select_source": frozenset({"source"}),
     "media_player.select_sound_mode": frozenset({"sound_mode"}),
-    # Fan
+    # --- Fan ---
     "fan.set_percentage": frozenset({"percentage"}),
     "fan.set_preset_mode": frozenset({"preset_mode"}),
     "fan.set_direction": frozenset({"direction"}),
     "fan.oscillate": frozenset({"oscillating"}),
-    # Vacuum
+    # --- Vacuum ---
     "vacuum.send_command": frozenset({"command", "params"}),
-    # Alarm control panel
+    # --- Alarm control panel ---
     "alarm_control_panel.alarm_arm_away": frozenset({"code"}),
     "alarm_control_panel.alarm_arm_home": frozenset({"code"}),
     "alarm_control_panel.alarm_arm_night": frozenset({"code"}),
     "alarm_control_panel.alarm_arm_vacation": frozenset({"code"}),
     "alarm_control_panel.alarm_disarm": frozenset({"code"}),
     "alarm_control_panel.alarm_trigger": frozenset({"code"}),
-    # Number
+    # --- Number ---
     "number.set_value": frozenset({"value"}),
-    # Humidifier
+    # --- Humidifier ---
     "humidifier.set_humidity": frozenset({"humidity"}),
     "humidifier.set_mode": frozenset({"mode"}),
-    # Water heater
+    # --- Water heater ---
     "water_heater.set_temperature": frozenset({"temperature"}),
     "water_heater.set_operation_mode": frozenset({"operation_mode"}),
 }
@@ -150,14 +160,19 @@ class ServiceCallValidator:
 
             # Check if service exists
             if not self.hass.services.has_service(domain, service):
+                msg = f"Service '{call.service}' not found"
+                suggestion = self._suggest_service(call.service)
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
                 issues.append(ValidationIssue(
                     severity=Severity.ERROR,
                     automation_id=call.automation_id,
                     automation_name=call.automation_name,
                     entity_id="",
                     location=call.location,
-                    message=f"Service '{call.service}' not found",
+                    message=msg,
                     issue_type=IssueType.SERVICE_NOT_FOUND,
+                    suggestion=suggestion,
                 ))
                 continue
 
@@ -166,6 +181,9 @@ class ServiceCallValidator:
             if fields is None:
                 # No descriptions available, skip parameter validation
                 continue
+
+            # Validate target entity IDs
+            issues.extend(self._validate_target_entities(call))
 
             # Validate parameters
             issues.extend(self._validate_required_params(call, fields))
@@ -228,6 +246,7 @@ class ServiceCallValidator:
         """Check for parameters not in service schema."""
         issues: list[ValidationIssue] = []
         data = call.data or {}
+        target = call.target or {}
 
         # If service has no fields defined at all, skip — it may accept
         # arbitrary extra keys
@@ -255,6 +274,27 @@ class ServiceCallValidator:
                     message=(
                         f"Unknown parameter '{param_name}' "
                         f"for service '{call.service}'"
+                    ),
+                    issue_type=IssueType.SERVICE_UNKNOWN_PARAM,
+                    suggestion=suggestion,
+                ))
+
+        # Check target dict for non-standard keys
+        for param_name in target:
+            if param_name not in _TARGET_FIELDS:
+                suggestion = self._suggest_param(
+                    param_name, list(_TARGET_FIELDS)
+                )
+                issues.append(ValidationIssue(
+                    severity=Severity.WARNING,
+                    automation_id=call.automation_id,
+                    automation_name=call.automation_name,
+                    entity_id="",
+                    location=call.location,
+                    message=(
+                        f"Unknown target key '{param_name}' "
+                        f"for service '{call.service}'. "
+                        f"Valid target keys: {sorted(_TARGET_FIELDS)}"
                     ),
                     issue_type=IssueType.SERVICE_UNKNOWN_PARAM,
                     suggestion=suggestion,
@@ -368,9 +408,82 @@ class ServiceCallValidator:
 
         return None
 
+    def _validate_target_entities(
+        self,
+        call: ServiceCall,
+    ) -> list[ValidationIssue]:
+        """Validate entity IDs in the target dict exist."""
+        issues: list[ValidationIssue] = []
+        target = call.target or {}
+        entity_ids = target.get("entity_id")
+        if entity_ids is None:
+            return issues
+
+        # Normalize to list
+        if isinstance(entity_ids, str):
+            entity_ids = [entity_ids]
+        elif not isinstance(entity_ids, list):
+            return issues
+
+        for entity_id in entity_ids:
+            if not isinstance(entity_id, str):
+                continue
+            # Skip templated entity IDs
+            if "{{" in entity_id or "{%" in entity_id:
+                continue
+            if self.hass.states.get(entity_id) is None:
+                suggestion = self._suggest_target_entity(entity_id)
+                msg = f"Entity '{entity_id}' in service target does not exist"
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
+                issues.append(ValidationIssue(
+                    severity=Severity.WARNING,
+                    automation_id=call.automation_id,
+                    automation_name=call.automation_name,
+                    entity_id=entity_id,
+                    location=call.location,
+                    message=msg,
+                    issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                    suggestion=suggestion,
+                ))
+        return issues
+
+    def _suggest_target_entity(self, invalid: str) -> str | None:
+        """Suggest a correction for an invalid entity ID in target."""
+        if "." not in invalid:
+            return None
+        domain, name = invalid.split(".", 1)
+        same_domain = [
+            s.entity_id
+            for s in self.hass.states.async_all()
+            if s.entity_id.startswith(f"{domain}.")
+        ]
+        if not same_domain:
+            return None
+        names = {eid.split(".", 1)[1]: eid for eid in same_domain}
+        matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
+        return names[matches[0]] if matches else None
+
     def _suggest_param(
         self, invalid: str, valid_params: list[str]
     ) -> str | None:
         """Suggest a correction for an unknown parameter name."""
         matches = get_close_matches(invalid, valid_params, n=1, cutoff=0.75)
         return matches[0] if matches else None
+
+    def _suggest_service(self, invalid_service: str) -> str | None:
+        """Suggest a correction for an unknown service name.
+
+        Looks up services in the same domain and uses fuzzy matching
+        to find the closest service name.
+        """
+        if "." not in invalid_service:
+            return None
+        domain, service = invalid_service.split(".", 1)
+        domain_services = list(
+            self.hass.services.async_services().get(domain, {}).keys()
+        )
+        if not domain_services:
+            return None
+        matches = get_close_matches(service, domain_services, n=1, cutoff=0.6)
+        return f"{domain}.{matches[0]}" if matches else None

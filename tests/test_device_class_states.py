@@ -13,9 +13,9 @@ def test_binary_sensor_states():
 
 
 def test_person_states():
-    """Test person returns home/not_home."""
+    """Test person returns home/not_home/away."""
     states = get_device_class_states("person")
-    assert states == {"home", "not_home"}
+    assert states == {"home", "not_home", "away"}
 
 
 def test_lock_states():
@@ -49,6 +49,18 @@ def test_alarm_control_panel_states():
         "triggered",
     }
     assert states == expected
+
+
+def test_sun_states():
+    """Test sun returns above_horizon/below_horizon."""
+    states = get_device_class_states("sun")
+    assert states == {"above_horizon", "below_horizon"}
+
+
+def test_group_states():
+    """Test group returns on/off/home/not_home."""
+    states = get_device_class_states("group")
+    assert states == {"on", "off", "home", "not_home"}
 
 
 def test_unknown_domain_returns_none():

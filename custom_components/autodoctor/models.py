@@ -36,6 +36,7 @@ class IssueType(str, Enum):
     SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"
     SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
     SERVICE_UNKNOWN_PARAM = "service_unknown_param"
+    SERVICE_TARGET_NOT_FOUND = "service_target_not_found"
 
     # NEW: HA-specific semantic errors
     TEMPLATE_ENTITY_NOT_FOUND = "template_entity_not_found"
@@ -128,7 +129,7 @@ class ServiceCall:
 
 
 # Validation group definitions: maps group ID to label and member IssueTypes.
-# All 20 IssueType enum members must appear in exactly one group.
+# All 21 IssueType enum members must appear in exactly one group.
 VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
     "entity_state": {
         "label": "Entity & State",
@@ -147,6 +148,7 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
             IssueType.SERVICE_MISSING_REQUIRED_PARAM,
             IssueType.SERVICE_INVALID_PARAM_TYPE,
             IssueType.SERVICE_UNKNOWN_PARAM,
+            IssueType.SERVICE_TARGET_NOT_FOUND,
         }),
     },
     "templates": {

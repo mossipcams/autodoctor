@@ -1,4 +1,9 @@
-"""Domain-specific attribute mappings for validation."""
+"""Domain-specific attribute mappings for validation.
+
+Covers 17 HA domains with attributes commonly used in automations via
+state_attr() calls. Only includes attributes exposed in state.attributes,
+not internal Python properties (is_on, is_closed, native_value, native_unit_of_measurement).
+"""
 
 from __future__ import annotations
 
@@ -57,9 +62,89 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "shuffle",
         "repeat",
     ],
+    "cover": [
+        "current_cover_position",
+        "current_cover_tilt_position",
+    ],
+    "fan": [
+        "percentage",
+        "preset_mode",
+        "preset_modes",
+        "oscillating",
+        "current_direction",
+    ],
+    "vacuum": [
+        "fan_speed",
+        "fan_speed_list",
+        "status",
+        "battery_level",
+    ],
+    "lock": [
+        "changed_by",
+        "code_format",
+    ],
+    "alarm_control_panel": [
+        "code_arm_required",
+        "code_format",
+        "changed_by",
+    ],
+    "switch": [],
+    "binary_sensor": [
+        "device_class",
+    ],
+    "sensor": [
+        "device_class",
+        "state_class",
+        "options",
+    ],
+    "number": [
+        "min",
+        "max",
+        "step",
+        "mode",
+        "unit_of_measurement",
+    ],
+    "select": [
+        "options",
+    ],
+    "input_text": [
+        "min",
+        "max",
+        "pattern",
+        "mode",
+    ],
+    "input_datetime": [
+        "has_time",
+        "has_date",
+        "year",
+        "month",
+        "day",
+        "timestamp",
+    ],
+    "automation": [
+        "last_triggered",
+        "mode",
+        "current",
+    ],
+    "script": [
+        "last_triggered",
+        "mode",
+        "current",
+    ],
 }
 
 
-def get_domain_attributes(domain: str) -> list[str]:
-    """Get the standard attributes for a domain."""
+def get_domain_attributes(domain: str | None = None) -> list[str] | dict[str, list[str]]:
+    """Get the standard attributes for a domain, or the full mapping.
+
+    Args:
+        domain: The entity domain (e.g., 'light', 'climate').
+                If None, returns the entire DOMAIN_ATTRIBUTES dict.
+
+    Returns:
+        List of attribute strings for the given domain, or the full dict if
+        no domain is specified.
+    """
+    if domain is None:
+        return DOMAIN_ATTRIBUTES
     return DOMAIN_ATTRIBUTES.get(domain, [])

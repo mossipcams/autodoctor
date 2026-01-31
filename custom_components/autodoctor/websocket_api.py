@@ -30,10 +30,25 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_run_validation_steps)
     websocket_api.async_register_command(hass, websocket_get_validation_steps)
 
-def _format_issues_with_fixes(hass: HomeAssistant, issues: list) -> list[dict]:
-    """Format issues with fix suggestions using simplified fix engine."""
+def _format_issues_with_fixes(
+    hass: HomeAssistant,
+    issues: list,
+    all_entity_ids: list[str] | None = None,
+) -> list[dict]:
+    """Format issues with fix suggestions using simplified fix engine.
+
+    Args:
+        hass: Home Assistant instance.
+        issues: List of ValidationIssue objects to format.
+        all_entity_ids: Pre-computed entity ID list.  When *None* (default),
+            entity IDs are fetched from ``hass.states``.  Callers that invoke
+            this function multiple times in the same handler should pass a
+            shared list to avoid redundant lookups.
+    """
+    if all_entity_ids is None:
+        all_entity_ids = [s.entity_id for s in hass.states.async_all()]
+
     issues_with_fixes = []
-    all_entity_ids = [s.entity_id for s in hass.states.async_all()]
 
     for issue in issues:
         fix = None
@@ -238,6 +253,9 @@ async def websocket_run_validation_steps(
 
         result = await async_validate_all_with_groups(hass)
 
+        # Pre-compute entity IDs once for all _format_issues_with_fixes calls
+        all_entity_ids = [s.entity_id for s in hass.states.async_all()]
+
         # Build groups response with suppression filtering
         groups = []
         all_visible_issues = []
@@ -249,7 +267,7 @@ async def websocket_run_validation_steps(
             total_suppressed += suppressed_count
 
             all_visible_issues.extend(visible)
-            formatted = _format_issues_with_fixes(hass, visible)
+            formatted = _format_issues_with_fixes(hass, visible, all_entity_ids)
 
             groups.append(
                 {
@@ -272,7 +290,7 @@ async def websocket_run_validation_steps(
             msg["id"],
             {
                 "groups": groups,
-                "issues": _format_issues_with_fixes(hass, all_visible_issues),
+                "issues": _format_issues_with_fixes(hass, all_visible_issues, all_entity_ids),
                 "healthy_count": _get_healthy_count(hass, all_visible_issues),
                 "last_run": result["timestamp"],
                 "suppressed_count": total_suppressed,
@@ -302,6 +320,9 @@ async def websocket_get_validation_steps(
     last_run = data.get("validation_last_run")
     cached_groups = data.get("validation_groups")
 
+    # Pre-compute entity IDs once for all _format_issues_with_fixes calls
+    all_entity_ids = [s.entity_id for s in hass.states.async_all()]
+
     groups = []
     all_visible_issues = []
     total_suppressed = 0
@@ -329,7 +350,7 @@ async def websocket_get_validation_steps(
             total_suppressed += suppressed_count
 
             all_visible_issues.extend(visible)
-            formatted = _format_issues_with_fixes(hass, visible)
+            formatted = _format_issues_with_fixes(hass, visible, all_entity_ids)
 
             groups.append(
                 {
@@ -354,7 +375,7 @@ async def websocket_get_validation_steps(
         msg["id"],
         {
             "groups": groups,
-            "issues": _format_issues_with_fixes(hass, all_visible_issues),
+            "issues": _format_issues_with_fixes(hass, all_visible_issues, all_entity_ids),
             "healthy_count": healthy_count,
             "last_run": last_run,
             "suppressed_count": total_suppressed,
