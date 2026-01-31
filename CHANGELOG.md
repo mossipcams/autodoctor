@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.12.0](https://github.com/mossipcams/autodoctor/compare/v2.11.0...v2.12.0) (2026-01-31)
+
+
+### Features
+
+* **005:** mobile card sizing, badge navigation, suppression alignment ([f352695](https://github.com/mossipcams/autodoctor/commit/f3526957cb4354ad4d7ef6e58d91e295130150c1))
+
+
+### Bug Fixes
+
+* resolve merge conflict with main in compiled card bundle ([d3957e6](https://github.com/mossipcams/autodoctor/commit/d3957e67879033f1745a6b1c48ae3a93ae9cd084))
+
 ## [2.11.0](https://github.com/mossipcams/autodoctor/compare/v2.10.0...v2.11.0) (2026-01-31)
 
 
