@@ -15,6 +15,7 @@ import { autodocTokens, badgeStyles, cardLayoutStyles } from "./styles.js";
 import { renderBadges } from "./badges.js";
 import "./autodoc-issue-group.js";
 import "./autodoc-pipeline.js";
+import "./autodoc-suppressions.js";
 
 declare const __CARD_VERSION__: string;
 const CARD_VERSION = __CARD_VERSION__;
@@ -35,6 +36,7 @@ export class AutodoctorCard extends LitElement {
   @state() private _validationData: StepsResponse | null = null;
   @state() private _runningValidation = false;
   @state() private _dismissedSuggestions = new Set<string>();
+  @state() private _view: "issues" | "suppressions" = "issues";
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
@@ -208,34 +210,40 @@ export class AutodoctorCard extends LitElement {
     const groups = this._groupIssuesByAutomation(data.issues);
     const counts = this._getCounts(data);
     const hasIssues = data.issues.length > 0;
+    const hasRun = !!data.last_run;
 
     return html`
       <ha-card>
         ${this._renderHeader(title)}
         <div class="card-content">
           ${this._renderBadges(counts)}
-          ${data.last_run
+          ${hasRun
             ? html`<autodoc-pipeline
                 .groups=${data.groups || []}
                 ?running=${this._runningValidation}
               ></autodoc-pipeline>`
             : nothing}
-          ${hasIssues
-            ? groups.map(
-                (group) => html`
-                  <autodoc-issue-group
-                    .group=${group}
-                    .dismissedKeys=${this._dismissedSuggestions}
-                    @suppress-issue=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
-                      this._suppressIssue(e.detail.issue)}
-                    @dismiss-suggestion=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
-                      this._dismissSuggestion(e.detail.issue)}
-                  ></autodoc-issue-group>
-                `
-              )
-            : data.last_run
-              ? nothing
-              : this._renderAllHealthy(counts.healthy)}
+          ${this._view === "suppressions"
+            ? html`<autodoc-suppressions
+                .hass=${this.hass}
+                @suppressions-changed=${() => this._onSuppressionsChanged()}
+              ></autodoc-suppressions>`
+            : hasIssues
+              ? groups.map(
+                  (group) => html`
+                    <autodoc-issue-group
+                      .group=${group}
+                      .dismissedKeys=${this._dismissedSuggestions}
+                      @suppress-issue=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
+                        this._suppressIssue(e.detail.issue)}
+                      @dismiss-suggestion=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
+                        this._dismissSuggestion(e.detail.issue)}
+                    ></autodoc-issue-group>
+                  `
+                )
+              : hasRun
+                ? this._renderAllHealthy(counts.healthy)
+                : this._renderFirstRun()}
         </div>
         ${this._renderFooter()}
       </ha-card>
@@ -304,13 +312,27 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
+  private _renderFirstRun(): TemplateResult {
+    return html`
+      <div class="empty-state">
+        <span class="empty-text">Click "Run Validation" to scan your automations</span>
+      </div>
+    `;
+  }
+
   private _renderBadges(counts: {
     errors: number;
     warnings: number;
     healthy: number;
     suppressed: number;
   }): TemplateResult {
-    return renderBadges(counts, () => this._clearSuppressions());
+    return renderBadges(
+      counts,
+      (view: "issues" | "suppressions") => {
+        this._view = view;
+      },
+      this._view
+    );
   }
 
   private _renderFooter(): TemplateResult {
@@ -379,22 +401,11 @@ export class AutodoctorCard extends LitElement {
     }
   }
 
-  private async _clearSuppressions(): Promise<void> {
-    // Prevent concurrent suppression operations
-    if (this._suppressionInProgress) {
-      return;
-    }
-
-    this._suppressionInProgress = true;
-    try {
-      await this.hass.callWS({
-        type: "autodoctor/clear_suppressions",
-      });
-      await this._fetchValidation();
-    } catch (err) {
-      console.error("Failed to clear suppressions:", err);
-    } finally {
-      this._suppressionInProgress = false;
+  private async _onSuppressionsChanged(): Promise<void> {
+    await this._fetchValidation();
+    // If no more suppressions, go back to issues view
+    if ((this._validationData?.suppressed_count || 0) === 0) {
+      this._view = "issues";
     }
   }
 

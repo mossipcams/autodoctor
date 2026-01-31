@@ -56,6 +56,19 @@ export interface StepsResponse {
   suppressed_count: number;
 }
 
+export interface SuppressionEntry {
+  key: string;
+  automation_id: string;
+  automation_name: string;
+  entity_id: string;
+  issue_type: string;
+  message: string;
+}
+
+export interface SuppressionsResponse {
+  suppressions: SuppressionEntry[];
+}
+
 export function getSuggestionKey(issue: ValidationIssue): string {
   return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
 }

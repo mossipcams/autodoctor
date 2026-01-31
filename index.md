@@ -43,6 +43,7 @@ autodoctor/
     ├── autodoctor-card-editor.ts    # Card config editor
     ├── autodoc-issue-group.ts       # Issue group sub-component
     ├── autodoc-pipeline.ts          # Validation pipeline sub-component
+    ├── autodoc-suppressions.ts      # Suppressions management sub-component
     ├── types.ts                     # Shared TypeScript interfaces
     └── styles.ts                    # Shared CSS design tokens & styles
 ```
@@ -92,6 +93,8 @@ autodoctor/
 | `autodoctor/clear_suppressions` | Clear all suppressions |
 | `autodoctor/validation/run_steps` | Run validation and return per-group structured results |
 | `autodoctor/validation/steps` | Get cached per-group validation results |
+| `autodoctor/list_suppressions` | List all suppressed issues with metadata |
+| `autodoctor/unsuppress` | Remove a single suppression by key |
 
 ## Services
 
