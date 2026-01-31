@@ -834,3 +834,91 @@ async def test_entity_cache_guard_not_in_vs_in(hass: HomeAssistant):
     assert validator._entity_cache is None
     validator._ensure_entity_cache()
     assert "sensor" in validator._entity_cache  # NOW present after rebuild
+
+
+# --- Suggestion fuzzy matching (VL-03) ---
+
+
+@pytest.mark.asyncio
+async def test_suggest_entity_fuzzy_match_sensitivity(hass: HomeAssistant):
+    """Verify _suggest_entity returns match for close typo, None for distant (VL-03).
+
+    Kills NumberReplacer on cutoff: 0.75->1.0 makes close typo return None,
+    0.75->0.0 makes distant input return a match. Also kills n=1->0.
+    """
+    hass.states.async_set("light.living_room", "on")
+    hass.states.async_set("light.bedroom", "on")
+    hass.states.async_set("sensor.temperature", "22")
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Close typo (1 char diff, ~0.9 similarity) -- should match
+    assert validator._suggest_entity("light.living_roam") == "light.living_room"
+
+    # Distant input -- should NOT match
+    assert validator._suggest_entity("light.zzzzzzzzz") is None
+
+    # Wrong domain (no vacuum entities) -- should return None
+    assert validator._suggest_entity("vacuum.living_room") is None
+
+    # No dot in input -- should return None (early return)
+    assert validator._suggest_entity("nodot") is None
+
+
+@pytest.mark.asyncio
+async def test_suggest_state_fuzzy_match_sensitivity(hass: HomeAssistant):
+    """Verify _suggest_state returns match for close typo, None for distant (VL-03).
+
+    Kills NumberReplacer on cutoff (0.75->1.0 or 0.75->0.0) and n (1->0).
+    """
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    valid_states = {"home", "not_home", "away"}
+
+    # Close typo ("hom" vs "home", ~0.86 similarity) -- should match
+    assert validator._suggest_state("hom", valid_states) == "home"
+
+    # Distant input -- should NOT match
+    assert validator._suggest_state("zzzz", valid_states) is None
+
+
+@pytest.mark.asyncio
+async def test_suggest_attribute_fuzzy_match_sensitivity(hass: HomeAssistant):
+    """Verify _suggest_attribute returns match for close typo, None for distant (VL-03).
+
+    Kills NumberReplacer on cutoff (0.75->1.0 or 0.75->0.0) and n (1->0).
+    """
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    valid_attrs = ["brightness", "color_temp", "friendly_name"]
+
+    # Close typo ("brigthness" vs "brightness", transposed letters) -- should match
+    assert validator._suggest_attribute("brigthness", valid_attrs) == "brightness"
+
+    # Distant input -- should NOT match
+    assert validator._suggest_attribute("zzzzzzzzz", valid_attrs) is None
+
+
+@pytest.mark.asyncio
+async def test_suggest_entity_n_parameter_behavior(hass: HomeAssistant):
+    """Verify _suggest_entity returns single best match, proving n=1 (VL-03).
+
+    Kills n=1->0 (returns None) and validates the n parameter is working.
+    Multiple similar entities exist but only the best match is returned.
+    """
+    hass.states.async_set("light.kitchen", "on")
+    hass.states.async_set("light.kitchen_ceiling", "on")
+    hass.states.async_set("light.kitchen_island", "on")
+    hass.states.async_set("light.bedroom", "on")
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Close typo -- should return best single match
+    result = validator._suggest_entity("light.kitchn")
+    assert result == "light.kitchen"
+    # Confirm it is a string (single match, not a list)
+    assert isinstance(result, str)
