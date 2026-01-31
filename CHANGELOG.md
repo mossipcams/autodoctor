@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.1](https://github.com/mossipcams/autodoctor/compare/v2.13.0...v2.13.1) (2026-01-31)
+
+
+### Bug Fixes
+
+* add input_text.set_value and for_each to validation allowlists ([#46](https://github.com/mossipcams/autodoctor/issues/46)) ([420faf4](https://github.com/mossipcams/autodoctor/commit/420faf4ea68db86087ccb91df92e5f691ef7c372))
+
 ## [2.13.0](https://github.com/mossipcams/autodoctor/compare/v2.12.0...v2.13.0) (2026-01-31)
 
 
