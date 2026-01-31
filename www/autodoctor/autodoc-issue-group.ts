@@ -62,7 +62,7 @@ export class AutodocIssueGroup extends LitElement {
         ${fix && !isDismissed
           ? html`
               <div class="fix-suggestion">
-                <span class="fix-icon" aria-hidden="true">\uD83D\uDCA1</span>
+                <ha-icon class="fix-icon" icon="mdi:lightbulb-on-outline" style="--mdc-icon-size: 16px; color: var(--primary-color);" aria-hidden="true"></ha-icon>
                 <div class="fix-content">
                   <span class="fix-description">${fix.description}</span>
                   ${this._renderConfidencePill(fix.confidence)}

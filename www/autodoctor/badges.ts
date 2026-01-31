@@ -5,11 +5,13 @@ import { html, nothing, TemplateResult } from "lit";
  * Shows error, warning, healthy, and suppressed counts.
  *
  * @param counts - Issue/status counts to display
- * @param onClearSuppressions - Optional callback for the "clear suppressions" button
+ * @param onNavigate - Optional callback for navigation (e.g. to suppressions view)
+ * @param activeView - Current active view ("issues" or "suppressions")
  */
 export function renderBadges(
   counts: { errors: number; warnings: number; healthy: number; suppressed: number },
-  onClearSuppressions?: () => void
+  onNavigate?: (view: "issues" | "suppressions") => void,
+  activeView?: "issues" | "suppressions"
 ): TemplateResult {
   return html`
     <div class="badges-row">
@@ -31,25 +33,31 @@ export function renderBadges(
             <span class="badge-count">${counts.warnings}</span>
           </span>`
         : nothing}
-      <span class="badge badge-healthy" title="${counts.healthy} healthy">
-        <span class="badge-icon" aria-hidden="true">\u2713</span>
-        <span class="badge-count">${counts.healthy}</span>
-      </span>
+      ${counts.healthy > 0
+        ? html`<span class="badge badge-healthy" title="${counts.healthy} healthy">
+            <span class="badge-icon" aria-hidden="true">\u2713</span>
+            <span class="badge-count">${counts.healthy}</span>
+          </span>`
+        : nothing}
       ${counts.suppressed > 0
-        ? html`<span class="badge badge-suppressed" title="${counts.suppressed} suppressed">
+        ? html`<span
+            class="badge badge-suppressed ${activeView === "suppressions" ? "badge-active" : ""}"
+            title="${counts.suppressed} suppressed"
+            role="button"
+            tabindex="0"
+            @click=${() => onNavigate?.("suppressions")}
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onNavigate?.("suppressions");
+              }
+            }}
+            style="cursor: pointer;"
+          >
             <span class="badge-icon" aria-hidden="true">\u2298</span>
             <span class="badge-count">${counts.suppressed}</span>
-            <button
-              class="clear-suppressions-btn"
-              @click=${onClearSuppressions}
-              title="Clear all suppressions"
-              aria-label="Clear all suppressions"
-            >
-              \u2715
-            </button>
           </span>`
         : nothing}
     </div>
   `;
 }
-

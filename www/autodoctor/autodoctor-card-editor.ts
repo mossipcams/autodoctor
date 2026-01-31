@@ -46,16 +46,13 @@ export class AutodoctorCardEditor extends LitElement {
 
     return html`
       <div class="card-config">
-        <div class="config-row">
-          <label for="title">Title (optional)</label>
-          <input
-            id="title"
-            type="text"
-            .value=${this._config.title || ""}
-            @input=${this._valueChanged}
-            placeholder="Automation Health"
-          />
-        </div>
+        <ha-textfield
+          id="title"
+          label="Title (optional)"
+          .value=${this._config.title || ""}
+          @change=${this._valueChanged}
+          placeholder="Automation Health"
+        ></ha-textfield>
       </div>
     `;
   }
@@ -65,30 +62,8 @@ export class AutodoctorCardEditor extends LitElement {
       .card-config {
         padding: 16px;
       }
-
-      .config-row {
-        display: flex;
-        flex-direction: column;
-        margin-bottom: 16px;
-      }
-
-      label {
-        font-weight: 500;
-        margin-bottom: 4px;
-        color: var(--primary-text-color);
-      }
-
-      input {
-        padding: 8px;
-        border: 1px solid var(--divider-color);
-        border-radius: 4px;
-        background: var(--card-background-color);
-        color: var(--primary-text-color);
-      }
-
-      input:focus {
-        outline: none;
-        border-color: var(--primary-color);
+      ha-textfield {
+        display: block;
       }
     `;
   }
