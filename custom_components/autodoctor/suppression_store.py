@@ -49,11 +49,22 @@ class SuppressionStore:
             self._suppressions.add(key)
             await self.async_save()
 
+    async def async_unsuppress(self, key: str) -> None:
+        """Remove a single suppression by key."""
+        async with self._lock:
+            self._suppressions.discard(key)
+            await self.async_save()
+
     async def async_clear_all(self) -> None:
         """Clear all suppressions."""
         async with self._lock:
             self._suppressions.clear()
             await self.async_save()
+
+    @property
+    def keys(self) -> frozenset[str]:
+        """Return all suppression keys as an immutable snapshot."""
+        return frozenset(self._suppressions)
 
     @property
     def count(self) -> int:

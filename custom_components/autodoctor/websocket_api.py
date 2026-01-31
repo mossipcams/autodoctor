@@ -29,6 +29,8 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_clear_suppressions)
     websocket_api.async_register_command(hass, websocket_run_validation_steps)
     websocket_api.async_register_command(hass, websocket_get_validation_steps)
+    websocket_api.async_register_command(hass, websocket_list_suppressions)
+    websocket_api.async_register_command(hass, websocket_unsuppress)
 
 def _format_issues_with_fixes(
     hass: HomeAssistant,
@@ -462,3 +464,77 @@ async def websocket_clear_suppressions(
     await suppression_store.async_clear_all()
 
     connection.send_result(msg["id"], {"success": True, "suppressed_count": 0})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/list_suppressions",
+    }
+)
+@websocket_api.async_response
+async def websocket_list_suppressions(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List all suppressed issues with metadata."""
+    data = hass.data.get(DOMAIN, {})
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+
+    if not suppression_store:
+        connection.send_error(
+            msg["id"], "not_ready", "Suppression store not initialized"
+        )
+        return
+
+    validation_issues: list = data.get("validation_issues", [])
+
+    # Build lookup dict for O(1) matching
+    issue_by_key: dict[str, Any] = {}
+    for issue in validation_issues:
+        issue_by_key[issue.get_suppression_key()] = issue
+
+    suppressions = []
+    for key in suppression_store.keys:
+        issue = issue_by_key.get(key)
+        suppressions.append(
+            {
+                "key": key,
+                "automation_id": issue.automation_id if issue else key.split(":")[0],
+                "automation_name": issue.automation_name if issue else "",
+                "entity_id": issue.entity_id if issue else (key.split(":")[1] if ":" in key else ""),
+                "issue_type": issue.issue_type.value if issue and issue.issue_type else (key.split(":")[-1] if ":" in key else ""),
+                "message": issue.message if issue else "",
+            }
+        )
+
+    connection.send_result(msg["id"], {"suppressions": suppressions})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/unsuppress",
+        vol.Required("key"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_unsuppress(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a single suppression by key."""
+    data = hass.data.get(DOMAIN, {})
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+
+    if not suppression_store:
+        connection.send_error(
+            msg["id"], "not_ready", "Suppression store not initialized"
+        )
+        return
+
+    await suppression_store.async_unsuppress(msg["key"])
+
+    connection.send_result(
+        msg["id"], {"success": True, "suppressed_count": suppression_store.count}
+    )

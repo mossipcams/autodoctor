@@ -19,8 +19,10 @@ from custom_components.autodoctor.websocket_api import (
     websocket_get_issues,
     websocket_get_validation,
     websocket_get_validation_steps,
+    websocket_list_suppressions,
     websocket_run_validation,
     websocket_run_validation_steps,
+    websocket_unsuppress,
 )
 
 
@@ -31,7 +33,7 @@ async def test_websocket_api_setup(hass: HomeAssistant):
         "homeassistant.components.websocket_api.async_register_command"
     ) as mock_register:
         await async_setup_websocket_api(hass)
-        assert mock_register.call_count == 8
+        assert mock_register.call_count == 10
 
 
 @pytest.mark.asyncio
@@ -458,9 +460,124 @@ def test_compute_group_status():
 
 @pytest.mark.asyncio
 async def test_existing_commands_still_registered(hass: HomeAssistant):
-    """Test that all 8 commands (6 existing + 2 new) are registered."""
+    """Test that all 10 commands (8 existing + 2 new) are registered."""
     with patch(
         "homeassistant.components.websocket_api.async_register_command"
     ) as mock_register:
         await async_setup_websocket_api(hass)
-        assert mock_register.call_count == 8
+        assert mock_register.call_count == 10
+
+
+@pytest.mark.asyncio
+async def test_websocket_list_suppressions(hass: HomeAssistant):
+    """Test listing suppressed issues with metadata."""
+    issue1 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    issue2 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
+
+    suppression_store = MagicMock()
+    suppression_store.keys = frozenset({issue1.get_suppression_key()})
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+        "validation_issues": [issue1, issue2],
+    }
+
+    connection = MagicMock()
+    msg = {"id": 1, "type": "autodoctor/list_suppressions"}
+
+    await websocket_list_suppressions.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert len(result["suppressions"]) == 1
+    item = result["suppressions"][0]
+    assert item["key"] == issue1.get_suppression_key()
+    assert item["automation_id"] == "automation.test"
+    assert item["entity_id"] == "light.a"
+    assert item["issue_type"] == "entity_not_found"
+    assert item["message"] == "Test issue: entity_not_found"
+
+
+@pytest.mark.asyncio
+async def test_websocket_list_suppressions_not_ready(hass: HomeAssistant):
+    """Test list_suppressions returns error when store not ready."""
+    hass.data[DOMAIN] = {}
+
+    connection = MagicMock()
+    connection.send_error = MagicMock()
+    msg = {"id": 1, "type": "autodoctor/list_suppressions"}
+
+    await websocket_list_suppressions.__wrapped__(hass, connection, msg)
+
+    connection.send_error.assert_called_once()
+    assert connection.send_error.call_args[0][1] == "not_ready"
+
+
+@pytest.mark.asyncio
+async def test_websocket_unsuppress(hass: HomeAssistant):
+    """Test unsuppressing a single issue by key."""
+    suppression_store = MagicMock()
+    suppression_store.async_unsuppress = AsyncMock()
+    suppression_store.count = 0
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+    }
+
+    connection = MagicMock()
+    key = "automation.test:light.test:entity_not_found"
+    msg = {"id": 1, "type": "autodoctor/unsuppress", "key": key}
+
+    await websocket_unsuppress.__wrapped__(hass, connection, msg)
+
+    suppression_store.async_unsuppress.assert_called_once_with(key)
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["success"] is True
+    assert result["suppressed_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_websocket_unsuppress_not_ready(hass: HomeAssistant):
+    """Test unsuppress returns error when store not ready."""
+    hass.data[DOMAIN] = {}
+
+    connection = MagicMock()
+    connection.send_error = MagicMock()
+    msg = {"id": 1, "type": "autodoctor/unsuppress", "key": "some:key:here"}
+
+    await websocket_unsuppress.__wrapped__(hass, connection, msg)
+
+    connection.send_error.assert_called_once()
+    assert connection.send_error.call_args[0][1] == "not_ready"
+
+
+@pytest.mark.asyncio
+async def test_suppression_store_async_unsuppress(hass: HomeAssistant):
+    """Test SuppressionStore.async_unsuppress removes a key."""
+    from custom_components.autodoctor.suppression_store import SuppressionStore
+
+    store = SuppressionStore(hass)
+    await store.async_suppress("automation.a:light.a:entity_not_found")
+    await store.async_suppress("automation.b:light.b:entity_not_found")
+    assert store.count == 2
+
+    await store.async_unsuppress("automation.a:light.a:entity_not_found")
+    assert store.count == 1
+    assert not store.is_suppressed("automation.a:light.a:entity_not_found")
+    assert store.is_suppressed("automation.b:light.b:entity_not_found")
+
+
+@pytest.mark.asyncio
+async def test_suppression_store_keys_property(hass: HomeAssistant):
+    """Test SuppressionStore.keys returns immutable snapshot of all keys."""
+    from custom_components.autodoctor.suppression_store import SuppressionStore
+
+    store = SuppressionStore(hass)
+    assert store.keys == frozenset()
+
+    await store.async_suppress("automation.a:light.a:entity_not_found")
+    await store.async_suppress("automation.b:light.b:entity_not_found")
+    result = store.keys
+    assert isinstance(result, frozenset)
+    assert result == frozenset({"automation.a:light.a:entity_not_found", "automation.b:light.b:entity_not_found"})
