@@ -2176,3 +2176,117 @@ def test_extract_service_calls_supports_actions_key():
 
     assert len(calls) == 1
     assert calls[0].service == "light.turn_on"
+
+
+def test_extract_null_repeat_config_does_not_crash():
+    """Test that action with repeat: null does not crash (C4 fix)."""
+    automation = {
+        "id": "null_repeat",
+        "alias": "Null Repeat",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": None,
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should not crash, should return empty or minimal refs
+    assert isinstance(refs, list)
+
+
+def test_extract_valid_repeat_after_null_guard():
+    """Test that valid repeat config still works after isinstance guard."""
+    automation = {
+        "id": "valid_repeat",
+        "alias": "Valid Repeat",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "repeat": {
+                    "while": [
+                        {
+                            "condition": "template",
+                            "value_template": "{{ is_state('sensor.temp', 'high') }}",
+                        }
+                    ],
+                    "sequence": [{"service": "climate.set_temperature"}],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert any(r.entity_id == "sensor.temp" for r in refs)
+
+
+def test_extract_multi_key_action_service_and_choose():
+    """Test that action with both service and choose processes all keys (M4 fix)."""
+    automation = {
+        "id": "multi_key",
+        "alias": "Multi Key Action",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.hallway"},
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "input_boolean.night_mode",
+                                "state": "on",
+                            }
+                        ],
+                        "sequence": [
+                            {
+                                "service": "light.turn_on",
+                                "data": {"brightness": 50},
+                                "target": {"entity_id": "light.bedroom"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    # Should extract service call reference from the top-level service
+    hallway_refs = [r for r in refs if r.entity_id == "light.hallway"]
+    assert len(hallway_refs) >= 1, "Top-level service entity_id not extracted"
+
+    # Should ALSO extract references from the choose branch
+    night_mode_refs = [r for r in refs if r.entity_id == "input_boolean.night_mode"]
+    assert len(night_mode_refs) >= 1, "Choose branch condition entity not extracted"
+
+    # And the nested service call
+    bedroom_refs = [r for r in refs if r.entity_id == "light.bedroom"]
+    assert len(bedroom_refs) >= 1, "Choose branch sequence service entity not extracted"
+
+
+def test_extract_null_wait_template_does_not_crash():
+    """Test that action with wait_template: null does not crash."""
+    automation = {
+        "id": "null_wait",
+        "alias": "Null Wait Template",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "wait_template": None,
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert isinstance(refs, list)

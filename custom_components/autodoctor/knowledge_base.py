@@ -109,6 +109,8 @@ class StateKnowledgeBase:
         self._observed_states: dict[str, set[str]] = {}
         self._learned_states_store = learned_states_store
         self._lock = asyncio.Lock()
+        self._zone_names: set[str] | None = None
+        self._area_names: set[str] | None = None
 
     def entity_exists(self, entity_id: str) -> bool:
         """Check if an entity exists.
@@ -327,20 +329,16 @@ class StateKnowledgeBase:
 
         # For zone-aware entities, add all zone names as valid states
         # Device trackers and person entities can report zone names as their state
-        # Also handle area sensors (e.g., Bermuda BLE area sensors)
-        is_area_sensor = domain == "sensor" and (
-            "_area" in entity_id
-            or "_room" in entity_id
-            or "bermuda" in entity_id.lower()
-        )
+        # Also handle Bermuda BLE area sensors (detected by integration platform)
+        is_area_sensor = domain == "sensor" and self.get_integration(entity_id) == "bermuda"
         is_bermuda_tracker = (
-            domain == "device_tracker" and "bermuda" in entity_id.lower()
+            domain == "device_tracker" and self.get_integration(entity_id) == "bermuda"
         )
         if domain in ("device_tracker", "person") or is_area_sensor:
             valid_states.update(self._get_zone_names())
             _LOGGER.debug("Entity %s: added zone names to valid states", entity_id)
 
-        # For Bermuda BLE entities, add HA area names (lowercase) from area registry
+        # For Bermuda BLE entities (detected by platform), add HA area names from area registry
         # Bermuda sensors report lowercase area names matching HA area IDs
         if is_area_sensor or is_bermuda_tracker:
             valid_states.update(self._get_area_names())
@@ -351,7 +349,7 @@ class StateKnowledgeBase:
         if is_bermuda_tracker:
             for sensor_state in self.hass.states.async_all("sensor"):
                 sensor_id = sensor_state.entity_id
-                if "_area" in sensor_id or "bermuda" in sensor_id.lower():
+                if self.get_integration(sensor_id) == "bermuda":
                     if sensor_state.state not in ("unavailable", "unknown"):
                         valid_states.add(sensor_state.state)
             _LOGGER.debug(
@@ -389,25 +387,10 @@ class StateKnowledgeBase:
 
         return valid_states.copy()
 
-    def is_valid_state(self, entity_id: str, state: str) -> bool:
-        """Check if a state is valid for an entity.
-
-        Args:
-            entity_id: The entity ID
-            state: The state to check
-
-        Returns:
-            True if state is valid, False otherwise
-        """
-        valid_states = self.get_valid_states(entity_id)
-        if valid_states is None:
-            return False
-        return state.lower() in {s.lower() for s in valid_states}
-
     def _get_zone_names(self) -> set[str]:
         """Get all zone names (cached)."""
-        if not hasattr(self, "_zone_names") or self._zone_names is None:
-            self._zone_names: set[str] = set()
+        if self._zone_names is None:
+            self._zone_names = set()
             for zone_state in self.hass.states.async_all("zone"):
                 zone_name = zone_state.attributes.get(
                     "friendly_name", zone_state.entity_id.split(".")[1]
@@ -417,8 +400,8 @@ class StateKnowledgeBase:
 
     def _get_area_names(self) -> set[str]:
         """Get all area names (cached)."""
-        if not hasattr(self, "_area_names") or self._area_names is None:
-            self._area_names: set[str] = set()
+        if self._area_names is None:
+            self._area_names = set()
             area_registry = ar.async_get(self.hass)
             for area in area_registry.async_list_areas():
                 self._area_names.add(area.name)

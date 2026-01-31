@@ -204,38 +204,19 @@ def test_extract_service_calls_depth_limit_if_repeat_parallel():
     assert len([c for c in analyzer.extract_service_calls(auto_par) if c.service == "switch.toggle"]) == 0
 
 
-def test_jinja_validator_accepts_knowledge_base():
-    """JinjaValidator should accept knowledge_base parameter."""
-    from unittest.mock import MagicMock
-
-    from custom_components.autodoctor.jinja_validator import JinjaValidator
-    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-
-    mock_hass = MagicMock()
-    kb = StateKnowledgeBase(mock_hass)
-    validator = JinjaValidator(hass=mock_hass, knowledge_base=kb)
-    assert validator.knowledge_base is kb
-
-
-def test_jinja_validator_without_kb_still_works():
-    """JinjaValidator should still work without knowledge_base (backwards compat)."""
-    from custom_components.autodoctor.jinja_validator import JinjaValidator
-
-    validator = JinjaValidator()
-    assert validator.knowledge_base is None
-
-
-def test_jinja_validator_uses_shared_kb_for_state_validation():
-    """JinjaValidator should use the shared KB rather than creating a new one."""
+def test_jinja_validator_delegates_entity_validation_to_engine():
+    """JinjaValidator should delegate entity validation to the validation engine."""
     from unittest.mock import MagicMock
 
     from custom_components.autodoctor.jinja_validator import JinjaValidator
     from custom_components.autodoctor.models import StateReference
 
     mock_hass = MagicMock()
-    mock_kb = MagicMock()
-    mock_kb.get_valid_states.return_value = ["on", "off"]
-    validator = JinjaValidator(hass=mock_hass, knowledge_base=mock_kb)
+    mock_engine = MagicMock()
+    mock_engine.validate_all.return_value = []
+    validator = JinjaValidator(
+        hass=mock_hass, validation_engine=mock_engine
+    )
 
     ref = StateReference(
         automation_id="automation.test",
@@ -246,15 +227,40 @@ def test_jinja_validator_uses_shared_kb_for_state_validation():
         location="template",
     )
 
-    # Set up entity state so validation proceeds to state checking
-    mock_hass.states.get.return_value = MagicMock(
-        state="on", attributes={}
-    )
-
     validator._validate_entity_references([ref])
 
-    # The shared KB's get_valid_states should have been called
-    mock_kb.get_valid_states.assert_called_once_with("binary_sensor.motion")
+    # The validation engine's validate_all should have been called
+    mock_engine.validate_all.assert_called_once_with([ref])
+
+
+def test_init_passes_validation_engine_to_jinja_validator():
+    """__init__.py must pass the shared validation_engine to JinjaValidator constructor.
+
+    Without this, JinjaValidator cannot delegate entity/attribute/state validation
+    to the shared ValidationEngine instance.
+    """
+    import ast as _ast
+    import pathlib
+
+    init_path = pathlib.Path(__file__).parent.parent / "custom_components" / "autodoctor" / "__init__.py"
+    tree = _ast.parse(init_path.read_text())
+
+    # Find the JinjaValidator(...) call in __init__.py
+    jinja_calls = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Call):
+            func = node.func
+            if isinstance(func, _ast.Name) and func.id == "JinjaValidator":
+                jinja_calls.append(node)
+
+    assert len(jinja_calls) == 1, f"Expected 1 JinjaValidator call, found {len(jinja_calls)}"
+
+    call = jinja_calls[0]
+    keyword_names = [kw.arg for kw in call.keywords]
+    assert "validation_engine" in keyword_names, (
+        f"JinjaValidator call in __init__.py is missing validation_engine keyword argument. "
+        f"Found keywords: {keyword_names}"
+    )
 
 
 @pytest.mark.asyncio

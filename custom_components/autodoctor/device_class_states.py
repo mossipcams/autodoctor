@@ -5,10 +5,14 @@ from __future__ import annotations
 # Verified against Home Assistant 2024.x/2025.x documentation
 DEVICE_CLASS_STATES: dict[str, set[str]] = {
     "binary_sensor": {"on", "off"},
-    "person": {"home", "not_home"},
+    "person": {"home", "not_home", "away"},
     # device_tracker: home/not_home are defaults, but BLE trackers can have
     # area names - those come from entity history
     "device_tracker": {"home", "not_home"},
+    # sun: above_horizon/below_horizon (in STATE_VALIDATION_WHITELIST)
+    "sun": {"above_horizon", "below_horizon"},
+    # group: mixed on/off + person-style home/not_home
+    "group": {"on", "off", "home", "not_home"},
     "lock": {"locked", "unlocked", "locking", "unlocking", "jammed", "opening", "open"},
     "cover": {"open", "closed", "opening", "closing", "stopped"},
     "alarm_control_panel": {

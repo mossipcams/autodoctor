@@ -36,8 +36,12 @@ async def test_validate_missing_entity(hass: HomeAssistant, knowledge_base):
     assert "does not exist" in issues[0].message.lower()
 
 
-async def test_validate_invalid_state(hass: HomeAssistant, knowledge_base):
-    """Test validation detects invalid state."""
+async def test_validate_person_away_is_valid(hass: HomeAssistant, knowledge_base):
+    """Test validation accepts 'away' as valid person state.
+
+    Some integrations (Life360, iCloud) report 'away' instead of 'not_home'.
+    We treat it as valid to reduce false positives.
+    """
     hass.states.async_set("person.matt", "home")
     await hass.async_block_till_done()
 
@@ -53,9 +57,7 @@ async def test_validate_invalid_state(hass: HomeAssistant, knowledge_base):
     validator = ValidationEngine(knowledge_base)
     issues = validator.validate_reference(ref)
 
-    assert len(issues) == 1
-    assert issues[0].severity == Severity.ERROR
-    assert "away" in issues[0].message
+    assert len(issues) == 0
 
 
 async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
@@ -133,7 +135,7 @@ async def test_validate_detects_removed_entity(hass: HomeAssistant):
 def test_validate_reference_handles_knowledge_base_error():
     """Test that knowledge_base errors don't crash validation."""
     mock_kb = MagicMock()
-    mock_kb.entity_exists.side_effect = Exception("KB error")
+    mock_kb.entity_exists.side_effect = KeyError("KB error")
 
     validator = ValidationEngine(mock_kb)
     ref = StateReference(
@@ -634,3 +636,82 @@ async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
     assert len(issues) == 1
     assert "Entity" in issues[0].message
     assert "does not exist" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_transition_from_invalid_produces_issue(hass: HomeAssistant):
+    """Test that an invalid transition_from value produces an INVALID_STATE issue with suggestion."""
+    hass.states.async_set("binary_sensor.motion", "off")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="binary_sensor.motion",
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+        transition_from="of",  # Typo for "off"
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should have exactly one issue for the invalid transition_from
+    from_issues = [i for i in issues if "Transition from state" in i.message]
+    assert len(from_issues) == 1
+    assert from_issues[0].issue_type == IssueType.INVALID_STATE
+    assert from_issues[0].severity == Severity.ERROR
+    assert from_issues[0].suggestion == "off"
+
+
+@pytest.mark.asyncio
+async def test_transition_from_valid_produces_no_issue(hass: HomeAssistant):
+    """Test that a valid transition_from value produces no issue."""
+    hass.states.async_set("binary_sensor.motion", "off")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="binary_sensor.motion",
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+        transition_from="off",  # Valid state
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should have no issues at all
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_transition_from_none_produces_no_issue(hass: HomeAssistant):
+    """Test that transition_from=None (not set) produces no issue."""
+    hass.states.async_set("binary_sensor.motion", "off")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="binary_sensor.motion",
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+        transition_from=None,  # Not set
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should have no issues
+    assert len(issues) == 0

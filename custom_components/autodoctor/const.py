@@ -33,12 +33,16 @@ CONF_STRICT_SERVICE_VALIDATION = "strict_service_validation"
 
 # Domains with well-defined, stable state sets suitable for state validation.
 STATE_VALIDATION_WHITELIST: frozenset[str] = frozenset({
+    "alarm_control_panel",
     "binary_sensor",
+    "climate",
+    "cover",
+    "device_tracker",
+    "group",
+    "input_boolean",
+    "lock",
     "person",
     "sun",
-    "device_tracker",
-    "input_boolean",
-    "group",
 })
 
 # Maximum recursion depth for nested action/condition parsing

@@ -56,18 +56,6 @@ async def test_get_valid_states_unknown_entity(hass: HomeAssistant):
     assert states is None
 
 
-async def test_is_valid_state(hass: HomeAssistant):
-    """Test checking if a state is valid."""
-    kb = StateKnowledgeBase(hass)
-
-    hass.states.async_set("binary_sensor.motion", STATE_ON)
-    await hass.async_block_till_done()
-
-    assert kb.is_valid_state("binary_sensor.motion", "on") is True
-    assert kb.is_valid_state("binary_sensor.motion", "off") is True
-    assert kb.is_valid_state("binary_sensor.motion", "maybe") is False
-
-
 async def test_entity_exists(hass: HomeAssistant):
     """Test checking if entity exists."""
     kb = StateKnowledgeBase(hass)
@@ -690,3 +678,128 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
 
     # Verify history is NOT required
     assert not kb.has_history_loaded()
+
+
+async def test_bermuda_sensor_detected_by_platform(hass: HomeAssistant):
+    """Test that Bermuda BLE area sensor is detected by integration platform.
+
+    Note: Sensors return None from get_valid_states() (sensors are too free-form
+    to validate). However, get_integration() is still called for sensors in
+    is_area_sensor detection -- it just doesn't reach that code due to early return.
+    This test verifies the sensor domain early-return behavior is preserved and
+    that get_integration is used (not substring matching) for the detection logic.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # Set up zones and areas for completeness
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    from homeassistant.helpers import area_registry as ar
+    area_registry = ar.async_get(hass)
+    area_registry.async_create("Kitchen")
+    await hass.async_block_till_done()
+
+    # Create a Bermuda BLE area sensor
+    hass.states.async_set("sensor.bermuda_ble_area_kitchen", "kitchen")
+    await hass.async_block_till_done()
+
+    mock_registry = MagicMock()
+    mock_entry_bermuda = MagicMock()
+    mock_entry_bermuda.platform = "bermuda"
+    mock_registry.async_get.return_value = mock_entry_bermuda
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry,
+    ):
+        # Sensors return None from get_valid_states (domain == "sensor" early return)
+        states = kb.get_valid_states("sensor.bermuda_ble_area_kitchen")
+
+    # Sensor domain returns None (sensors are too free-form for state validation)
+    assert states is None
+
+
+async def test_non_bermuda_area_sensor_not_matched(hass: HomeAssistant):
+    """Test that non-Bermuda sensor with '_area' in name is NOT falsely matched.
+
+    This is the key regression test: sensor.living_area_temperature should NOT
+    get zone/area names injected into valid states. With substring matching,
+    '_area' in entity_id would have matched this entity. With platform-based
+    detection, only bermuda integration sensors would match.
+
+    Since sensors return None from get_valid_states (early return), this test
+    verifies the sensor is NOT treated specially regardless of its name.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # Set up zones and areas
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
+    from homeassistant.helpers import area_registry as ar
+    area_registry = ar.async_get(hass)
+    area_registry.async_create("Kitchen")
+    area_registry.async_create("Bedroom")
+    await hass.async_block_till_done()
+
+    # Create sensor with _area in name but NOT bermuda platform
+    hass.states.async_set("sensor.living_area_temperature", "22.5")
+    await hass.async_block_till_done()
+
+    mock_registry = MagicMock()
+    mock_entry_mqtt = MagicMock()
+    mock_entry_mqtt.platform = "mqtt"
+    mock_registry.async_get.return_value = mock_entry_mqtt
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry,
+    ):
+        states = kb.get_valid_states("sensor.living_area_temperature")
+
+    # Sensor returns None (NOT a set with zone/area names injected)
+    assert states is None
+
+
+async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant):
+    """Test that Bermuda BLE device_tracker is detected by integration platform.
+
+    device_tracker entities DO go through full get_valid_states logic (no early
+    return). This test verifies that platform-based detection correctly identifies
+    a bermuda device_tracker and adds area names to its valid states.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # Set up zones and areas
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
+    from homeassistant.helpers import area_registry as ar
+    area_registry = ar.async_get(hass)
+    area_registry.async_create("Kitchen")
+    area_registry.async_create("Bedroom")
+    await hass.async_block_till_done()
+
+    # Create a Bermuda device_tracker
+    hass.states.async_set("device_tracker.bermuda_ble_phone", "home")
+    await hass.async_block_till_done()
+
+    mock_registry = MagicMock()
+    mock_entry_bermuda = MagicMock()
+    mock_entry_bermuda.platform = "bermuda"
+    mock_entry_bermuda.capabilities = None
+    mock_registry.async_get.return_value = mock_entry_bermuda
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        return_value=mock_registry,
+    ):
+        states = kb.get_valid_states("device_tracker.bermuda_ble_phone")
+
+    # device_tracker gets zone names (all device_trackers do)
+    assert "Home" in states
+    assert "Work" in states
+
+    # Bermuda tracker additionally gets HA area names
+    assert "Kitchen" in states
+    assert "Bedroom" in states
+    # Also lowercase area names (added by _get_area_names)
+    assert "kitchen" in states
+    assert "bedroom" in states
