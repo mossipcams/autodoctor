@@ -944,3 +944,69 @@ async def test_zone_with_and_without_friendly_name(hass: HomeAssistant):
     zones = kb._get_zone_names()
 
     assert zones == {"Home", "my_office"}
+
+
+# --- Attribute values list guard (KB-09) ---
+
+
+async def test_get_valid_attributes_empty_list_returns_none(hass: HomeAssistant):
+    """Empty attribute value list returns None, not empty set.
+
+    Kills: and->or on 'if values and isinstance(values, list)' (line 444) --
+    with 'or', isinstance([], list) is True, enters branch, returns set().
+    Uses "effect" attribute which has no capability mapping, bypassing short-circuit.
+    """
+    kb = StateKnowledgeBase(hass)
+    hass.states.async_set("light.test", "on", {"effect_list": []})
+    await hass.async_block_till_done()
+
+    result = kb.get_valid_attributes("light.test", "effect")
+    assert result is None
+
+
+async def test_get_valid_attributes_non_list_string_returns_none(hass: HomeAssistant):
+    """Non-list truthy attribute value returns None, not iterated characters.
+
+    Kills: and->or on 'if values and isinstance(values, list)' (line 444) --
+    with 'or', truthy string passes the 'or' check, iterates chars into a set.
+    Uses "effect" attribute which has no capability mapping, bypassing short-circuit.
+    """
+    kb = StateKnowledgeBase(hass)
+    hass.states.async_set("light.test", "on", {"effect_list": "rainbow"})
+    await hass.async_block_till_done()
+
+    result = kb.get_valid_attributes("light.test", "effect")
+    assert result is None
+
+
+# --- History loading time range (KB-10) ---
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_start_time_is_in_past(hass: HomeAssistant):
+    """History loading uses start_time in the past (now - days).
+
+    Kills: Sub->Add on 'datetime.now(UTC) - timedelta(days=...)' (line 472) --
+    mutation would produce start_time = now + 30 days (future).
+    """
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+
+    kb = StateKnowledgeBase(hass, history_days=30)
+    hass.async_add_executor_job = AsyncMock(return_value={})
+
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states"
+    ):
+        await kb.async_load_history(["light.test"])
+
+    # Capture the args passed to async_add_executor_job
+    assert hass.async_add_executor_job.called
+    call_args = hass.async_add_executor_job.call_args
+    # args: (get_significant_states, hass, start_time, end_time, entity_ids, None, True, True)
+    start_time = call_args[0][2]  # Third positional arg
+    end_time = call_args[0][3]    # Fourth positional arg
+
+    now = datetime.now(UTC)
+    assert start_time < end_time
+    assert start_time < now  # Must be in the past
