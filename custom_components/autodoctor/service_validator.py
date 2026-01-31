@@ -182,6 +182,9 @@ class ServiceCallValidator:
                 # No descriptions available, skip parameter validation
                 continue
 
+            # Validate target entity IDs
+            issues.extend(self._validate_target_entities(call))
+
             # Validate parameters
             issues.extend(self._validate_required_params(call, fields))
             # Unknown param checking is opt-in — custom components may
@@ -404,6 +407,62 @@ class ServiceCallValidator:
             )
 
         return None
+
+    def _validate_target_entities(
+        self,
+        call: ServiceCall,
+    ) -> list[ValidationIssue]:
+        """Validate entity IDs in the target dict exist."""
+        issues: list[ValidationIssue] = []
+        target = call.target or {}
+        entity_ids = target.get("entity_id")
+        if entity_ids is None:
+            return issues
+
+        # Normalize to list
+        if isinstance(entity_ids, str):
+            entity_ids = [entity_ids]
+        elif not isinstance(entity_ids, list):
+            return issues
+
+        for entity_id in entity_ids:
+            if not isinstance(entity_id, str):
+                continue
+            # Skip templated entity IDs
+            if "{{" in entity_id or "{%" in entity_id:
+                continue
+            if self.hass.states.get(entity_id) is None:
+                suggestion = self._suggest_target_entity(entity_id)
+                msg = f"Entity '{entity_id}' in service target does not exist"
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
+                issues.append(ValidationIssue(
+                    severity=Severity.WARNING,
+                    automation_id=call.automation_id,
+                    automation_name=call.automation_name,
+                    entity_id=entity_id,
+                    location=call.location,
+                    message=msg,
+                    issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                    suggestion=suggestion,
+                ))
+        return issues
+
+    def _suggest_target_entity(self, invalid: str) -> str | None:
+        """Suggest a correction for an invalid entity ID in target."""
+        if "." not in invalid:
+            return None
+        domain, name = invalid.split(".", 1)
+        same_domain = [
+            s.entity_id
+            for s in self.hass.states.async_all()
+            if s.entity_id.startswith(f"{domain}.")
+        ]
+        if not same_domain:
+            return None
+        names = {eid.split(".", 1)[1]: eid for eid in same_domain}
+        matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
+        return names[matches[0]] if matches else None
 
     def _suggest_param(
         self, invalid: str, valid_params: list[str]
