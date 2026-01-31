@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.11.0](https://github.com/mossipcams/autodoctor/compare/v2.10.0...v2.11.0) (2026-01-31)
+
+
+### Features
+
+* **005:** card design fixes + suppressions management view ([4cb25dd](https://github.com/mossipcams/autodoctor/commit/4cb25dd09074dd37fb9564959ee954b5a9e19c79))
+* **005:** SuppressionStore enhancements + list/unsuppress WS endpoints ([4201368](https://github.com/mossipcams/autodoctor/commit/4201368033165ac27eec8a8b65b42a3e4e2e2ca9))
+
+## [2.10.0](https://github.com/mossipcams/autodoctor/compare/v2.9.0...v2.10.0) (2026-01-31)
+
+
+### Features
+
+* **004:** validate entity IDs in service call targets ([7a23f5b](https://github.com/mossipcams/autodoctor/commit/7a23f5bbef4c6c5628d54f4579043d405ee81da5))
+* dynamic versioning from manifest.json and CI card rebuild ([5f78c0a](https://github.com/mossipcams/autodoctor/commit/5f78c0acbf231ed5753edf7809a96c654f8983e8))
+
+
+### Bug Fixes
+
+* **003:** replace brittle substring heuristics with platform-based Bermuda detection ([10d9e81](https://github.com/mossipcams/autodoctor/commit/10d9e814c11226f62b38e335cef60389c725d180))
+* **004:** remove dead knowledge_base parameter from JinjaValidator.__init__ ([8078d4d](https://github.com/mossipcams/autodoctor/commit/8078d4d49540667bafb8307f615d8a07fc4423e8))
+* **004:** remove sensor.native_value and native_unit_of_measurement from domain_attributes ([2aa946a](https://github.com/mossipcams/autodoctor/commit/2aa946a8fe92c015a433aa4fb628d175b41ad464))
+* **004:** replace Bermuda substring matching with entity registry platform lookup ([49fad0a](https://github.com/mossipcams/autodoctor/commit/49fad0a47786b26936ae44a39b4cc37276fbec31))
+* **004:** widen STATE_VALIDATION_WHITELIST to include lock, cover, alarm_control_panel, climate ([c3df079](https://github.com/mossipcams/autodoctor/commit/c3df079aac810a61e8edf4931aa976ed7851baa1))
+* **quick-002:** pass shared knowledge_base to JinjaValidator in __init__.py ([4e17add](https://github.com/mossipcams/autodoctor/commit/4e17add2146d9c75eda86855e5419f2b85d173e8))
+* resolve merge conflicts with main (PR [#36](https://github.com/mossipcams/autodoctor/issues/36) Bermuda detection) ([93f2f5b](https://github.com/mossipcams/autodoctor/commit/93f2f5bb7a7b68e57c8ffa948a3945776470ee4c))
+* **validation:** Phase 13 — fix 21 validation correctness defects ([91a6b4c](https://github.com/mossipcams/autodoctor/commit/91a6b4c236443727595f45917e3c202c4c4aae23))
+
+
+### Code Refactoring
+
+* **004:** extract shared _check_state_value helper in validator.py ([59af8f3](https://github.com/mossipcams/autodoctor/commit/59af8f3125501e67b47a7b781af1d76ae17d9a61))
+
+
+### Documentation
+
+* **004:** add order-dependency comment to _dedup_cross_family ([e8038ab](https://github.com/mossipcams/autodoctor/commit/e8038ab6285b1f9ce351b1da043252537c149c8f))
+
 ## [2.9.0](https://github.com/mossipcams/autodoctor/compare/v2.8.0...v2.9.0) (2026-01-30)
 
 
