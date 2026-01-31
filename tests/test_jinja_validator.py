@@ -1832,3 +1832,132 @@ def test_all_dict_actions_with_errors_all_found():
     issues = validator.validate_automations([automation])
     assert len(issues) == 2
     assert all(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+# --- Action key detection mutation hardening (JV-10) ---
+# NOTE: "choose" in action (line 306) AddNot is already killed by
+# test_choose_conditions_loop_finds_template_error (Plan 02 / JV-05).
+# "repeat" in action (line 377) AddNot is already killed by
+# test_repeat_while_conditions_loop_finds_template_error (Plan 02 / JV-05).
+# Tests below target the REMAINING action key guards: default, else, if/then.
+
+
+def test_choose_action_key_detected_and_validated():
+    """Choose action with bad template in condition is found.
+
+    Targets: `"choose" in action` guard (line 306) -- JV-10.
+    NOTE: Also killed by test_choose_conditions_loop_finds_template_error (JV-05),
+    but included here with distinct structure (bad template in option sequence
+    data, not just conditions) for completeness.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_choose",
+        "alias": "Key Choose",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "choose": [{
+                "conditions": [],
+                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
+            }]
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_repeat_action_key_detected_and_validated():
+    """Repeat action with bad template in while condition is found.
+
+    Targets: `"repeat" in action` guard (line 377) -- JV-10.
+    NOTE: Also killed by test_repeat_while_conditions_loop_finds_template_error
+    (JV-05), but included here for explicit JV-10 coverage with a distinct
+    automation ID and docstring.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_repeat",
+        "alias": "Key Repeat",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "repeat": {
+                "while": [{"condition": "template", "value_template": "{{ broken > }}"}],
+                "sequence": [],
+            }
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_default_key_detected_and_validated():
+    """Choose action with non-empty default containing bad template is found.
+
+    Targets: `if default:` guard (line 340) -- JV-10.
+    If AddNot inverts to `if not default:`, a non-empty default block is NOT
+    processed and the bad template inside is missed.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_default",
+        "alias": "Key Default",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "choose": [],
+            "default": [{"data": {"msg": "{{ broken > }}"}}],
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+
+
+def test_choose_empty_default_no_crash():
+    """Choose action with empty default produces no issues and does not crash.
+
+    Negative counterpart: empty default (falsy) should NOT be processed.
+    If `if default:` becomes `if not default:`, the empty list IS processed
+    but since it's empty, no crash -- the real kill comes from
+    test_choose_default_key_detected_and_validated above.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_empty_default",
+        "alias": "Key Empty Default",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "choose": [],
+            "default": [],
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) == 0
+
+
+def test_if_else_key_detected_and_validated():
+    """If/else action with bad template in else block is found.
+
+    Targets: `if else_actions:` guard (line 368) -- JV-10.
+    If AddNot inverts to `if not else_actions:`, a non-empty else block is NOT
+    processed and the bad template inside is missed.
+    """
+    validator = JinjaValidator()
+    automation = {
+        "id": "key_if_else",
+        "alias": "Key If Else",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{
+            "if": [],
+            "else": [{"data": {"msg": "{{ broken > }}"}}],
+        }],
+    }
+    issues = validator.validate_automations([automation])
+    assert len(issues) >= 1
+    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
