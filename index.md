@@ -58,7 +58,7 @@ autodoctor/
 - **`validator.py`** - Validates state references against knowledge base (conservative mode: only validates whitelisted domains with stable states); also provides `get_entity_suggestion()` for fuzzy entity matching
 - **`service_validator.py`** - Validates service calls against HA service registry (existence, required params, capability-dependent param handling, select/enum option validation)
 - **`ha_catalog.py`** - Dataclass-based registry of HA's Jinja2 filters and tests (101 filters, 23 tests). Single source of truth for filter/test name recognition.
-- **`jinja_validator.py`** - Validates Jinja2 template syntax and semantics (entity existence, state validity, attribute existence; opt-in filter/test validation)
+- **`jinja_validator.py`** - Validates Jinja2 template syntax and semantics (syntax errors; opt-in unknown filter/test warnings). Entity validation handled solely by `validator.py` via the analyzer path.
 
 ### Knowledge & Suggestions
 - **`knowledge_base.py`** - Builds valid state mappings from device classes, entity registry capabilities, schema introspection, and recorder history
@@ -69,7 +69,7 @@ autodoctor/
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
-- **`suppression_store.py`** - Thread-safe storage of dismissed issues
+- **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types)
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
 
@@ -150,23 +150,19 @@ Validates service calls against Home Assistant service registry.
 - **Type checking simplified**: Only validates discrete select/enum options (not basic types like number/boolean/text)
 
 ### 3. Jinja2 Template Validation (`jinja_validator.py`)
-Validates Jinja2 template syntax and semantics using HA-specific context.
+Validates Jinja2 template syntax and filter/test usage. Entity validation is handled exclusively by `validator.py` through the analyzer path (v2.14.0).
 
 | Check | Severity | Description |
 |-------|----------|-------------|
 | Template syntax error | ERROR | Invalid Jinja2 syntax |
-| Template entity not found | ERROR | Referenced entity doesn't exist |
-| Template invalid state | ERROR | State comparison uses invalid value (whitelisted domains only) |
-| Template attribute not found | WARNING | Attribute doesn't exist on entity |
-| Template device/area/zone not found | ERROR | Registry reference invalid |
 | Unknown template filter | WARNING | Filter not in HA/Jinja2 built-ins (opt-in via strict mode) |
 | Unknown template test | WARNING | Test not in HA/Jinja2 built-ins (opt-in via strict mode) |
 
-**Semantic validation:**
-- Validates `states()`, `state_attr()`, `is_state()`, `is_state_attr()` calls
-- Checks `device_id()`, `area_id()`, `area_name()` registry lookups
-- Validates filter/test signatures against HA-specific implementations (when strict mode enabled)
-- **Note**: Undefined variable checking removed to eliminate false positives with blueprints and input variables
+**Scope (v2.14.0):**
+- Syntax validation of all Jinja2 templates in triggers, conditions, actions, and data fields
+- Validates filter/test names against HA-specific catalog (when strict mode enabled)
+- Recursively walks nested action structures (choose, if/then/else, repeat, parallel) with depth limiting
+- **Removed in v2.14.0**: Entity existence, state validity, attribute existence, and registry reference checks (were a duplicate code path generating false positives)
 
 ## Trigger Type Coverage
 
@@ -210,15 +206,18 @@ Supports all 10 Home Assistant condition types:
 
 - `scripts/extract_ha_states.py` - Extract valid states from Home Assistant source code
 
-## Ongoing Refactoring (v2.7.0)
+## Validation Narrowing (v2.7.0 -- v2.14.0)
 
-Autodoctor is undergoing a validation scope narrowing to reduce false positives and focus on high-confidence checks. Target: <5% false positive rate.
+Autodoctor has undergone validation scope narrowing to reduce false positives and focus on high-confidence checks. Target: <5% false positive rate.
 
 ### Key Changes
 
 **Removed Validations:**
 - Undefined template variables (eliminated #1 source of false positives with blueprints)
 - Basic service parameter type checking (number/boolean/text validation unreliable due to YAML coercion)
+- Filter argument count validation (CatalogEntry simplified to name/kind/source/category only)
+- `for_each` template variable extraction (produced false positives)
+- **Template entity validation (v2.14.0)**: Entity existence, state validity, attribute existence, and registry reference checks removed from `jinja_validator.py` -- these were a duplicate code path also covered by `validator.py` via the analyzer, and generated false positives. 7 TEMPLATE_* IssueType members removed (13 remain). Cross-family dedup machinery removed.
 
 **Conservative State Validation:**
 - State validation now only applies to domains with stable, well-defined states
@@ -230,11 +229,12 @@ Autodoctor is undergoing a validation scope narrowing to reduce false positives 
 - Unknown service parameters: OFF by default (enable via "Strict service validation")
 
 **Severity Adjustments:**
-- Removed entities: ERROR → INFO
-- Missing attributes: ERROR → WARNING
+- Removed entities: ERROR -> INFO
+- Missing attributes: ERROR -> WARNING
+
+**Suppression Auto-Cleanup (v2.14.0):**
+- Suppressions referencing removed IssueType members are automatically cleaned on load
 
 ### Rationale
 
 Better to miss some issues than generate noise and reduce trust. Focus on deterministic, high-confidence validations. Users can opt into stricter checking if they prefer comprehensive coverage over precision.
-
-See `docs/validation-narrowing-checklist.md` for complete implementation plan.
