@@ -204,6 +204,7 @@ Supports all 10 Home Assistant condition types:
 - `test_init.py` - Integration lifecycle
 - `test_architectural_improvements.py` - Architectural review implementations (config, depth limits, KB sharing)
 - `test_service_validator.py` - Service call validation
+- `test_suppression_store.py` - Suppression store (orphan cleanup)
 
 ## Scripts
 
