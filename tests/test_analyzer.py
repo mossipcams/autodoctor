@@ -1566,6 +1566,90 @@ def test_extract_service_call_inline_params():
     assert calls[0].data == {"brightness": 255, "transition": 2}
 
 
+def test_extract_service_call_inline_params_merged_with_data():
+    """Test that inline params are merged with explicit data: dict, with data: winning on conflict."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "service": "light.turn_on",
+                "brightness": 255,
+                "data": {"transition": 2, "brightness": 128},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    # Explicit data: values take precedence over inline params
+    assert calls[0].data == {"transition": 2, "brightness": 128}
+
+
+def test_extract_service_call_entity_id_not_inline_param():
+    """Test that entity_id at action level is not treated as an inline param."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "service": "light.turn_on",
+                "entity_id": "light.living_room",
+                "brightness": 255,
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].data == {"brightness": 255}
+
+
+def test_extract_service_call_no_inline_no_data():
+    """Test action with only service + target produces data=None."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "service": "light.turn_off",
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].data is None
+
+
+def test_extract_service_call_action_key_with_inline_params():
+    """Test using 'action' key (HA 2024.x style) with inline params."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "action": "light.turn_on",
+                "brightness": 255,
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].data == {"brightness": 255}
+
+
 def test_extract_service_calls_from_choose():
     """Test extracting service calls from choose branches."""
     automation = {
