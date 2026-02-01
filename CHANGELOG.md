@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.0](https://github.com/mossipcams/autodoctor/compare/v2.13.3...v2.14.0) (2026-02-01)
+
+
+### Features
+
+* remove 3 false-positive validation paths (v2.14.0) ([b94d52a](https://github.com/mossipcams/autodoctor/commit/b94d52aeb8996875b766561e32e1bfe0227e74f0))
+
 ## [2.13.3](https://github.com/mossipcams/autodoctor/compare/v2.13.2...v2.13.3) (2026-02-01)
 
 
