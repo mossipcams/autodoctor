@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.1](https://github.com/mossipcams/autodoctor/compare/v2.14.0...v2.14.1) (2026-02-01)
+
+
+### Documentation
+
+* update README, scope audit, and checklist for v2.14.0 descoping ([df23911](https://github.com/mossipcams/autodoctor/commit/df23911fb3e70c5a7effd14bb602dd7fa2ebe0d7))
+
 ## [2.14.0](https://github.com/mossipcams/autodoctor/compare/v2.13.3...v2.14.0) (2026-02-01)
 
 
