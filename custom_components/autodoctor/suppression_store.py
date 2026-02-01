@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+
+from .models import IssueType
+
+_LOGGER = logging.getLogger(__name__)
 
 STORAGE_KEY = "autodoctor.suppressions"
 STORAGE_VERSION = 1
@@ -25,11 +30,31 @@ class SuppressionStore:
         self._lock = asyncio.Lock()
 
     async def async_load(self) -> None:
-        """Load suppressions from storage."""
+        """Load suppressions from storage.
+
+        Auto-strips entries referencing IssueType values that no longer
+        exist in the enum (e.g., after validation scope narrowing in v2.14.0).
+        """
         async with self._lock:
             data = await self._store.async_load()
             if data:
-                self._suppressions = set(data.get("suppressions", []))
+                raw_keys = set(data.get("suppressions", []))
+                valid_issue_types = {it.value for it in IssueType}
+                cleaned = set()
+                for key in raw_keys:
+                    parts = key.rsplit(":", 1)
+                    if len(parts) == 2 and parts[1] not in valid_issue_types:
+                        continue
+                    cleaned.add(key)
+                if len(cleaned) < len(raw_keys):
+                    _LOGGER.info(
+                        "Cleaned %d orphaned suppressions referencing removed issue types",
+                        len(raw_keys) - len(cleaned),
+                    )
+                    self._suppressions = cleaned
+                    await self.async_save()
+                else:
+                    self._suppressions = cleaned
 
     async def async_save(self) -> None:
         """Save suppressions to storage.

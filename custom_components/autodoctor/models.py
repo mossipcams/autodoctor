@@ -30,22 +30,11 @@ class IssueType(str, Enum):
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
-    TEMPLATE_INVALID_ARGUMENTS = "template_invalid_arguments"
-    TEMPLATE_INVALID_ENTITY_ID = "template_invalid_entity_id"
     SERVICE_NOT_FOUND = "service_not_found"
     SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"
     SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
     SERVICE_UNKNOWN_PARAM = "service_unknown_param"
     SERVICE_TARGET_NOT_FOUND = "service_target_not_found"
-
-    # NEW: HA-specific semantic errors
-    TEMPLATE_ENTITY_NOT_FOUND = "template_entity_not_found"
-    TEMPLATE_INVALID_STATE = "template_invalid_state"
-    TEMPLATE_ATTRIBUTE_NOT_FOUND = "template_attribute_not_found"
-    TEMPLATE_DEVICE_NOT_FOUND = "template_device_not_found"
-    TEMPLATE_AREA_NOT_FOUND = "template_area_not_found"
-    TEMPLATE_ZONE_NOT_FOUND = "template_zone_not_found"
-
 
 
 @dataclass
@@ -129,7 +118,7 @@ class ServiceCall:
 
 
 # Validation group definitions: maps group ID to label and member IssueTypes.
-# All 21 IssueType enum members must appear in exactly one group.
+# All 13 IssueType enum members must appear in exactly one group.
 VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
     "entity_state": {
         "label": "Entity & State",
@@ -157,14 +146,6 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
             IssueType.TEMPLATE_SYNTAX_ERROR,
             IssueType.TEMPLATE_UNKNOWN_FILTER,
             IssueType.TEMPLATE_UNKNOWN_TEST,
-            IssueType.TEMPLATE_INVALID_ARGUMENTS,
-            IssueType.TEMPLATE_INVALID_ENTITY_ID,
-            IssueType.TEMPLATE_ENTITY_NOT_FOUND,
-            IssueType.TEMPLATE_INVALID_STATE,
-            IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
-            IssueType.TEMPLATE_DEVICE_NOT_FOUND,
-            IssueType.TEMPLATE_AREA_NOT_FOUND,
-            IssueType.TEMPLATE_ZONE_NOT_FOUND,
         }),
     },
 }

@@ -20,7 +20,6 @@ _NON_ENTITY_REFERENCE_TYPES = frozenset({
     "tag",          # tag_id — no entity validation
     "area",         # area_id — validate against area registry
     "integration",  # integration name — no entity validation
-    "for_each",     # repeat.for_each items — may be device IDs or arbitrary strings
 })
 
 
