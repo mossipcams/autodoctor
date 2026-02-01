@@ -6,8 +6,6 @@ from custom_components.autodoctor.ha_catalog import (
     EntryKind,
     get_known_filters,
     get_known_tests,
-    get_filter_entry,
-    get_test_entry,
 )
 
 
@@ -19,21 +17,15 @@ class TestCatalogEntry:
         entry = CatalogEntry(
             name="float",
             kind=EntryKind.FILTER,
-            min_args=0,
-            max_args=1,
         )
         assert entry.name == "float"
         assert entry.kind == EntryKind.FILTER
-        assert entry.min_args == 0
-        assert entry.max_args == 1
 
     def test_create_full_entry(self):
         """CatalogEntry can be created with all fields."""
         entry = CatalogEntry(
             name="regex_match",
             kind=EntryKind.FILTER,
-            min_args=1,
-            max_args=2,
             source="ha",
             category="regex",
         )
@@ -46,29 +38,24 @@ class TestCatalogEntry:
         entry = CatalogEntry(
             name="float",
             kind=EntryKind.FILTER,
-            min_args=0,
-            max_args=1,
         )
         with pytest.raises(AttributeError):
             entry.name = "int"
 
-    def test_unlimited_args(self):
-        """max_args=None means unlimited arguments."""
+    def test_no_arg_fields(self):
+        """CatalogEntry no longer has min_args or max_args fields."""
         entry = CatalogEntry(
             name="iif",
             kind=EntryKind.FILTER,
-            min_args=1,
-            max_args=None,
         )
-        assert entry.max_args is None
+        assert not hasattr(entry, "min_args")
+        assert not hasattr(entry, "max_args")
 
     def test_defaults(self):
         """Optional fields have sensible defaults."""
         entry = CatalogEntry(
             name="test_entry",
             kind=EntryKind.TEST,
-            min_args=0,
-            max_args=0,
         )
         assert entry.source == "ha"
         assert entry.category == ""
@@ -126,53 +113,15 @@ class TestRegistryAccessors:
         missing = core_tests - tests
         assert not missing, f"Missing core tests: {missing}"
 
-    def test_get_filter_entry_returns_entry(self):
-        """get_filter_entry() returns a CatalogEntry for known filters."""
-        entry = get_filter_entry("float")
-        assert entry is not None
-        assert isinstance(entry, CatalogEntry)
-        assert entry.name == "float"
-        assert entry.kind == EntryKind.FILTER
+    def test_get_filter_entry_removed(self):
+        """get_filter_entry() no longer exists in the public API."""
+        import custom_components.autodoctor.ha_catalog as catalog
+        assert not hasattr(catalog, "get_filter_entry")
 
-    def test_get_filter_entry_returns_none_for_unknown(self):
-        """get_filter_entry() returns None for unknown filters."""
-        entry = get_filter_entry("totally_fake_filter")
-        assert entry is None
-
-    def test_get_test_entry_returns_entry(self):
-        """get_test_entry() returns a CatalogEntry for known tests."""
-        entry = get_test_entry("match")
-        assert entry is not None
-        assert isinstance(entry, CatalogEntry)
-        assert entry.name == "match"
-        assert entry.kind == EntryKind.TEST
-
-    def test_get_test_entry_returns_none_for_unknown(self):
-        """get_test_entry() returns None for unknown tests."""
-        entry = get_test_entry("totally_fake_test")
-        assert entry is None
-
-    def test_filter_entry_has_valid_args(self):
-        """All filter entries have min_args <= max_args (when max_args is set)."""
-        for name in get_known_filters():
-            entry = get_filter_entry(name)
-            assert entry is not None, f"Filter '{name}' in names but no entry"
-            assert entry.min_args >= 0, f"Filter '{name}' has negative min_args"
-            if entry.max_args is not None:
-                assert entry.min_args <= entry.max_args, (
-                    f"Filter '{name}' has min_args={entry.min_args} > max_args={entry.max_args}"
-                )
-
-    def test_test_entry_has_valid_args(self):
-        """All test entries have min_args <= max_args (when max_args is set)."""
-        for name in get_known_tests():
-            entry = get_test_entry(name)
-            assert entry is not None, f"Test '{name}' in names but no entry"
-            assert entry.min_args >= 0, f"Test '{name}' has negative min_args"
-            if entry.max_args is not None:
-                assert entry.min_args <= entry.max_args, (
-                    f"Test '{name}' has min_args={entry.min_args} > max_args={entry.max_args}"
-                )
+    def test_get_test_entry_removed(self):
+        """get_test_entry() no longer exists in the public API."""
+        import custom_components.autodoctor.ha_catalog as catalog
+        assert not hasattr(catalog, "get_test_entry")
 
 
 class TestCatalogCompleteness:
@@ -190,34 +139,12 @@ class TestCatalogCompleteness:
             f"Catalog only has {len(get_known_tests())} tests, expected at least 23"
         )
 
-    def test_all_filter_entries_have_signatures(self):
-        """Every filter entry has min_args and max_args defined (not just name)."""
-        for name in get_known_filters():
-            entry = get_filter_entry(name)
-            assert entry is not None
-            assert isinstance(entry.min_args, int), f"Filter '{name}' has non-int min_args"
-            assert entry.max_args is None or isinstance(entry.max_args, int), (
-                f"Filter '{name}' has invalid max_args type"
-            )
-
-    def test_all_test_entries_have_signatures(self):
-        """Every test entry has min_args and max_args defined."""
-        for name in get_known_tests():
-            entry = get_test_entry(name)
-            assert entry is not None
-            assert isinstance(entry.min_args, int), f"Test '{name}' has non-int min_args"
-            assert entry.max_args is None or isinstance(entry.max_args, int), (
-                f"Test '{name}' has invalid max_args type"
-            )
-
-    def test_all_entries_have_categories(self):
-        """Every catalog entry has a non-empty category."""
-        for name in get_known_filters():
-            entry = get_filter_entry(name)
-            assert entry.category, f"Filter '{name}' has empty category"
-        for name in get_known_tests():
-            entry = get_test_entry(name)
-            assert entry.category, f"Test '{name}' has empty category"
+    def test_catalog_has_no_arg_fields(self):
+        """CatalogEntry no longer carries min_args/max_args."""
+        from custom_components.autodoctor.ha_catalog import _FILTER_REGISTRY
+        for name, entry in _FILTER_REGISTRY.items():
+            assert not hasattr(entry, "min_args"), f"Filter '{name}' still has min_args"
+            assert not hasattr(entry, "max_args"), f"Filter '{name}' still has max_args"
 
     def test_ha_filters_not_in_jinja_validator(self):
         """After migration, _HA_FILTERS should not exist in jinja_validator.py."""
