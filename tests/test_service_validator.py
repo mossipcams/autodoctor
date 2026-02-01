@@ -1333,3 +1333,55 @@ async def test_suggest_target_entity_with_multiple_same_domain(hass: HomeAssista
     # "kitchn" vs "kitchen" -- best match is "light.kitchen"
     result = validator._suggest_target_entity("light.kitchn")
     assert result == "light.kitchen"
+
+
+async def test_validate_required_param_from_inline_params(hass: HomeAssistant):
+    """Test that inline params (merged into data) satisfy required param validation.
+
+    End-to-end integration test: a ServiceCall with data populated from inline
+    params should NOT trigger SERVICE_MISSING_REQUIRED_PARAM.
+    """
+    from custom_components.autodoctor.models import ServiceCall, IssueType
+
+    # Register a test service
+    async def test_service(call):
+        pass
+
+    hass.services.async_register("notify", "mobile_app_phone", test_service)
+
+    validator = ServiceCallValidator(hass)
+
+    # Mock service descriptions with a required 'message' field
+    validator._service_descriptions = {
+        "notify": {
+            "mobile_app_phone": {
+                "fields": {
+                    "message": {
+                        "required": True,
+                        "selector": {"text": {}},
+                    },
+                    "title": {
+                        "required": False,
+                        "selector": {"text": {}},
+                    },
+                }
+            }
+        }
+    }
+
+    # Simulate what the analyzer produces after merging inline params
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="notify.mobile_app_phone",
+        location="action[0]",
+        data={"message": "Hello", "title": "Alert"},
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    missing_issues = [
+        i for i in issues
+        if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
+    assert len(missing_issues) == 0

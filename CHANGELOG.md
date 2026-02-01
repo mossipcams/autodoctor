@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.13.3](https://github.com/mossipcams/autodoctor/compare/v2.13.2...v2.13.3) (2026-02-01)
+
+
+### Bug Fixes
+
+* merge inline action parameters into ServiceCall.data ([#51](https://github.com/mossipcams/autodoctor/issues/51)) ([c1d686f](https://github.com/mossipcams/autodoctor/commit/c1d686f7feabe4d60e884f6e6cef5fe211fb0a07))
+* **quick-009:** merge inline action parameters into ServiceCall.data ([6c74963](https://github.com/mossipcams/autodoctor/commit/6c74963d1c8c89ebd6644b1fc769d83d8e460df6))
+
 ## [2.13.2](https://github.com/mossipcams/autodoctor/compare/v2.13.1...v2.13.2) (2026-01-31)
 
 
