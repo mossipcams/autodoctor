@@ -30,7 +30,6 @@ class IssueType(str, Enum):
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
-    TEMPLATE_INVALID_ARGUMENTS = "template_invalid_arguments"
     TEMPLATE_INVALID_ENTITY_ID = "template_invalid_entity_id"
     SERVICE_NOT_FOUND = "service_not_found"
     SERVICE_MISSING_REQUIRED_PARAM = "service_missing_required_param"
@@ -129,7 +128,7 @@ class ServiceCall:
 
 
 # Validation group definitions: maps group ID to label and member IssueTypes.
-# All 21 IssueType enum members must appear in exactly one group.
+# All 20 IssueType enum members must appear in exactly one group.
 VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
     "entity_state": {
         "label": "Entity & State",
@@ -157,7 +156,6 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
             IssueType.TEMPLATE_SYNTAX_ERROR,
             IssueType.TEMPLATE_UNKNOWN_FILTER,
             IssueType.TEMPLATE_UNKNOWN_TEST,
-            IssueType.TEMPLATE_INVALID_ARGUMENTS,
             IssueType.TEMPLATE_INVALID_ENTITY_ID,
             IssueType.TEMPLATE_ENTITY_NOT_FOUND,
             IssueType.TEMPLATE_INVALID_STATE,

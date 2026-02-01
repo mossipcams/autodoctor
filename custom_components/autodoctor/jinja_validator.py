@@ -10,7 +10,7 @@ import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
-from .ha_catalog import get_filter_entry, get_known_filters, get_known_tests
+from .ha_catalog import get_known_filters, get_known_tests
 from .models import IssueType, Severity, ValidationIssue
 
 if TYPE_CHECKING:
@@ -638,10 +638,6 @@ class JinjaValidator:
                             message=f"Unknown filter '{node.name}' — not a built-in Jinja2 or Home Assistant filter",
                         )
                     )
-                else:
-                    # Validate arguments for known filters
-                    _LOGGER.debug("Calling _validate_filter_args for %s", node.name)
-                    issues.extend(self._validate_filter_args(node, location, auto_id, auto_name))
 
             for node in ast.find_all(nodes.Test):
                 if node.name not in self._known_tests:
@@ -658,43 +654,6 @@ class JinjaValidator:
                     )
 
         return issues
-
-    def _validate_filter_args(
-        self,
-        node: nodes.Filter,
-        location: str,
-        auto_id: str,
-        auto_name: str,
-    ) -> list[ValidationIssue]:
-        """Validate filter argument count."""
-        sig = get_filter_entry(node.name)
-        if not sig:
-            return []  # Unknown filter already handled elsewhere
-
-        # Count arguments - args can be None or a list
-        arg_count = len(node.args) if node.args else 0
-        _LOGGER.debug("Validating filter '%s': args=%d, min=%d, max=%s", node.name, arg_count, sig.min_args, sig.max_args)
-
-        if arg_count < sig.min_args or (sig.max_args is not None and arg_count > sig.max_args):
-            if sig.max_args is None:
-                expected = f"{sig.min_args}+"
-            elif sig.min_args == sig.max_args:
-                expected = str(sig.min_args)
-            else:
-                expected = f"{sig.min_args}-{sig.max_args}"
-
-            return [
-                ValidationIssue(
-                    issue_type=IssueType.TEMPLATE_INVALID_ARGUMENTS,
-                    severity=Severity.WARNING,
-                    automation_id=auto_id,
-                    automation_name=auto_name,
-                    entity_id="",
-                    location=location,
-                    message=f"Filter '{node.name}' expects {expected} arguments, got {arg_count}",
-                )
-            ]
-        return []
 
     def _check_template(
         self,
