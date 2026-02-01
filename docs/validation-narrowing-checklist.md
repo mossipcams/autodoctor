@@ -112,9 +112,9 @@
   - [ ] Update `ATTRIBUTE_NOT_FOUND` severity from ERROR to WARNING (line 211)
 
 - [ ] **jinja_validator.py**
-  - [ ] Apply same domain whitelist to `_validate_entity_references()` (lines 813-843)
-  - [ ] Import `_STATE_VALIDATION_WHITELIST` from validator
-  - [ ] Add domain check before state validation
+  - [x] ~~Apply same domain whitelist to `_validate_entity_references()` (lines 813-843)~~ -- Superseded: method removed entirely in Phase 24-01 (template entity validation removed)
+  - [x] ~~Import `_STATE_VALIDATION_WHITELIST` from validator~~ -- Superseded: not needed after Phase 24-01 removal
+  - [x] ~~Add domain check before state validation~~ -- Superseded: template state validation removed in Phase 24-01
 
 ### Verification
 - [ ] Test binary_sensor state validation still works

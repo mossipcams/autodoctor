@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
@@ -12,6 +12,9 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from .ha_catalog import get_known_filters, get_known_tests
 from .models import IssueType, Severity, ValidationIssue
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
