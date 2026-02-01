@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.15.0](https://github.com/mossipcams/autodoctor/compare/v2.14.0...v2.15.0) (2026-02-01)
+
+
+### Features
+
+* foundation and core validation engine ([d76dd64](https://github.com/mossipcams/autodoctor/commit/d76dd64c65cfb6b87efd32b3327e844646c0f1e4))
+* home assistant integration ([4531cde](https://github.com/mossipcams/autodoctor/commit/4531cde8abe7a7aaadb17388debe0f38a8fd6827))
+* jinja template validation ([5f5e03c](https://github.com/mossipcams/autodoctor/commit/5f5e03ccd81acbfceac33bc6acd78837cc4549f2))
+* **quick-011:** targeted single-automation validation on save ([2f1645b](https://github.com/mossipcams/autodoctor/commit/2f1645bcf46eb05da25dfbfede5b9bf6cb2f3346))
+* websocket api and frontend card ([a973a2d](https://github.com/mossipcams/autodoctor/commit/a973a2d2ea73294ad645b3636ea0f7d2e4c40650))
+
+
+### Code Refactoring
+
+* mvp architecture and validation pipeline ([91063b1](https://github.com/mossipcams/autodoctor/commit/91063b190bfe49619efef8ff4ba3166cbd00bd5d))
+
+
+### Documentation
+
+* update README for v2.14.0 accuracy ([0bf6c66](https://github.com/mossipcams/autodoctor/commit/0bf6c66309482673f286d760c8e13e06a5d67f40))
+* update README, scope audit, and checklist for v2.14.0 descoping ([09ad504](https://github.com/mossipcams/autodoctor/commit/09ad504ef4476975abf6a121c658b6b6d5839313))
+
 ## [2.14.0](https://github.com/mossipcams/autodoctor/compare/v2.13.3...v2.14.0) (2026-02-01)
 
 
