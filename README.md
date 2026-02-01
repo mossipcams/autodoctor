@@ -65,6 +65,7 @@ The card displays issues with:
 | Service | Description |
 |---------|-------------|
 | `autodoctor.validate` | Run validation on all automations (or a specific one) |
+| `autodoctor.validate_automation` | Run validation on a specific automation (required `automation_id`) |
 | `autodoctor.refresh_knowledge_base` | Rebuild the state knowledge base from history |
 
 ## Entities
@@ -108,7 +109,7 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 - State triggers (`to`, `from` values) -- conservative: only whitelisted domains
 - Numeric state triggers (entity and attribute existence)
 - State conditions
-- Template syntax (Jinja2 parse errors)
+- Template syntax (Jinja2 parse errors, unknown filters/tests with strict mode)
 - Service calls (existence, required params, select option validation)
 - Entity references in triggers, conditions, and actions
 
@@ -129,6 +130,7 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 
 Autodoctor deliberately skips checks that generate false positives:
 
+- **Entity references inside templates** -- Only syntax is checked; entity/state/attribute validation within `{{ }}` expressions is handled by the static analyzer, not re-validated in templates
 - **Template variables** -- Blueprint inputs and trigger context are unknowable statically
 - **State values for custom domains** -- Only well-known domains (binary_sensor, person, etc.) are validated
 - **Custom Jinja2 filters/tests** -- Unless strict mode is enabled
