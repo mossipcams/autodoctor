@@ -1544,6 +1544,28 @@ def test_extract_templated_service_call():
     assert calls[0].is_template is True
 
 
+def test_extract_service_call_inline_params():
+    """Test that inline parameters (without data: wrapper) are captured in ServiceCall.data."""
+    automation = {
+        "id": "test",
+        "alias": "Test",
+        "action": [
+            {
+                "service": "light.turn_on",
+                "brightness": 255,
+                "transition": 2,
+                "target": {"entity_id": "light.living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].data == {"brightness": 255, "transition": 2}
+
+
 def test_extract_service_calls_from_choose():
     """Test extracting service calls from choose branches."""
     automation = {

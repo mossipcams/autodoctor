@@ -79,6 +79,20 @@ HAS_VALUE_PATTERN = re.compile(
 # Pattern to strip Jinja2 comments before parsing
 JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
+# Keys at the action dict level that are structural (not service parameters).
+# Any key NOT in this set is treated as an inline service parameter.
+_ACTION_STRUCTURAL_KEYS = frozenset({
+    "service", "action", "data", "target", "entity_id",
+    "enabled", "alias", "continue_on_error", "response_variable",
+    # Control flow keys (handled separately)
+    "choose", "default", "if", "then", "else",
+    "repeat", "parallel", "sequence", "for_each",
+    "wait_template", "wait_for_trigger", "delay", "event",
+    "scene", "stop", "variables", "set_conversation_response",
+    "device_id", "domain", "type",  # device action keys
+    "metadata",
+})
+
 
 class AutomationAnalyzer:
     """Parses automation configs and extracts all state references."""
@@ -1156,13 +1170,32 @@ class AutomationAnalyzer:
             service = action.get("service") or action.get("action")
             if service and isinstance(service, str):
                 is_template = "{{" in service or "{%" in service
+
+                # Merge inline params with explicit data: dict.
+                # HA allows params at action level without a data: wrapper.
+                explicit_data = action.get("data")
+                if isinstance(explicit_data, str):
+                    # Template string in data: — pass through as-is
+                    merged_data = explicit_data
+                else:
+                    inline_params = {
+                        k: v for k, v in action.items()
+                        if k not in _ACTION_STRUCTURAL_KEYS
+                    }
+                    explicit_data = explicit_data or {}
+                    merged_data = (
+                        {**inline_params, **explicit_data}
+                        if inline_params
+                        else explicit_data
+                    ) or None
+
                 service_calls.append(ServiceCall(
                     automation_id=automation_id,
                     automation_name=automation_name,
                     service=service,
                     location=location,
                     target=action.get("target"),
-                    data=action.get("data"),
+                    data=merged_data,
                     is_template=is_template,
                 ))
 
