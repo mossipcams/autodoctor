@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
@@ -12,10 +12,6 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from .ha_catalog import get_known_filters, get_known_tests
 from .models import IssueType, Severity, ValidationIssue
-
-if TYPE_CHECKING:
-    from homeassistant.core import HomeAssistant
-    from .validator import ValidationEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,26 +31,6 @@ def _ensure_list(value: Any) -> list:
     return value
 
 
-# Issue type remapping: validator.py types -> jinja template types.
-# When delegating entity/attribute/state validation to validator.py,
-# remap the returned issue types to TEMPLATE_* variants so they stay
-# in the "templates" VALIDATION_GROUP and preserve suppression keys.
-_ISSUE_TYPE_REMAP: dict[IssueType, IssueType] = {
-    IssueType.ENTITY_NOT_FOUND: IssueType.TEMPLATE_ENTITY_NOT_FOUND,
-    IssueType.ENTITY_REMOVED: IssueType.TEMPLATE_ENTITY_NOT_FOUND,
-    IssueType.INVALID_STATE: IssueType.TEMPLATE_INVALID_STATE,
-    IssueType.ATTRIBUTE_NOT_FOUND: IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND,
-    # CASE_MISMATCH stays as-is (same type in both families)
-}
-
-# Lookup table for special (non-entity) reference types validated by registry.
-_SPECIAL_REF_TYPES: dict[str, tuple[IssueType, str]] = {
-    "zone": (IssueType.TEMPLATE_ZONE_NOT_FOUND, "Zone"),
-    "device": (IssueType.TEMPLATE_DEVICE_NOT_FOUND, "Device"),
-    "area": (IssueType.TEMPLATE_AREA_NOT_FOUND, "Area"),
-}
-
-
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
 
@@ -62,7 +38,6 @@ class JinjaValidator:
         self,
         hass: HomeAssistant | None = None,
         strict_template_validation: bool = False,
-        validation_engine: ValidationEngine | None = None,
     ) -> None:
         """Initialize the Jinja validator.
 
@@ -70,13 +45,9 @@ class JinjaValidator:
             hass: Home Assistant instance (optional, for HA-specific template env)
             strict_template_validation: If True, warn about unknown filters/tests.
                 Disable if using custom components that add custom Jinja filters.
-            validation_engine: Shared ValidationEngine instance for delegating
-                entity/attribute/state validation. If None, entity reference
-                validation is skipped (backward compatibility).
         """
         self.hass = hass
         self._strict_validation = strict_template_validation
-        self._validation_engine = validation_engine
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
         self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | get_known_filters()
@@ -466,146 +437,6 @@ class JinjaValidator:
         """Check if a string contains Jinja2 template syntax."""
         return bool(TEMPLATE_PATTERN.search(value))
 
-    def _extract_entity_references(
-        self,
-        template: str,
-        location: str,
-        auto_id: str,
-        auto_name: str,
-    ) -> list["StateReference"]:
-        """Extract entity references from template using analyzer patterns.
-
-        Reuses regex patterns from AutomationAnalyzer._extract_from_template()
-        to find all entity references in the template.
-        """
-        # Import analyzer patterns (avoid circular import at module level)
-        from .analyzer import (
-            IS_STATE_PATTERN,
-            IS_STATE_ATTR_PATTERN,
-            STATE_ATTR_PATTERN,
-            STATES_OBJECT_PATTERN,
-            STATES_FUNCTION_PATTERN,
-            EXPAND_PATTERN,
-            AREA_ENTITIES_PATTERN,
-            DEVICE_ENTITIES_PATTERN,
-            INTEGRATION_ENTITIES_PATTERN,
-            JINJA_COMMENT_PATTERN,
-        )
-        from .models import StateReference
-
-        # Descriptor table: (pattern, location_suffix, entity_group_indices,
-        #                     state_group, attr_group, dedup, reference_type)
-        _PATTERNS = [
-            (IS_STATE_PATTERN, "is_state", (0,), 1, None, False, "direct"),
-            (IS_STATE_ATTR_PATTERN, "is_state_attr", (0,), None, 1, False, "direct"),
-            (STATE_ATTR_PATTERN, "state_attr", (0,), None, 1, False, "direct"),
-            (STATES_OBJECT_PATTERN, "states_object", (0, 1), None, None, True, "direct"),
-            (STATES_FUNCTION_PATTERN, "states_function", (0,), None, None, True, "direct"),
-            (EXPAND_PATTERN, "expand", (0,), None, None, True, "group"),
-            (AREA_ENTITIES_PATTERN, "area_entities", (0,), None, None, True, "area"),
-            (DEVICE_ENTITIES_PATTERN, "device_entities", (0,), None, None, True, "device"),
-            (INTEGRATION_ENTITIES_PATTERN, "integration_entities", (0,), None, None, True, "integration"),
-        ]
-
-        refs: list[StateReference] = []
-
-        # Strip Jinja2 comments before parsing
-        template = JINJA_COMMENT_PATTERN.sub("", template)
-
-        for pattern, loc_suffix, eid_groups, state_grp, attr_grp, dedup, ref_type in _PATTERNS:
-            for match in pattern.finditer(template):
-                groups = match.groups()
-                entity_id = ".".join(groups[i] for i in eid_groups)
-                if dedup and any(r.entity_id == entity_id for r in refs):
-                    continue
-                refs.append(
-                    StateReference(
-                        automation_id=auto_id,
-                        automation_name=auto_name,
-                        entity_id=entity_id,
-                        expected_state=groups[state_grp] if state_grp is not None else None,
-                        expected_attribute=groups[attr_grp] if attr_grp is not None else None,
-                        location=f"{location}.{loc_suffix}",
-                        reference_type=ref_type,
-                    )
-                )
-
-        return refs
-
-    def _check_special_reference(self, ref: "StateReference") -> ValidationIssue | None:
-        """Check a zone/device/area reference and return an issue if not found."""
-        issue_type, label = _SPECIAL_REF_TYPES[ref.reference_type]
-        exists = False
-
-        if ref.reference_type == "zone":
-            exists = self.hass.states.get(ref.entity_id) is not None
-        elif ref.reference_type == "device":
-            from homeassistant.helpers import device_registry as dr
-
-            exists = dr.async_get(self.hass).async_get(ref.entity_id) is not None
-        elif ref.reference_type == "area":
-            from homeassistant.helpers import area_registry as ar
-
-            exists = ar.async_get(self.hass).async_get_area(ref.entity_id) is not None
-
-        if not exists:
-            return ValidationIssue(
-                issue_type=issue_type,
-                severity=Severity.ERROR,
-                automation_id=ref.automation_id,
-                automation_name=ref.automation_name,
-                entity_id=ref.entity_id,
-                location=ref.location,
-                message=f"{label} '{ref.entity_id}' referenced in template does not exist",
-            )
-        return None
-
-    def _validate_entity_references(
-        self,
-        refs: list["StateReference"],
-    ) -> list[ValidationIssue]:
-        """Validate entity references by delegating to ValidationEngine.
-
-        Delegates entity existence, attribute checking, and state validation
-        to validator.py (the canonical implementation), then remaps issue types
-        to TEMPLATE_* variants so they stay in the "templates" validation group.
-
-        Special reference types (zone, device, area) are still handled directly
-        since validator.py's non-entity handling uses different issue types.
-
-        Args:
-            refs: List of StateReferences extracted from templates
-
-        Returns:
-            List of ValidationIssues found
-        """
-        if not self._validation_engine:
-            return []  # No engine available, skip entity validation
-
-        # Separate special refs (zone/device/area) from standard entity refs
-        standard_refs: list[StateReference] = []
-        issues: list[ValidationIssue] = []
-
-        for ref in refs:
-            if ref.reference_type in _SPECIAL_REF_TYPES:
-                issue = self._check_special_reference(ref)
-                if issue:
-                    issues.append(issue)
-            else:
-                standard_refs.append(ref)
-
-        # Delegate standard entity/attribute/state validation to validator.py
-        engine_issues = self._validation_engine.validate_all(standard_refs)
-
-        # Remap issue types to TEMPLATE_* variants
-        for issue in engine_issues:
-            if issue.issue_type in _ISSUE_TYPE_REMAP:
-                issue.issue_type = _ISSUE_TYPE_REMAP[issue.issue_type]
-            issues.append(issue)
-
-        return issues
-
-
     def _check_ast_semantics(
         self,
         ast: nodes.Template,
@@ -693,13 +524,4 @@ class JinjaValidator:
             )
             return []
 
-        issues = []
-
-        # 2. Semantic check for filters/tests (existing)
-        issues.extend(self._check_ast_semantics(ast, location, auto_id, auto_name))
-
-        # 3. NEW: Semantic check for entity references
-        refs = self._extract_entity_references(template, location, auto_id, auto_name)
-        issues.extend(self._validate_entity_references(refs))
-
-        return issues
+        return self._check_ast_semantics(ast, location, auto_id, auto_name)
