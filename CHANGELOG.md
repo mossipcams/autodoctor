@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.2](https://github.com/mossipcams/autodoctor/compare/v2.13.1...v2.13.2) (2026-01-31)
+
+
+### Bug Fixes
+
+* add missing capability-dependent params and domain attributes ([#49](https://github.com/mossipcams/autodoctor/issues/49)) ([20dafff](https://github.com/mossipcams/autodoctor/commit/20dafffaaa37a333cfb7a55c42252fbbd135071d))
+
 ## [2.13.1](https://github.com/mossipcams/autodoctor/compare/v2.13.0...v2.13.1) (2026-01-31)
 
 

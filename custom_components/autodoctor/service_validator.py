@@ -70,6 +70,30 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     "number.set_value": frozenset({"value"}),
     # --- Input text ---
     "input_text.set_value": frozenset({"value"}),
+    # --- Input number ---
+    "input_number.set_value": frozenset({"value"}),
+    # --- Input select ---
+    "input_select.select_option": frozenset({"option"}),
+    # --- Input datetime ---
+    "input_datetime.set_datetime": frozenset({
+        "date", "time", "datetime", "timestamp",
+    }),
+    # --- Select ---
+    "select.select_option": frozenset({"option"}),
+    # --- Text ---
+    "text.set_value": frozenset({"value"}),
+    # --- Lock ---
+    "lock.lock": frozenset({"code"}),
+    "lock.unlock": frozenset({"code"}),
+    "lock.open": frozenset({"code"}),
+    # --- Siren ---
+    "siren.turn_on": frozenset({"tone", "volume_level", "duration"}),
+    # --- Remote ---
+    "remote.send_command": frozenset({
+        "command", "device", "delay_secs", "num_repeats",
+    }),
+    # --- TTS ---
+    "tts.speak": frozenset({"message", "cache", "language", "options"}),
     # --- Humidifier ---
     "humidifier.set_humidity": frozenset({"humidity"}),
     "humidifier.set_mode": frozenset({"mode"}),
