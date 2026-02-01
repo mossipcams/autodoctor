@@ -54,13 +54,14 @@ These validations are deterministic and rarely produce false positives:
 - **Issue type:** `ENTITY_NOT_FOUND` (for devices/areas)
 - **Recommendation:** **Keep as-is**
 
-#### 5. Template Entity Existence
-- **File:** `jinja_validator.py:782-794`
+#### 5. ~~Template Entity Existence~~ (Removed)
+> **Removed in v2.14.0** -- This validation was removed as a duplicate code path that generated false positives. Entity validation is handled solely by `validator.py` via the analyzer.
+
+- **File:** ~~`jinja_validator.py:782-794`~~ (removed)
 - **Confidence:** 95%
-- **What it does:** Validates entity references in templates (states(), is_state(), etc.)
-- **Why keep:** Same as #1 but for template context
-- **Issue type:** `TEMPLATE_ENTITY_NOT_FOUND`
-- **Recommendation:** **Keep as-is**
+- **What it did:** Validated entity references in templates (states(), is_state(), etc.)
+- **Issue type:** ~~`TEMPLATE_ENTITY_NOT_FOUND`~~ (removed)
+- **Status:** Removed in Phase 24-01
 
 #### 6. Missing Required Service Parameters
 - **File:** `service_validator.py:143-184`
@@ -77,7 +78,7 @@ These validations are deterministic and rarely produce false positives:
 These validations work for common cases but have known false positive scenarios:
 
 #### 7. State Validation
-- **File:** `validator.py:134-181`, `jinja_validator.py:813-843`
+- **File:** `validator.py:134-181`
 - **Current confidence:** 70%
 - **What it does:** Validates state values against knowledge base (observed states + device_class defaults)
 - **False positive scenarios:**
@@ -85,7 +86,7 @@ These validations work for common cases but have known false positive scenarios:
   - Dynamic states not yet observed
   - Blueprint variables that resolve to valid states at runtime
   - Entities that haven't been created yet but will be
-- **Issue types:** `INVALID_STATE`, `TEMPLATE_INVALID_STATE`
+- **Issue types:** `INVALID_STATE`
 - **Recommendation:**
   - **Only validate for well-known domains** with stable states:
     - `binary_sensor.*` (on/off)
@@ -108,14 +109,14 @@ These validations work for common cases but have known false positive scenarios:
 - **Recommendation:** **Keep but only for whitelisted domains** (same list as #7)
 
 #### 9. Attribute Existence Checking
-- **File:** `validator.py:183-223`, `jinja_validator.py:796-811`
+- **File:** `validator.py:183-223`
 - **Current confidence:** 65%
 - **What it does:** Checks if attribute exists on entity (current state + domain defaults)
 - **False positive scenarios:**
   - State-dependent attributes (e.g., `brightness` only when light is `on`)
   - Capability-dependent attributes (e.g., `color_temp` only for color lights)
   - Attributes added by integrations dynamically
-- **Issue types:** `ATTRIBUTE_NOT_FOUND`, `TEMPLATE_ATTRIBUTE_NOT_FOUND`
+- **Issue types:** `ATTRIBUTE_NOT_FOUND`
 - **Current mitigation:** Already uses `domain_attributes.py` to whitelist common attributes
 - **Recommendation:**
   - **Keep current implementation** (already conservative with domain defaults)
@@ -144,15 +145,14 @@ These validations work for common cases but have known false positive scenarios:
   - **Keep but increase cutoff threshold from 0.6 to 0.75** for more conservative matches
   - Only suggest if single match with high confidence
 
-#### 12. Filter Argument Validation
-- **File:** `jinja_validator.py:905-940`
+#### 12. ~~Filter Argument Validation~~ (Removed)
+> **Removed in v2.14.0** -- Filter argument validation was removed entirely in Phase 23. CatalogEntry simplified to name/kind/source/category only.
+
+- **File:** ~~`jinja_validator.py:905-940`~~ (removed)
 - **Current confidence:** 75%
-- **What it does:** Validates filter argument counts against known signatures
-- **False positive scenarios:** Custom filters with different signatures
-- **Issue type:** `TEMPLATE_INVALID_ARGUMENTS`
-- **Recommendation:**
-  - **Downgrade to WARNING** (already is WARNING)
-  - **Skip validation** if filter is not in `FILTER_SIGNATURES` (user may have custom implementation)
+- **What it did:** Validated filter argument counts against known signatures
+- **Issue type:** ~~`TEMPLATE_INVALID_ARGUMENTS`~~ (removed)
+- **Status:** Removed in Phase 23
 
 ---
 

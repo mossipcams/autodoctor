@@ -1027,37 +1027,6 @@ class AutomationAnalyzer:
             if "repeat" in action:
                 repeat_config = action["repeat"]
                 if isinstance(repeat_config, dict):
-                    # Extract from for_each
-                    if "for_each" in repeat_config:
-                        for_each_value = repeat_config["for_each"]
-
-                        # Handle list format (static entities)
-                        if isinstance(for_each_value, list):
-                            for item in for_each_value:
-                                if isinstance(item, str):
-                                    refs.append(
-                                        StateReference(
-                                            automation_id=automation_id,
-                                            automation_name=automation_name,
-                                            entity_id=item,
-                                            expected_state=None,
-                                            expected_attribute=None,
-                                            location=f"action[{idx}].repeat.for_each",
-                                            reference_type="for_each",
-                                        )
-                                    )
-
-                        # Handle template format
-                        elif isinstance(for_each_value, str):
-                            refs.extend(
-                                self._extract_from_template(
-                                    for_each_value,
-                                    f"action[{idx}].repeat.for_each",
-                                    automation_id,
-                                    automation_name,
-                                )
-                            )
-
                     # Check while conditions
                     while_conditions = repeat_config.get("while", [])
                     if not isinstance(while_conditions, list):

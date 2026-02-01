@@ -257,18 +257,38 @@ def test_service_issue_types_exist():
     assert IssueType.SERVICE_UNKNOWN_PARAM.value == "service_unknown_param"
 
 
-def test_new_template_issue_types():
-    """Test new template-related issue types exist."""
-    assert hasattr(IssueType, "TEMPLATE_ENTITY_NOT_FOUND")
-    assert hasattr(IssueType, "TEMPLATE_INVALID_STATE")
-    assert hasattr(IssueType, "TEMPLATE_ATTRIBUTE_NOT_FOUND")
-    assert hasattr(IssueType, "TEMPLATE_DEVICE_NOT_FOUND")
-    assert hasattr(IssueType, "TEMPLATE_AREA_NOT_FOUND")
-    assert hasattr(IssueType, "TEMPLATE_ZONE_NOT_FOUND")
+def test_removed_template_entity_issue_types():
+    """Test that false-positive-generating TEMPLATE_* entity issue types were removed in v2.14.0."""
+    removed_members = [
+        "TEMPLATE_INVALID_ENTITY_ID",
+        "TEMPLATE_ENTITY_NOT_FOUND",
+        "TEMPLATE_INVALID_STATE",
+        "TEMPLATE_ATTRIBUTE_NOT_FOUND",
+        "TEMPLATE_DEVICE_NOT_FOUND",
+        "TEMPLATE_AREA_NOT_FOUND",
+        "TEMPLATE_ZONE_NOT_FOUND",
+    ]
+    for member_name in removed_members:
+        assert not hasattr(IssueType, member_name), (
+            f"IssueType.{member_name} should have been removed in v2.14.0"
+        )
 
-    assert IssueType.TEMPLATE_ENTITY_NOT_FOUND.value == "template_entity_not_found"
-    assert IssueType.TEMPLATE_INVALID_STATE.value == "template_invalid_state"
-    assert IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND.value == "template_attribute_not_found"
+    # Exactly 13 members remain after removing 7
+    assert len(IssueType) == 13, f"Expected 13 IssueType members, got {len(IssueType)}"
+
+
+def test_templates_validation_group_narrowed():
+    """Test that templates VALIDATION_GROUP contains only syntax-level checks after v2.14.0."""
+    templates_group = VALIDATION_GROUPS["templates"]["issue_types"]
+    expected = frozenset({
+        IssueType.TEMPLATE_SYNTAX_ERROR,
+        IssueType.TEMPLATE_UNKNOWN_FILTER,
+        IssueType.TEMPLATE_UNKNOWN_TEST,
+    })
+    assert templates_group == expected, (
+        f"Templates group should contain only syntax-level checks. "
+        f"Got: {templates_group}, Expected: {expected}"
+    )
 
 
 def test_validation_groups_cover_all_issue_types():

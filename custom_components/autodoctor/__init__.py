@@ -34,7 +34,7 @@ from .const import (
     VERSION,
 )
 from .jinja_validator import JinjaValidator
-from .models import IssueType, VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
+from .models import VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
 from .knowledge_base import StateKnowledgeBase
 from .learned_states_store import LearnedStatesStore
 from .reporter import IssueReporter
@@ -218,7 +218,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     jinja_validator = JinjaValidator(
         hass,
         strict_template_validation=strict_template,
-        validation_engine=validator,
     )
     strict_service = options.get(
         CONF_STRICT_SERVICE_VALIDATION, DEFAULT_STRICT_SERVICE_VALIDATION
@@ -376,82 +375,6 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     )
 
 
-# Cross-family semantic equivalence for deduplication (C5).
-# Issue types within the same family represent the same underlying problem
-# detected through different code paths. When both families report on the
-# same (automation_id, entity_id), keep only the more authoritative one.
-_SEMANTIC_FAMILIES: dict[IssueType, str] = {
-    IssueType.ENTITY_NOT_FOUND: "entity_missing",
-    IssueType.TEMPLATE_ENTITY_NOT_FOUND: "entity_missing",
-    IssueType.ENTITY_REMOVED: "entity_missing",
-    IssueType.INVALID_STATE: "invalid_state",
-    IssueType.TEMPLATE_INVALID_STATE: "invalid_state",
-    IssueType.ATTRIBUTE_NOT_FOUND: "attribute_missing",
-    IssueType.TEMPLATE_ATTRIBUTE_NOT_FOUND: "attribute_missing",
-}
-
-# Issue types from validator.py (entity_state family) are preferred over
-# TEMPLATE_* variants because validator.py is the authority.
-_PREFERRED_ISSUE_TYPES: frozenset[IssueType] = frozenset({
-    IssueType.ENTITY_NOT_FOUND,
-    IssueType.ENTITY_REMOVED,
-    IssueType.INVALID_STATE,
-    IssueType.ATTRIBUTE_NOT_FOUND,
-})
-
-
-# IMPORTANT: Correctness depends on VALIDATION_GROUP_ORDER processing
-# "entity_state" before "templates". The dedup loop iterates group_issues
-# in dict insertion order (which mirrors VALIDATION_GROUP_ORDER). Since
-# entity_state issues are seen first, they become the authority --
-# duplicate TEMPLATE_* issues from the templates group are dropped.
-# Reordering VALIDATION_GROUP_ORDER to put "templates" before
-# "entity_state" would invert the preference and break dedup.
-def _dedup_cross_family(group_issues: dict[str, list]) -> dict[str, list]:
-    """Deduplicate cross-family issues that represent the same problem.
-
-    Two issues are considered duplicates if they share the same
-    (automation_id, entity_id, semantic_family). When duplicates exist,
-    the non-TEMPLATE variant (from validator.py) is preferred.
-
-    Does NOT modify __hash__/__eq__ on ValidationIssue.
-    """
-    # Build a map of dedup_key -> (best_issue, group_id)
-    seen: dict[tuple, tuple] = {}  # dedup_key -> (issue, gid)
-
-    for gid, issues in group_issues.items():
-        deduped = []
-        for issue in issues:
-            family = _SEMANTIC_FAMILIES.get(issue.issue_type)
-            if family is None:
-                # Not in a semantic family -- never deduped
-                deduped.append(issue)
-                continue
-
-            dedup_key = (issue.automation_id, issue.entity_id, family)
-
-            if dedup_key not in seen:
-                # First occurrence -- keep it provisionally
-                seen[dedup_key] = (issue, gid)
-                deduped.append(issue)
-            else:
-                existing_issue, existing_gid = seen[dedup_key]
-                # Prefer the non-TEMPLATE (authority) variant
-                if (
-                    issue.issue_type in _PREFERRED_ISSUE_TYPES
-                    and existing_issue.issue_type not in _PREFERRED_ISSUE_TYPES
-                ):
-                    # Replace: remove old from its group, keep new
-                    group_issues[existing_gid] = [
-                        i for i in group_issues[existing_gid] if i is not existing_issue
-                    ]
-                    seen[dedup_key] = (issue, gid)
-                    deduped.append(issue)
-                # else: existing is preferred or equal, skip new issue
-        group_issues[gid] = deduped
-
-    return group_issues
-
 
 async def _async_run_validators(
     hass: HomeAssistant,
@@ -553,16 +476,6 @@ async def _async_run_validators(
             "Validation completed with %d failed automations (out of %d)",
             failed_automations,
             len(automations),
-        )
-
-    # Deduplicate cross-family issues at the collection point (C5)
-    pre_dedup_count = sum(len(issues) for issues in group_issues.values())
-    group_issues = _dedup_cross_family(group_issues)
-    post_dedup_count = sum(len(issues) for issues in group_issues.values())
-    if pre_dedup_count != post_dedup_count:
-        _LOGGER.debug(
-            "Cross-family deduplication removed %d duplicate issues",
-            pre_dedup_count - post_dedup_count,
         )
 
     # Combine all issues in canonical group order for flat list

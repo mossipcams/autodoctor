@@ -16,19 +16,29 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 - State reference validation against entity/device/area registries — existing
 - Knowledge base with multi-source state truth (device classes, learned states, capabilities, schema, history) — existing
 - Service call validation against HA service registry — existing
-- Jinja2 template syntax and semantic validation — existing
+- Jinja2 template syntax and filter/test validation — existing
 - WebSocket API for frontend communication (6 commands) — existing
 - Lovelace card for issue display — existing
 - Issue suppression with state learning — existing
 - Conservative validation philosophy with opt-in strict modes — existing
 - Sensor entities for issue count and health status — existing
 
-### Active (v2.7.0)
+### Active
 
-- [ ] REQ-1: Replicate HA's template system implementation for Jinja2 validation
-- [ ] REQ-2: Comprehensive filter/test/global catalog matching HA's actual template.py
-- [ ] REQ-3: Reduce maintenance burden of hardcoded template semantics lists
-- [ ] REQ-4: Clean up dead code from removed validations (undefined variables, basic type checking)
+None — no milestone in progress.
+
+### Completed (v2.14.0 — Validation Narrowing)
+
+- [x] CUT-1: Remove duplicate template entity validation path from jinja_validator (Phase 24)
+- [x] CUT-2: Remove filter argument count validation (Phase 23)
+- [x] CUT-3: Remove for_each entity extraction from analyzer (Phase 22)
+
+### Deferred
+
+- REQ-1: Replicate HA's template system implementation for Jinja2 validation — deferred from v2.7.0
+- REQ-2: Comprehensive filter/test/global catalog matching HA's actual template.py — deferred from v2.7.0
+- REQ-3: Reduce maintenance burden of hardcoded template semantics lists — deferred from v2.7.0
+- REQ-4: Clean up dead code from removed validations — deferred from v2.7.0
 
 ### Out of Scope
 
@@ -41,19 +51,18 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-1 | Phase 2, Phase 4 | Pending |
-| REQ-2 | Phase 3, Phase 4 | Pending |
-| REQ-3 | Phase 3, Phase 4 | Pending |
-| REQ-4 | Phase 1 | Pending |
+| CUT-1 | Phase 24 | Complete |
+| CUT-2 | Phase 23 | Complete |
+| CUT-3 | Phase 22 | Complete |
 
 ## Context
 
-- Autodoctor is undergoing v2.7.0 validation scope narrowing to reduce false positives (target: <5% FP rate)
-- Undefined template variable checking was removed due to 40% false positive rate with blueprints
-- Basic service parameter type checking was removed due to YAML coercion making it unreliable
+- v2.14.0 focuses on removing validation paths that generate false positives in the wild
+- Three cuts identified: duplicate template entity validation, filter argument count checking, and for_each entity extraction
+- Previous removals: undefined template variable checking (40% FP rate), basic service parameter type checking (YAML coercion)
+- Pattern: validation paths that can't achieve high confidence get cut rather than patched
 - Current Jinja2 validation uses hardcoded filter/test lists in `template_semantics.py` and `jinja_validator.py` that must be manually synced with HA releases
-- HA does not expose validation APIs or allow introspection of its template environment — static lists are the only viable approach for pre-execution validation
-- The Jinja2 overhaul should adopt HA's organizational patterns for defining filters/tests/globals to make future syncing easier
+- HA does not expose validation APIs or allow introspection of its template environment
 
 ## Constraints
 
@@ -74,4 +83,4 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 | Hardcoded filter/test lists | Only viable approach since HA doesn't expose introspection APIs | Revisit -- v2.7.0 replaces with HA-pattern catalog |
 
 ---
-*Last updated: 2026-01-30 after roadmap creation*
+*Last updated: 2026-02-01 after v2.14.0 milestone completion*
