@@ -1,5 +1,7 @@
 """Tests for autodoctor __init__.py."""
 
+import asyncio
+
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from custom_components.autodoctor import (
@@ -343,3 +345,242 @@ def test_no_dedup_cross_family_function():
     assert not hasattr(init_module, "_PREFERRED_ISSUE_TYPES"), (
         "_PREFERRED_ISSUE_TYPES must be removed from __init__.py"
     )
+
+
+# --- Config snapshot diff tests (single-automation validation on save) ---
+
+
+def test_build_config_snapshot():
+    """Test that _build_config_snapshot returns deterministic hashes keyed by id."""
+    from custom_components.autodoctor import _build_config_snapshot
+
+    configs = [
+        {"id": "abc", "alias": "Test 1", "trigger": [{"platform": "state"}]},
+        {"id": "def", "alias": "Test 2", "trigger": [{"platform": "time"}]},
+    ]
+    snapshot = _build_config_snapshot(configs)
+
+    # Returns dict keyed by automation id
+    assert isinstance(snapshot, dict)
+    assert set(snapshot.keys()) == {"abc", "def"}
+
+    # Hashes are strings
+    assert isinstance(snapshot["abc"], str)
+    assert isinstance(snapshot["def"], str)
+
+    # Different configs produce different hashes
+    assert snapshot["abc"] != snapshot["def"]
+
+    # Same config always produces same hash (deterministic)
+    snapshot2 = _build_config_snapshot(configs)
+    assert snapshot == snapshot2
+
+
+def test_build_config_snapshot_skips_configs_without_id():
+    """Test that configs without an id field are skipped in the snapshot."""
+    from custom_components.autodoctor import _build_config_snapshot
+
+    configs = [
+        {"id": "abc", "alias": "Has ID"},
+        {"alias": "No ID"},  # No 'id' key
+    ]
+    snapshot = _build_config_snapshot(configs)
+    assert set(snapshot.keys()) == {"abc"}
+
+
+@pytest.mark.asyncio
+async def test_reload_listener_single_automation_change(mock_hass):
+    """When only one automation config changes, validate just that automation."""
+    from custom_components.autodoctor import _build_config_snapshot, _setup_reload_listener
+
+    # Build a baseline snapshot of 3 automations
+    original_configs = [
+        {"id": "auto_1", "alias": "Auto 1", "trigger": [{"platform": "state"}]},
+        {"id": "auto_2", "alias": "Auto 2", "trigger": [{"platform": "time"}]},
+        {"id": "auto_3", "alias": "Auto 3", "trigger": [{"platform": "sun"}]},
+    ]
+    original_snapshot = _build_config_snapshot(original_configs)
+
+    # One automation changed
+    changed_configs = [
+        {"id": "auto_1", "alias": "Auto 1", "trigger": [{"platform": "state"}]},
+        {"id": "auto_2", "alias": "Auto 2 CHANGED", "trigger": [{"platform": "time", "at": "12:00"}]},
+        {"id": "auto_3", "alias": "Auto 3", "trigger": [{"platform": "sun"}]},
+    ]
+
+    mock_hass.data[DOMAIN] = {
+        "debounce_task": None,
+        "_automation_snapshot": original_snapshot,
+    }
+    mock_hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+
+    # Capture what event listener is registered
+    listener_callback = None
+
+    def mock_async_listen(event_type, callback):
+        nonlocal listener_callback
+        listener_callback = callback
+        return MagicMock()  # unsub
+
+    mock_hass.bus.async_listen = mock_async_listen
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=changed_configs,
+    ), patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+    ) as mock_validate_auto, patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_validate_all:
+        _setup_reload_listener(mock_hass, debounce_seconds=0)
+        assert listener_callback is not None
+
+        # Fire the event
+        listener_callback(MagicMock())
+
+        # Wait for debounce (0s) + processing
+        await asyncio.sleep(0.1)
+
+        # Should have called targeted validation for auto_2 only
+        mock_validate_auto.assert_called_once_with(mock_hass, "automation.auto_2")
+        mock_validate_all.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reload_listener_bulk_reload_validates_all(mock_hass):
+    """When 3+ automations change, validate all instead of targeted."""
+    from custom_components.autodoctor import _build_config_snapshot, _setup_reload_listener
+
+    original_configs = [
+        {"id": "auto_1", "alias": "Auto 1"},
+        {"id": "auto_2", "alias": "Auto 2"},
+        {"id": "auto_3", "alias": "Auto 3"},
+    ]
+    original_snapshot = _build_config_snapshot(original_configs)
+
+    # All three changed
+    changed_configs = [
+        {"id": "auto_1", "alias": "Auto 1 CHANGED"},
+        {"id": "auto_2", "alias": "Auto 2 CHANGED"},
+        {"id": "auto_3", "alias": "Auto 3 CHANGED"},
+    ]
+
+    mock_hass.data[DOMAIN] = {
+        "debounce_task": None,
+        "_automation_snapshot": original_snapshot,
+    }
+    mock_hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+
+    listener_callback = None
+
+    def mock_async_listen(event_type, callback):
+        nonlocal listener_callback
+        listener_callback = callback
+        return MagicMock()
+
+    mock_hass.bus.async_listen = mock_async_listen
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=changed_configs,
+    ), patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+    ) as mock_validate_auto, patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_validate_all:
+        _setup_reload_listener(mock_hass, debounce_seconds=0)
+        listener_callback(MagicMock())
+        await asyncio.sleep(0.1)
+
+        mock_validate_all.assert_called_once()
+        mock_validate_auto.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reload_listener_no_snapshot_validates_all(mock_hass):
+    """When no previous snapshot exists (first run), validate all automations."""
+    from custom_components.autodoctor import _setup_reload_listener
+
+    configs = [
+        {"id": "auto_1", "alias": "Auto 1"},
+        {"id": "auto_2", "alias": "Auto 2"},
+    ]
+
+    # No _automation_snapshot key at all
+    mock_hass.data[DOMAIN] = {
+        "debounce_task": None,
+    }
+    mock_hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+
+    listener_callback = None
+
+    def mock_async_listen(event_type, callback):
+        nonlocal listener_callback
+        listener_callback = callback
+        return MagicMock()
+
+    mock_hass.bus.async_listen = mock_async_listen
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=configs,
+    ), patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+    ) as mock_validate_auto, patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_validate_all:
+        _setup_reload_listener(mock_hass, debounce_seconds=0)
+        listener_callback(MagicMock())
+        await asyncio.sleep(0.1)
+
+        mock_validate_all.assert_called_once()
+        mock_validate_auto.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_updated_after_validation(mock_hass):
+    """Snapshot in hass.data is updated after reload validation completes."""
+    from custom_components.autodoctor import _build_config_snapshot, _setup_reload_listener
+
+    configs = [
+        {"id": "auto_1", "alias": "Auto 1"},
+    ]
+
+    mock_hass.data[DOMAIN] = {
+        "debounce_task": None,
+    }
+    mock_hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+
+    listener_callback = None
+
+    def mock_async_listen(event_type, callback):
+        nonlocal listener_callback
+        listener_callback = callback
+        return MagicMock()
+
+    mock_hass.bus.async_listen = mock_async_listen
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=configs,
+    ), patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ):
+        _setup_reload_listener(mock_hass, debounce_seconds=0)
+
+        # No snapshot before first event
+        assert "_automation_snapshot" not in mock_hass.data[DOMAIN]
+
+        listener_callback(MagicMock())
+        await asyncio.sleep(0.1)
+
+        # Snapshot should now exist and match current configs
+        expected = _build_config_snapshot(configs)
+        assert mock_hass.data[DOMAIN]["_automation_snapshot"] == expected

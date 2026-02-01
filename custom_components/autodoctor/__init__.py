@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -60,6 +62,20 @@ SERVICE_VALIDATE_SCHEMA = vol.Schema(
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 
+def _build_config_snapshot(configs: list[dict]) -> dict[str, str]:
+    """Build a snapshot of automation configs for change detection.
+
+    Returns a dict mapping automation id -> MD5 hex digest of the config.
+    Configs without an 'id' field are skipped.
+    """
+    snapshot: dict[str, str] = {}
+    for config in configs:
+        auto_id = config.get("id")
+        if auto_id is None:
+            continue
+        config_str = json.dumps(config, sort_keys=True, default=str)
+        snapshot[auto_id] = hashlib.md5(config_str.encode()).hexdigest()
+    return snapshot
 
 
 def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
@@ -334,9 +350,20 @@ def _setup_reload_listener(
         async def _debounced_validate() -> None:
             try:
                 await asyncio.sleep(debounce_seconds)
+                configs = _get_automation_configs(hass)
+                new_snapshot = _build_config_snapshot(configs)
+                old_snapshot = data.get("_automation_snapshot")
+                if old_snapshot is not None:
+                    all_ids = set(old_snapshot) | set(new_snapshot)
+                    changed = [a for a in all_ids if old_snapshot.get(a) != new_snapshot.get(a)]
+                    if 1 <= len(changed) <= 2:
+                        for aid in changed:
+                            await async_validate_automation(hass, f"automation.{aid}")
+                        data["_automation_snapshot"] = new_snapshot
+                        return
                 await async_validate_all(hass)
+                data["_automation_snapshot"] = new_snapshot
             except asyncio.CancelledError:
-                # Task was cancelled by a newer reload event - this is expected
                 pass
 
         # Create and store new task atomically
