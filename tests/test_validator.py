@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import IssueType, Severity, StateReference
-from custom_components.autodoctor.validator import ValidationEngine
+from custom_components.autodoctor.validator import ValidationEngine, _NON_ENTITY_REFERENCE_TYPES
 
 
 @pytest.fixture
@@ -770,29 +770,9 @@ async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
     assert "does not exist" in issues[0].message
 
 
-@pytest.mark.asyncio
-async def test_for_each_reference_skips_entity_validation(hass: HomeAssistant):
-    """Test that for_each references skip entity validation.
-
-    repeat.for_each items may be device IDs (hex hashes) or arbitrary
-    strings that are not entity IDs.  They should never be validated
-    against the entity registry.
-    """
-    kb = StateKnowledgeBase(hass)
-    validator = ValidationEngine(kb)
-
-    ref = StateReference(
-        automation_id="automation.test",
-        automation_name="Test",
-        entity_id="d16f9de99699a4e09e3c0aa6c1b8ec15",
-        expected_state=None,
-        expected_attribute=None,
-        location="action[0].repeat.for_each",
-        reference_type="for_each",
-    )
-
-    issues = validator.validate_reference(ref)
-    assert len(issues) == 0
+def test_for_each_not_in_non_entity_reference_types():
+    """for_each extraction was removed; it must not appear in skip-set."""
+    assert "for_each" not in _NON_ENTITY_REFERENCE_TYPES
 
 
 @pytest.mark.asyncio

@@ -1852,99 +1852,6 @@ def test_script_meta_service_not_extracted():
     assert script_refs[0].entity_id == "script.test"
 
 
-def test_extract_for_each_static_list():
-    """Test extraction from repeat.for_each with static entity list."""
-    automation = {
-        "id": "iterate_lights",
-        "alias": "Iterate Lights",
-        "trigger": [{"platform": "time", "at": "20:00:00"}],
-        "action": [
-            {
-                "repeat": {
-                    "for_each": ["light.kitchen", "light.bedroom", "light.living_room"],
-                    "sequence": [
-                        {
-                            "service": "light.turn_on",
-                            "target": {"entity_id": "{{ repeat.item }}"}
-                        }
-                    ]
-                }
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    for_each_refs = [r for r in refs if r.reference_type == "for_each"]
-    assert len(for_each_refs) == 3
-    entity_ids = {r.entity_id for r in for_each_refs}
-    assert "light.kitchen" in entity_ids
-    assert "light.bedroom" in entity_ids
-    assert "light.living_room" in entity_ids
-    assert all(r.location == "action[0].repeat.for_each" for r in for_each_refs)
-
-
-def test_extract_for_each_template():
-    """Test extraction from repeat.for_each with template."""
-    automation = {
-        "id": "iterate_group",
-        "alias": "Iterate Group",
-        "trigger": [{"platform": "time", "at": "20:00:00"}],
-        "action": [
-            {
-                "repeat": {
-                    "for_each": "{{ expand('group.all_lights') | map(attribute='entity_id') | list }}",
-                    "sequence": [
-                        {
-                            "service": "light.turn_on",
-                            "target": {"entity_id": "{{ repeat.item }}"}
-                        }
-                    ]
-                }
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    # Should extract group.all_lights via expand() pattern
-    group_refs = [r for r in refs if r.entity_id == "group.all_lights"]
-    assert len(group_refs) == 1
-    assert group_refs[0].reference_type == "group"
-
-
-def test_extract_for_each_area_entities():
-    """Test extraction from repeat.for_each with area_entities."""
-    automation = {
-        "id": "iterate_area",
-        "alias": "Iterate Area",
-        "trigger": [{"platform": "time", "at": "20:00:00"}],
-        "action": [
-            {
-                "repeat": {
-                    "for_each": "{{ area_entities('bedroom') }}",
-                    "sequence": [
-                        {
-                            "service": "homeassistant.turn_off",
-                            "target": {"entity_id": "{{ repeat.item }}"}
-                        }
-                    ]
-                }
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    # Should extract bedroom via area_entities() pattern
-    area_refs = [r for r in refs if r.entity_id == "bedroom"]
-    assert len(area_refs) == 1
-    assert area_refs[0].reference_type == "area"
-
-
 def test_extract_device_id_function():
     """Test extraction from device_id() function."""
     automation = {
@@ -2076,17 +1983,6 @@ def test_extract_full_automation_with_all_patterns():
                     "entity_id": "scene.movie_time"
                 }
             },
-            {
-                "repeat": {
-                    "for_each": ["light.bedroom", "light.living_room"],
-                    "sequence": [
-                        {
-                            "service": "light.turn_off",
-                            "target": {"entity_id": "{{ repeat.item }}"}
-                        }
-                    ]
-                }
-            },
         ],
     }
 
@@ -2111,13 +2007,6 @@ def test_extract_full_automation_with_all_patterns():
     # 5. Scene
     scene_refs = [r for r in refs if r.entity_id == "scene.movie_time" and r.reference_type == "scene"]
     assert len(scene_refs) == 1
-
-    # 6. For-each static list
-    for_each_refs = [r for r in refs if r.reference_type == "for_each"]
-    assert len(for_each_refs) == 2
-    for_each_entities = {r.entity_id for r in for_each_refs}
-    assert "light.bedroom" in for_each_entities
-    assert "light.living_room" in for_each_entities
 
 
 def test_extract_service_calls_from_if_then_else():
