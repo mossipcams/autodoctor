@@ -22,6 +22,7 @@ Hours later you discover:
 
 - **Static Validation** - Checks automation configs against known valid states
 - **Jinja Template Validation** - Catches syntax errors in templates before they fail
+- **Service Call Validation** - Validates service calls against the HA service registry
 - **Entity Suggestions** - Suggests fixes for entity ID typos using fuzzy matching
 - **State Learning** - Learns valid states when you dismiss false positives
 - **Issue Suppression** - Dismiss false positives so they don't reappear
@@ -88,6 +89,8 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 | History lookback (days) | 30 | Days of state history to analyze |
 | Validate on reload | Yes | Auto-validate when automations reload |
 | Debounce delay (seconds) | 5 | Wait before validating after reload |
+| Strict template validation | No | Warn about unknown Jinja2 filters/tests (disable if using custom components) |
+| Strict service validation | No | Warn about unknown service parameters |
 
 ## How It Works
 
@@ -102,11 +105,12 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 
 ### What Gets Validated
 
-- State triggers (`to`, `from` values)
+- State triggers (`to`, `from` values) -- conservative: only whitelisted domains
 - Numeric state triggers (entity and attribute existence)
 - State conditions
-- Template conditions (parses `is_state()`, `states.domain.entity`, `state_attr()`)
-- Jinja2 template syntax
+- Template syntax (Jinja2 parse errors)
+- Service calls (existence, required params, select option validation)
+- Entity references in triggers, conditions, and actions
 
 ### Validation Rules
 
@@ -115,8 +119,20 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 | Entity doesn't exist | Error | `binary_sensor.motoin_sensor` (typo) |
 | State never valid | Error | `person.matt` → `"away"` (should be `not_home`) |
 | Case mismatch | Warning | `"Armed_Away"` vs `"armed_away"` |
-| Attribute doesn't exist | Error | `state_attr('climate.hvac', 'temprature')` |
+| Attribute doesn't exist | Warning | `state_attr('climate.hvac', 'temprature')` |
 | Template syntax error | Error | `{{ is_state('sensor.temp' }}` (missing paren) |
+| Service doesn't exist | Error | `light.trun_on` (typo) |
+| Missing required param | Error | `light.turn_on` without `entity_id` |
+| Unknown filter/test | Warning | Opt-in via strict template validation |
+
+### What Is NOT Validated
+
+Autodoctor deliberately skips checks that generate false positives:
+
+- **Template variables** -- Blueprint inputs and trigger context are unknowable statically
+- **State values for custom domains** -- Only well-known domains (binary_sensor, person, etc.) are validated
+- **Custom Jinja2 filters/tests** -- Unless strict mode is enabled
+- **Service parameter types** -- Only select/enum options are checked (YAML coercion makes type checking unreliable)
 
 ### Entity Suggestions
 

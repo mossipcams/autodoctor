@@ -2,7 +2,7 @@
 
 A Home Assistant custom integration that validates automations to detect state-related issues before they cause silent failures.
 
-**Version:** 2.6.2
+**Version:** 2.13.3
 **Requirements:** Home Assistant 2024.1+, Python 3.12+
 
 ## Directory Structure

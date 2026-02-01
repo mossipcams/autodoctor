@@ -3,11 +3,21 @@
 **Date:** 2026-01-30
 **Objective:** Narrow validation scope to "high precision, lower recall" - target <5% false positive rate
 
+> **Status (2026-02-01):** This audit is now fully implemented across v2.7.0 through v2.14.0. Phases 1-3 from the audit were implemented in v2.7.0-v2.13.x. Phases 22-24 of v2.14.0 completed the final cuts: for_each extraction removal, filter argument validation removal, and template entity validation removal. IssueType enum reduced from 21 to 13 members. See `index.md` "Validation Narrowing" section for current state.
+
 ## Executive Summary
 
-Autodoctor currently implements **26 distinct validation types** across 3 engines. Many suffer from inherent ambiguity when trying to statically validate a dynamic runtime system. This audit categorizes each validation by confidence level and recommends keeping high-confidence checks while making ambiguous ones conservative or opt-in.
+Autodoctor implements validation across 3 engines. This audit categorized each validation by confidence level and recommended keeping high-confidence checks while making ambiguous ones conservative or opt-in.
 
-**Key Issues Identified:**
+**Implemented outcomes (v2.14.0):**
+- Undefined template variable checking: **Removed** (was 40% FP rate)
+- Filter argument count validation: **Removed** (unreliable signatures)
+- Template entity validation: **Removed** (duplicate path generating false positives)
+- Unknown filter/test detection: **Made opt-in** (strict mode, default OFF)
+- State validation: **Conservative** (whitelisted domains only)
+- Service parameter type checking: **Simplified** (select/enum only)
+
+**Key issues that drove the narrowing:**
 - **Template variable analysis** (blueprints, trigger context) is fundamentally unknowable statically
 - **Unknown filter/test detection** assumes no custom user filters
 - **State validation** works for well-known domains but fails for custom integrations
@@ -238,20 +248,39 @@ These validations have fundamental issues and generate frequent false positives:
 
 ## Issue Type Cleanup
 
-### Remove These IssueTypes Entirely
-Remove from `models.py`:
+> **Status:** Implemented. IssueType enum has 13 members as of v2.14.0.
+
+### Removed IssueTypes
+Removed from `models.py` across v2.7.0-v2.14.0:
 ```python
-TEMPLATE_UNKNOWN_VARIABLE = "template_unknown_variable"  # Remove
-TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"      # Remove (or make opt-in)
-TEMPLATE_UNKNOWN_TEST = "template_unknown_test"          # Remove (or make opt-in)
+# Removed in v2.7.0:
+TEMPLATE_UNKNOWN_VARIABLE = "template_unknown_variable"  # Removed (fundamentally unsound)
+
+# Removed in v2.14.0 Phase 23:
+TEMPLATE_INVALID_ARGUMENTS = "template_invalid_arguments"  # Removed (unreliable signatures)
+
+# Removed in v2.14.0 Phase 24:
+TEMPLATE_INVALID_ENTITY_ID = "template_invalid_entity_id"  # Removed (duplicate path)
+TEMPLATE_ENTITY_NOT_FOUND = "template_entity_not_found"    # Removed (duplicate path)
+TEMPLATE_INVALID_STATE = "template_invalid_state"          # Removed (duplicate path)
+TEMPLATE_ATTRIBUTE_NOT_FOUND = "template_attribute_not_found"  # Removed (duplicate path)
+TEMPLATE_DEVICE_NOT_FOUND = "template_device_not_found"    # Removed (duplicate path)
+TEMPLATE_AREA_NOT_FOUND = "template_area_not_found"        # Removed (duplicate path)
+TEMPLATE_ZONE_NOT_FOUND = "template_zone_not_found"        # Removed (duplicate path)
 ```
 
-### Downgrade Severity for These
-Keep IssueType but change severity:
+### Kept as Opt-In (not removed)
 ```python
-# In validator.py, change ENTITY_REMOVED from ERROR to INFO
-# In validator.py, change INVALID_STATE from ERROR to WARNING (for non-whitelisted domains)
-# In validator.py, change ATTRIBUTE_NOT_FOUND from ERROR to WARNING
+TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"  # Kept -- opt-in via strict_template_validation
+TEMPLATE_UNKNOWN_TEST = "template_unknown_test"      # Kept -- opt-in via strict_template_validation
+```
+
+### Severity Changes (implemented)
+```python
+# In validator.py:
+# ENTITY_REMOVED: ERROR -> INFO
+# INVALID_STATE: ERROR -> WARNING (non-whitelisted domains skipped entirely)
+# ATTRIBUTE_NOT_FOUND: ERROR -> WARNING
 ```
 
 ---
@@ -278,79 +307,33 @@ CONF_STRICT_SERVICE_VALIDATION = "strict_service_validation"    # Default: False
 
 ## Implementation Plan
 
-### Phase 1: Remove High False Positive Validations (Priority 1)
-**Target:** Immediate impact, <5% false positive rate
+> **Status:** All phases implemented across v2.7.0 through v2.14.0.
 
-1. **Remove undefined variable checking**
-   - Delete `_validate_variable()` calls in `jinja_validator.py`
-   - Remove `TEMPLATE_UNKNOWN_VARIABLE` from `models.py`
-   - Update tests in `test_jinja_validator.py`
-   - **Impact:** Eliminates most blueprint/trigger-related false positives
+### Phase 1: Remove High False Positive Validations -- DONE (v2.7.0)
 
-2. **Make filter/test validation opt-in**
-   - Add `strict_template_validation` config option
-   - Wrap filter/test checks in config check
-   - Default to OFF
-   - **Impact:** Eliminates false positives for custom component users
+1. **Undefined variable checking** -- Removed
+2. **Filter/test validation** -- Made opt-in via `strict_template_validation` config
 
-### Phase 2: Make State Validation Conservative (Priority 2)
-**Target:** Reduce false positives while keeping useful checks
+### Phase 2: Make State Validation Conservative -- DONE (v2.7.0)
 
-1. **Create domain whitelist for state validation**
-   ```python
-   # In validator.py
-   _STATE_VALIDATION_WHITELIST = frozenset({
-       "binary_sensor", "person", "sun", "device_tracker",
-       "input_boolean", "group"
-   })
-   ```
+1. **Domain whitelist** -- Implemented (`binary_sensor`, `person`, `sun`, `device_tracker`, `input_boolean`, `group`)
+2. **Severity downgrades** -- `ENTITY_REMOVED` to INFO, `ATTRIBUTE_NOT_FOUND` to WARNING
 
-2. **Update `_validate_state()` to check whitelist**
-   - Skip validation if domain not in whitelist
-   - Or downgrade to WARNING severity for non-whitelisted
-   - **Impact:** Reduces false positives for custom sensors/integrations
+### Phase 3: Refine Service Parameter Validation -- DONE (v2.7.0)
 
-3. **Downgrade attribute validation severity**
-   - Change `ATTRIBUTE_NOT_FOUND` from ERROR to WARNING
-   - Keep domain attributes fallback (already good)
-   - **Impact:** Users can assess attribute issues case-by-case
+1. **Type checking simplified** -- Only validates select/enum options
+2. **Unknown param checking** -- Made opt-in via `strict_service_validation` config
 
-### Phase 3: Refine Service Parameter Validation (Priority 3)
-**Target:** Keep useful checks, remove unreliable ones
+### Phase 4: Improve Fuzzy Matching -- DONE (v2.7.0)
 
-1. **Simplify type checking in `service_validator.py`**
-   ```python
-   def _check_selector_type(self, ...):
-       # ONLY validate select options
-       if "select" in selector:
-           # existing validation
-       # REMOVE checks for number, boolean, text, object
-       return None
-   ```
+1. **Fuzzy match threshold** -- Increased to 0.75
 
-2. **Make unknown param checking opt-in**
-   - Add `strict_service_validation` config
-   - Keep capability-dependent param handling
-   - **Impact:** Reduces noise for services with flexible schemas
+### v2.14.0 Additional Cuts (Phases 22-24)
 
-### Phase 4: Improve Fuzzy Matching (Priority 4)
-**Target:** Better suggestions, fewer confusing ones
-
-1. **Increase fuzzy match threshold**
-   ```python
-   # In validator.py
-   matches = get_close_matches(
-       invalid.lower(),
-       [s.lower() for s in valid_states],
-       n=1,
-       cutoff=0.75  # Was 0.6
-   )
-   ```
-
-2. **Only suggest if confidence is high**
-   - Require single clear match
-   - Don't suggest if multiple similar candidates
-   - **Impact:** Fewer confusing suggestions
+Three additional validation paths identified as false-positive sources were removed:
+1. **Phase 22** -- `for_each` entity extraction removed from analyzer (dead code path)
+2. **Phase 23** -- Filter argument count validation removed entirely; `CatalogEntry` simplified
+3. **Phase 24** -- Template entity validation removed from `jinja_validator.py`; cross-family dedup removed from `__init__.py`; 7 `TEMPLATE_*` IssueType members removed (21 → 13)
 
 ---
 
@@ -470,11 +453,13 @@ Autodoctor focuses on **high-confidence validations** that rarely produce false 
 
 ## Next Steps
 
-1. **Review this audit** with maintainer
-2. **Prioritize Phase 1** (remove undefined variable checking)
-3. **Implement incrementally** with tests for each change
-4. **Monitor false positive reports** post-release
-5. **Consider mutation testing** once scope is stable (as mentioned in context)
+> **Status:** All audit recommendations implemented. Mutation testing implemented in v2.12.1-v2.12.2.
+
+1. ~~Review this audit with maintainer~~ -- Done
+2. ~~Prioritize Phase 1 (remove undefined variable checking)~~ -- Done (v2.7.0)
+3. ~~Implement incrementally with tests for each change~~ -- Done (v2.7.0 through v2.14.0)
+4. **Monitor false positive reports** post-release -- Ongoing
+5. ~~Consider mutation testing once scope is stable~~ -- Done (v2.12.1-v2.12.2)
 
 ---
 
