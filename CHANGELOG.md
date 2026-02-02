@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.0](https://github.com/mossipcams/autodoctor/compare/v2.15.0...v2.16.0) (2026-02-02)
+
+
+### Features
+
+* add enum sensor state validation ([#58](https://github.com/mossipcams/autodoctor/issues/58)) ([6d23bf5](https://github.com/mossipcams/autodoctor/commit/6d23bf5f0a8114900058c0723ff5e06bb71906d3))
+
 ## [2.15.0](https://github.com/mossipcams/autodoctor/compare/v2.14.0...v2.15.0) (2026-02-01)
 
 
