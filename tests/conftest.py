@@ -1,5 +1,7 @@
 """Pytest configuration for Autodoctor tests."""
 
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,14 +11,22 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
-    """Enable custom integrations for all tests."""
+def auto_enable_custom_integrations(enable_custom_integrations: Any) -> None:
+    """Enable custom integrations for all tests.
+
+    This fixture runs automatically for every test and ensures custom
+    integrations can be loaded during test execution.
+    """
     return
 
 
 @pytest.fixture
-def mock_recorder():
-    """Mock the recorder component."""
+def mock_recorder() -> Generator[MagicMock, None, None]:
+    """Mock the Home Assistant recorder component.
+
+    Prevents tests from attempting to access a real database.
+    Yields a MagicMock instance that can be configured per test.
+    """
     with patch("custom_components.autodoctor.knowledge_base.get_instance") as mock:
         mock.return_value = MagicMock()
         yield mock

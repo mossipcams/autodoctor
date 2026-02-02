@@ -1,18 +1,33 @@
-"""Tests for data models."""
+"""Tests for data models.
+
+This module tests the core data models used throughout Autodoctor:
+- StateReference: Entity state references found in automations
+- ValidationIssue: Issues detected during validation
+- ServiceCall: Service calls extracted from automations
+- IssueType and Severity enums
+- VALIDATION_GROUPS configuration
+"""
+
+from typing import Any
 
 import pytest
 
 from custom_components.autodoctor.models import (
     VALIDATION_GROUPS,
     IssueType,
+    ServiceCall,
     Severity,
     StateReference,
     ValidationIssue,
 )
 
 
-def test_state_reference_creation():
-    """Test StateReference dataclass."""
+def test_state_reference_creation() -> None:
+    """Test StateReference captures entity state expectations from automations.
+
+    StateReference is the primary model for tracking where automations
+    expect specific entity states, enabling validation against actual states.
+    """
     ref = StateReference(
         automation_id="automation.welcome_home",
         automation_name="Welcome Home",
@@ -27,8 +42,12 @@ def test_state_reference_creation():
     assert ref.expected_attribute is None
 
 
-def test_validation_issue_creation():
-    """Test ValidationIssue dataclass."""
+def test_validation_issue_creation() -> None:
+    """Test ValidationIssue stores all details needed for user-facing reports.
+
+    ValidationIssue is the primary output model that surfaces problems
+    to users, including context, severity, and actionable suggestions.
+    """
     issue = ValidationIssue(
         severity=Severity.ERROR,
         automation_id="automation.test",
@@ -43,23 +62,48 @@ def test_validation_issue_creation():
     assert issue.suggestion == "not_home"
 
 
-def test_severity_ordering():
-    """Test severity levels."""
+def test_severity_ordering() -> None:
+    """Test Severity enum values have correct numeric ordering.
+
+    Higher severity levels have higher numeric values, allowing
+    easy filtering and prioritization of issues.
+    """
     assert Severity.ERROR.value > Severity.WARNING.value
     assert Severity.WARNING.value > Severity.INFO.value
 
 
-def test_issue_type_enum_values():
-    """Test IssueType enum has expected values."""
-    assert IssueType.ENTITY_NOT_FOUND.value == "entity_not_found"
-    assert IssueType.ENTITY_REMOVED.value == "entity_removed"
-    assert IssueType.INVALID_STATE.value == "invalid_state"
-    assert IssueType.CASE_MISMATCH.value == "case_mismatch"
-    assert IssueType.ATTRIBUTE_NOT_FOUND.value == "attribute_not_found"
+@pytest.mark.parametrize(
+    ("issue_type", "expected_value"),
+    [
+        (IssueType.ENTITY_NOT_FOUND, "entity_not_found"),
+        (IssueType.ENTITY_REMOVED, "entity_removed"),
+        (IssueType.INVALID_STATE, "invalid_state"),
+        (IssueType.CASE_MISMATCH, "case_mismatch"),
+        (IssueType.ATTRIBUTE_NOT_FOUND, "attribute_not_found"),
+    ],
+    ids=[
+        "entity-not-found",
+        "entity-removed",
+        "invalid-state",
+        "case-mismatch",
+        "attribute-not-found",
+    ],
+)
+def test_issue_type_enum_values(issue_type: IssueType, expected_value: str) -> None:
+    """Test IssueType enum members have correct string values for serialization.
+
+    String values are used in WebSocket API responses and storage,
+    so they must remain stable across versions.
+    """
+    assert issue_type.value == expected_value
 
 
-def test_validation_issue_has_issue_type():
-    """Test ValidationIssue accepts issue_type field."""
+def test_validation_issue_has_issue_type() -> None:
+    """Test ValidationIssue stores issue_type for categorization and filtering.
+
+    The issue_type field enables the WebSocket API to filter issues
+    by category (entity_state, services, templates).
+    """
     issue = ValidationIssue(
         issue_type=IssueType.ENTITY_NOT_FOUND,
         severity=Severity.ERROR,
@@ -72,8 +116,12 @@ def test_validation_issue_has_issue_type():
     assert issue.issue_type == IssueType.ENTITY_NOT_FOUND
 
 
-def test_validation_issue_to_dict():
-    """Test ValidationIssue.to_dict() returns serializable dict."""
+def test_validation_issue_to_dict() -> None:
+    """Test ValidationIssue.to_dict() serializes for WebSocket API responses.
+
+    The to_dict() method converts enums to strings and structures data
+    for JSON serialization in WebSocket API responses.
+    """
     issue = ValidationIssue(
         issue_type=IssueType.INVALID_STATE,
         severity=Severity.ERROR,
@@ -84,7 +132,7 @@ def test_validation_issue_to_dict():
         message="State 'away' is not valid",
         suggestion="not_home",
     )
-    result = issue.to_dict()
+    result: dict[str, Any] = issue.to_dict()
     assert result["issue_type"] == "invalid_state"
     assert result["severity"] == "error"
     assert result["entity_id"] == "person.matt"
@@ -144,8 +192,12 @@ def test_outcome_report_to_issues_unreachable():
     assert "condition[0]" in issues[0].location
 
 
-def test_validation_issue_equality():
-    """Test that ValidationIssue instances with same key fields are equal."""
+def test_validation_issue_equality() -> None:
+    """Test ValidationIssue equality based on key fields for deduplication.
+
+    Equality ignores severity and automation_name to prevent duplicate
+    issues when the same problem is detected multiple times.
+    """
     issue1 = ValidationIssue(
         severity=Severity.ERROR,
         automation_id="automation.test",
@@ -169,8 +221,12 @@ def test_validation_issue_equality():
     assert hash(issue1) == hash(issue2)
 
 
-def test_validation_issue_set_deduplication():
-    """Test that duplicate ValidationIssue instances are deduplicated in sets."""
+def test_validation_issue_set_deduplication() -> None:
+    """Test ValidationIssue deduplication in sets prevents duplicate reports.
+
+    Sets automatically deduplicate based on __hash__ and __eq__, ensuring
+    users don't see the same issue reported multiple times.
+    """
     issue1 = ValidationIssue(
         severity=Severity.ERROR,
         automation_id="automation.test",
@@ -201,14 +257,16 @@ def test_validation_issue_set_deduplication():
 
     # issue1 and issue2 are duplicates (same key fields including location)
     # issue3 is different (different automation_id)
-    issues_set = {issue1, issue2, issue3}
+    issues_set: set[ValidationIssue] = {issue1, issue2, issue3}
     assert len(issues_set) == 2  # Only 2 unique issues
 
 
-def test_service_call_dataclass():
-    """Test ServiceCall dataclass creation."""
-    from custom_components.autodoctor.models import ServiceCall
+def test_service_call_dataclass() -> None:
+    """Test ServiceCall captures service call details for validation.
 
+    ServiceCall stores all information needed to validate service calls
+    against Home Assistant's service registry.
+    """
     call = ServiceCall(
         automation_id="automation.test",
         automation_name="Test Automation",
@@ -227,10 +285,12 @@ def test_service_call_dataclass():
     assert call.is_template is False
 
 
-def test_service_call_template_detection():
-    """Test ServiceCall with templated service name."""
-    from custom_components.autodoctor.models import ServiceCall
+def test_service_call_template_detection() -> None:
+    """Test ServiceCall is_template flag indicates dynamic service names.
 
+    Templated service calls cannot be validated until runtime,
+    so they are flagged for special handling.
+    """
     call = ServiceCall(
         automation_id="automation.test",
         automation_name="Test",
@@ -242,27 +302,37 @@ def test_service_call_template_detection():
     assert call.is_template is True
 
 
-def test_service_issue_types_exist():
-    """Test new service-related issue types exist."""
-    from custom_components.autodoctor.models import IssueType
+@pytest.mark.parametrize(
+    ("issue_type_name", "expected_value"),
+    [
+        ("SERVICE_NOT_FOUND", "service_not_found"),
+        ("SERVICE_MISSING_REQUIRED_PARAM", "service_missing_required_param"),
+        ("SERVICE_INVALID_PARAM_TYPE", "service_invalid_param_type"),
+        ("SERVICE_UNKNOWN_PARAM", "service_unknown_param"),
+    ],
+    ids=[
+        "service-not-found",
+        "missing-required-param",
+        "invalid-param-type",
+        "unknown-param",
+    ],
+)
+def test_service_issue_types_exist(
+    issue_type_name: str, expected_value: str
+) -> None:
+    """Test service validation issue types exist with correct values.
 
-    assert hasattr(IssueType, "SERVICE_NOT_FOUND")
-    assert hasattr(IssueType, "SERVICE_MISSING_REQUIRED_PARAM")
-    assert hasattr(IssueType, "SERVICE_INVALID_PARAM_TYPE")
-    assert hasattr(IssueType, "SERVICE_UNKNOWN_PARAM")
-
-    assert IssueType.SERVICE_NOT_FOUND.value == "service_not_found"
-    assert (
-        IssueType.SERVICE_MISSING_REQUIRED_PARAM.value
-        == "service_missing_required_param"
-    )
-    assert IssueType.SERVICE_INVALID_PARAM_TYPE.value == "service_invalid_param_type"
-    assert IssueType.SERVICE_UNKNOWN_PARAM.value == "service_unknown_param"
+    Service validation was added in v2.13.0 and requires these
+    issue types for reporting service call problems.
+    """
+    assert hasattr(IssueType, issue_type_name)
+    issue_type: IssueType = getattr(IssueType, issue_type_name)
+    assert issue_type.value == expected_value
 
 
-def test_removed_template_entity_issue_types():
-    """Test that false-positive-generating TEMPLATE_* entity issue types were removed in v2.14.0."""
-    removed_members = [
+@pytest.mark.parametrize(
+    "removed_member",
+    [
         "TEMPLATE_INVALID_ENTITY_ID",
         "TEMPLATE_ENTITY_NOT_FOUND",
         "TEMPLATE_INVALID_STATE",
@@ -270,20 +340,49 @@ def test_removed_template_entity_issue_types():
         "TEMPLATE_DEVICE_NOT_FOUND",
         "TEMPLATE_AREA_NOT_FOUND",
         "TEMPLATE_ZONE_NOT_FOUND",
-    ]
-    for member_name in removed_members:
-        assert not hasattr(IssueType, member_name), (
-            f"IssueType.{member_name} should have been removed in v2.14.0"
-        )
+    ],
+    ids=[
+        "invalid-entity-id",
+        "entity-not-found",
+        "invalid-state",
+        "attribute-not-found",
+        "device-not-found",
+        "area-not-found",
+        "zone-not-found",
+    ],
+)
+def test_removed_template_entity_issue_types(removed_member: str) -> None:
+    """Guard: Prevent re-introduction of template entity validation issue types.
 
-    # Exactly 13 members remain after removing 7
+    These validation types were removed in v2.14.0 due to 40% false positive
+    rate with blueprint variables and dynamic template content.
+
+    See: PROJECT.md "Key Decisions" - Remove rather than patch
+    """
+    assert not hasattr(IssueType, removed_member), (
+        f"IssueType.{removed_member} should have been removed in v2.14.0"
+    )
+
+
+def test_issue_type_count_after_removals() -> None:
+    """Guard: Verify IssueType has exactly 13 members after v2.14.0 removals.
+
+    This guards against accidental reintroduction of removed types.
+    Count: 5 entity_state + 5 services + 3 templates = 13 total.
+    """
     assert len(IssueType) == 13, f"Expected 13 IssueType members, got {len(IssueType)}"
 
 
-def test_templates_validation_group_narrowed():
-    """Test that templates VALIDATION_GROUP contains only syntax-level checks after v2.14.0."""
+def test_templates_validation_group_narrowed() -> None:
+    """Guard: Verify templates group contains only syntax checks after v2.14.0.
+
+    Entity/state validation was removed from templates in v2.14.0 due to
+    40% false positive rate. Only syntax-level checks remain.
+
+    See: PROJECT.md "Key Decisions" - Remove rather than patch
+    """
     templates_group = VALIDATION_GROUPS["templates"]["issue_types"]
-    expected = frozenset(
+    expected: frozenset[IssueType] = frozenset(
         {
             IssueType.TEMPLATE_SYNTAX_ERROR,
             IssueType.TEMPLATE_UNKNOWN_FILTER,
@@ -296,24 +395,28 @@ def test_templates_validation_group_narrowed():
     )
 
 
-def test_validation_groups_cover_all_issue_types():
-    """Test that every IssueType member appears in exactly one VALIDATION_GROUPS group."""
-    all_enum_members = set(IssueType)
+def test_validation_groups_cover_all_issue_types() -> None:
+    """Test VALIDATION_GROUPS contains every IssueType exactly once.
+
+    This ensures the WebSocket API can correctly group and filter all
+    possible issues, with no orphaned or duplicate issue types.
+    """
+    all_enum_members: set[IssueType] = set(IssueType)
 
     # Collect all issue types from all groups
     all_grouped: list[IssueType] = []
     grouped_set: set[IssueType] = set()
     for _group_id, group_def in VALIDATION_GROUPS.items():
-        issue_types = group_def["issue_types"]
+        issue_types: frozenset[IssueType] = group_def["issue_types"]  # type: ignore[assignment]
         all_grouped.extend(issue_types)
         grouped_set |= issue_types
 
     # Every IssueType member must appear in some group (no missing members)
-    missing = all_enum_members - grouped_set
+    missing: set[IssueType] = all_enum_members - grouped_set
     assert not missing, f"IssueType members missing from VALIDATION_GROUPS: {missing}"
 
     # No extra entries that aren't real IssueType members
-    extras = grouped_set - all_enum_members
+    extras: set[IssueType] = grouped_set - all_enum_members
     assert not extras, f"VALIDATION_GROUPS contains non-IssueType entries: {extras}"
 
     # No duplicates across groups (each member in exactly one group)

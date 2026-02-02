@@ -1,21 +1,34 @@
-"""Tests for ServiceCallValidator."""
+"""Tests for ServiceCallValidator.
+
+Tests cover service validation including:
+- Service existence checks
+- Required parameter validation
+- Unknown parameter detection (strict mode)
+- Parameter type validation for select options
+- Template handling (skipping validation for templated services/entities)
+- Target entity validation
+- Fuzzy matching for suggestions
+"""
 
 import pytest
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall as HAServiceCall
 
+from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 from custom_components.autodoctor.service_validator import ServiceCallValidator
 
 
-async def test_service_validator_initialization(hass: HomeAssistant):
-    """Test validator can be created."""
+async def test_service_validator_initialization(hass: HomeAssistant) -> None:
+    """Test that ServiceCallValidator can be initialized with HomeAssistant instance."""
     validator = ServiceCallValidator(hass)
     assert validator is not None
 
 
-async def test_validate_service_not_found(hass: HomeAssistant):
-    """Test validation for non-existent service."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_validate_service_not_found(hass: HomeAssistant) -> None:
+    """Test validator detects when a service does not exist.
 
+    Ensures users are warned when automations call services that are not
+    registered in their Home Assistant instance.
+    """
     validator = ServiceCallValidator(hass)
 
     call = ServiceCall(
@@ -35,12 +48,14 @@ async def test_validate_service_not_found(hass: HomeAssistant):
     assert issues[0].suggestion is None
 
 
-async def test_validate_service_exists_no_issues(hass: HomeAssistant):
-    """Test validation passes for existing service."""
-    from custom_components.autodoctor.models import ServiceCall
+async def test_validate_service_exists_no_issues(hass: HomeAssistant) -> None:
+    """Test that validation passes when service exists.
 
-    # Register a test service
-    async def test_service(call):
+    No issues should be reported for a service that is registered
+    in Home Assistant.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -59,9 +74,12 @@ async def test_validate_service_exists_no_issues(hass: HomeAssistant):
     assert len(issues) == 0
 
 
-async def test_validate_skips_templated_service(hass: HomeAssistant):
-    """Test validation skips templated service names."""
-    from custom_components.autodoctor.models import ServiceCall
+async def test_validate_skips_templated_service(hass: HomeAssistant) -> None:
+    """Test that validation skips services with templated names.
+
+    Service names containing Jinja2 templates cannot be validated at analysis
+    time, so they should be skipped without producing issues.
+    """
 
     validator = ServiceCallValidator(hass)
 
@@ -79,12 +97,14 @@ async def test_validate_skips_templated_service(hass: HomeAssistant):
     assert len(issues) == 0
 
 
-async def test_validate_missing_required_param(hass: HomeAssistant):
-    """Test validation for missing required parameter."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_validate_missing_required_param(hass: HomeAssistant) -> None:
+    """Test validator detects missing required service parameters.
 
-    # Register a test service
-    async def test_service(call):
+    Services may define required fields. When a service call omits these,
+    an ERROR-level issue should be reported.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -129,11 +149,14 @@ async def test_validate_missing_required_param(hass: HomeAssistant):
     assert missing_issues[0].suggestion is None
 
 
-async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
-    """Test that required param in target is not flagged as missing."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_missing_required_param_in_target(hass: HomeAssistant) -> None:
+    """Test that required parameters specified in target are not flagged as missing.
 
-    async def test_service(call):
+    entity_id can appear in either data or target dict. When in target,
+    it should satisfy the required parameter check.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -169,9 +192,14 @@ async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
     assert len(missing_issues) == 0
 
 
-async def test_validate_skips_required_check_when_templated(hass: HomeAssistant):
-    """Test that required param check is skipped for templated service calls."""
-    from custom_components.autodoctor.models import ServiceCall
+async def test_validate_skips_required_check_when_templated(
+    hass: HomeAssistant,
+) -> None:
+    """Test that required parameter checking skips templated service calls.
+
+    Templated service names cannot be resolved at analysis time, so all
+    parameter validation must be skipped.
+    """
 
     validator = ServiceCallValidator(hass)
 
@@ -192,11 +220,14 @@ async def test_validate_skips_required_check_when_templated(hass: HomeAssistant)
 
 async def test_validate_skips_required_check_when_data_is_templated(
     hass: HomeAssistant,
-):
-    """Test required param check skipped when data values contain templates."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+) -> None:
+    """Test that required parameter checking handles templated data values.
 
-    async def test_service(call):
+    When data values contain templates, the parameter is considered present
+    even though its runtime value is unknown.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -236,11 +267,14 @@ async def test_validate_skips_required_check_when_data_is_templated(
     assert len(missing_issues) == 0
 
 
-async def test_validate_unknown_param(hass: HomeAssistant):
-    """Test validation for unknown parameter."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_validate_unknown_param(hass: HomeAssistant) -> None:
+    """Test validator detects unknown parameters in strict mode.
 
-    async def test_service(call):
+    When strict_service_validation is enabled, parameters not defined in the
+    service schema should produce WARNING-level issues with fuzzy suggestions.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -280,11 +314,14 @@ async def test_validate_unknown_param(hass: HomeAssistant):
     assert unknown_issues[0].suggestion == "brightness"
 
 
-async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant):
-    """Test unknown param check skips services with no fields defined."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant) -> None:
+    """Test that unknown parameter checking skips services with no field definitions.
 
-    async def test_service(call):
+    Services without field schemas cannot be validated for unknown parameters.
+    This prevents false positives for services with dynamic or undocumented schemas.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -314,11 +351,15 @@ async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant):
     assert len(unknown_issues) == 0
 
 
-async def test_validate_invalid_param_type_number(hass: HomeAssistant):
-    """Test validation for invalid parameter type (expected number, got string)."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_invalid_param_type_number(hass: HomeAssistant) -> None:
+    """Test that type validation was removed for number fields (v2.7.0).
 
-    async def test_service(call):
+    Type checking for number/boolean fields produced false positives and
+    was removed. This test verifies no issues are raised for string values
+    in number fields.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -354,11 +395,13 @@ async def test_validate_invalid_param_type_number(hass: HomeAssistant):
     assert len(type_issues) == 0
 
 
-async def test_validate_valid_param_type_number(hass: HomeAssistant):
-    """Test that valid number type passes."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_valid_param_type_number(hass: HomeAssistant) -> None:
+    """Test that valid number values do not produce type errors.
 
-    async def test_service(call):
+    Verifies correct number types pass validation without issues.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -393,11 +436,14 @@ async def test_validate_valid_param_type_number(hass: HomeAssistant):
     assert len(type_issues) == 0
 
 
-async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
-    """Test validation for invalid parameter type (expected boolean)."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_invalid_param_type_boolean(hass: HomeAssistant) -> None:
+    """Test that type validation was removed for boolean fields (v2.7.0).
 
-    async def test_service(call):
+    Boolean type checking produced false positives and was removed.
+    This test verifies no issues are raised for string values in boolean fields.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -433,11 +479,16 @@ async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
     assert len(type_issues) == 0
 
 
-async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistant):
-    """Test that type validation is skipped for templated values."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_skips_type_check_for_templated_values(
+    hass: HomeAssistant,
+) -> None:
+    """Test that type validation is skipped for templated values.
 
-    async def test_service(call):
+    Templated values cannot be type-checked at analysis time since their
+    runtime value is unknown.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -472,11 +523,14 @@ async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistan
     assert len(type_issues) == 0
 
 
-async def test_validate_select_option_valid(hass: HomeAssistant):
-    """Test validation passes for valid select option."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_select_option_valid(hass: HomeAssistant) -> None:
+    """Test that valid select options pass validation.
 
-    async def test_service(call):
+    Select fields with defined options should accept values from their
+    option list without producing issues.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -511,11 +565,14 @@ async def test_validate_select_option_valid(hass: HomeAssistant):
     assert len(type_issues) == 0
 
 
-async def test_validate_select_option_invalid(hass: HomeAssistant):
-    """Test validation flags invalid select option."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_validate_select_option_invalid(hass: HomeAssistant) -> None:
+    """Test validator detects invalid select options.
 
-    async def test_service(call):
+    Select fields with defined options should produce WARNING-level issues
+    when values are not in the option list.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -553,11 +610,14 @@ async def test_validate_select_option_invalid(hass: HomeAssistant):
     assert "turbo" in type_issues[0].message
 
 
-async def test_validate_no_description_available(hass: HomeAssistant):
-    """Test validation when no service description is available."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_validate_no_description_available(hass: HomeAssistant) -> None:
+    """Test that validator gracefully handles missing service descriptions.
 
-    async def test_service(call):
+    When service descriptions are not available, only service existence
+    should be checked. No parameter validation should occur.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -589,11 +649,14 @@ async def test_validate_no_description_available(hass: HomeAssistant):
     assert len(param_issues) == 0
 
 
-async def test_validate_all_checks_combined(hass: HomeAssistant):
-    """Test all validation checks work together."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_validate_all_checks_combined(hass: HomeAssistant) -> None:
+    """Test that multiple validation checks can run together.
 
-    async def test_service(call):
+    A single service call can trigger multiple validation issues:
+    missing required params, unknown params, and invalid select options.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -646,15 +709,14 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
             assert issue.severity == Severity.WARNING
 
 
-async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
-    """Test that list parameters are validated per-item, not as whole list.
+async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant) -> None:
+    """Test that list parameters with multiple:true are validated per-item.
 
-    This reproduces the false positive from the logs:
-    Parameter 'include_folders' value '['config']' is not a valid option
+    Prevents false positives where list values like ['config'] were incorrectly
+    compared against the string 'config' instead of validating each list item.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("auto_backup", "backup", test_service)
@@ -703,17 +765,16 @@ async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
     )
 
 
-async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
-    """Test that brightness, color_temp, kelvin are not flagged as unknown for light.turn_on.
+async def test_validate_capability_dependent_light_params(hass: HomeAssistant) -> None:
+    """Test that capability-dependent light parameters are not flagged as unknown.
 
-    This reproduces the false positives from the logs:
-    - Unknown parameter 'brightness' for service 'light.turn_on'
-    - Unknown parameter 'color_temp' for service 'light.turn_on'
-    - Unknown parameter 'kelvin' for service 'light.turn_on'
+    Prevents false positives for parameters like brightness, color_temp, and
+    kelvin which depend on device capabilities and may not be in base schemas.
+    These parameters are valid for light.turn_on but not always documented
+    in service descriptions.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -757,11 +818,16 @@ async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
     )
 
 
-async def test_unknown_param_not_flagged_without_strict_mode(hass: HomeAssistant):
-    """Without strict mode, unknown params should not produce warnings."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_unknown_param_not_flagged_without_strict_mode(
+    hass: HomeAssistant,
+) -> None:
+    """Test that unknown parameters are not flagged without strict mode.
 
-    async def test_service(call):
+    Without strict_service_validation enabled, unknown parameters should
+    be ignored to prevent false positives.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("test", "service", test_service)
@@ -796,8 +862,14 @@ async def test_unknown_param_not_flagged_without_strict_mode(hass: HomeAssistant
     assert len(unknown_issues) == 0
 
 
-async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant):
-    """The strict_service_validation flag should be stored correctly."""
+async def test_strict_service_mode_flag_stored_on_validator(
+    hass: HomeAssistant,
+) -> None:
+    """Test that strict_service_validation flag is stored correctly.
+
+    The validator should store the strict validation mode as an instance
+    variable for use during validation.
+    """
     validator_default = ServiceCallValidator(hass)
     assert validator_default._strict_validation is False
 
@@ -851,16 +923,19 @@ async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant)
 )
 async def test_capability_dependent_params_not_flagged(
     hass: HomeAssistant, service: str, param: str
-):
-    """Capability-dependent params should not be flagged as unknown."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+) -> None:
+    """Test that capability-dependent parameters are not flagged as unknown.
 
+    Many services have parameters that depend on device capabilities and may
+    not appear in service schemas. These should be whitelisted to prevent
+    false positives.
+    """
     domain, svc = service.split(".", 1)
 
-    async def test_service(call):
+    async def test_service_handler(call: HAServiceCall) -> None:
         pass
 
-    hass.services.async_register(domain, svc, test_service)
+    hass.services.async_register(domain, svc, test_service_handler)
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
@@ -895,12 +970,14 @@ async def test_capability_dependent_params_not_flagged(
     )
 
 
-async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant):
-    """Test SERVICE_NOT_FOUND includes fuzzy suggestion for close match."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant) -> None:
+    """Test that SERVICE_NOT_FOUND includes fuzzy suggestions for typos.
 
-    # Register "turn_off" so "turn_of" (typo) can be suggested
-    async def test_service(call):
+    When a service is not found but a similar service exists, the validator
+    should suggest the closest match to help users fix typos.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_off", test_service)
@@ -926,9 +1003,13 @@ async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant):
     assert issues[0].suggestion == "light.turn_off"
 
 
-async def test_service_not_found_no_suggestion_wrong_domain(hass: HomeAssistant):
-    """Test SERVICE_NOT_FOUND without suggestion when domain has no services."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_service_not_found_no_suggestion_wrong_domain(
+    hass: HomeAssistant,
+) -> None:
+    """Test that SERVICE_NOT_FOUND provides no suggestion for unknown domains.
+
+    When the domain itself does not exist, no service suggestions can be made.
+    """
 
     validator = ServiceCallValidator(hass)
 
@@ -949,11 +1030,16 @@ async def test_service_not_found_no_suggestion_wrong_domain(hass: HomeAssistant)
     assert issues[0].suggestion is None
 
 
-async def test_service_not_found_no_suggestion_no_close_match(hass: HomeAssistant):
-    """Test SERVICE_NOT_FOUND without suggestion when no close match exists."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_service_not_found_no_suggestion_no_close_match(
+    hass: HomeAssistant,
+) -> None:
+    """Test that SERVICE_NOT_FOUND provides no suggestion when name is too different.
 
-    async def test_service(call):
+    When the service name is completely unrelated to existing services,
+    no fuzzy match should be suggested.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_off", test_service)
@@ -978,11 +1064,14 @@ async def test_service_not_found_no_suggestion_no_close_match(hass: HomeAssistan
     assert issues[0].suggestion is None
 
 
-async def test_unknown_target_key_flagged(hass: HomeAssistant):
-    """Test that non-standard keys in target dict are flagged."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
+async def test_unknown_target_key_flagged(hass: HomeAssistant) -> None:
+    """Test that non-standard keys in target dict are flagged in strict mode.
 
-    async def test_service(call):
+    Target dicts should only contain entity_id, device_id, and area_id.
+    Other keys (like typos) should produce warnings with fuzzy suggestions.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1022,11 +1111,14 @@ async def test_unknown_target_key_flagged(hass: HomeAssistant):
     assert "entity_id" in (unknown_issues[0].suggestion or "")
 
 
-async def test_valid_target_keys_not_flagged(hass: HomeAssistant):
-    """Test that standard target keys (entity_id, device_id, area_id) are not flagged."""
-    from custom_components.autodoctor.models import IssueType, ServiceCall
+async def test_valid_target_keys_not_flagged(hass: HomeAssistant) -> None:
+    """Test that standard target keys are not flagged.
 
-    async def test_service(call):
+    entity_id, device_id, and area_id are all valid target keys and should
+    not produce unknown parameter warnings.
+    """
+
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1066,8 +1158,12 @@ async def test_valid_target_keys_not_flagged(hass: HomeAssistant):
     assert len(unknown_issues) == 0
 
 
-async def test_refresh_service_descriptions(hass: HomeAssistant):
-    """Validator can refresh service descriptions on demand."""
+async def test_refresh_service_descriptions(hass: HomeAssistant) -> None:
+    """Test that validator can load service descriptions on demand.
+
+    Service descriptions are lazy-loaded and should be populated when
+    async_load_descriptions is called.
+    """
     validator = ServiceCallValidator(hass)
     assert validator._service_descriptions is None
 
@@ -1079,15 +1175,16 @@ async def test_refresh_service_descriptions(hass: HomeAssistant):
 # --- Template entity skipping, entity existence, and loop hardening (SV-01, SV-02, SV-03) ---
 
 
-async def test_template_entity_id_skips_validation(hass: HomeAssistant):
-    """Entity ID containing '{{' in target should skip validation entirely.
+async def test_template_entity_id_skips_validation(hass: HomeAssistant) -> None:
+    """Test that templated entity_ids in target skip validation.
 
-    Kills: AddNot on 'if "{{" in entity_id' -- if the condition is inverted,
-    the template entity would be validated and produce a target-not-found issue.
+    Entity IDs containing '{{' are templates and cannot be validated at
+    analysis time. They should be skipped without producing issues.
+
+    Mutation test: Kills AddNot on 'if "{{" in entity_id' check.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1112,15 +1209,16 @@ async def test_template_entity_id_skips_validation(hass: HomeAssistant):
     assert len(target_issues) == 0
 
 
-async def test_non_template_entity_validated(hass: HomeAssistant):
-    """Non-template entity_id IS validated and produces issue when missing.
+async def test_non_template_entity_validated(hass: HomeAssistant) -> None:
+    """Test that non-template entity_ids are validated.
 
-    Contrast test for SV-01: proves non-template entities are validated.
-    Kills AddNot on template check (both directions covered).
+    Regular entity IDs (without templates) should be checked for existence
+    and produce SERVICE_TARGET_NOT_FOUND issues when missing.
+
+    Mutation test: Contrast test for SV-01, kills AddNot on template check.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1147,15 +1245,16 @@ async def test_non_template_entity_validated(hass: HomeAssistant):
     assert target_issues[0].entity_id == "light.nonexistent"
 
 
-async def test_existing_target_entity_no_issue(hass: HomeAssistant):
-    """Existing entity_id in target should NOT produce SERVICE_TARGET_NOT_FOUND.
+async def test_existing_target_entity_no_issue(hass: HomeAssistant) -> None:
+    """Test that existing entity_ids in target do not produce issues.
 
-    Kills: Is->IsNot on 'hass.states.get(entity_id) is None' -- if mutated
-    to 'is not None', existing entities would be incorrectly flagged.
+    Entities that exist in Home Assistant state should not be flagged
+    as missing.
+
+    Mutation test: Kills Is->IsNot on 'hass.states.get(entity_id) is None'.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1181,16 +1280,18 @@ async def test_existing_target_entity_no_issue(hass: HomeAssistant):
     assert len(target_issues) == 0
 
 
-async def test_multiple_nonexistent_entities_all_produce_issues(hass: HomeAssistant):
-    """Multiple nonexistent entity_ids must ALL produce issues.
+async def test_multiple_nonexistent_entities_all_produce_issues(
+    hass: HomeAssistant,
+) -> None:
+    """Test that all nonexistent entity_ids in a list produce separate issues.
 
-    Kills: ReplaceContinueWithBreak on entity_id loop in _validate_target_entities.
-    If break replaces continue, only the first entity would be checked and the
-    loop would exit early, producing only 1 issue instead of 3.
+    When target contains multiple missing entities, each should produce its
+    own SERVICE_TARGET_NOT_FOUND issue.
+
+    Mutation test: Kills ReplaceContinueWithBreak on entity_id loop.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1217,15 +1318,16 @@ async def test_multiple_nonexistent_entities_all_produce_issues(hass: HomeAssist
     assert flagged_entities == {"light.fake1", "light.fake2", "light.fake3"}
 
 
-async def test_multiple_required_fields_all_checked(hass: HomeAssistant):
-    """Multiple missing required fields must ALL produce issues.
+async def test_multiple_required_fields_all_checked(hass: HomeAssistant) -> None:
+    """Test that all missing required fields produce separate issues.
 
-    Kills: ReplaceContinueWithBreak on _validate_required_params loop.
-    If break replaces continue, only the first missing field would be reported.
+    When multiple required parameters are missing, each should produce its
+    own SERVICE_MISSING_REQUIRED_PARAM issue.
+
+    Mutation test: Kills ReplaceContinueWithBreak on _validate_required_params loop.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1260,15 +1362,16 @@ async def test_multiple_required_fields_all_checked(hass: HomeAssistant):
     assert len(missing_issues) == 3
 
 
-async def test_multiple_unknown_params_all_checked(hass: HomeAssistant):
-    """Multiple unknown params must ALL produce issues in strict mode.
+async def test_multiple_unknown_params_all_checked(hass: HomeAssistant) -> None:
+    """Test that all unknown parameters produce separate issues in strict mode.
 
-    Kills: ReplaceContinueWithBreak on _validate_unknown_params data loop.
-    If break replaces continue, only the first unknown param would be reported.
+    When multiple unknown parameters are present, each should produce its
+    own SERVICE_UNKNOWN_PARAM issue.
+
+    Mutation test: Kills ReplaceContinueWithBreak on _validate_unknown_params loop.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", test_service)
@@ -1304,11 +1407,15 @@ async def test_multiple_unknown_params_all_checked(hass: HomeAssistant):
 # --- Fuzzy match parameter mutations (SV-04) ---
 
 
-async def test_suggest_target_entity_fuzzy_match_sensitivity(hass: HomeAssistant):
-    """Entity suggestion returns match for close typo, None for distant input.
+async def test_suggest_target_entity_fuzzy_match_sensitivity(
+    hass: HomeAssistant,
+) -> None:
+    """Test that entity fuzzy matching uses appropriate similarity threshold.
 
-    Kills: NumberReplacer on cutoff=0.75 (1.0 rejects close match, 0.0 accepts
-    distant match) and n=1 (n=0 returns empty list).
+    Suggestions should be provided for close typos (>0.75 similarity) but
+    not for completely different names.
+
+    Mutation test: Kills NumberReplacer on cutoff=0.75 and n=1.
     """
     hass.states.async_set("light.living_room", "on")
     hass.states.async_set("light.bedroom", "on")
@@ -1328,10 +1435,13 @@ async def test_suggest_target_entity_fuzzy_match_sensitivity(hass: HomeAssistant
     assert result is None
 
 
-async def test_suggest_param_fuzzy_match_sensitivity(hass: HomeAssistant):
-    """Param suggestion returns match for close typo, None for distant input.
+async def test_suggest_param_fuzzy_match_sensitivity(hass: HomeAssistant) -> None:
+    """Test that parameter fuzzy matching uses appropriate similarity threshold.
 
-    Kills: NumberReplacer on cutoff=0.75 and n=1 in _suggest_param.
+    Parameter suggestions should be provided for close typos (>0.75 similarity)
+    but not for completely different names.
+
+    Mutation test: Kills NumberReplacer on cutoff=0.75 and n=1.
     """
     validator = ServiceCallValidator(hass)
 
@@ -1348,14 +1458,16 @@ async def test_suggest_param_fuzzy_match_sensitivity(hass: HomeAssistant):
     assert result is None
 
 
-async def test_suggest_service_fuzzy_match_sensitivity(hass: HomeAssistant):
-    """Service suggestion returns match for close/moderate typos, None for distant.
+async def test_suggest_service_fuzzy_match_sensitivity(hass: HomeAssistant) -> None:
+    """Test that service fuzzy matching uses lower similarity threshold (0.6).
 
-    _suggest_service uses cutoff=0.6 (lower than others' 0.75).
-    Kills: NumberReplacer on cutoff=0.6 and n=1 in _suggest_service.
+    Service suggestions are more lenient than entity/param suggestions to
+    help users with moderate typos.
+
+    Mutation test: Kills NumberReplacer on cutoff=0.6 and n=1.
     """
 
-    async def handler(call):
+    async def handler(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("light", "turn_on", handler)
@@ -1381,11 +1493,15 @@ async def test_suggest_service_fuzzy_match_sensitivity(hass: HomeAssistant):
     assert result is None
 
 
-async def test_suggest_target_entity_with_multiple_same_domain(hass: HomeAssistant):
-    """With multiple entities in same domain, best match is returned (n=1).
+async def test_suggest_target_entity_with_multiple_same_domain(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fuzzy matching returns single best match when multiple exist.
 
-    Kills: NumberReplacer on n=1 -- n=0 returns empty list (None result),
-    so asserting a match IS returned catches the mutation.
+    When multiple entities could match, only the closest match should be
+    returned (n=1).
+
+    Mutation test: Kills NumberReplacer on n=1.
     """
     hass.states.async_set("light.kitchen", "on")
     hass.states.async_set("light.kitchen_ceiling", "on")
@@ -1399,16 +1515,17 @@ async def test_suggest_target_entity_with_multiple_same_domain(hass: HomeAssista
     assert result == "light.kitchen"
 
 
-async def test_validate_required_param_from_inline_params(hass: HomeAssistant):
-    """Test that inline params (merged into data) satisfy required param validation.
+async def test_validate_required_param_from_inline_params(
+    hass: HomeAssistant,
+) -> None:
+    """Test that inline parameters merged into data satisfy required checks.
 
-    End-to-end integration test: a ServiceCall with data populated from inline
-    params should NOT trigger SERVICE_MISSING_REQUIRED_PARAM.
+    Integration test: ServiceCall with data populated from inline params
+    (like message: "text" at root level) should NOT trigger
+    SERVICE_MISSING_REQUIRED_PARAM after the analyzer merges them.
     """
-    from custom_components.autodoctor.models import IssueType, ServiceCall
 
-    # Register a test service
-    async def test_service(call):
+    async def test_service(call: HAServiceCall) -> None:
         pass
 
     hass.services.async_register("notify", "mobile_app_phone", test_service)

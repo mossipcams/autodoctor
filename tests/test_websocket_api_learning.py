@@ -10,8 +10,13 @@ from custom_components.autodoctor.suppression_store import SuppressionStore
 from custom_components.autodoctor.websocket_api import websocket_suppress
 
 
-async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant):
-    """Test that suppressing an invalid state issue learns the state."""
+async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant) -> None:
+    """Test that suppressing invalid_state issues learns the state.
+
+    When a user suppresses an invalid_state issue, the state should be
+    automatically learned for that entity's platform. This prevents future
+    warnings about the same valid state.
+    """
     # Set up stores
     learned_store = LearnedStatesStore(hass)
     suppression_store = SuppressionStore(hass)
@@ -56,8 +61,12 @@ async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant
     )
 
 
-async def test_suppress_does_not_learn_for_non_state_issues(hass: HomeAssistant):
-    """Test that non-state issues don't trigger learning."""
+async def test_suppress_does_not_learn_for_non_state_issues(hass: HomeAssistant) -> None:
+    """Test that non-state issues don't trigger automatic learning.
+
+    Only invalid_state issues should trigger state learning. Other issue types
+    like entity_not_found should be suppressed without modifying learned states.
+    """
     learned_store = LearnedStatesStore(hass)
     suppression_store = SuppressionStore(hass)
 
@@ -84,8 +93,13 @@ async def test_suppress_does_not_learn_for_non_state_issues(hass: HomeAssistant)
     assert len(states) == 0
 
 
-async def test_suppress_does_not_learn_without_state_param(hass: HomeAssistant):
-    """Test that invalid_state without state param doesn't trigger learning."""
+async def test_suppress_does_not_learn_without_state_param(hass: HomeAssistant) -> None:
+    """Test that invalid_state issues require state parameter for learning.
+
+    If the state parameter is missing from an invalid_state suppression,
+    learning should not occur (since we don't know what state to learn).
+    The suppression itself should still be recorded.
+    """
     learned_store = LearnedStatesStore(hass)
     suppression_store = SuppressionStore(hass)
 

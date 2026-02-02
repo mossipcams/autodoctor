@@ -1,8 +1,17 @@
-"""Tests for WebSocket API."""
+"""Tests for WebSocket API.
 
+This module tests all WebSocket API commands exposed by Autodoctor,
+including validation, issue retrieval, suppression management, and
+step-based validation results.
+"""
+
+from __future__ import annotations
+
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.components.websocket_api import ActiveConnection
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.const import DOMAIN
@@ -14,19 +23,26 @@ from custom_components.autodoctor.models import (
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
     async_setup_websocket_api,
+    websocket_clear_suppressions,
     websocket_get_issues,
     websocket_get_validation,
     websocket_get_validation_steps,
     websocket_list_suppressions,
+    websocket_refresh,
     websocket_run_validation,
     websocket_run_validation_steps,
+    websocket_suppress,
     websocket_unsuppress,
 )
 
 
 @pytest.mark.asyncio
-async def test_websocket_api_setup(hass: HomeAssistant):
-    """Test WebSocket API can be set up."""
+async def test_websocket_api_setup(hass: HomeAssistant) -> None:
+    """Test that WebSocket API registers all 10 commands.
+
+    Verifies that async_setup_websocket_api registers all available
+    WebSocket commands for the Autodoctor integration.
+    """
     with patch(
         "homeassistant.components.websocket_api.async_register_command"
     ) as mock_register:
@@ -35,18 +51,20 @@ async def test_websocket_api_setup(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_get_issues_returns_data(hass: HomeAssistant):
-    """Test websocket_get_issues returns issue data."""
-    from custom_components.autodoctor.const import DOMAIN
+async def test_websocket_get_issues_returns_data(hass: HomeAssistant) -> None:
+    """Test that websocket_get_issues returns formatted issue data.
 
+    Verifies the command returns issues with fix suggestions and
+    healthy automation count.
+    """
     hass.data[DOMAIN] = {
         "issues": [],
     }
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_result = MagicMock()
 
-    msg = {"id": 1, "type": "autodoctor/issues"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/issues"}
 
     # Access the underlying async function through __wrapped__
     # (the decorators wrap the function)
@@ -61,17 +79,21 @@ async def test_websocket_get_issues_returns_data(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_get_validation(hass: HomeAssistant):
-    """Test getting validation issues only."""
+async def test_websocket_get_validation(hass: HomeAssistant) -> None:
+    """Test that websocket_get_validation returns cached validation results.
+
+    Verifies the command returns validation issues and last run timestamp
+    without triggering a new validation run.
+    """
     hass.data[DOMAIN] = {
         "validation_issues": [],
         "validation_last_run": "2026-01-27T12:00:00+00:00",
     }
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_result = MagicMock()
 
-    msg = {"id": 1, "type": "autodoctor/validation"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation"}
 
     await websocket_get_validation.__wrapped__(hass, connection, msg)
 
@@ -84,17 +106,21 @@ async def test_websocket_get_validation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_run_validation(hass: HomeAssistant):
-    """Test running validation and getting results."""
+async def test_websocket_run_validation(hass: HomeAssistant) -> None:
+    """Test that websocket_run_validation executes validation and returns results.
+
+    Verifies the command triggers async_validate_all and returns issues,
+    healthy automation count, and timestamp.
+    """
     hass.data[DOMAIN] = {
         "validation_issues": [],
         "validation_last_run": "2026-01-27T12:00:00+00:00",
     }
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_result = MagicMock()
 
-    msg = {"id": 1, "type": "autodoctor/validation/run"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run"}
 
     with patch(
         "custom_components.autodoctor.async_validate_all",
@@ -113,15 +139,19 @@ async def test_websocket_run_validation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_run_validation_handles_error(hass: HomeAssistant):
-    """Test that validation errors return proper error response."""
+async def test_websocket_run_validation_handles_error(hass: HomeAssistant) -> None:
+    """Test that websocket_run_validation handles exceptions gracefully.
+
+    Verifies that validation errors result in proper error response via
+    send_error instead of crashing.
+    """
     hass.data[DOMAIN] = {}
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_result = MagicMock()
     connection.send_error = MagicMock()
 
-    msg = {"id": 1, "type": "autodoctor/validation/run"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run"}
 
     # Mock async_validate_all to raise an exception
     with patch(
@@ -137,7 +167,7 @@ async def test_websocket_run_validation_handles_error(hass: HomeAssistant):
     assert call_args[0][0] == 1  # message id
 
 
-# --- Tests for new step-based WS commands ---
+# === Fixtures ===
 
 
 def _make_issue(
@@ -146,7 +176,17 @@ def _make_issue(
     entity_id: str = "light.test",
     automation_id: str = "automation.test",
 ) -> ValidationIssue:
-    """Create a test ValidationIssue."""
+    """Create a test ValidationIssue for testing.
+
+    Args:
+        issue_type: Type of validation issue.
+        severity: Severity level (ERROR, WARNING, INFO).
+        entity_id: Entity ID associated with the issue.
+        automation_id: Automation ID associated with the issue.
+
+    Returns:
+        ValidationIssue instance with provided parameters.
+    """
     return ValidationIssue(
         severity=severity,
         automation_id=automation_id,
@@ -158,9 +198,17 @@ def _make_issue(
     )
 
 
+# === Step-Based Validation Commands ===
+
+
 @pytest.mark.asyncio
-async def test_websocket_run_validation_steps(hass: HomeAssistant):
-    """Test running validation and getting per-group results."""
+async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
+    """Test that websocket_run_validation_steps returns grouped validation results.
+
+    Verifies the command executes validation and returns results organized by
+    validation group (entity_state, services, templates) with status, counts,
+    and duration for each group.
+    """
     entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
     template_issue = _make_issue(
         IssueType.TEMPLATE_UNKNOWN_FILTER,
@@ -172,8 +220,8 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant):
         "suppression_store": None,
     }
 
-    connection = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/validation/run_steps"}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run_steps"}
 
     with patch(
         "custom_components.autodoctor.async_validate_all_with_groups",
@@ -237,8 +285,14 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_run_validation_steps_with_suppression(hass: HomeAssistant):
-    """Test run_steps filters suppressed issues."""
+async def test_websocket_run_validation_steps_with_suppression(
+    hass: HomeAssistant,
+) -> None:
+    """Test that websocket_run_validation_steps filters suppressed issues.
+
+    Verifies that issues marked as suppressed are not included in the
+    returned results and that suppressed_count is accurate.
+    """
     issue1 = _make_issue(
         IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
     )
@@ -256,8 +310,8 @@ async def test_websocket_run_validation_steps_with_suppression(hass: HomeAssista
         "suppression_store": suppression_store,
     }
 
-    connection = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/validation/run_steps"}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run_steps"}
 
     with patch(
         "custom_components.autodoctor.async_validate_all_with_groups",
@@ -289,8 +343,12 @@ async def test_websocket_run_validation_steps_with_suppression(hass: HomeAssista
 
 
 @pytest.mark.asyncio
-async def test_websocket_get_validation_steps_cached(hass: HomeAssistant):
-    """Test getting cached per-group results without triggering validation."""
+async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> None:
+    """Test that websocket_get_validation_steps returns cached group results.
+
+    Verifies the command returns previously cached validation group data
+    without triggering a new validation run.
+    """
     entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
 
     hass.data[DOMAIN] = {
@@ -312,8 +370,8 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant):
         },
     }
 
-    connection = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/validation/steps"}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
     await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
 
@@ -333,15 +391,19 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant):
-    """Test getting steps when no validation has been run yet."""
+async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant) -> None:
+    """Test that websocket_get_validation_steps handles no prior validation run.
+
+    Verifies the command returns empty group results with "pass" status
+    when validation has never been run.
+    """
     hass.data[DOMAIN] = {
         "suppression_store": None,
         "validation_last_run": None,
     }
 
-    connection = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/validation/steps"}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
     await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
 
@@ -363,8 +425,12 @@ async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant):
 @pytest.mark.asyncio
 async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
     hass: HomeAssistant,
-):
-    """Test that cached steps command filters suppressed issues at read time."""
+) -> None:
+    """Test that websocket_get_validation_steps applies suppression filtering.
+
+    Verifies that the cached steps command filters suppressed issues at
+    read time, ensuring suppressed_count is accurate.
+    """
     issue1 = _make_issue(
         IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
     )
@@ -397,8 +463,8 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
         },
     }
 
-    connection = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/validation/steps"}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
     await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
 
@@ -412,14 +478,20 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
 
 
 @pytest.mark.asyncio
-async def test_websocket_run_validation_steps_error_handling(hass: HomeAssistant):
-    """Test that run_steps errors return proper error response."""
+async def test_websocket_run_validation_steps_error_handling(
+    hass: HomeAssistant,
+) -> None:
+    """Test that websocket_run_validation_steps handles exceptions gracefully.
+
+    Verifies that validation errors result in proper error response via
+    send_error instead of crashing.
+    """
     hass.data[DOMAIN] = {}
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
 
-    msg = {"id": 1, "type": "autodoctor/validation/run_steps"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run_steps"}
 
     with patch(
         "custom_components.autodoctor.async_validate_all_with_groups",
@@ -433,8 +505,13 @@ async def test_websocket_run_validation_steps_error_handling(hass: HomeAssistant
     assert call_args[0][0] == 1  # message id
 
 
-def test_compute_group_status():
-    """Test _compute_group_status returns correct status for different issue sets."""
+def test_compute_group_status() -> None:
+    """Test that _compute_group_status returns correct status for issue sets.
+
+    Verifies that the helper function correctly determines group status
+    based on issue severity: ERROR -> "fail", WARNING -> "warning",
+    INFO/empty -> "pass", with ERROR taking precedence in mixed cases.
+    """
     # ERROR issues -> "fail"
     issues_with_error = [
         _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR),
@@ -464,19 +541,16 @@ def test_compute_group_status():
     assert _compute_group_status(mixed_issues) == "fail"
 
 
-@pytest.mark.asyncio
-async def test_existing_commands_still_registered(hass: HomeAssistant):
-    """Test that all 10 commands (8 existing + 2 new) are registered."""
-    with patch(
-        "homeassistant.components.websocket_api.async_register_command"
-    ) as mock_register:
-        await async_setup_websocket_api(hass)
-        assert mock_register.call_count == 10
+# === Suppression Management Commands ===
 
 
 @pytest.mark.asyncio
-async def test_websocket_list_suppressions(hass: HomeAssistant):
-    """Test listing suppressed issues with metadata."""
+async def test_websocket_list_suppressions(hass: HomeAssistant) -> None:
+    """Test that websocket_list_suppressions returns suppressed issues with metadata.
+
+    Verifies the command returns all suppressed issues including their
+    suppression keys, automation IDs, entity IDs, issue types, and messages.
+    """
     issue1 = _make_issue(
         IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
     )
@@ -492,8 +566,8 @@ async def test_websocket_list_suppressions(hass: HomeAssistant):
         "validation_issues": [issue1, issue2],
     }
 
-    connection = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/list_suppressions"}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
     await websocket_list_suppressions.__wrapped__(hass, connection, msg)
 
@@ -509,13 +583,17 @@ async def test_websocket_list_suppressions(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_list_suppressions_not_ready(hass: HomeAssistant):
-    """Test list_suppressions returns error when store not ready."""
+async def test_websocket_list_suppressions_not_ready(hass: HomeAssistant) -> None:
+    """Test that websocket_list_suppressions handles uninitialized store.
+
+    Verifies the command returns "not_ready" error when the suppression
+    store is not yet initialized.
+    """
     hass.data[DOMAIN] = {}
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/list_suppressions"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
     await websocket_list_suppressions.__wrapped__(hass, connection, msg)
 
@@ -524,8 +602,12 @@ async def test_websocket_list_suppressions_not_ready(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_unsuppress(hass: HomeAssistant):
-    """Test unsuppressing a single issue by key."""
+async def test_websocket_unsuppress(hass: HomeAssistant) -> None:
+    """Test that websocket_unsuppress removes suppression for a given key.
+
+    Verifies the command calls async_unsuppress on the suppression store
+    and returns success with updated suppressed_count.
+    """
     suppression_store = MagicMock()
     suppression_store.async_unsuppress = AsyncMock()
     suppression_store.count = 0
@@ -534,9 +616,9 @@ async def test_websocket_unsuppress(hass: HomeAssistant):
         "suppression_store": suppression_store,
     }
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     key = "automation.test:light.test:entity_not_found"
-    msg = {"id": 1, "type": "autodoctor/unsuppress", "key": key}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/unsuppress", "key": key}
 
     await websocket_unsuppress.__wrapped__(hass, connection, msg)
 
@@ -548,13 +630,17 @@ async def test_websocket_unsuppress(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_websocket_unsuppress_not_ready(hass: HomeAssistant):
-    """Test unsuppress returns error when store not ready."""
+async def test_websocket_unsuppress_not_ready(hass: HomeAssistant) -> None:
+    """Test that websocket_unsuppress handles uninitialized store.
+
+    Verifies the command returns "not_ready" error when the suppression
+    store is not yet initialized.
+    """
     hass.data[DOMAIN] = {}
 
-    connection = MagicMock()
+    connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
-    msg = {"id": 1, "type": "autodoctor/unsuppress", "key": "some:key:here"}
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/unsuppress", "key": "some:key:here"}
 
     await websocket_unsuppress.__wrapped__(hass, connection, msg)
 
@@ -563,8 +649,12 @@ async def test_websocket_unsuppress_not_ready(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_suppression_store_async_unsuppress(hass: HomeAssistant):
-    """Test SuppressionStore.async_unsuppress removes a key."""
+async def test_suppression_store_async_unsuppress(hass: HomeAssistant) -> None:
+    """Test that SuppressionStore.async_unsuppress removes a suppression key.
+
+    Verifies that async_unsuppress correctly removes a key from the store
+    and updates the count accordingly.
+    """
     from custom_components.autodoctor.suppression_store import SuppressionStore
 
     store = SuppressionStore(hass)
@@ -579,8 +669,12 @@ async def test_suppression_store_async_unsuppress(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_suppression_store_keys_property(hass: HomeAssistant):
-    """Test SuppressionStore.keys returns immutable snapshot of all keys."""
+async def test_suppression_store_keys_property(hass: HomeAssistant) -> None:
+    """Test that SuppressionStore.keys returns immutable snapshot of all keys.
+
+    Verifies that the keys property returns a frozenset containing all
+    currently suppressed issue keys.
+    """
     from custom_components.autodoctor.suppression_store import SuppressionStore
 
     store = SuppressionStore(hass)

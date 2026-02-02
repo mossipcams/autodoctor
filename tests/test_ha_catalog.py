@@ -1,5 +1,9 @@
 """Tests for ha_catalog — HA-specific Jinja2 filter/test catalog."""
 
+from __future__ import annotations
+
+import importlib
+
 import pytest
 
 from custom_components.autodoctor.ha_catalog import (
@@ -13,8 +17,12 @@ from custom_components.autodoctor.ha_catalog import (
 class TestCatalogEntry:
     """Test the CatalogEntry dataclass."""
 
-    def test_create_minimal_entry(self):
-        """CatalogEntry can be created with required fields only."""
+    def test_create_minimal_entry(self) -> None:
+        """Test CatalogEntry creation with only required fields.
+
+        Verifies that a catalog entry can be created with just name and kind,
+        relying on default values for optional fields.
+        """
         entry = CatalogEntry(
             name="float",
             kind=EntryKind.FILTER,
@@ -22,8 +30,12 @@ class TestCatalogEntry:
         assert entry.name == "float"
         assert entry.kind == EntryKind.FILTER
 
-    def test_create_full_entry(self):
-        """CatalogEntry can be created with all fields."""
+    def test_create_full_entry(self) -> None:
+        """Test CatalogEntry creation with all fields specified.
+
+        Verifies that all optional fields (source, category) can be
+        explicitly set when creating a catalog entry.
+        """
         entry = CatalogEntry(
             name="regex_match",
             kind=EntryKind.FILTER,
@@ -34,17 +46,25 @@ class TestCatalogEntry:
         assert entry.source == "ha"
         assert entry.category == "regex"
 
-    def test_entry_is_frozen(self):
-        """CatalogEntry is immutable (frozen dataclass)."""
+    def test_entry_is_frozen(self) -> None:
+        """Test that CatalogEntry is immutable after creation.
+
+        Frozen dataclasses prevent accidental mutation, ensuring catalog
+        entries remain constant throughout their lifetime.
+        """
         entry = CatalogEntry(
             name="float",
             kind=EntryKind.FILTER,
         )
         with pytest.raises(AttributeError):
-            entry.name = "int"
+            entry.name = "int"  # type: ignore[misc]
 
-    def test_no_arg_fields(self):
-        """CatalogEntry no longer has min_args or max_args fields."""
+    def test_no_arg_fields(self) -> None:
+        """Test that min_args and max_args fields are not present.
+
+        These fields were removed when argument counting validation
+        was delegated to Jinja2's native error handling.
+        """
         entry = CatalogEntry(
             name="iif",
             kind=EntryKind.FILTER,
@@ -52,8 +72,12 @@ class TestCatalogEntry:
         assert not hasattr(entry, "min_args")
         assert not hasattr(entry, "max_args")
 
-    def test_defaults(self):
-        """Optional fields have sensible defaults."""
+    def test_defaults(self) -> None:
+        """Test that optional fields have correct default values.
+
+        Source defaults to 'ha' and category defaults to empty string,
+        allowing minimal catalog entries to be created easily.
+        """
         entry = CatalogEntry(
             name="test_entry",
             kind=EntryKind.TEST,
@@ -65,32 +89,49 @@ class TestCatalogEntry:
 class TestEntryKind:
     """Test the EntryKind enum."""
 
-    def test_filter_kind(self):
-        assert EntryKind.FILTER.value == "filter"
+    @pytest.mark.parametrize(
+        ("kind", "expected_value"),
+        [
+            (EntryKind.FILTER, "filter"),
+            (EntryKind.TEST, "test"),
+        ],
+        ids=["filter-kind", "test-kind"],
+    )
+    def test_entry_kind_values(self, kind: EntryKind, expected_value: str) -> None:
+        """Test that EntryKind enum values match expected strings.
 
-    def test_test_kind(self):
-        assert EntryKind.TEST.value == "test"
+        These string values are used when serializing catalog entries
+        and must remain stable for backward compatibility.
+        """
+        assert kind.value == expected_value
 
 
 class TestRegistryAccessors:
     """Test the module-level accessor functions."""
 
-    def test_get_known_filters_returns_frozenset(self):
-        """get_known_filters() returns a frozenset of filter names."""
-        filters = get_known_filters()
-        assert isinstance(filters, frozenset)
-        assert len(filters) > 0
+    @pytest.mark.parametrize(
+        ("accessor_func", "expected_type"),
+        [
+            (get_known_filters, frozenset),
+            (get_known_tests, frozenset),
+        ],
+        ids=["filters-frozenset", "tests-frozenset"],
+    )
+    def test_accessor_returns_frozenset(
+        self, accessor_func: object, expected_type: type[frozenset[str]]
+    ) -> None:
+        """Test that catalog accessors return immutable frozensets.
 
-    def test_get_known_tests_returns_frozenset(self):
-        """get_known_tests() returns a frozenset of test names."""
-        tests = get_known_tests()
-        assert isinstance(tests, frozenset)
-        assert len(tests) > 0
+        Frozensets prevent external code from modifying the catalog,
+        ensuring catalog integrity throughout the application lifecycle.
+        """
+        result = accessor_func()  # type: ignore[operator]
+        assert isinstance(result, expected_type)
+        assert len(result) > 0
 
-    def test_known_filters_contain_core_ha_filters(self):
-        """Core HA filters must be in the catalog."""
-        filters = get_known_filters()
-        core_filters = {
+    @pytest.mark.parametrize(
+        "core_filter",
+        [
             "as_datetime",
             "as_timestamp",
             "as_local",
@@ -114,14 +155,45 @@ class TestRegistryAccessors:
             "add",
             "average",
             "median",
-        }
-        missing = core_filters - filters
-        assert not missing, f"Missing core filters: {missing}"
+        ],
+        ids=[
+            "datetime-as_datetime",
+            "datetime-as_timestamp",
+            "datetime-as_local",
+            "json-to_json",
+            "json-from_json",
+            "type-float",
+            "type-int",
+            "type-bool",
+            "regex-match",
+            "regex-search",
+            "regex-replace",
+            "string-slugify",
+            "encoding-base64_encode",
+            "encoding-base64_decode",
+            "hash-md5",
+            "hash-sha1",
+            "hash-sha256",
+            "hash-sha512",
+            "misc-iif",
+            "math-multiply",
+            "math-add",
+            "math-average",
+            "math-median",
+        ],
+    )
+    def test_known_filters_contain_core_ha_filter(self, core_filter: str) -> None:
+        """Test that essential HA filters are present in the catalog.
 
-    def test_known_tests_contain_core_ha_tests(self):
-        """Core HA tests must be in the catalog."""
-        tests = get_known_tests()
-        core_tests = {
+        These filters are commonly used in Home Assistant templates and
+        must be recognized by the validator to avoid false positives.
+        """
+        filters = get_known_filters()
+        assert core_filter in filters, f"Core filter '{core_filter}' missing from catalog"
+
+    @pytest.mark.parametrize(
+        "core_test",
+        [
             "match",
             "search",
             "is_number",
@@ -132,68 +204,112 @@ class TestRegistryAccessors:
             "is_tuple",
             "is_state",
             "is_state_attr",
-        }
-        missing = core_tests - tests
-        assert not missing, f"Missing core tests: {missing}"
+        ],
+        ids=[
+            "regex-match",
+            "regex-search",
+            "validation-is_number",
+            "validation-has_value",
+            "collections-contains",
+            "type-is_list",
+            "type-is_set",
+            "type-is_tuple",
+            "entity-is_state",
+            "entity-is_state_attr",
+        ],
+    )
+    def test_known_tests_contain_core_ha_test(self, core_test: str) -> None:
+        """Test that essential HA tests are present in the catalog.
 
-    def test_get_filter_entry_removed(self):
-        """get_filter_entry() no longer exists in the public API."""
+        These Jinja2 tests are commonly used in Home Assistant templates
+        and must be recognized to prevent incorrect validation errors.
+        """
+        tests = get_known_tests()
+        assert core_test in tests, f"Core test '{core_test}' missing from catalog"
+
+    @pytest.mark.parametrize(
+        "removed_function",
+        ["get_filter_entry", "get_test_entry"],
+        ids=["filter-entry-removed", "test-entry-removed"],
+    )
+    def test_legacy_functions_removed(self, removed_function: str) -> None:
+        """Test that legacy accessor functions have been removed.
+
+        These functions exposed internal catalog structure and were removed
+        in favor of simple name-set accessors (get_known_filters/tests).
+        """
         import custom_components.autodoctor.ha_catalog as catalog
 
-        assert not hasattr(catalog, "get_filter_entry")
-
-    def test_get_test_entry_removed(self):
-        """get_test_entry() no longer exists in the public API."""
-        import custom_components.autodoctor.ha_catalog as catalog
-
-        assert not hasattr(catalog, "get_test_entry")
+        assert not hasattr(
+            catalog, removed_function
+        ), f"{removed_function}() still exists in public API"
 
 
 class TestCatalogCompleteness:
     """Verify catalog completeness and migration state."""
 
-    def test_catalog_filter_count(self):
-        """Catalog has at least 100 HA-specific filters."""
-        assert len(get_known_filters()) >= 100, (
-            f"Catalog only has {len(get_known_filters())} filters, expected at least 100"
+    @pytest.mark.parametrize(
+        ("accessor_func", "min_count", "item_type"),
+        [
+            (get_known_filters, 100, "filters"),
+            (get_known_tests, 23, "tests"),
+        ],
+        ids=["filters-count", "tests-count"],
+    )
+    def test_catalog_minimum_counts(
+        self, accessor_func: object, min_count: int, item_type: str
+    ) -> None:
+        """Test that catalog contains minimum expected number of entries.
+
+        These minimum counts ensure the catalog isn't accidentally cleared
+        or partially populated during refactoring or updates.
+        """
+        items = accessor_func()  # type: ignore[operator]
+        actual_count = len(items)  # type: ignore[arg-type]
+        assert actual_count >= min_count, (
+            f"Catalog only has {actual_count} {item_type}, expected at least {min_count}"
         )
 
-    def test_catalog_test_count(self):
-        """Catalog has at least 23 HA-specific tests."""
-        assert len(get_known_tests()) >= 23, (
-            f"Catalog only has {len(get_known_tests())} tests, expected at least 23"
-        )
+    def test_catalog_has_no_arg_fields(self) -> None:
+        """Test that catalog entries no longer contain arg count fields.
 
-    def test_catalog_has_no_arg_fields(self):
-        """CatalogEntry no longer carries min_args/max_args."""
+        The min_args/max_args fields were removed when argument validation
+        was delegated to Jinja2's native error handling system.
+        """
         from custom_components.autodoctor.ha_catalog import _FILTER_REGISTRY
 
         for name, entry in _FILTER_REGISTRY.items():
             assert not hasattr(entry, "min_args"), f"Filter '{name}' still has min_args"
             assert not hasattr(entry, "max_args"), f"Filter '{name}' still has max_args"
 
-    def test_ha_filters_not_in_jinja_validator(self):
-        """After migration, _HA_FILTERS should not exist in jinja_validator.py."""
+    @pytest.mark.parametrize(
+        "legacy_attribute",
+        ["_HA_FILTERS", "_HA_TESTS"],
+        ids=["filters-removed", "tests-removed"],
+    )
+    def test_legacy_jinja_validator_attributes_removed(
+        self, legacy_attribute: str
+    ) -> None:
+        """Test that legacy catalog attributes removed from jinja_validator.
+
+        After migration to ha_catalog module, the old _HA_FILTERS and
+        _HA_TESTS constants should no longer exist in jinja_validator.py.
+        """
         import custom_components.autodoctor.jinja_validator as jv
 
-        assert not hasattr(jv, "_HA_FILTERS"), (
-            "_HA_FILTERS still exists in jinja_validator.py — migration incomplete"
+        assert not hasattr(jv, legacy_attribute), (
+            f"{legacy_attribute} still exists in jinja_validator.py — migration incomplete"
         )
 
-    def test_ha_tests_not_in_jinja_validator(self):
-        """After migration, _HA_TESTS should not exist in jinja_validator.py."""
-        import custom_components.autodoctor.jinja_validator as jv
+    def test_template_semantics_module_removed(self) -> None:
+        """Test that deprecated template_semantics module has been deleted.
 
-        assert not hasattr(jv, "_HA_TESTS"), (
-            "_HA_TESTS still exists in jinja_validator.py — migration incomplete"
-        )
-
-    def test_template_semantics_not_importable(self):
-        """After migration, template_semantics module should not exist."""
-        import importlib
-
+        The template_semantics module was replaced by ha_catalog and should
+        no longer be importable. This prevents code from using the old API.
+        """
         try:
             importlib.import_module("custom_components.autodoctor.template_semantics")
-            raise AssertionError("template_semantics is still importable — delete it")
+            msg = "template_semantics is still importable — delete it"
+            raise AssertionError(msg)
         except ImportError:
             pass  # Expected
