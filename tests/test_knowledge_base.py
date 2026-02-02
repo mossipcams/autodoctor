@@ -1257,3 +1257,109 @@ async def test_non_bermuda_sensor_returns_none(hass: HomeAssistant):
         states = kb.get_valid_states("sensor.generic_temp")
 
     assert states is None
+
+# --- Enum sensor validation (quick-012) ---
+
+
+async def test_enum_sensor_returns_options_as_valid_states(hass: HomeAssistant):
+    """Enum sensors with options return those options as valid states.
+
+    Verifies that sensor entities with device_class: enum and a non-empty
+    options list get state validation based on those declared options.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "sensor.washing_machine_status",
+        "idle",
+        {"device_class": "enum", "options": ["idle", "washing", "drying"]},
+    )
+    await hass.async_block_till_done()
+
+    states = kb.get_valid_states("sensor.washing_machine_status")
+    assert states is not None
+    assert isinstance(states, set)
+    assert "idle" in states
+    assert "washing" in states
+    assert "drying" in states
+    assert "unavailable" in states
+    assert "unknown" in states
+    # Current state always included
+    assert states >= {"idle", "washing", "drying", "unavailable", "unknown"}
+
+
+async def test_non_enum_sensor_still_returns_none(hass: HomeAssistant):
+    """Non-enum sensors continue to return None (no state validation)."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "sensor.temperature",
+        "22.5",
+        {"device_class": "temperature", "unit_of_measurement": "°C"},
+    )
+    await hass.async_block_till_done()
+
+    # Temperature sensors are not enum, should return None
+    assert kb.get_valid_states("sensor.temperature") is None
+
+
+async def test_sensor_without_device_class_returns_none(hass: HomeAssistant):
+    """Sensors without device_class attribute return None."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("sensor.custom_value", "42")
+    await hass.async_block_till_done()
+
+    # No device_class, should return None
+    assert kb.get_valid_states("sensor.custom_value") is None
+
+
+async def test_enum_sensor_empty_options_returns_none(hass: HomeAssistant):
+    """Enum sensor with empty options list returns None (not valid for validation)."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "sensor.bad_enum", "unknown", {"device_class": "enum", "options": []}
+    )
+    await hass.async_block_till_done()
+
+    # Empty options should fail the non-empty guard
+    assert kb.get_valid_states("sensor.bad_enum") is None
+
+
+async def test_enum_sensor_options_not_list_returns_none(hass: HomeAssistant):
+    """Enum sensor with non-list options attribute returns None."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "sensor.bad_enum", "unknown", {"device_class": "enum", "options": "not_a_list"}
+    )
+    await hass.async_block_till_done()
+
+    # options must be a list, not a string
+    assert kb.get_valid_states("sensor.bad_enum") is None
+
+
+async def test_enum_sensor_caches_result(hass: HomeAssistant):
+    """Enum sensor results are cached (consistent with other domains)."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "sensor.mode",
+        "auto",
+        {"device_class": "enum", "options": ["auto", "manual"]},
+    )
+    await hass.async_block_till_done()
+
+    # First call populates cache
+    states1 = kb.get_valid_states("sensor.mode")
+    assert "auto" in states1
+    assert "manual" in states1
+
+    # Second call uses cache (verify cache key exists)
+    assert "sensor.mode" in kb._cache
+
+    # Second call returns copy of cached data
+    states2 = kb.get_valid_states("sensor.mode")
+    assert states1 == states2
+    assert states1 is not states2  # Different objects (copy)

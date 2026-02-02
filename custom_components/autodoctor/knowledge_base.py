@@ -289,9 +289,26 @@ class StateKnowledgeBase:
 
         domain = self.get_domain(entity_id)
 
-        # Sensors are too free-form to validate - skip state validation
-        # They can have numeric values, battery states, text, etc.
+        # Most sensors are too free-form to validate (numeric, text, battery, etc.)
+        # Exception: enum sensors declare discrete valid states via options attribute
         if domain == "sensor":
+            if (
+                state.attributes.get("device_class") == "enum"
+                and isinstance(state.attributes.get("options"), list)
+                and state.attributes["options"]  # non-empty
+            ):
+                valid_states = set(str(v) for v in state.attributes["options"])
+                valid_states.add("unavailable")
+                valid_states.add("unknown")
+                # Always include current state as valid
+                if state.state not in ("unavailable", "unknown"):
+                    valid_states.add(state.state)
+                # Cache and return
+                if entity_id in self._cache:
+                    self._cache[entity_id].update(valid_states)
+                else:
+                    self._cache[entity_id] = valid_states
+                return valid_states.copy()
             return None
 
         # Start with device class defaults

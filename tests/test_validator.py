@@ -1040,3 +1040,102 @@ async def test_suggest_entity_n_parameter_behavior(hass: HomeAssistant):
     assert result == "light.kitchen"
     # Confirm it is a string (single match, not a list)
     assert isinstance(result, str)
+
+
+# --- Enum sensor validation (quick-012) ---
+
+
+@pytest.mark.asyncio
+async def test_enum_sensor_valid_state_no_issue(hass: HomeAssistant):
+    """Enum sensor with valid state reference produces no issue."""
+    hass.states.async_set(
+        "sensor.washing_machine",
+        "idle",
+        {"device_class": "enum", "options": ["idle", "washing", "drying"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.washing_machine",
+        expected_state="washing",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_enum_sensor_invalid_state_reports_issue(hass: HomeAssistant):
+    """Enum sensor with invalid state reference reports INVALID_STATE issue."""
+    hass.states.async_set(
+        "sensor.washing_machine",
+        "idle",
+        {"device_class": "enum", "options": ["idle", "washing", "drying"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Typo: "washign" instead of "washing"
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.washing_machine",
+        expected_state="washign",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.INVALID_STATE
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "sensor.washing_machine"
+    assert "washign" in issues[0].message
+    assert "not valid" in issues[0].message.lower()
+    # Should suggest "washing" as close match
+    assert issues[0].suggestion == "washing"
+    # Valid states should be provided
+    assert "idle" in issues[0].valid_states
+    assert "washing" in issues[0].valid_states
+    assert "drying" in issues[0].valid_states
+
+
+@pytest.mark.asyncio
+async def test_non_enum_sensor_skips_validation(hass: HomeAssistant):
+    """Non-enum sensor state references are skipped (no false positives)."""
+    hass.states.async_set(
+        "sensor.temperature",
+        "22.5",
+        {"device_class": "temperature", "unit_of_measurement": "°C"},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    # Reference a value that wouldn't make sense for temperature
+    # but should NOT be flagged because sensor domain is not in whitelist
+    # and non-enum sensors return None from get_valid_states()
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.temperature",
+        expected_state="some_random_value",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    # Should be skipped, no issues reported
+    assert len(issues) == 0
