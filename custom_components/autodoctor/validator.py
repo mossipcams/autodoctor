@@ -155,9 +155,8 @@ class ValidationEngine:
 
         Shared logic for _validate_state and _validate_transition_from.
 
-        Only validates domains in STATE_VALIDATION_WHITELIST (alarm_control_panel,
-        binary_sensor, climate, cover, device_tracker, group, input_boolean,
-        lock, person, sun) which have stable, well-defined state values.
+        Validates domains in STATE_VALIDATION_WHITELIST, plus any other domains
+        where the knowledge base reports known valid states (e.g., enum sensors).
 
         Args:
             ref: The state reference being validated
@@ -166,15 +165,20 @@ class ValidationEngine:
         """
         domain = self.knowledge_base.get_domain(ref.entity_id)
         if domain not in STATE_VALIDATION_WHITELIST:
-            _LOGGER.debug(
-                "Skipping state validation for %s (domain %s not in whitelist)",
-                ref.entity_id, domain
-            )
-            return []
-
-        valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
-        if valid_states is None:
-            return []
+            # For non-whitelisted domains, still validate if the knowledge base
+            # reports known valid states (e.g., enum sensors with declared options)
+            valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
+            if valid_states is None:
+                _LOGGER.debug(
+                    "Skipping state validation for %s (domain %s not in whitelist, no known states)",
+                    ref.entity_id, domain
+                )
+                return []
+            # Fall through to validate against the known states
+        else:
+            valid_states = self.knowledge_base.get_valid_states(ref.entity_id)
+            if valid_states is None:
+                return []
 
         valid_states_list = list(valid_states)
 
@@ -212,6 +216,7 @@ class ValidationEngine:
                 valid_states=valid_states_list,
             )
         ]
+
 
     def _validate_attribute(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the expected attribute exists.
