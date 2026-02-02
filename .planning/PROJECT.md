@@ -76,11 +76,12 @@ None — no milestone in progress.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Conservative-first validation | Better to miss issues than generate false positives | Good |
-| State validation whitelist (6 domains) | Only validate domains with stable, well-defined states | Good |
+| State validation whitelist (10 domains) | Only validate domains with stable, well-defined states | Good |
+| Enum sensor validation without whitelist | Validate device_class: enum sensors via fallback path to avoid history queries for all sensors | Good |
 | Opt-in strict modes for filters/tests/params | Users who want comprehensive checking can enable it | Good |
 | Remove undefined variable checking | 40% false positive rate with blueprints unacceptable | Good |
 | Static analysis over runtime rendering | Can validate before automations run, no execution risk | Good |
 | Hardcoded filter/test lists | Only viable approach since HA doesn't expose introspection APIs | Revisit -- v2.7.0 replaces with HA-pattern catalog |
 
 ---
-*Last updated: 2026-02-01 after v2.14.0 milestone completion*
+*Last updated: 2026-02-02 after quick-012 (enum sensor validation)*

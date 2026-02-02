@@ -61,7 +61,7 @@ autodoctor/
 - **`jinja_validator.py`** - Validates Jinja2 template syntax and semantics (syntax errors; opt-in unknown filter/test warnings). Entity validation handled solely by `validator.py` via the analyzer path.
 
 ### Knowledge & Suggestions
-- **`knowledge_base.py`** - Builds valid state mappings from device classes, entity registry capabilities, schema introspection, and recorder history
+- **`knowledge_base.py`** - Builds valid state mappings from device classes, enum sensor options, entity registry capabilities, schema introspection, and recorder history
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 ### Data Models
@@ -119,7 +119,7 @@ autodoctor/
 Autodoctor performs three distinct families of validation:
 
 ### 1. State Reference Validation (`validator.py`)
-Validates entity states, attributes, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (binary_sensor, person, sun, device_tracker, input_boolean, group).
+Validates entity states, attributes, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (binary_sensor, person, sun, device_tracker, input_boolean, group, alarm_control_panel, climate, cover, lock) plus enum sensors (device_class: enum with declared options).
 
 | Check | Severity | Description |
 |-------|----------|-------------|
@@ -221,8 +221,9 @@ Autodoctor has undergone validation scope narrowing to reduce false positives an
 
 **Conservative State Validation:**
 - State validation now only applies to domains with stable, well-defined states
-- **Whitelisted domains**: `binary_sensor`, `person`, `sun`, `device_tracker`, `input_boolean`, `group`
-- Custom sensors and flexible integrations skip state validation to avoid false positives
+- **Whitelisted domains**: `alarm_control_panel`, `binary_sensor`, `climate`, `cover`, `device_tracker`, `group`, `input_boolean`, `lock`, `person`, `sun`
+- **Enum sensors**: `device_class: enum` sensors validated against their declared `options` attribute (without adding sensor domain to whitelist)
+- Non-enum sensors and flexible integrations skip state validation to avoid false positives
 
 **Opt-In Strict Modes:**
 - Unknown Jinja2 filters/tests: OFF by default (enable via "Strict template validation")

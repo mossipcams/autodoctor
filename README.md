@@ -100,9 +100,10 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 Autodoctor builds a knowledge base of valid states from multiple sources:
 
 1. **Device class defaults** - Known states for 30+ domains (e.g., `person` → `home`, `not_home`)
-2. **Schema introspection** - Reads `hvac_modes`, `options`, `effect_list` from entity attributes
-3. **Recorder history** - Learns actual states from your historical data
-4. **User feedback** - Remembers states you mark as valid when dismissing issues
+2. **Enum sensor options** - Validates `device_class: enum` sensors against their declared `options` attribute
+3. **Schema introspection** - Reads `hvac_modes`, `options`, `effect_list` from entity attributes
+4. **Recorder history** - Learns actual states from your historical data
+5. **User feedback** - Remembers states you mark as valid when dismissing issues
 
 ### What Gets Validated
 
@@ -132,6 +133,7 @@ Autodoctor deliberately skips checks that generate false positives:
 
 - **Entity references inside templates** -- Only syntax is checked; entity/state/attribute validation within `{{ }}` expressions is handled by the static analyzer, not re-validated in templates
 - **Template variables** -- Blueprint inputs and trigger context are unknowable statically
+- **State values for most sensors** -- Only `device_class: enum` sensors are validated (against their `options`); numeric and free-form sensors are skipped
 - **State values for custom domains** -- Only well-known domains (binary_sensor, person, etc.) are validated
 - **Custom Jinja2 filters/tests** -- Unless strict mode is enabled
 - **Service parameter types** -- Only select/enum options are checked (YAML coercion makes type checking unreliable)
