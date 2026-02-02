@@ -687,6 +687,10 @@ class AutomationAnalyzer:
         """Extract state references from a Jinja2 template."""
         refs: list[StateReference] = []
 
+        # Fix: property-based testing found crash on non-string template values
+        if not isinstance(template, str):
+            return refs
+
         # Strip Jinja2 comments before parsing
         template = JINJA_COMMENT_PATTERN.sub("", template)
 
@@ -902,6 +906,10 @@ class AutomationAnalyzer:
         # Get service name (both 'service' and 'action' keys)
         service = action.get("service") or action.get("action")
         if not service:
+            return refs
+
+        # Fix: property-based testing found crash on non-string service values
+        if not isinstance(service, str):
             return refs
 
         # Shorthand script call: service: script.my_script
