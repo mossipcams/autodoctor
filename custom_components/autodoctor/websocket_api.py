@@ -42,9 +42,9 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
 
 def _format_issues_with_fixes(
     hass: HomeAssistant,
-    issues: list,
+    issues: list[ValidationIssue],
     all_entity_ids: list[str] | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Format issues with fix suggestions using simplified fix engine.
 
     Args:
@@ -58,7 +58,7 @@ def _format_issues_with_fixes(
     if all_entity_ids is None:
         all_entity_ids = [s.entity_id for s in hass.states.async_all()]
 
-    issues_with_fixes = []
+    issues_with_fixes: list[dict[str, Any]] = []
 
     for issue in issues:
         fix = None
@@ -88,7 +88,7 @@ def _format_issues_with_fixes(
     return issues_with_fixes
 
 
-def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
+def _get_healthy_count(hass: HomeAssistant, issues: list[ValidationIssue]) -> int:
     """Calculate healthy automation count."""
     automation_data = hass.data.get("automation")
     total_automations = 0
@@ -102,7 +102,7 @@ def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
     return max(0, total_automations - automations_with_issues)
 
 
-def _compute_group_status(issues: list) -> str:
+def _compute_group_status(issues: list[ValidationIssue]) -> str:
     """Compute group status from its issues.
 
     Returns "fail" if any ERROR, "warning" if any WARNING, else "pass".
@@ -146,7 +146,7 @@ async def websocket_get_issues(
 ) -> None:
     """Get current issues with fix suggestions."""
     data = hass.data.get(DOMAIN, {})
-    issues: list = data.get("issues", [])
+    issues: list[ValidationIssue] = data.get("issues", [])
 
     issues_with_fixes = _format_issues_with_fixes(hass, issues)
     healthy_count = _get_healthy_count(hass, issues)
@@ -193,7 +193,7 @@ async def websocket_get_validation(
     """Get validation issues only."""
     data = hass.data.get(DOMAIN, {})
     suppression_store: SuppressionStore | None = data.get("suppression_store")
-    all_issues: list = data.get("validation_issues", [])
+    all_issues: list[ValidationIssue] = data.get("validation_issues", [])
     last_run = data.get("validation_last_run")
 
     visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
@@ -517,7 +517,7 @@ async def websocket_list_suppressions(
         )
         return
 
-    validation_issues: list = data.get("validation_issues", [])
+    validation_issues: list[ValidationIssue] = data.get("validation_issues", [])
 
     # Build lookup dict for O(1) matching
     issue_by_key: dict[str, Any] = {}

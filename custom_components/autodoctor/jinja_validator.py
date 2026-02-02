@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
@@ -27,11 +27,11 @@ TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 _TEMPLATE_MAX_NESTING_DEPTH = 20
 
 
-def _ensure_list(value: Any) -> list:
+def _ensure_list(value: Any) -> list[Any]:
     """Wrap a value in a list if it isn't one already."""
     if not isinstance(value, list):
         return [value] if value is not None else []
-    return value
+    return cast(list[Any], value)
 
 
 class JinjaValidator:
@@ -222,6 +222,7 @@ class JinjaValidator:
 
         if not isinstance(condition, dict):
             return issues
+        condition = cast(dict[str, Any], condition)
 
         # Check value_template
         value_template = condition.get("value_template")
@@ -279,11 +280,12 @@ class JinjaValidator:
         # Accumulate variables across the action sequence.
         # In HA, a variables: action makes those names available to all
         # subsequent actions in the same sequence.
-        accumulated_vars = set(auto_vars) if auto_vars else set()
+        accumulated_vars: set[str] = set(auto_vars) if auto_vars else set()
 
         for idx, action in enumerate(actions):
             if not isinstance(action, dict):
                 continue
+            action = cast(dict[str, Any], action)
 
             location = f"{location_prefix}[{idx}]"
 
@@ -326,6 +328,7 @@ class JinjaValidator:
                 for opt_idx, option in enumerate(action.get("choose", [])):
                     if not isinstance(option, dict):
                         continue
+                    option = cast(dict[str, Any], option)
 
                     # Validate conditions in option
                     opt_conditions = _ensure_list(option.get("conditions", []))
@@ -413,6 +416,7 @@ class JinjaValidator:
                 repeat_config = action.get("repeat")
                 if not isinstance(repeat_config, dict):
                     continue
+                repeat_config = cast(dict[str, Any], repeat_config)
 
                 # Check while/until conditions
                 for cond_key in ("while", "until"):
@@ -446,7 +450,7 @@ class JinjaValidator:
             if "parallel" in action:
                 branches = _ensure_list(action["parallel"])
                 for branch_idx, branch in enumerate(branches):
-                    branch_actions = branch if isinstance(branch, list) else [branch]
+                    branch_actions = cast(list[Any], branch if isinstance(branch, list) else [branch])
                     issues.extend(
                         self._validate_actions(
                             branch_actions,
@@ -493,7 +497,7 @@ class JinjaValidator:
                     )
                 )
             elif isinstance(value, list):
-                for idx, item in enumerate(value):
+                for idx, item in enumerate(cast(list[Any], value)):
                     if isinstance(item, str) and self._is_template(item):
                         issues.extend(
                             self._check_template(
