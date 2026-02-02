@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from .const import STATE_VALIDATION_WHITELIST
 from .device_class_states import get_device_class_states
@@ -35,11 +35,11 @@ try:
 except ImportError:
     try:
         # Alternative location
-        from homeassistant.helpers.recorder import get_significant_states
+        from homeassistant.helpers.recorder import get_significant_states  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
     except ImportError:
         try:
             # Legacy fallback
-            from homeassistant.components.recorder import get_significant_states
+            from homeassistant.components.recorder import get_significant_states  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
         except ImportError:
             get_significant_states = None
 
@@ -183,14 +183,14 @@ class StateKnowledgeBase:
             if not entry or not entry.capabilities:
                 return set()
 
-            states = set()
+            states: set[str] = set()
 
             # Extract state-related capabilities only
             for cap_key in CAPABILITY_STATE_SOURCES:
                 if cap_key in entry.capabilities:
                     cap_value = entry.capabilities[cap_key]
                     if isinstance(cap_value, list):
-                        states.update(str(v) for v in cap_value)
+                        states.update(str(v) for v in cast(list[Any], cap_value))
 
             return states
 
@@ -252,7 +252,7 @@ class StateKnowledgeBase:
             if capability_key in entry.capabilities:
                 cap_value = entry.capabilities[capability_key]
                 if isinstance(cap_value, list):
-                    return {str(v) for v in cap_value}
+                    return {str(v) for v in cast(list[Any], cap_value)}
 
             return set()
 
@@ -319,7 +319,7 @@ class StateKnowledgeBase:
             )
         else:
             # Unknown domain - return empty set (will be populated by history)
-            valid_states = set()
+            valid_states: set[str] = set()
             _LOGGER.debug(
                 "Entity %s (domain=%s): no device class defaults", entity_id, domain
             )
@@ -374,7 +374,7 @@ class StateKnowledgeBase:
             for attr_name in SCHEMA_ATTRIBUTES[domain]:
                 attr_value = state.attributes.get(attr_name)
                 if attr_value and isinstance(attr_value, list):
-                    valid_states.update(str(v) for v in attr_value)
+                    valid_states.update(str(v) for v in cast(list[Any], attr_value))
 
         # Add observed states from history (take snapshot to avoid race)
         observed = self._observed_states.get(entity_id)
@@ -457,7 +457,7 @@ class StateKnowledgeBase:
         if source_attr:
             values = state.attributes.get(source_attr)
             if values and isinstance(values, list):
-                return {str(v) for v in values}
+                return {str(v) for v in cast(list[Any], values)}
 
         return None
 
@@ -516,7 +516,7 @@ class StateKnowledgeBase:
             new_observed: dict[str, set[str]] = {}
             loaded_count = 0
 
-            for entity_id, states in history.items():
+            for entity_id, states in cast(dict[str, list[Any]], history).items():
                 entity_states: set[str] = set()
 
                 for state in states:
@@ -524,7 +524,7 @@ class StateKnowledgeBase:
                     if hasattr(state, "state"):
                         state_value = state.state
                     elif isinstance(state, dict):
-                        state_value = state.get("state")
+                        state_value = cast(dict[str, Any], state).get("state")
                     else:
                         continue
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from difflib import get_close_matches
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .models import IssueType, Severity, ValidationIssue
 
@@ -394,6 +394,7 @@ class ServiceCallValidator:
             field_schema = fields[param_name]
             if not isinstance(field_schema, dict):
                 continue
+            field_schema = cast(dict[str, Any], field_schema)
 
             selector = field_schema.get("selector")
             if not selector or not isinstance(selector, dict):
@@ -425,10 +426,12 @@ class ServiceCallValidator:
         select_config = selector["select"]
         if not isinstance(select_config, dict):
             return None
+        select_config = cast(dict[str, Any], select_config)
 
         options = select_config.get("options", [])
         if not options or not isinstance(options, list):
             return None
+        options = cast(list[Any], options)
 
         # Normalize options — they can be strings or dicts with 'value' key
         valid_values = []
@@ -446,7 +449,8 @@ class ServiceCallValidator:
 
         # For list parameters with multiple=True, validate each item
         if is_multiple and isinstance(value, list):
-            invalid_items = [v for v in value if v not in valid_values]
+            typed_value = cast(list[Any], value)
+            invalid_items = [v for v in typed_value if v not in valid_values]
             if invalid_items:
                 return ValidationIssue(
                     severity=Severity.WARNING,
@@ -496,7 +500,7 @@ class ServiceCallValidator:
         elif not isinstance(entity_ids, list):
             return issues
 
-        for entity_id in entity_ids:
+        for entity_id in cast(list[Any], entity_ids):
             if not isinstance(entity_id, str):
                 continue
             # Skip templated entity IDs

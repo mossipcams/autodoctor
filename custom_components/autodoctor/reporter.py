@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .const import DOMAIN
 from .models import Severity, ValidationIssue
@@ -16,23 +16,23 @@ _LOGGER = logging.getLogger(__name__)
 
 # Import issue registry with fallback
 try:
-    from homeassistant.helpers import issue_registry as ir
+    from homeassistant.helpers import issue_registry as ir  # pyright: ignore[reportAssignmentType]
 
     HAS_ISSUE_REGISTRY = True
 except ImportError:
-    HAS_ISSUE_REGISTRY = False
+    HAS_ISSUE_REGISTRY = False  # pyright: ignore[reportConstantRedefinition]
 
-    class ir:  # type: ignore
+    class ir:
         class IssueSeverity:
             ERROR = "error"
             WARNING = "warning"
 
         @staticmethod
-        def async_create_issue(*args, **kwargs):
+        def async_create_issue(*args: Any, **kwargs: Any) -> None:
             pass
 
         @staticmethod
-        def async_delete_issue(*args, **kwargs):
+        def async_delete_issue(*args: Any, **kwargs: Any) -> None:
             pass
 
 
