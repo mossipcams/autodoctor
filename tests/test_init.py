@@ -584,3 +584,620 @@ async def test_snapshot_updated_after_validation(mock_hass):
         # Snapshot should now exist and match current configs
         expected = _build_config_snapshot(configs)
         assert mock_hass.data[DOMAIN]["_automation_snapshot"] == expected
+
+
+# --- _get_automation_configs tests (mutation hardening) ---
+
+
+def test_get_automation_configs_none_returns_empty():
+    """When automation_data is None, returns empty list.
+
+    Kills: AddNot on `if automation_data is None` (L88) --
+    if inverted, None would fall through and crash.
+    """
+    from custom_components.autodoctor import _get_automation_configs
+
+    hass = MagicMock()
+    hass.data = {}  # No "automation" key at all
+    result = _get_automation_configs(hass)
+    assert result == []
+
+
+def test_get_automation_configs_dict_mode():
+    """When automation_data is a dict with "config" key, returns configs.
+
+    Kills: isinstance(automation_data, dict) guard (L95) and
+    .get("config", []) at L96.
+    """
+    from custom_components.autodoctor import _get_automation_configs
+
+    configs = [{"id": "a1", "alias": "Test"}]
+    hass = MagicMock()
+    hass.data = {"automation": {"config": configs}}
+    result = _get_automation_configs(hass)
+    assert result == configs
+    assert len(result) == 1
+
+
+def test_get_automation_configs_entity_component_mode():
+    """When automation_data is EntityComponent-like with .entities, extracts raw_config.
+
+    Kills: hasattr(automation_data, "entities") guard (L101) and
+    raw_config extraction loop (L104-L114).
+    """
+    from custom_components.autodoctor import _get_automation_configs
+
+    entity1 = MagicMock()
+    entity1.entity_id = "automation.test1"
+    entity1.raw_config = {"id": "test1", "alias": "Test 1"}
+
+    entity2 = MagicMock()
+    entity2.entity_id = "automation.test2"
+    entity2.raw_config = {"id": "test2", "alias": "Test 2"}
+
+    component = MagicMock()
+    component.entities = [entity1, entity2]
+
+    hass = MagicMock()
+    hass.data = {"automation": component}
+    result = _get_automation_configs(hass)
+    assert len(result) == 2
+    assert result[0]["id"] == "test1"
+    assert result[1]["id"] == "test2"
+
+
+def test_get_automation_configs_entity_without_raw_config():
+    """Entity without raw_config is skipped.
+
+    Kills: `if hasattr(entity, "raw_config") and entity.raw_config is not None`
+    guard (L113) -- if and->or or AddNot, entities without raw_config would
+    crash or be included.
+    """
+    from custom_components.autodoctor import _get_automation_configs
+
+    entity_with = MagicMock()
+    entity_with.entity_id = "automation.good"
+    entity_with.raw_config = {"id": "good", "alias": "Good"}
+
+    entity_without = MagicMock(spec=["entity_id"])  # No raw_config attribute
+    entity_without.entity_id = "automation.bad"
+
+    entity_none = MagicMock()
+    entity_none.entity_id = "automation.none"
+    entity_none.raw_config = None
+
+    component = MagicMock()
+    component.entities = [entity_with, entity_without, entity_none]
+
+    hass = MagicMock()
+    hass.data = {"automation": component}
+    result = _get_automation_configs(hass)
+    assert len(result) == 1
+    assert result[0]["id"] == "good"
+
+
+# --- _async_register_card tests (mutation hardening) ---
+
+
+@pytest.mark.asyncio
+async def test_register_card_path_missing():
+    """Card path doesn't exist -> returns early, no crash.
+
+    Kills: AddNot on `if not card_path.exists()` (L135) --
+    if inverted, non-existent path would continue and crash.
+    """
+    from custom_components.autodoctor import _async_register_card
+
+    hass = MagicMock()
+    with patch("pathlib.Path.exists", return_value=False):
+        await _async_register_card(hass)
+    # http.async_register_static_paths should NOT have been called
+    hass.http.async_register_static_paths.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_card_storage_mode_creates_resource():
+    """Card path exists, lovelace storage mode, no existing resource -> creates.
+
+    Kills: mutations on lovelace_mode == "storage" (L158),
+    resources.async_create_item call (L191), and current_exists check (L171).
+    """
+    from custom_components.autodoctor import _async_register_card
+
+    hass = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    # Mock lovelace in storage mode with resources
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = []  # No existing resources
+    mock_resources.async_create_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    # Should have registered static path and created resource
+    hass.http.async_register_static_paths.assert_called_once()
+    mock_resources.async_create_item.assert_called_once()
+    call_args = mock_resources.async_create_item.call_args[0][0]
+    assert call_args["res_type"] == "module"
+    assert "autodoctor" in call_args["url"]
+
+
+@pytest.mark.asyncio
+async def test_register_card_current_version_already_registered():
+    """Current version already registered -> no create/delete.
+
+    Kills: AddNot on `if current_exists` (L173) -- if inverted,
+    already-registered version would be re-created.
+    """
+    from custom_components.autodoctor import _async_register_card, CARD_URL_BASE
+    from custom_components.autodoctor.const import VERSION
+
+    hass = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    card_url = f"{CARD_URL_BASE}?v={VERSION}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": card_url, "id": "existing_id"}
+    ]
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    # Should NOT create or delete anything
+    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_card_replaces_old_version():
+    """Old version exists -> removes old, creates new.
+
+    Kills: ZeroIterationForLoop on `for resource in existing` (L177) and
+    mutations on resource_id extraction (L178-L181).
+    """
+    from custom_components.autodoctor import _async_register_card
+
+    hass = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": "/autodoctor/autodoctor-card.js?v=0.0.1", "id": "old_id"}
+    ]
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    # Should delete old and create new
+    mock_resources.async_delete_item.assert_called_once_with("old_id")
+    mock_resources.async_create_item.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_register_card_yaml_mode_skips_resources():
+    """Lovelace in YAML mode -> skips resource registration.
+
+    Kills: Eq on `lovelace_mode == "storage"` (L158) -- if == becomes !=,
+    YAML mode would try to register resources.
+    """
+    from custom_components.autodoctor import _async_register_card
+
+    hass = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "yaml"
+    mock_lovelace.resources = MagicMock()
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    # Static path registered, but NO resource operations
+    hass.http.async_register_static_paths.assert_called_once()
+    mock_lovelace.resources.async_items.assert_not_called()
+
+
+# --- async_unload_entry tests (mutation hardening) ---
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_cancels_debounce_task():
+    """Unload cancels active debounce task.
+
+    Kills: AddNot on `if debounce_task is not None and not debounce_task.done()`
+    (L312) and debounce_task.cancel() call (L313).
+    """
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    mock_task = MagicMock()
+    mock_task.done.return_value = False
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": mock_task,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    mock_task.cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_calls_unsub_listeners():
+    """Unload calls unsub callbacks for reload and entity registry listeners.
+
+    Kills: AddNot on `if unsub_reload is not None` (L317) and
+    `if unsub_entity_reg is not None` (L320).
+    """
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    unsub_reload = MagicMock()
+    unsub_entity_reg = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": unsub_reload,
+            "unsub_entity_registry_listener": unsub_entity_reg,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    unsub_reload.assert_called_once()
+    unsub_entity_reg.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_removes_services():
+    """Unload removes all three registered services.
+
+    Kills: mutations on service name strings at L325-L327 and
+    hass.services.async_remove calls.
+    """
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+        }
+    }
+
+    await async_unload_entry(hass, entry)
+
+    # All three services should be removed
+    calls = [c[0] for c in hass.services.async_remove.call_args_list]
+    assert (DOMAIN, "validate") in calls
+    assert (DOMAIN, "validate_automation") in calls
+    assert (DOMAIN, "refresh_knowledge_base") in calls
+    assert hass.services.async_remove.call_count == 3
+
+
+# --- _async_run_validators tests (mutation hardening) ---
+
+
+@pytest.mark.asyncio
+async def test_run_validators_failed_automation_warning(grouped_hass):
+    """1 failing automation -> warning logged with count.
+
+    Kills: `> 0` mutations on `if failed_automations > 0` (L501) and
+    failed_automations counter increment (L491).
+    """
+    from custom_components.autodoctor import _async_run_validators
+
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.side_effect = Exception("boom")
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+
+    import logging
+    with patch("custom_components.autodoctor._LOGGER") as mock_logger:
+        result = await _async_run_validators(
+            grouped_hass, [{"id": "bad", "alias": "Bad"}]
+        )
+
+    # Warning should mention 1 failed automation
+    warning_calls = [c for c in mock_logger.warning.call_args_list
+                     if "failed automations" in str(c)]
+    assert len(warning_calls) == 1
+    assert "1" in str(warning_calls[0])
+
+
+@pytest.mark.asyncio
+async def test_run_validators_no_failures_no_warning(grouped_hass):
+    """0 failed automations -> no failure warning logged.
+
+    Kills: `> 0` -> `>= 0` or `> -1` mutations on
+    `if failed_automations > 0` (L501).
+    """
+    from custom_components.autodoctor import _async_run_validators
+
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+
+    with patch("custom_components.autodoctor._LOGGER") as mock_logger:
+        await _async_run_validators(
+            grouped_hass, [{"id": "good", "alias": "Good"}]
+        )
+
+    # No "failed automations" warning
+    warning_calls = [c for c in mock_logger.warning.call_args_list
+                     if "failed automations" in str(c)]
+    assert len(warning_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_validators_group_durations_and_mapping(grouped_hass):
+    """Group durations are non-negative integers, issue_type_to_group maps correctly.
+
+    Kills: NumberReplacer on `{gid: 0 for gid in ...}` (L423) -- if 0 becomes
+    1 or -1, initial durations would be non-zero even for skipped validators.
+    Kills: ZeroIterationForLoop on `for gid, gdef in VALIDATION_GROUPS.items()`
+    (L427) and `for it in gdef["issue_types"]` (L428).
+    """
+    from custom_components.autodoctor import _async_run_validators
+
+    # Create a real issue that should be classified
+    template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [template_issue]
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+
+    result = await _async_run_validators(
+        grouped_hass, [{"id": "test", "alias": "Test"}]
+    )
+
+    # All groups have non-negative durations
+    for gid in VALIDATION_GROUP_ORDER:
+        assert result["group_durations"][gid] >= 0
+
+    # Template issue classified into templates group
+    assert template_issue in result["group_issues"]["templates"]
+    assert template_issue not in result["group_issues"]["entity_state"]
+    assert template_issue not in result["group_issues"]["services"]
+
+
+# --- Service handler tests (mutation hardening) ---
+
+
+@pytest.mark.asyncio
+async def test_handle_validate_with_automation_id():
+    """handle_validate with automation_id calls targeted validation.
+
+    Kills: AddNot on `if automation_id` (L381) -- if inverted,
+    targeted validation would never fire.
+    """
+    from custom_components.autodoctor import _async_setup_services
+
+    hass = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    await _async_setup_services(hass)
+
+    # Extract the registered handler for "validate"
+    validate_handler = hass.services.async_register.call_args_list[0][0][2]
+
+    call = MagicMock()
+    call.data = {"automation_id": "automation.test123"}
+
+    with patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+    ) as mock_targeted, patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_all:
+        await validate_handler(call)
+
+    mock_targeted.assert_called_once_with(hass, "automation.test123")
+    mock_all.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_refresh_with_knowledge_base():
+    """handle_refresh with kb present clears cache and loads history.
+
+    Kills: AddNot on `if kb` (L389) -- if inverted, kb.clear_cache()
+    and async_load_history() would never fire.
+    """
+    from custom_components.autodoctor import _async_setup_services
+
+    hass = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    mock_kb = MagicMock()
+    mock_kb.async_load_history = AsyncMock()
+    hass.data = {DOMAIN: {"knowledge_base": mock_kb}}
+
+    await _async_setup_services(hass)
+
+    # Extract the registered handler for "refresh_knowledge_base"
+    refresh_handler = hass.services.async_register.call_args_list[2][0][2]
+
+    call = MagicMock()
+    call.data = {}
+
+    await refresh_handler(call)
+
+    mock_kb.clear_cache.assert_called_once()
+    mock_kb.async_load_history.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_validate_automation_matches_correct_id(grouped_hass):
+    """async_validate_automation only validates the matching automation.
+
+    Kills: mutations on `f"automation.{a.get('id')}" == automation_id`
+    at L614 -- wrong matching would validate wrong or no automation.
+    """
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[
+            {"id": "auto_a", "alias": "Auto A"},
+            {"id": "auto_b", "alias": "Auto B"},
+        ],
+    ):
+        issues = await async_validate_automation(grouped_hass, "automation.auto_b")
+
+    # validate_automations should be called with ONLY auto_b (single-element list)
+    call_args = grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.call_args
+    validated = call_args[0][0]
+    assert len(validated) == 1
+    assert validated[0]["id"] == "auto_b"
+
+
+@pytest.mark.asyncio
+async def test_handle_validate_without_automation_id():
+    """handle_validate without automation_id calls validate_all.
+
+    Paired with test_handle_validate_with_automation_id to kill
+    if/else branching mutations at L381-L384.
+    """
+    from custom_components.autodoctor import _async_setup_services
+
+    hass = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    await _async_setup_services(hass)
+
+    validate_handler = hass.services.async_register.call_args_list[0][0][2]
+
+    call = MagicMock()
+    call.data = {}  # No automation_id
+
+    with patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+    ) as mock_targeted, patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_all:
+        await validate_handler(call)
+
+    mock_all.assert_called_once()
+    mock_targeted.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_validate_all_with_groups_missing_validators(mock_hass):
+    """Missing validators -> returns empty result without crash.
+
+    Kills: mutations on `if not all([analyzer, validator, reporter])` (L549).
+    """
+    mock_hass.data[DOMAIN] = {
+        "analyzer": None,
+        "validator": None,
+        "reporter": None,
+        "knowledge_base": None,
+    }
+
+    result = await async_validate_all_with_groups(mock_hass)
+    assert result["all_issues"] == []
+    for gid in VALIDATION_GROUP_ORDER:
+        assert result["group_issues"][gid] == []
+
+
+@pytest.mark.asyncio
+async def test_run_validators_skips_missing_jinja_validator(mock_hass):
+    """When jinja_validator is None, jinja validation is skipped.
+
+    Kills: AddNot on `if jinja_validator` (L433).
+    """
+    from custom_components.autodoctor import _async_run_validators
+
+    mock_hass.data[DOMAIN] = {
+        "analyzer": MagicMock(),
+        "validator": MagicMock(),
+        "jinja_validator": None,
+        "service_validator": None,
+    }
+    mock_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    mock_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+
+    result = await _async_run_validators(
+        mock_hass, [{"id": "test", "alias": "Test"}]
+    )
+
+    assert result["group_issues"]["templates"] == []
+
+
+@pytest.mark.asyncio
+async def test_run_validators_all_issues_canonical_order(grouped_hass):
+    """all_issues combines groups in VALIDATION_GROUP_ORDER.
+
+    Kills: ZeroIterationForLoop on `for gid in VALIDATION_GROUP_ORDER` (L510)
+    and mutations on all_issues.extend ordering.
+    """
+    from custom_components.autodoctor import _async_run_validators
+
+    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
+    template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [template_issue]
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = [service_issue]
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+
+    result = await _async_run_validators(
+        grouped_hass, [{"id": "test", "alias": "Test"}]
+    )
+
+    # all_issues should contain all 3 issues
+    assert len(result["all_issues"]) == 3
+    # Order: entity_state first, services second, templates third
+    assert result["all_issues"][0].issue_type == IssueType.ENTITY_NOT_FOUND
+    assert result["all_issues"][1].issue_type == IssueType.SERVICE_NOT_FOUND
+    assert result["all_issues"][2].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
