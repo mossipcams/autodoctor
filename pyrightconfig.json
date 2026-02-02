@@ -4,10 +4,5 @@
   "reportPrivateImportUsage": false,
   "reportIncompatibleMethodOverride": false,
   "reportIncompatibleVariableOverride": false,
-  "reportReturnType": "warning",
-  "reportArgumentType": "warning",
-  "reportAttributeAccessIssue": "warning",
-  "reportOptionalMemberAccess": "warning",
-  "reportAssignmentType": "warning",
   "pythonVersion": "3.13"
 }
