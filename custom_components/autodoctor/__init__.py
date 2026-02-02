@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
@@ -36,9 +37,9 @@ from .const import (
     VERSION,
 )
 from .jinja_validator import JinjaValidator
-from .models import VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
 from .knowledge_base import StateKnowledgeBase
 from .learned_states_store import LearnedStatesStore
+from .models import VALIDATION_GROUP_ORDER, VALIDATION_GROUPS, IssueType, ValidationIssue
 from .reporter import IssueReporter
 from .service_validator import ServiceCallValidator
 from .suppression_store import SuppressionStore
@@ -62,7 +63,7 @@ SERVICE_VALIDATE_SCHEMA = vol.Schema(
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 
-def _build_config_snapshot(configs: list[dict]) -> dict[str, str]:
+def _build_config_snapshot(configs: list[dict[str, Any]]) -> dict[str, str]:
     """Build a snapshot of automation configs for change detection.
 
     Returns a dict mapping automation id -> MD5 hex digest of the config.
@@ -78,7 +79,7 @@ def _build_config_snapshot(configs: list[dict]) -> dict[str, str]:
     return snapshot
 
 
-def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
+def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
     """Get automation configurations from Home Assistant.
 
     The automation component stores data as an EntityComponent, not a plain dict.
@@ -93,13 +94,13 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict]:
 
     # If it's a dict with "config" key (older HA versions or test mocks)
     if isinstance(automation_data, dict):
-        configs = automation_data.get("config", [])
+        configs = cast(list[dict[str, Any]], automation_data.get("config", []))
         _LOGGER.debug("Dict mode: found %d configs", len(configs))
         return configs
 
     # EntityComponent - get configs from entities
     if hasattr(automation_data, "entities"):
-        configs = []
+        configs: list[dict[str, Any]] = []
         entity_count = 0
         for entity in automation_data.entities:
             entity_count += 1
@@ -150,20 +151,24 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 
     # Register as Lovelace resource (storage mode only)
     # In YAML mode, users must manually add the resource
-    lovelace = hass.data.get("lovelace")
+    lovelace: Any = hass.data.get("lovelace")
     # Handle both dict (older HA) and object (newer HA) access patterns
-    lovelace_mode = getattr(lovelace, "mode", None) or (
-        lovelace.get("mode") if isinstance(lovelace, dict) else None
+    lovelace_mode = cast(
+        str | None,
+        getattr(lovelace, "mode", None)
+        or (lovelace.get("mode") if isinstance(lovelace, dict) else None),
     )
     if lovelace and lovelace_mode == "storage":
-        resources = getattr(lovelace, "resources", None) or (
-            lovelace.get("resources") if isinstance(lovelace, dict) else None
+        resources = cast(
+            Any,
+            getattr(lovelace, "resources", None)
+            or (lovelace.get("resources") if isinstance(lovelace, dict) else None),
         )
         if resources:
             # Find all existing autodoctor resources
             # Note: lovelace.mode/resources use attribute access (HA 2026+)
             # but resource items from async_items() are dicts
-            existing = [
+            existing: list[dict[str, Any]] = [
                 r for r in resources.async_items() if "autodoctor" in r.get("url", "")
             ]
 
@@ -175,7 +180,7 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             else:
                 # Remove old versions first
                 for resource in existing:
-                    resource_id = resource.get("id")
+                    resource_id: str | None = resource.get("id")
                     if resource_id:
                         try:
                             await resources.async_delete_item(resource_id)
@@ -285,7 +290,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         validator.invalidate_entity_cache()
 
     unsub_entity_reg = hass.bus.async_listen(
-        er.EVENT_ENTITY_REGISTRY_UPDATED,
+        er.EVENT_ENTITY_REGISTRY_UPDATED,  # pyright: ignore[reportArgumentType]
         _handle_entity_registry_change,
     )
     hass.data[DOMAIN]["unsub_entity_registry_listener"] = unsub_entity_reg
@@ -355,7 +360,9 @@ def _setup_reload_listener(
                 old_snapshot = data.get("_automation_snapshot")
                 if old_snapshot is not None:
                     all_ids = set(old_snapshot) | set(new_snapshot)
-                    changed = [a for a in all_ids if old_snapshot.get(a) != new_snapshot.get(a)]
+                    changed = [
+                        a for a in all_ids if old_snapshot.get(a) != new_snapshot.get(a)
+                    ]
                     if 1 <= len(changed) <= 2:
                         for aid in changed:
                             await async_validate_automation(hass, f"automation.{aid}")
@@ -402,11 +409,10 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     )
 
 
-
 async def _async_run_validators(
     hass: HomeAssistant,
-    automations: list[dict],
-) -> dict:
+    automations: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Run all validators on the given automations.
 
     This is the shared validation core used by all three public entry points.
@@ -419,13 +425,13 @@ async def _async_run_validators(
     service_validator = data.get("service_validator")
 
     # Initialize per-group collectors
-    group_issues: dict[str, list] = {gid: [] for gid in VALIDATION_GROUP_ORDER}
-    group_durations: dict[str, int] = {gid: 0 for gid in VALIDATION_GROUP_ORDER}
+    group_issues: dict[str, list[ValidationIssue]] = {gid: [] for gid in VALIDATION_GROUP_ORDER}
+    group_durations: dict[str, int] = dict.fromkeys(VALIDATION_GROUP_ORDER, 0)
 
     # Build reverse mapping: IssueType -> group_id
     issue_type_to_group: dict[IssueType, str] = {}
     for gid, gdef in VALIDATION_GROUPS.items():
-        for it in gdef["issue_types"]:
+        for it in cast(frozenset[IssueType], gdef["issue_types"]):
             issue_type_to_group[it] = gid
 
     # --- Templates group timing ---
@@ -481,9 +487,7 @@ async def _async_run_validators(
                 len(refs),
             )
             issues = validator.validate_all(refs)
-            _LOGGER.debug(
-                "Automation '%s': found %d issues", auto_name, len(issues)
-            )
+            _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
             for issue in issues:
                 gid = issue_type_to_group.get(issue.issue_type, "entity_state")
                 group_issues[gid].append(issue)
@@ -506,7 +510,7 @@ async def _async_run_validators(
         )
 
     # Combine all issues in canonical group order for flat list
-    all_issues: list = []
+    all_issues: list[ValidationIssue] = []
     for gid in VALIDATION_GROUP_ORDER:
         all_issues.extend(group_issues[gid])
 
@@ -525,7 +529,7 @@ async def _async_run_validators(
     }
 
 
-async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
+async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
     """Run validation on all automations and return per-group structured results.
 
     This is THE primary validation entry point. All other validation functions
@@ -539,9 +543,9 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
     reporter = data.get("reporter")
     knowledge_base = data.get("knowledge_base")
 
-    empty_result = {
+    empty_result: dict[str, Any] = {
         "group_issues": {gid: [] for gid in VALIDATION_GROUP_ORDER},
-        "group_durations": {gid: 0 for gid in VALIDATION_GROUP_ORDER},
+        "group_durations": dict.fromkeys(VALIDATION_GROUP_ORDER, 0),
         "all_issues": [],
         "timestamp": datetime.now(UTC).isoformat(),
     }
@@ -585,7 +589,7 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
     return result
 
 
-async def async_validate_all(hass: HomeAssistant) -> list:
+async def async_validate_all(hass: HomeAssistant) -> list[ValidationIssue]:
     """Validate all automations and return flat issue list.
 
     Thin wrapper around async_validate_all_with_groups that returns
@@ -595,7 +599,7 @@ async def async_validate_all(hass: HomeAssistant) -> list:
     return result["all_issues"]
 
 
-async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> list:
+async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> list[ValidationIssue]:
     """Validate a specific automation.
 
     Routes through the shared validation core so that ALL validator families

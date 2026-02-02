@@ -185,22 +185,31 @@ Supports all 10 Home Assistant condition types:
 
 ## Test Files
 
-- `test_analyzer.py` - Automation parsing
-- `test_validator.py` - State validation
-- `test_knowledge_base.py` - State knowledge building
-- `test_learned_states_store.py` - Learned states persistence
-- `test_entity_suggestion.py` - Entity suggestion (fuzzy matching via get_entity_suggestion)
-- `test_models.py` - Data model serialization
-- `test_reporter.py` - Issue reporting
-- `test_websocket_api.py` - WebSocket endpoints
-- `test_websocket_api_learning.py` - Learning on suppression
-- `test_ha_catalog.py` - HA Jinja2 catalog (completeness, API surface, migration)
-- `test_jinja_validator.py` - Jinja2 template validation
-- `test_device_class_states.py` - Default states
-- `test_init.py` - Integration lifecycle
-- `test_architectural_improvements.py` - Architectural review implementations (config, depth limits, KB sharing)
-- `test_service_validator.py` - Service call validation
-- `test_suppression_store.py` - Suppression store (orphan cleanup)
+**Test Suite Quality:** All test files fully type-annotated (440+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
+
+**Test Coverage:** 477 tests passing (2 skipped stubs), ~11,189 lines
+
+**Core Test Files:**
+- `test_analyzer.py` (99 tests) - Automation parsing (21 trigger types, 10 condition types, depth limits)
+- `test_validator.py` (39 tests) - State validation engine
+- `test_knowledge_base.py` (52 tests) - Multi-source state truth (device classes, learned states, capabilities, history)
+- `test_service_validator.py` (40 tests, 78 parameterized cases) - Service call validation
+- `test_jinja_validator.py` (60 tests) - Jinja2 template syntax and semantics
+- `test_init.py` (38 tests) - Integration lifecycle and orchestration
+- `test_websocket_api.py` (20 tests) - WebSocket API commands
+- `test_models.py` (16 tests, 28 parameterized cases) - Data models and enum validation
+- `test_ha_catalog.py` (19 tests, 50 parameterized cases) - HA Jinja2 catalog completeness
+- `test_architectural_improvements.py` (16 tests) - Guard tests for architectural decisions (with "Guard:" docstrings)
+- `test_reporter.py` (4 tests) - Issue reporting to repair registry
+- `test_learned_states_store.py` (5 tests) - Learned state persistence
+- `test_entity_suggestion.py` (4 tests, 8 parameterized cases) - Fuzzy entity matching
+- `test_device_class_states.py` (8 tests) - Device class default states
+- `test_websocket_api_learning.py` (3 tests) - State learning on suppression
+- `test_suppression_store.py` (1 test) - Orphan suppression cleanup
+- `test_config_flow.py` (6 tests) - Configuration UI flow
+- `test_sensor.py` (6 tests) - Issue count sensor platform
+- `test_binary_sensor.py` (5 tests) - Health status sensor platform
+- `conftest.py` - Shared fixtures (all type-annotated)
 
 ## Scripts
 

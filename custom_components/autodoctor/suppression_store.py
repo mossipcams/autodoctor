@@ -40,7 +40,7 @@ class SuppressionStore:
             if data:
                 raw_keys = set(data.get("suppressions", []))
                 valid_issue_types = {it.value for it in IssueType}
-                cleaned = set()
+                cleaned: set[str] = set()
                 for key in raw_keys:
                     parts = key.rsplit(":", 1)
                     if len(parts) == 2 and parts[1] not in valid_issue_types:

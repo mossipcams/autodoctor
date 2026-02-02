@@ -12,11 +12,15 @@ from custom_components.autodoctor.binary_sensor import (
 from custom_components.autodoctor.const import DOMAIN
 
 
-async def test_async_setup_entry_adds_entity(hass: HomeAssistant):
-    """async_setup_entry adds ValidationOkSensor."""
+async def test_async_setup_entry_adds_entity(hass: HomeAssistant) -> None:
+    """Test that async_setup_entry creates and registers ValidationOkSensor.
+
+    Verifies the binary sensor platform setup correctly instantiates a
+    ValidationOkSensor entity and passes it to the async_add_entities callback.
+    """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
-    added = []
+    added: list[ValidationOkSensor] = []
 
     await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
 
@@ -24,8 +28,12 @@ async def test_async_setup_entry_adds_entity(hass: HomeAssistant):
     assert isinstance(added[0], ValidationOkSensor)
 
 
-async def test_sensor_attributes(hass: HomeAssistant):
-    """ValidationOkSensor has correct class attributes."""
+async def test_sensor_attributes(hass: HomeAssistant) -> None:
+    """Test ValidationOkSensor has correct device attributes and configuration.
+
+    Validates the sensor is properly configured with the PROBLEM device class,
+    entity naming enabled, and correct device info linking to the integration.
+    """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     sensor = ValidationOkSensor(hass, entry)
@@ -38,8 +46,12 @@ async def test_sensor_attributes(hass: HomeAssistant):
     assert (DOMAIN, "test_entry_id") in sensor._attr_device_info["identifiers"]
 
 
-async def test_is_on_with_active_issues(hass: HomeAssistant):
-    """is_on returns True when reporter has active issues."""
+async def test_is_on_with_active_issues(hass: HomeAssistant) -> None:
+    """Test sensor reports ON (problem detected) when reporter has active issues.
+
+    The Problems sensor should be ON when there are validation issues,
+    allowing users to trigger automations on configuration problems.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationOkSensor(hass, entry)
@@ -51,8 +63,12 @@ async def test_is_on_with_active_issues(hass: HomeAssistant):
     assert sensor.is_on is True
 
 
-async def test_is_on_no_issues(hass: HomeAssistant):
-    """is_on returns False when reporter has no active issues."""
+async def test_is_on_no_issues(hass: HomeAssistant) -> None:
+    """Test sensor reports OFF (no problems) when reporter has no active issues.
+
+    When all validation passes, the sensor should be OFF to indicate
+    a healthy configuration state.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationOkSensor(hass, entry)
@@ -64,8 +80,13 @@ async def test_is_on_no_issues(hass: HomeAssistant):
     assert sensor.is_on is False
 
 
-async def test_is_on_no_reporter(hass: HomeAssistant):
-    """is_on returns False when reporter is not available."""
+async def test_is_on_no_reporter(hass: HomeAssistant) -> None:
+    """Test sensor safely handles missing reporter during startup or reload.
+
+    When the reporter is not yet initialized or has been unloaded, the sensor
+    should gracefully return OFF rather than raising exceptions. This ensures
+    the sensor entity remains stable during integration lifecycle events.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationOkSensor(hass, entry)

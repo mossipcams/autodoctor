@@ -1,76 +1,89 @@
 """Tests for device class state mappings."""
 
+import pytest
+
 from custom_components.autodoctor.device_class_states import (
     get_all_known_domains,
     get_device_class_states,
 )
 
 
-def test_binary_sensor_states():
-    """Test binary_sensor returns on/off."""
-    states = get_device_class_states("binary_sensor")
-    assert states == {"on", "off"}
+@pytest.mark.parametrize(
+    ("domain", "expected_states"),
+    [
+        ("binary_sensor", {"on", "off"}),
+        ("person", {"home", "not_home", "away"}),
+        (
+            "lock",
+            {
+                "locked",
+                "unlocked",
+                "locking",
+                "unlocking",
+                "jammed",
+                "opening",
+                "open",
+            },
+        ),
+        (
+            "alarm_control_panel",
+            {
+                "disarmed",
+                "armed_home",
+                "armed_away",
+                "armed_night",
+                "armed_vacation",
+                "armed_custom_bypass",
+                "pending",
+                "arming",
+                "disarming",
+                "triggered",
+            },
+        ),
+        ("sun", {"above_horizon", "below_horizon"}),
+        ("group", {"on", "off", "home", "not_home"}),
+    ],
+    ids=[
+        "binary_sensor",
+        "person",
+        "lock",
+        "alarm_control_panel",
+        "sun",
+        "group",
+    ],
+)
+def test_device_class_states(domain: str, expected_states: set[str]) -> None:
+    """Test device class state mappings return correct known states.
+
+    Validates that get_device_class_states() returns the complete set of
+    valid states for each domain. These mappings are critical for state
+    validation - they determine which states are considered valid in
+    automations without requiring entity history lookup.
+    """
+    states = get_device_class_states(domain)
+    assert states == expected_states
 
 
-def test_person_states():
-    """Test person returns home/not_home/away."""
-    states = get_device_class_states("person")
-    assert states == {"home", "not_home", "away"}
+def test_unknown_domain_returns_none() -> None:
+    """Test unknown domain returns None rather than empty set.
 
-
-def test_lock_states():
-    """Test lock returns all valid states."""
-    states = get_device_class_states("lock")
-    expected = {
-        "locked",
-        "unlocked",
-        "locking",
-        "unlocking",
-        "jammed",
-        "opening",
-        "open",
-    }
-    assert states == expected
-
-
-def test_alarm_control_panel_states():
-    """Test alarm_control_panel returns all valid states."""
-    states = get_device_class_states("alarm_control_panel")
-    expected = {
-        "disarmed",
-        "armed_home",
-        "armed_away",
-        "armed_night",
-        "armed_vacation",
-        "armed_custom_bypass",
-        "pending",
-        "arming",
-        "disarming",
-        "triggered",
-    }
-    assert states == expected
-
-
-def test_sun_states():
-    """Test sun returns above_horizon/below_horizon."""
-    states = get_device_class_states("sun")
-    assert states == {"above_horizon", "below_horizon"}
-
-
-def test_group_states():
-    """Test group returns on/off/home/not_home."""
-    states = get_device_class_states("group")
-    assert states == {"on", "off", "home", "not_home"}
-
-
-def test_unknown_domain_returns_none():
-    """Test unknown domain returns None."""
+    When a domain has no predefined state mapping, None is returned to
+    distinguish between "no known states" and "domain doesn't exist in
+    our mappings". This allows the validator to fall back to entity
+    history for state validation.
+    """
     states = get_device_class_states("unknown_domain")
     assert states is None
 
 
-def test_get_all_known_domains():
-    """Test we can list all known domains."""
+def test_get_all_known_domains() -> None:
+    """Test retrieval of all domains with predefined state mappings.
+
+    This is used by the validation engine to determine which domains can
+    be validated using hardcoded state lists versus requiring entity
+    history lookup. Critical domains like binary_sensor, lock, and person
+    must be present.
+    """
     domains = get_all_known_domains()
     assert "binary_sensor" in domains
     assert "lock" in domains

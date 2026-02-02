@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 from .const import MAX_RECURSION_DEPTH
 from .models import ServiceCall, StateReference
@@ -81,17 +81,41 @@ JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
 # Keys at the action dict level that are structural (not service parameters).
 # Any key NOT in this set is treated as an inline service parameter.
-_ACTION_STRUCTURAL_KEYS = frozenset({
-    "service", "action", "data", "target", "entity_id",
-    "enabled", "alias", "continue_on_error", "response_variable",
-    # Control flow keys (handled separately)
-    "choose", "default", "if", "then", "else",
-    "repeat", "parallel", "sequence", "for_each",
-    "wait_template", "wait_for_trigger", "delay", "event",
-    "scene", "stop", "variables", "set_conversation_response",
-    "device_id", "domain", "type",  # device action keys
-    "metadata",
-})
+_ACTION_STRUCTURAL_KEYS = frozenset(
+    {
+        "service",
+        "action",
+        "data",
+        "target",
+        "entity_id",
+        "enabled",
+        "alias",
+        "continue_on_error",
+        "response_variable",
+        # Control flow keys (handled separately)
+        "choose",
+        "default",
+        "if",
+        "then",
+        "else",
+        "repeat",
+        "parallel",
+        "sequence",
+        "for_each",
+        "wait_template",
+        "wait_for_trigger",
+        "delay",
+        "event",
+        "scene",
+        "stop",
+        "variables",
+        "set_conversation_response",
+        "device_id",
+        "domain",
+        "type",  # device action keys
+        "metadata",
+    }
+)
 
 
 class AutomationAnalyzer:
@@ -174,10 +198,12 @@ class AutomationAnalyzer:
         refs: list[StateReference] = []
 
         # Guard: skip non-dict triggers
-        if not isinstance(trigger, dict):
+        if not isinstance(trigger, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             _LOGGER.warning(
                 "Skipping non-dict trigger[%d] in %s: %s",
-                index, automation_id, type(trigger).__name__
+                index,
+                automation_id,
+                type(trigger).__name__,
             )
             return refs
 
@@ -185,7 +211,7 @@ class AutomationAnalyzer:
         platform = trigger.get("platform") or trigger.get("trigger", "")
 
         if platform == "state":
-            entity_ids = trigger.get("entity_id") or []
+            entity_ids = cast(Any, trigger.get("entity_id") or [])
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -218,7 +244,7 @@ class AutomationAnalyzer:
                     )
 
         elif platform == "numeric_state":
-            entity_ids = trigger.get("entity_id") or []
+            entity_ids = cast(Any, trigger.get("entity_id") or [])
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -366,7 +392,7 @@ class AutomationAnalyzer:
             event_data = trigger.get("event_data", {})
 
             if isinstance(event_data, dict):
-                for key, value in event_data.items():
+                for key, value in cast(dict[str, Any], event_data).items():
                     if isinstance(value, str):
                         refs.extend(
                             self._extract_from_template(
@@ -428,13 +454,17 @@ class AutomationAnalyzer:
                 )
 
         elif platform == "time":
-            at_values = trigger.get("at")
+            at_values: Any = trigger.get("at")
             if not isinstance(at_values, list):
                 at_values = [at_values] if at_values else []
 
-            for at_value in at_values:
+            for at_value in cast(list[Any], at_values):
                 # If it looks like an entity_id (contains a dot but not a colon), validate it
-                if isinstance(at_value, str) and "." in at_value and ":" not in at_value:
+                if (
+                    isinstance(at_value, str)
+                    and "." in at_value
+                    and ":" not in at_value
+                ):
                     refs.append(
                         StateReference(
                             automation_id=automation_id,
@@ -473,7 +503,7 @@ class AutomationAnalyzer:
             return refs
 
         # Skip if not a dict
-        if not isinstance(condition, dict):
+        if not isinstance(condition, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             return refs
 
         # Support both 'condition' key (used in both old and new formats for condition type)
@@ -485,7 +515,7 @@ class AutomationAnalyzer:
         )
 
         if is_state_condition:
-            entity_ids = condition.get("entity_id") or []
+            entity_ids = cast(Any, condition.get("entity_id") or [])
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
 
@@ -593,7 +623,12 @@ class AutomationAnalyzer:
             before_value = condition.get("before")
 
             # If it looks like an entity_id (contains a dot but not a colon), validate it
-            if after_value and isinstance(after_value, str) and "." in after_value and ":" not in after_value:
+            if (
+                after_value
+                and isinstance(after_value, str)
+                and "." in after_value
+                and ":" not in after_value
+            ):
                 refs.append(
                     StateReference(
                         automation_id=automation_id,
@@ -606,7 +641,12 @@ class AutomationAnalyzer:
                     )
                 )
 
-            if before_value and isinstance(before_value, str) and "." in before_value and ":" not in before_value:
+            if (
+                before_value
+                and isinstance(before_value, str)
+                and "." in before_value
+                and ":" not in before_value
+            ):
                 refs.append(
                     StateReference(
                         automation_id=automation_id,
@@ -865,7 +905,11 @@ class AutomationAnalyzer:
             return refs
 
         # Shorthand script call: service: script.my_script
-        if service.startswith("script.") and service not in ("script.turn_on", "script.reload", "script.turn_off"):
+        if service.startswith("script.") and service not in (
+            "script.turn_on",
+            "script.reload",
+            "script.turn_off",
+        ):
             refs.append(
                 StateReference(
                     automation_id=automation_id,
@@ -939,11 +983,11 @@ class AutomationAnalyzer:
 
         refs: list[StateReference] = []
 
-        if not isinstance(actions, list):
+        if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
             actions = [actions]
 
         for idx, action in enumerate(actions):
-            if not isinstance(action, dict):
+            if not isinstance(action, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
                 continue
 
             # Extract from service calls
@@ -955,13 +999,13 @@ class AutomationAnalyzer:
 
             # Extract from choose option conditions and sequences
             if "choose" in action:
-                options = action.get("choose") or []
-                default = action.get("default") or []
+                options = cast(list[Any], action.get("choose") or [])
+                default = cast(list[Any], action.get("default") or [])
 
                 for opt_idx, option in enumerate(options):
                     # Check conditions in each option (all types, not just template)
-                    conditions = option.get("conditions", [])
-                    if not isinstance(conditions, list):
+                    conditions = cast(list[Any], option.get("conditions") or [])
+                    if not isinstance(conditions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                         conditions = [conditions]
 
                     for cond_idx, condition in enumerate(conditions):
@@ -976,10 +1020,10 @@ class AutomationAnalyzer:
                         )
 
                     # Recurse into sequence
-                    sequence = option.get("sequence", [])
+                    opt_sequence = cast(list[Any], option.get("sequence") or [])
                     refs.extend(
                         self._extract_from_actions(
-                            sequence, automation_id, automation_name, _depth + 1
+                            opt_sequence, automation_id, automation_name, _depth + 1
                         )
                     )
 
@@ -993,8 +1037,8 @@ class AutomationAnalyzer:
 
             # Extract from if conditions (all types, not just template)
             if "if" in action:
-                conditions = action.get("if", [])
-                if not isinstance(conditions, list):
+                conditions = cast(list[Any], action.get("if") or [])
+                if not isinstance(conditions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                     conditions = [conditions]
 
                 for cond_idx, condition in enumerate(conditions):
@@ -1027,9 +1071,10 @@ class AutomationAnalyzer:
             if "repeat" in action:
                 repeat_config = action["repeat"]
                 if isinstance(repeat_config, dict):
+                    repeat_config = cast(dict[str, Any], repeat_config)
                     # Check while conditions
-                    while_conditions = repeat_config.get("while", [])
-                    if not isinstance(while_conditions, list):
+                    while_conditions = cast(list[Any], repeat_config.get("while") or [])
+                    if not isinstance(while_conditions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                         while_conditions = [while_conditions]
                     for cond_idx, condition in enumerate(while_conditions):
                         refs.extend(
@@ -1043,8 +1088,8 @@ class AutomationAnalyzer:
                         )
 
                     # Check until conditions
-                    until_conditions = repeat_config.get("until", [])
-                    if not isinstance(until_conditions, list):
+                    until_conditions = cast(list[Any], repeat_config.get("until") or [])
+                    if not isinstance(until_conditions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                         until_conditions = [until_conditions]
                     for cond_idx, condition in enumerate(until_conditions):
                         refs.extend(
@@ -1058,10 +1103,10 @@ class AutomationAnalyzer:
                         )
 
                     # Recurse into sequence
-                    sequence = repeat_config.get("sequence", [])
+                    repeat_sequence = cast(list[Any], repeat_config.get("sequence") or [])
                     refs.extend(
                         self._extract_from_actions(
-                            sequence, automation_id, automation_name, _depth + 1
+                            repeat_sequence, automation_id, automation_name, _depth + 1
                         )
                     )
 
@@ -1080,11 +1125,11 @@ class AutomationAnalyzer:
 
             # Extract from parallel branches
             if "parallel" in action:
-                branches = action.get("parallel") or []
-                if not isinstance(branches, list):
+                branches = cast(list[Any], action.get("parallel") or [])
+                if not isinstance(branches, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                     branches = [branches]
                 for branch in branches:
-                    branch_actions = branch if isinstance(branch, list) else [branch]
+                    branch_actions = cast(list[Any], branch if isinstance(branch, list) else [branch])
                     refs.extend(
                         self._extract_from_actions(
                             branch_actions, automation_id, automation_name, _depth + 1
@@ -1093,18 +1138,18 @@ class AutomationAnalyzer:
 
         return refs
 
-    def extract_service_calls(self, automation: dict) -> list[ServiceCall]:
+    def extract_service_calls(self, automation: dict[str, Any]) -> list[ServiceCall]:
         """Extract all service calls from automation actions."""
         service_calls: list[ServiceCall] = []
-        actions = automation.get("actions") or automation.get("action", [])
-        if not isinstance(actions, list):
+        actions = cast(list[dict[str, Any]], automation.get("actions") or automation.get("action") or [])
+        if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
             actions = [actions]
 
-        automation_id = automation.get("id", "unknown")
-        automation_name = automation.get("alias", "Unknown")
+        automation_id: str = automation.get("id", "unknown")
+        automation_name: str = automation.get("alias", "Unknown")
 
         self._extract_service_calls_from_actions(
-            actions, automation_id, automation_name, "action", service_calls
+            cast(list[dict[str, Any]], actions), automation_id, automation_name, "action", service_calls
         )
         return service_calls
 
@@ -1126,11 +1171,11 @@ class AutomationAnalyzer:
             )
             return
 
-        if not isinstance(actions, list):
+        if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
             actions = [actions]
 
         for idx, action in enumerate(actions):
-            if not isinstance(action, dict):
+            if not isinstance(action, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
                 continue
 
             location = f"{location_prefix}[{idx}]"
@@ -1142,91 +1187,121 @@ class AutomationAnalyzer:
 
                 # Merge inline params with explicit data: dict.
                 # HA allows params at action level without a data: wrapper.
-                explicit_data = action.get("data")
+                explicit_data: Any = action.get("data")
                 if isinstance(explicit_data, str):
                     # Template string in data: — pass through as-is
-                    merged_data = explicit_data
+                    merged_data: dict[str, Any] | None = cast(dict[str, Any] | None, explicit_data)
                 else:
                     inline_params = {
-                        k: v for k, v in action.items()
+                        k: v
+                        for k, v in action.items()
                         if k not in _ACTION_STRUCTURAL_KEYS
                     }
-                    explicit_data = explicit_data or {}
+                    explicit_data = cast(dict[str, Any], explicit_data or {})
                     merged_data = (
                         {**inline_params, **explicit_data}
                         if inline_params
                         else explicit_data
                     ) or None
 
-                service_calls.append(ServiceCall(
-                    automation_id=automation_id,
-                    automation_name=automation_name,
-                    service=service,
-                    location=location,
-                    target=action.get("target"),
-                    data=merged_data,
-                    is_template=is_template,
-                ))
+                service_calls.append(
+                    ServiceCall(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        service=service,
+                        location=location,
+                        target=action.get("target"),
+                        data=merged_data,
+                        is_template=is_template,
+                    )
+                )
 
             # Choose branches
             if "choose" in action:
-                options = action.get("choose") or []
-                if isinstance(options, list):
+                options = cast(list[Any], action.get("choose") or [])
+                if isinstance(options, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                     for opt_idx, option in enumerate(options):
                         if isinstance(option, dict):
-                            sequence = option.get("sequence", [])
+                            sequence = cast(list[Any], option.get("sequence") or [])
                             self._extract_service_calls_from_actions(
-                                sequence, automation_id, automation_name,
+                                sequence,
+                                automation_id,
+                                automation_name,
                                 f"{location}.choose[{opt_idx}].sequence",
-                                service_calls, _depth + 1,
+                                service_calls,
+                                _depth + 1,
                             )
 
                 # Default branch
-                default = action.get("default") or []
+                default = cast(list[Any], action.get("default") or [])
                 if default:
                     self._extract_service_calls_from_actions(
-                        default, automation_id, automation_name,
-                        f"{location}.default", service_calls, _depth + 1,
+                        default,
+                        automation_id,
+                        automation_name,
+                        f"{location}.default",
+                        service_calls,
+                        _depth + 1,
                     )
 
             # If/then/else
             if "if" in action:
                 then_actions = action.get("then", [])
                 self._extract_service_calls_from_actions(
-                    then_actions, automation_id, automation_name,
-                    f"{location}.then", service_calls, _depth + 1,
+                    then_actions,
+                    automation_id,
+                    automation_name,
+                    f"{location}.then",
+                    service_calls,
+                    _depth + 1,
                 )
                 else_actions = action.get("else", [])
                 if else_actions:
                     self._extract_service_calls_from_actions(
-                        else_actions, automation_id, automation_name,
-                        f"{location}.else", service_calls, _depth + 1,
+                        else_actions,
+                        automation_id,
+                        automation_name,
+                        f"{location}.else",
+                        service_calls,
+                        _depth + 1,
                     )
 
             # Repeat
             if "repeat" in action:
                 repeat_config = action["repeat"]
                 if isinstance(repeat_config, dict):
-                    sequence = repeat_config.get("sequence", [])
+                    repeat_config = cast(dict[str, Any], repeat_config)
+                    sequence = cast(list[Any], repeat_config.get("sequence") or [])
                     self._extract_service_calls_from_actions(
-                        sequence, automation_id, automation_name,
-                        f"{location}.repeat.sequence", service_calls, _depth + 1,
+                        sequence,
+                        automation_id,
+                        automation_name,
+                        f"{location}.repeat.sequence",
+                        service_calls,
+                        _depth + 1,
                     )
 
             # Parallel
             if "parallel" in action:
-                branches = action.get("parallel") or []
-                if not isinstance(branches, list):
+                branches = cast(list[Any], action.get("parallel") or [])
+                if not isinstance(branches, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                     branches = [branches]
                 for branch in branches:
                     if isinstance(branch, list):
                         self._extract_service_calls_from_actions(
-                            branch, automation_id, automation_name,
-                            f"{location}.parallel", service_calls, _depth + 1,
+                            cast(list[dict[str, Any]], branch),
+                            automation_id,
+                            automation_name,
+                            f"{location}.parallel",
+                            service_calls,
+                            _depth + 1,
                         )
                     elif isinstance(branch, dict):
                         self._extract_service_calls_from_actions(
-                            [branch], automation_id, automation_name,
-                            f"{location}.parallel", service_calls, _depth + 1,
+                            [branch],
+                            automation_id,
+                            automation_name,
+                            f"{location}.parallel",
+                            service_calls,
+                            _depth + 1,
                         )
-

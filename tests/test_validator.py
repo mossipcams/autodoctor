@@ -7,18 +7,31 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import IssueType, Severity, StateReference
-from custom_components.autodoctor.validator import ValidationEngine, _NON_ENTITY_REFERENCE_TYPES
+from custom_components.autodoctor.validator import (
+    _NON_ENTITY_REFERENCE_TYPES,
+    ValidationEngine,
+)
 
 
 @pytest.fixture
-def knowledge_base(hass: HomeAssistant):
-    """Create a knowledge base with mocked data."""
+def knowledge_base(hass: HomeAssistant) -> StateKnowledgeBase:
+    """Create a StateKnowledgeBase with empty state.
+
+    No history is loaded, no learned states exist. Suitable for testing
+    base functionality without external dependencies.
+    """
     kb = StateKnowledgeBase(hass)
     return kb
 
 
-async def test_validate_missing_entity(hass: HomeAssistant, knowledge_base):
-    """Test validation detects missing entity."""
+async def test_validate_missing_entity(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
+    """Test that ValidationEngine detects references to non-existent entities.
+
+    Ensures users are warned when automations reference entities
+    that don't exist in their Home Assistant instance.
+    """
     ref = StateReference(
         automation_id="automation.test",
         automation_name="Test",
@@ -39,7 +52,9 @@ async def test_validate_missing_entity(hass: HomeAssistant, knowledge_base):
     assert issues[0].suggestion is None
 
 
-async def test_validate_person_away_is_valid(hass: HomeAssistant, knowledge_base):
+async def test_validate_person_away_is_valid(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
     """Test validation accepts 'away' as valid person state.
 
     Some integrations (Life360, iCloud) report 'away' instead of 'not_home'.
@@ -63,8 +78,14 @@ async def test_validate_person_away_is_valid(hass: HomeAssistant, knowledge_base
     assert len(issues) == 0
 
 
-async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
-    """Test validation detects case mismatch."""
+async def test_validate_case_mismatch(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
+    """Test that ValidationEngine detects case mismatch in state values.
+
+    Ensures automations using incorrect casing (e.g., 'On' vs 'on')
+    are flagged with helpful suggestions.
+    """
     hass.states.async_set("binary_sensor.motion", "off")
     await hass.async_block_till_done()
 
@@ -88,8 +109,10 @@ async def test_validate_case_mismatch(hass: HomeAssistant, knowledge_base):
     assert issues[0].suggestion == "on"
 
 
-async def test_validate_valid_state(hass: HomeAssistant, knowledge_base):
-    """Test validation passes for valid state."""
+async def test_validate_valid_state(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
+    """Test that ValidationEngine accepts valid state references without issues."""
     hass.states.async_set("person.matt", "home")
     await hass.async_block_till_done()
 
@@ -109,8 +132,12 @@ async def test_validate_valid_state(hass: HomeAssistant, knowledge_base):
 
 
 @pytest.mark.asyncio
-async def test_validate_detects_removed_entity(hass: HomeAssistant):
-    """Test that validator detects entities that existed in history but are now gone."""
+async def test_validate_detects_removed_entity(hass: HomeAssistant) -> None:
+    """Test that validator detects entities that existed in history but are now gone.
+
+    This helps users identify entities that were removed or renamed,
+    distinguishing them from typos.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Simulate that this entity was seen in history
@@ -140,8 +167,12 @@ async def test_validate_detects_removed_entity(hass: HomeAssistant):
     assert issues[0].suggestion is None
 
 
-def test_validate_reference_handles_knowledge_base_error():
-    """Test that knowledge_base errors don't crash validation."""
+def test_validate_reference_handles_knowledge_base_error() -> None:
+    """Test that knowledge_base errors don't crash validation.
+
+    Ensures graceful degradation when the knowledge base encounters errors,
+    returning empty results instead of raising exceptions.
+    """
     mock_kb = MagicMock()
     mock_kb.entity_exists.side_effect = KeyError("KB error")
 
@@ -160,8 +191,12 @@ def test_validate_reference_handles_knowledge_base_error():
     assert issues == []
 
 
-def test_validator_caches_entity_suggestions():
-    """Test that entity cache is built once and reused."""
+def test_validator_caches_entity_suggestions() -> None:
+    """Test that entity cache is built once and reused.
+
+    Verifies performance optimization where entity list is cached
+    and not re-fetched on every suggestion request.
+    """
     mock_kb = MagicMock()
     mock_hass = MagicMock()
     mock_kb.hass = mock_hass
@@ -184,7 +219,9 @@ def test_validator_caches_entity_suggestions():
 
 
 @pytest.mark.asyncio
-async def test_no_false_positive_for_light_brightness_when_off(hass: HomeAssistant):
+async def test_no_false_positive_for_light_brightness_when_off(
+    hass: HomeAssistant,
+) -> None:
     """Test that checking brightness on a light that's off doesn't report error.
 
     Lights support brightness even when off, but the attribute isn't present
@@ -214,8 +251,12 @@ async def test_no_false_positive_for_light_brightness_when_off(hass: HomeAssista
 
 
 @pytest.mark.asyncio
-async def test_no_false_positive_for_climate_temperature(hass: HomeAssistant):
-    """Test that checking temperature on climate doesn't report false positive."""
+async def test_no_false_positive_for_climate_temperature(hass: HomeAssistant) -> None:
+    """Test that checking temperature on climate doesn't report false positive.
+
+    Climate entities support temperature attribute even when it's not
+    currently present in state.
+    """
     # Climate entity that's off - temperature attribute may not be present
     hass.states.async_set("climate.living_room", "off")
     await hass.async_block_till_done()
@@ -239,8 +280,12 @@ async def test_no_false_positive_for_climate_temperature(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant):
-    """Test that invalid attributes set ATTRIBUTE_NOT_FOUND issue type."""
+async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant) -> None:
+    """Test that invalid attributes set ATTRIBUTE_NOT_FOUND issue type.
+
+    Ensures attributes that don't exist and aren't supported by the domain
+    are correctly flagged with the ATTRIBUTE_NOT_FOUND issue type.
+    """
     # Create a light with standard attributes
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
     await hass.async_block_till_done()
@@ -270,8 +315,12 @@ async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_light_color_temp_attribute_is_valid(hass: HomeAssistant):
-    """Test that color_temp is recognized as valid for light domain."""
+async def test_light_color_temp_attribute_is_valid(hass: HomeAssistant) -> None:
+    """Test that color_temp is recognized as valid for light domain.
+
+    Validates domain-level attribute support detection prevents false positives
+    for common light attributes not in current state.
+    """
     # Create a light without color_temp in current state
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
     await hass.async_block_till_done()
@@ -296,8 +345,12 @@ async def test_light_color_temp_attribute_is_valid(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_light_rgb_color_attribute_is_valid(hass: HomeAssistant):
-    """Test that rgb_color is recognized as valid for light domain."""
+async def test_light_rgb_color_attribute_is_valid(hass: HomeAssistant) -> None:
+    """Test that rgb_color is recognized as valid for light domain.
+
+    Validates domain-level attribute support detection prevents false positives
+    for rgb_color attribute not in current state.
+    """
     # Create a light without rgb_color in current state
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
     await hass.async_block_till_done()
@@ -341,8 +394,12 @@ async def test_light_rgb_color_attribute_is_valid(hass: HomeAssistant):
 )
 async def test_light_domain_attributes_are_valid(
     hass: HomeAssistant, attribute: str
-):
-    """Test that all standard light attributes are recognized as valid."""
+) -> None:
+    """Test that all standard light attributes are recognized as valid.
+
+    Validates comprehensive attribute support for light domain to prevent
+    false positives when checking any standard light attribute.
+    """
     # Create a light with only brightness
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
     await hass.async_block_till_done()
@@ -387,8 +444,12 @@ async def test_light_domain_attributes_are_valid(
 )
 async def test_climate_domain_attributes_are_valid(
     hass: HomeAssistant, attribute: str
-):
-    """Test that all standard climate attributes are recognized as valid."""
+) -> None:
+    """Test that all standard climate attributes are recognized as valid.
+
+    Validates comprehensive attribute support for climate domain to prevent
+    false positives when checking any standard climate attribute.
+    """
     # Create a climate entity with minimal attributes
     hass.states.async_set("climate.living_room", "heat", {"temperature": 22})
     await hass.async_block_till_done()
@@ -408,7 +469,9 @@ async def test_climate_domain_attributes_are_valid(
     issues = validator.validate_reference(ref)
 
     # Should NOT report error - all these attributes are valid for climate domain
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for climate domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for climate domain"
+    )
 
 
 @pytest.mark.asyncio
@@ -440,8 +503,12 @@ async def test_climate_domain_attributes_are_valid(
 )
 async def test_media_player_domain_attributes_are_valid(
     hass: HomeAssistant, attribute: str
-):
-    """Test that all standard media_player attributes are recognized as valid."""
+) -> None:
+    """Test that all standard media_player attributes are recognized as valid.
+
+    Validates comprehensive attribute support for media_player domain to prevent
+    false positives when checking any standard media_player attribute.
+    """
     # Create a media_player with minimal attributes
     hass.states.async_set("media_player.living_room", "playing", {"volume_level": 0.5})
     await hass.async_block_till_done()
@@ -461,7 +528,9 @@ async def test_media_player_domain_attributes_are_valid(
     issues = validator.validate_reference(ref)
 
     # Should NOT report error - all these attributes are valid for media_player domain
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for media_player domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for media_player domain"
+    )
 
 
 @pytest.mark.asyncio
@@ -476,8 +545,12 @@ async def test_media_player_domain_attributes_are_valid(
 )
 async def test_light_extended_attributes_are_valid(
     hass: HomeAssistant, attribute: str
-):
-    """Test that extended light attributes (kelvin, supported_features) are recognized."""
+) -> None:
+    """Test that extended light attributes (kelvin, supported_features) are recognized.
+
+    Validates support for newer light attributes like Kelvin-based color temperature
+    and supported_features bitmask.
+    """
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
     await hass.async_block_till_done()
 
@@ -510,8 +583,12 @@ async def test_light_extended_attributes_are_valid(
 )
 async def test_media_player_extended_attributes_are_valid(
     hass: HomeAssistant, attribute: str
-):
-    """Test that extended media_player attributes are recognized."""
+) -> None:
+    """Test that extended media_player attributes are recognized.
+
+    Validates support for additional media_player attributes used by
+    specific integrations (Plex, Sonos, etc.).
+    """
     hass.states.async_set("media_player.living_room", "playing", {"volume_level": 0.5})
     await hass.async_block_till_done()
 
@@ -528,12 +605,14 @@ async def test_media_player_extended_attributes_are_valid(
     )
 
     issues = validator.validate_reference(ref)
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for media_player domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for media_player domain"
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "domain,entity_id,state,attribute",
+    ("domain", "entity_id", "state", "attribute"),
     [
         ("siren", "siren.alarm", "off", "available_tones"),
         ("siren", "siren.alarm", "off", "supported_features"),
@@ -554,10 +633,13 @@ async def test_media_player_extended_attributes_are_valid(
     ],
 )
 async def test_new_domain_attributes_are_valid(
-    hass: HomeAssistant, domain: str, entity_id: str, state: str,
-    attribute: str
-):
-    """Test that attributes for newer HA domains are recognized as valid."""
+    hass: HomeAssistant, domain: str, entity_id: str, state: str, attribute: str
+) -> None:
+    """Test that attributes for newer HA domains are recognized as valid.
+
+    Validates support for domains added in recent Home Assistant versions
+    (siren, remote, camera, text, event, valve) to prevent false positives.
+    """
     hass.states.async_set(entity_id, state, {})
     await hass.async_block_till_done()
 
@@ -574,12 +656,18 @@ async def test_new_domain_attributes_are_valid(
     )
 
     issues = validator.validate_reference(ref)
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for {domain} domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for {domain} domain"
+    )
 
 
 @pytest.mark.asyncio
-async def test_device_reference_skips_entity_validation(hass: HomeAssistant):
-    """Test that device_id references are validated against device registry, not entity registry."""
+async def test_device_reference_skips_entity_validation(hass: HomeAssistant) -> None:
+    """Test that device_id references are validated against device registry, not entity registry.
+
+    Ensures device-based automations are validated correctly using the
+    device registry instead of incorrectly checking the entity registry.
+    """
     from types import MappingProxyType
 
     from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -627,8 +715,12 @@ async def test_device_reference_skips_entity_validation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_device_reference_reports_missing_device(hass: HomeAssistant):
-    """Test that a nonexistent device_id is reported as missing device."""
+async def test_device_reference_reports_missing_device(hass: HomeAssistant) -> None:
+    """Test that a nonexistent device_id is reported as missing device.
+
+    Validates that references to non-existent devices are properly
+    detected and reported with device-specific error messages.
+    """
     kb = StateKnowledgeBase(hass)
     validator = ValidationEngine(kb)
 
@@ -653,8 +745,12 @@ async def test_device_reference_reports_missing_device(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_tag_reference_skips_entity_validation(hass: HomeAssistant):
-    """Test that tag references are skipped (no entity validation)."""
+async def test_tag_reference_skips_entity_validation(hass: HomeAssistant) -> None:
+    """Test that tag references are skipped (no entity validation).
+
+    NFC tags don't have entities, so tag_id references should not be
+    validated against the entity registry.
+    """
     kb = StateKnowledgeBase(hass)
     validator = ValidationEngine(kb)
 
@@ -673,8 +769,11 @@ async def test_tag_reference_skips_entity_validation(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_integration_reference_skips_entity_validation(hass: HomeAssistant):
-    """Test that integration references are skipped (no entity validation)."""
+async def test_integration_reference_skips_entity_validation(hass: HomeAssistant) -> None:
+    """Test that integration references are skipped (no entity validation).
+
+    Integration names in templates should not be validated as entities.
+    """
     kb = StateKnowledgeBase(hass)
     validator = ValidationEngine(kb)
 
@@ -693,8 +792,12 @@ async def test_integration_reference_skips_entity_validation(hass: HomeAssistant
 
 
 @pytest.mark.asyncio
-async def test_area_reference_validates_against_area_registry(hass: HomeAssistant):
-    """Test that area references are validated against area registry."""
+async def test_area_reference_validates_against_area_registry(hass: HomeAssistant) -> None:
+    """Test that area references are validated against area registry.
+
+    Area-based automations should be validated using the area registry
+    instead of the entity registry.
+    """
     from homeassistant.helpers import area_registry as ar
 
     area_reg = ar.async_get(hass)
@@ -719,8 +822,12 @@ async def test_area_reference_validates_against_area_registry(hass: HomeAssistan
 
 
 @pytest.mark.asyncio
-async def test_area_reference_reports_missing_area(hass: HomeAssistant):
-    """Test that a nonexistent area is reported as missing."""
+async def test_area_reference_reports_missing_area(hass: HomeAssistant) -> None:
+    """Test that a nonexistent area is reported as missing.
+
+    Validates that references to non-existent areas are properly
+    detected and reported with area-specific error messages.
+    """
     kb = StateKnowledgeBase(hass)
     validator = ValidationEngine(kb)
 
@@ -745,8 +852,12 @@ async def test_area_reference_reports_missing_area(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
-    """Test that direct entity references still go through entity validation."""
+async def test_direct_entity_reference_still_validated(hass: HomeAssistant) -> None:
+    """Test that direct entity references still go through entity validation.
+
+    Ensures standard entity_id references continue to be validated
+    against the entity registry despite special handling for other types.
+    """
     kb = StateKnowledgeBase(hass)
     validator = ValidationEngine(kb)
 
@@ -770,14 +881,22 @@ async def test_direct_entity_reference_still_validated(hass: HomeAssistant):
     assert "does not exist" in issues[0].message
 
 
-def test_for_each_not_in_non_entity_reference_types():
-    """for_each extraction was removed; it must not appear in skip-set."""
+def test_for_each_not_in_non_entity_reference_types() -> None:
+    """Guard: Prevent re-introduction of for_each in non-entity reference types.
+
+    for_each extraction was removed; it must not appear in skip-set.
+    This ensures the removal stays permanent.
+    """
     assert "for_each" not in _NON_ENTITY_REFERENCE_TYPES
 
 
 @pytest.mark.asyncio
-async def test_transition_from_invalid_produces_issue(hass: HomeAssistant):
-    """Test that an invalid transition_from value produces an INVALID_STATE issue with suggestion."""
+async def test_transition_from_invalid_produces_issue(hass: HomeAssistant) -> None:
+    """Test that an invalid transition_from value produces an INVALID_STATE issue with suggestion.
+
+    Validates state triggers with 'from' conditions that don't match
+    valid states for the entity.
+    """
     hass.states.async_set("binary_sensor.motion", "off")
     await hass.async_block_till_done()
 
@@ -806,8 +925,11 @@ async def test_transition_from_invalid_produces_issue(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_transition_from_valid_produces_no_issue(hass: HomeAssistant):
-    """Test that a valid transition_from value produces no issue."""
+async def test_transition_from_valid_produces_no_issue(hass: HomeAssistant) -> None:
+    """Test that a valid transition_from value produces no issue.
+
+    Ensures state triggers with valid 'from' conditions are accepted.
+    """
     hass.states.async_set("binary_sensor.motion", "off")
     await hass.async_block_till_done()
 
@@ -831,8 +953,12 @@ async def test_transition_from_valid_produces_no_issue(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_transition_from_none_produces_no_issue(hass: HomeAssistant):
-    """Test that transition_from=None (not set) produces no issue."""
+async def test_transition_from_none_produces_no_issue(hass: HomeAssistant) -> None:
+    """Test that transition_from=None (not set) produces no issue.
+
+    Validates that state triggers without 'from' conditions don't
+    produce spurious validation errors.
+    """
     hass.states.async_set("binary_sensor.motion", "off")
     await hass.async_block_till_done()
 
@@ -859,7 +985,7 @@ async def test_transition_from_none_produces_no_issue(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_area_reference_type_comparison_boundary(hass: HomeAssistant):
+async def test_area_reference_type_comparison_boundary(hass: HomeAssistant) -> None:
     """Verify area and device references take different code paths (VL-01).
 
     Kills Eq->NotEq / Eq->LtE on `ref.reference_type == "area"` (line 119).
@@ -901,7 +1027,7 @@ async def test_area_reference_type_comparison_boundary(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_entity_cache_populates_multiple_domains(hass: HomeAssistant):
+async def test_entity_cache_populates_multiple_domains(hass: HomeAssistant) -> None:
     """Verify entity cache populates all domains from hass.states (VL-02).
 
     Kills AddNot on `if domain not in self._entity_cache` (line 281).
@@ -927,7 +1053,7 @@ async def test_entity_cache_populates_multiple_domains(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_entity_cache_guard_not_in_vs_in(hass: HomeAssistant):
+async def test_entity_cache_guard_not_in_vs_in(hass: HomeAssistant) -> None:
     """Verify cache is built once and not rebuilt until invalidated (VL-02).
 
     First call builds cache with current entities. Second call (cache not None)
@@ -958,7 +1084,7 @@ async def test_entity_cache_guard_not_in_vs_in(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_suggest_entity_fuzzy_match_sensitivity(hass: HomeAssistant):
+async def test_suggest_entity_fuzzy_match_sensitivity(hass: HomeAssistant) -> None:
     """Verify _suggest_entity returns match for close typo, None for distant (VL-03).
 
     Kills NumberReplacer on cutoff: 0.75->1.0 makes close typo return None,
@@ -985,7 +1111,7 @@ async def test_suggest_entity_fuzzy_match_sensitivity(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_suggest_state_fuzzy_match_sensitivity(hass: HomeAssistant):
+async def test_suggest_state_fuzzy_match_sensitivity(hass: HomeAssistant) -> None:
     """Verify _suggest_state returns match for close typo, None for distant (VL-03).
 
     Kills NumberReplacer on cutoff (0.75->1.0 or 0.75->0.0) and n (1->0).
@@ -1003,7 +1129,7 @@ async def test_suggest_state_fuzzy_match_sensitivity(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_suggest_attribute_fuzzy_match_sensitivity(hass: HomeAssistant):
+async def test_suggest_attribute_fuzzy_match_sensitivity(hass: HomeAssistant) -> None:
     """Verify _suggest_attribute returns match for close typo, None for distant (VL-03).
 
     Kills NumberReplacer on cutoff (0.75->1.0 or 0.75->0.0) and n (1->0).
@@ -1021,7 +1147,7 @@ async def test_suggest_attribute_fuzzy_match_sensitivity(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_suggest_entity_n_parameter_behavior(hass: HomeAssistant):
+async def test_suggest_entity_n_parameter_behavior(hass: HomeAssistant) -> None:
     """Verify _suggest_entity returns single best match, proving n=1 (VL-03).
 
     Kills n=1->0 (returns None) and validates the n parameter is working.
@@ -1046,8 +1172,12 @@ async def test_suggest_entity_n_parameter_behavior(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_enum_sensor_valid_state_no_issue(hass: HomeAssistant):
-    """Enum sensor with valid state reference produces no issue."""
+async def test_enum_sensor_valid_state_no_issue(hass: HomeAssistant) -> None:
+    """Test that enum sensor with valid state reference produces no issue.
+
+    Enum sensors declare their valid states via options attribute.
+    Valid state references should be accepted.
+    """
     hass.states.async_set(
         "sensor.washing_machine",
         "idle",
@@ -1072,8 +1202,12 @@ async def test_enum_sensor_valid_state_no_issue(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_enum_sensor_invalid_state_reports_issue(hass: HomeAssistant):
-    """Enum sensor with invalid state reference reports INVALID_STATE issue."""
+async def test_enum_sensor_invalid_state_reports_issue(hass: HomeAssistant) -> None:
+    """Test that enum sensor with invalid state reference reports INVALID_STATE issue.
+
+    Invalid states for enum sensors should be flagged with suggestions
+    based on the declared options attribute.
+    """
     hass.states.async_set(
         "sensor.washing_machine",
         "idle",
@@ -1111,8 +1245,12 @@ async def test_enum_sensor_invalid_state_reports_issue(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
-async def test_non_enum_sensor_skips_validation(hass: HomeAssistant):
-    """Non-enum sensor state references are skipped (no false positives)."""
+async def test_non_enum_sensor_skips_validation(hass: HomeAssistant) -> None:
+    """Test that non-enum sensor state references are skipped (no false positives).
+
+    Sensors without device_class='enum' should not have state validation
+    applied, as their states are dynamic (temperature, etc.).
+    """
     hass.states.async_set(
         "sensor.temperature",
         "22.5",

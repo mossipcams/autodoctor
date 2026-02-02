@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -55,7 +57,7 @@ class ValidationIssuesSensor(SensorEntity):
         return 0
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra attributes."""
         data = self.hass.data.get(DOMAIN, {})
         reporter = data.get("reporter")

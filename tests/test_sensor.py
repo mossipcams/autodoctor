@@ -5,15 +5,19 @@ from unittest.mock import MagicMock
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.core import HomeAssistant
 
+from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.sensor import (
     ValidationIssuesSensor,
     async_setup_entry,
 )
-from custom_components.autodoctor.const import DOMAIN
 
 
-async def test_async_setup_entry_adds_entity(hass: HomeAssistant):
-    """async_setup_entry adds ValidationIssuesSensor."""
+async def test_async_setup_entry_adds_entity(hass: HomeAssistant) -> None:
+    """Test that async_setup_entry adds ValidationIssuesSensor to Home Assistant.
+
+    Verifies that the sensor platform setup function correctly instantiates
+    and registers a ValidationIssuesSensor entity with the async_add_entities callback.
+    """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     added = []
@@ -24,8 +28,12 @@ async def test_async_setup_entry_adds_entity(hass: HomeAssistant):
     assert isinstance(added[0], ValidationIssuesSensor)
 
 
-async def test_sensor_attributes(hass: HomeAssistant):
-    """ValidationIssuesSensor has correct class attributes."""
+async def test_sensor_attributes(hass: HomeAssistant) -> None:
+    """Test that ValidationIssuesSensor initializes with correct attributes.
+
+    Verifies sensor name, icon, state class, entity name behavior, unique ID,
+    initial native value, and device info are properly set during initialization.
+    """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     sensor = ValidationIssuesSensor(hass, entry)
@@ -40,8 +48,12 @@ async def test_sensor_attributes(hass: HomeAssistant):
     assert (DOMAIN, "test_entry_id") in sensor._attr_device_info["identifiers"]
 
 
-async def test_native_value_with_issues(hass: HomeAssistant):
-    """native_value returns issue count from reporter."""
+async def test_native_value_with_issues(hass: HomeAssistant) -> None:
+    """Test that native_value returns the count of active issues from reporter.
+
+    Verifies the sensor correctly queries the reporter's active issues and
+    returns the count as its state value for display in the UI.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationIssuesSensor(hass, entry)
@@ -53,8 +65,12 @@ async def test_native_value_with_issues(hass: HomeAssistant):
     assert sensor.native_value == 3
 
 
-async def test_native_value_no_reporter(hass: HomeAssistant):
-    """native_value returns 0 when no reporter available."""
+async def test_native_value_no_reporter(hass: HomeAssistant) -> None:
+    """Test that native_value returns 0 when reporter is unavailable.
+
+    Ensures graceful degradation when the reporter hasn't been initialized yet
+    or has been removed, preventing errors during startup or shutdown.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationIssuesSensor(hass, entry)
@@ -66,8 +82,12 @@ async def test_native_value_no_reporter(hass: HomeAssistant):
     assert sensor.native_value == 0
 
 
-async def test_extra_state_attributes_with_issues(hass: HomeAssistant):
-    """extra_state_attributes returns issue IDs when reporter has issues."""
+async def test_extra_state_attributes_with_issues(hass: HomeAssistant) -> None:
+    """Test that extra_state_attributes includes issue IDs when issues exist.
+
+    Verifies that users can access the list of specific issue IDs via sensor
+    attributes for debugging or use in automations.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationIssuesSensor(hass, entry)
@@ -81,8 +101,12 @@ async def test_extra_state_attributes_with_issues(hass: HomeAssistant):
     assert set(attrs["issue_ids"]) == {"issue_1", "issue_2"}
 
 
-async def test_extra_state_attributes_no_reporter(hass: HomeAssistant):
-    """extra_state_attributes returns empty dict when no reporter."""
+async def test_extra_state_attributes_no_reporter(hass: HomeAssistant) -> None:
+    """Test that extra_state_attributes returns empty dict when reporter unavailable.
+
+    Ensures graceful behavior when the reporter hasn't been initialized yet,
+    preventing AttributeError during Home Assistant startup.
+    """
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationIssuesSensor(hass, entry)

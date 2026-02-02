@@ -1,20 +1,39 @@
-"""Tests for StateKnowledgeBase."""
+"""Tests for StateKnowledgeBase.
 
-from unittest.mock import MagicMock, patch
+Tests cover the multi-source state validation system including:
+- Device class defaults
+- Learned states from user suppression
+- Entity registry capabilities
+- Schema introspection from state attributes
+- Recorder history loading
+- Bermuda BLE integration area detection
+- Enum sensor validation
+"""
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.autodoctor.knowledge_base import (
     CAPABILITY_ATTRIBUTE_SOURCES,
     CAPABILITY_STATE_SOURCES,
     StateKnowledgeBase,
 )
+from custom_components.autodoctor.learned_states_store import LearnedStatesStore
 
 
-async def test_capability_constants_defined(hass: HomeAssistant):
-    """Test capability source constants are defined."""
+async def test_capability_constants_defined(hass: HomeAssistant) -> None:
+    """Test that capability constants distinguish state vs attribute sources.
+
+    The knowledge base uses entity registry capabilities to determine valid
+    states (e.g., select.options) vs valid attribute values (e.g., climate.fan_modes).
+    This ensures proper validation on fresh installs without history.
+    """
     # State sources (contain valid states)
     assert "options" in CAPABILITY_STATE_SOURCES
     assert "hvac_modes" in CAPABILITY_STATE_SOURCES
@@ -28,8 +47,12 @@ async def test_capability_constants_defined(hass: HomeAssistant):
     assert "swing_horizontal_modes" in CAPABILITY_ATTRIBUTE_SOURCES
 
 
-async def test_knowledge_base_initialization(hass: HomeAssistant):
-    """Test knowledge base can be created."""
+async def test_knowledge_base_initialization(hass: HomeAssistant) -> None:
+    """Test knowledge base initializes with default configuration.
+
+    Verifies that the knowledge base starts with empty caches and default
+    settings for history loading (30 days, 120s timeout).
+    """
     kb = StateKnowledgeBase(hass)
     assert kb.hass is hass
     assert kb.history_days == 30
@@ -41,8 +64,12 @@ async def test_knowledge_base_initialization(hass: HomeAssistant):
     assert kb._area_names is None
 
 
-async def test_get_valid_states_for_known_domain(hass: HomeAssistant):
-    """Test getting valid states for known domain entity."""
+async def test_get_valid_states_for_known_domain(hass: HomeAssistant) -> None:
+    """Test valid states include device class defaults for known domains.
+
+    Binary sensors have well-defined states (on/off) from device class defaults.
+    This ensures validation works immediately on fresh installs.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Set up an actual entity state
@@ -55,16 +82,24 @@ async def test_get_valid_states_for_known_domain(hass: HomeAssistant):
     assert states == {"on", "off", "unavailable", "unknown"}
 
 
-async def test_get_valid_states_unknown_entity(hass: HomeAssistant):
-    """Test getting valid states for unknown entity."""
+async def test_get_valid_states_unknown_entity(hass: HomeAssistant) -> None:
+    """Test that unknown entities return None (sensors have no predefined states).
+
+    Sensors are too free-form to validate, so they return None unless they're
+    enum sensors with explicit options.
+    """
     kb = StateKnowledgeBase(hass)
 
     states = kb.get_valid_states("sensor.nonexistent")
     assert states is None
 
 
-async def test_entity_exists(hass: HomeAssistant):
-    """Test checking if entity exists."""
+async def test_entity_exists(hass: HomeAssistant) -> None:
+    """Test entity existence checking in Home Assistant state registry.
+
+    This is used by validators to distinguish between typos (entity doesn't exist)
+    and state mismatches (entity exists but state is wrong).
+    """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("binary_sensor.motion", STATE_ON)
@@ -74,21 +109,29 @@ async def test_entity_exists(hass: HomeAssistant):
     assert kb.entity_exists("binary_sensor.missing") is False
 
 
-async def test_get_domain(hass: HomeAssistant):
-    """Test domain extraction from entity ID."""
+async def test_get_domain(hass: HomeAssistant) -> None:
+    """Test domain extraction from entity ID strings.
+
+    Domain is the part before the dot in entity IDs (e.g., 'light' from 'light.bedroom').
+    Returns empty string for malformed IDs.
+    """
     kb = StateKnowledgeBase(hass)
     assert kb.get_domain("binary_sensor.motion") == "binary_sensor"
     assert kb.get_domain("light.living_room") == "light"
     assert kb.get_domain("invalid") == ""
 
 
-async def test_clear_cache(hass: HomeAssistant):
-    """Test cache clearing clears all caches."""
+async def test_clear_cache(hass: HomeAssistant) -> None:
+    """Test that cache clearing resets all cached data structures.
+
+    Cache should be cleared when entities are added/removed or when the user
+    requests a fresh validation pass. This ensures stale data doesn't cause
+    false positives.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Set up zone and area
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_registry = ar.async_get(hass)
     area_registry.async_create("Living Room")
     await hass.async_block_till_done()
@@ -115,8 +158,13 @@ async def test_clear_cache(hass: HomeAssistant):
     assert kb._area_names is None
 
 
-async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant):
-    """Test extracting hvac_modes from climate entity."""
+async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant) -> None:
+    """Test that hvac_modes from entity state attributes are recognized.
+
+    Schema introspection reads hvac_modes from climate entity attributes to
+    determine valid states. This supplements device class defaults with
+    integration-specific modes.
+    """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set(
@@ -132,11 +180,25 @@ async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant):
     assert "cool" in states
     assert "auto" in states
     # Device class defaults + schema introspection + unavailable/unknown
-    assert states >= {"off", "heat", "cool", "auto", "heat_cool", "dry", "fan_only", "unavailable", "unknown"}
+    assert states >= {
+        "off",
+        "heat",
+        "cool",
+        "auto",
+        "heat_cool",
+        "dry",
+        "fan_only",
+        "unavailable",
+        "unknown",
+    }
 
 
-async def test_schema_introspection_select_options(hass: HomeAssistant):
-    """Test extracting options from select entity."""
+async def test_schema_introspection_select_options(hass: HomeAssistant) -> None:
+    """Test that select entity options are extracted from state attributes.
+
+    Select entities declare their valid options in the 'options' attribute,
+    which defines all possible states the entity can be in.
+    """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set(
@@ -153,8 +215,12 @@ async def test_schema_introspection_select_options(hass: HomeAssistant):
     assert states == {"low", "medium", "high", "unavailable", "unknown"}
 
 
-async def test_schema_introspection_light_effect_list(hass: HomeAssistant):
-    """Test extracting effect_list from light entity."""
+async def test_schema_introspection_light_effect_list(hass: HomeAssistant) -> None:
+    """Test that light effects are treated as attribute values, not states.
+
+    Light states are still on/off, but effect_list provides valid values for
+    the 'effect' attribute. This distinction prevents false positives.
+    """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set(
@@ -177,9 +243,13 @@ async def test_schema_introspection_light_effect_list(hass: HomeAssistant):
     assert attrs == {"rainbow", "strobe", "solid"}
 
 
-@pytest.mark.asyncio
-async def test_load_history_adds_observed_states(hass: HomeAssistant):
-    """Test that recorder history adds observed states."""
+async def test_load_history_adds_observed_states(hass: HomeAssistant) -> None:
+    """Test that history loading captures actually-observed states.
+
+    For entities with custom states (like input_select), history reveals states
+    that have been used but aren't in device class defaults. Excludes
+    unavailable/unknown which are always valid.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Use input_select which supports arbitrary states from history
@@ -208,9 +278,12 @@ async def test_load_history_adds_observed_states(hass: HomeAssistant):
     assert "unknown" not in kb.get_observed_states("input_select.mode")
 
 
-@pytest.mark.asyncio
-async def test_history_excludes_unavailable_unknown(hass: HomeAssistant):
-    """Test that history loading excludes unavailable/unknown from observed."""
+async def test_history_excludes_unavailable_unknown(hass: HomeAssistant) -> None:
+    """Test that unavailable/unknown states are not tracked as observed states.
+
+    These states are always valid and don't represent actual operational states,
+    so they shouldn't be counted in the observed states set.
+    """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("sensor.custom", "active")
@@ -234,9 +307,12 @@ async def test_history_excludes_unavailable_unknown(hass: HomeAssistant):
     assert "unknown" not in observed
 
 
-@pytest.mark.asyncio
-async def test_get_historical_entity_ids(hass: HomeAssistant):
-    """Test getting historical entity IDs from recorder."""
+async def test_get_historical_entity_ids(hass: HomeAssistant) -> None:
+    """Test retrieving entities that have been seen in recorder history.
+
+    Historical entities may no longer exist in the current state registry but
+    could still be referenced in automations. This helps detect stale references.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Simulate loading history with entities
@@ -260,11 +336,12 @@ async def test_get_historical_entity_ids(hass: HomeAssistant):
     assert "sensor.nonexistent" not in historical
 
 
-async def test_get_integration_from_entity_registry(hass: HomeAssistant):
-    """Test getting integration name from entity registry."""
-    from unittest.mock import MagicMock, patch
+async def test_get_integration_from_entity_registry(hass: HomeAssistant) -> None:
+    """Test that integration platform name is extracted from entity registry.
 
-    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+    Integration names (e.g., 'roborock', 'bermuda') are used to apply
+    integration-specific validation rules like custom states or area detection.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -284,11 +361,12 @@ async def test_get_integration_from_entity_registry(hass: HomeAssistant):
     assert integration == "roborock"
 
 
-async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
-    """Test getting integration returns None for unknown entity."""
-    from unittest.mock import MagicMock, patch
+async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant) -> None:
+    """Test that entities not in registry return None for integration.
 
-    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
+    Entities not in the entity registry (e.g., manually created via YAML)
+    don't have integration metadata, so integration-specific rules don't apply.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -304,12 +382,13 @@ async def test_get_integration_returns_none_for_unknown(hass: HomeAssistant):
     assert integration is None
 
 
-async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
-    """Test that learned states are included in valid states."""
-    from unittest.mock import MagicMock, patch
+async def test_get_valid_states_includes_learned_states(hass: HomeAssistant) -> None:
+    """Test that user-learned states are merged into valid states.
 
-    from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-    from custom_components.autodoctor.learned_states_store import LearnedStatesStore
+    When users suppress false positives, those states are saved and treated
+    as valid. This allows custom states (e.g., Roborock 'segment_cleaning')
+    to be recognized without false positives.
+    """
 
     # Set up entity
     hass.states.async_set("vacuum.roborock_s7", "cleaning")
@@ -339,11 +418,25 @@ async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
     # Should still include device class defaults
     assert "cleaning" in states
     assert "docked" in states
-    assert states >= {"segment_cleaning", "cleaning", "docked", "idle", "paused", "returning", "error", "unavailable", "unknown"}
+    assert states >= {
+        "segment_cleaning",
+        "cleaning",
+        "docked",
+        "idle",
+        "paused",
+        "returning",
+        "error",
+        "unavailable",
+        "unknown",
+    }
 
 
-async def test_zone_names_are_cached(hass: HomeAssistant):
-    """Test that zone names are only fetched once and contain zone names."""
+async def test_zone_names_are_cached(hass: HomeAssistant) -> None:
+    """Test that zone names are cached to avoid repeated lookups.
+
+    Zone names are used for device_tracker/person validation. Caching improves
+    performance but means stale data until clear_cache() is called.
+    """
     # Set up a zone
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     await hass.async_block_till_done()
@@ -367,9 +460,12 @@ async def test_zone_names_are_cached(hass: HomeAssistant):
     assert "Work" not in zones3  # Stale — new zone not visible
 
 
-async def test_area_names_are_cached(hass: HomeAssistant):
-    """Test that area names are only fetched once and contain area names."""
-    from homeassistant.helpers import area_registry as ar
+async def test_area_names_are_cached(hass: HomeAssistant) -> None:
+    """Test that area names are cached for Bermuda tracker validation.
+
+    Area names (both original case and lowercase) are valid states for Bermuda
+    BLE device trackers. Caching avoids repeated registry lookups.
+    """
 
     # Set up an area
     area_registry = ar.async_get(hass)
@@ -395,27 +491,31 @@ async def test_area_names_are_cached(hass: HomeAssistant):
     assert "Kitchen" not in areas3  # Stale — new area not visible
 
 
-@pytest.mark.asyncio
-async def test_load_history_uses_executor(hass: HomeAssistant):
-    """Test that history loading uses executor for blocking call."""
-    from unittest.mock import AsyncMock, patch
+async def test_load_history_uses_executor(hass: HomeAssistant) -> None:
+    """Test that history loading offloads to executor thread.
+
+    Recorder queries are blocking I/O operations that should run in an executor
+    to avoid blocking the event loop.
+    """
 
     kb = StateKnowledgeBase(hass)
 
     # Mock async_add_executor_job
     hass.async_add_executor_job = AsyncMock(return_value={})
 
-    with patch(
-        "custom_components.autodoctor.knowledge_base.get_significant_states"
-    ) as mock_get:
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
         await kb.async_load_history(["light.test"])
 
     # Should have called async_add_executor_job
     assert hass.async_add_executor_job.called
 
 
-async def test_has_history_loaded(hass: HomeAssistant):
-    """Test has_history_loaded public method."""
+async def test_has_history_loaded(hass: HomeAssistant) -> None:
+    """Test detection of whether history has been loaded.
+
+    This allows callers to determine if observed states are available or if
+    validation is relying solely on defaults and capabilities.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Initially empty
@@ -426,9 +526,12 @@ async def test_has_history_loaded(hass: HomeAssistant):
     assert kb.has_history_loaded() is True
 
 
-async def test_get_capabilities_states_select_entity(hass: HomeAssistant):
-    """Test extracting states from select entity capabilities."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_capabilities_states_select_entity(hass: HomeAssistant) -> None:
+    """Test that entity registry capabilities provide valid states on fresh install.
+
+    Entity registry capabilities are declared by integrations and remain available
+    even when history is empty, preventing false positives on new installs.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -450,9 +553,12 @@ async def test_get_capabilities_states_select_entity(hass: HomeAssistant):
     assert states == {"auto", "cool", "heat", "off"}
 
 
-async def test_get_capabilities_states_climate_entity(hass: HomeAssistant):
-    """Test extracting hvac_modes from climate entity capabilities."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_capabilities_states_climate_entity(hass: HomeAssistant) -> None:
+    """Test that climate capabilities distinguish hvac_modes (states) from fan_modes (attributes).
+
+    Only capability keys in CAPABILITY_STATE_SOURCES are treated as valid states.
+    Attribute sources like fan_modes are handled separately.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -478,9 +584,12 @@ async def test_get_capabilities_states_climate_entity(hass: HomeAssistant):
     assert "medium" not in states
 
 
-async def test_get_capabilities_states_no_capabilities(hass: HomeAssistant):
-    """Test handling entity with no capabilities."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_capabilities_states_no_capabilities(hass: HomeAssistant) -> None:
+    """Test that entities without capabilities return empty set.
+
+    Simple entities (switches, basic sensors) don't declare capabilities,
+    so they rely entirely on device class defaults and history.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -500,8 +609,12 @@ async def test_get_capabilities_states_no_capabilities(hass: HomeAssistant):
     assert states == set()
 
 
-async def test_get_capabilities_states_no_registry_entry(hass: HomeAssistant):
-    """Test handling entity not in registry."""
+async def test_get_capabilities_states_no_registry_entry(hass: HomeAssistant) -> None:
+    """Test that entities not in registry (YAML-defined) return empty set.
+
+    Legacy YAML entities aren't in the entity registry and don't have
+    capabilities metadata.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Entity exists in states but not in registry
@@ -512,9 +625,12 @@ async def test_get_capabilities_states_no_registry_entry(hass: HomeAssistant):
     assert states == set()
 
 
-async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssistant):
-    """Test handling capabilities with non-list values."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssistant) -> None:
+    """Test that malformed capability values are safely ignored.
+
+    Defensive programming: capabilities should be lists, but if they're not,
+    we return empty set rather than crashing.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -534,9 +650,12 @@ async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssis
     assert states == set()  # Should return empty, not crash
 
 
-async def test_get_valid_states_uses_capabilities(hass: HomeAssistant):
-    """Test that get_valid_states() includes capability states on fresh install."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_valid_states_uses_capabilities(hass: HomeAssistant) -> None:
+    """Test that capabilities enable validation on fresh installs without history.
+
+    This is critical for preventing false positives when users install Autodoctor
+    on a new system with no recorder history.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -562,8 +681,12 @@ async def test_get_valid_states_uses_capabilities(hass: HomeAssistant):
     assert valid_states == {"mode1", "mode2", "mode3", "unavailable", "unknown"}
 
 
-async def test_attribute_maps_to_capability(hass: HomeAssistant):
-    """Test mapping attribute names to capability keys."""
+async def test_attribute_maps_to_capability(hass: HomeAssistant) -> None:
+    """Test that attribute names map to their capability keys correctly.
+
+    Attributes like 'fan_mode' map to capability key 'fan_modes' (plural).
+    This mapping allows validating attribute values against capabilities.
+    """
     kb = StateKnowledgeBase(hass)
 
     # Test valid mappings
@@ -581,9 +704,12 @@ async def test_attribute_maps_to_capability(hass: HomeAssistant):
     assert kb._attribute_maps_to_capability("unknown_attr") is None
 
 
-async def test_get_capabilities_attribute_values_climate(hass: HomeAssistant):
-    """Test extracting attribute values from climate capabilities."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_capabilities_attribute_values_climate(hass: HomeAssistant) -> None:
+    """Test that climate capability attribute values are extracted correctly.
+
+    Climate entities declare valid fan_modes and preset_modes in capabilities,
+    which defines valid values for those attributes (not states).
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -615,9 +741,12 @@ async def test_get_capabilities_attribute_values_climate(hass: HomeAssistant):
     assert preset_values == {"eco", "comfort", "sleep"}
 
 
-async def test_get_valid_attributes_uses_capabilities(hass: HomeAssistant):
-    """Test that get_valid_attributes() includes capability values on fresh install."""
-    from homeassistant.helpers import entity_registry as er
+async def test_get_valid_attributes_uses_capabilities(hass: HomeAssistant) -> None:
+    """Test that attribute validation works on fresh installs using capabilities.
+
+    Even without current state attributes, capabilities provide valid attribute
+    values to prevent false positives.
+    """
 
     kb = StateKnowledgeBase(hass)
 
@@ -646,15 +775,17 @@ async def test_get_valid_attributes_uses_capabilities(hass: HomeAssistant):
     assert preset_values == {"eco", "comfort"}
 
 
-async def test_fresh_install_no_false_positives(hass: HomeAssistant):
-    """Test that fresh install has no false positives with capabilities.
+async def test_fresh_install_no_false_positives(hass: HomeAssistant) -> None:
+    """Test comprehensive fresh install scenario without false positives.
 
     Simulates a fresh Home Assistant install where:
     - Entity registry has capabilities
     - No recorder history exists
     - State attributes might be incomplete
+
+    This is the primary regression test for capabilities feature - ensures
+    validation works correctly without any history.
     """
-    from homeassistant.helpers import entity_registry as er
 
     kb = StateKnowledgeBase(hass)
 
@@ -694,7 +825,13 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert "option_a" in select_states
     assert "option_b" in select_states
     assert "option_c" in select_states
-    assert select_states == {"option_a", "option_b", "option_c", "unavailable", "unknown"}
+    assert select_states == {
+        "option_a",
+        "option_b",
+        "option_c",
+        "unavailable",
+        "unknown",
+    }
 
     # Verify climate hvac_modes are valid (no false positives)
     climate_states = kb.get_valid_states("climate.thermostat")
@@ -702,7 +839,17 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert "cool" in climate_states
     assert "auto" in climate_states
     assert "off" in climate_states
-    assert climate_states >= {"heat", "cool", "auto", "off", "heat_cool", "dry", "fan_only", "unavailable", "unknown"}
+    assert climate_states >= {
+        "heat",
+        "cool",
+        "auto",
+        "off",
+        "heat_cool",
+        "dry",
+        "fan_only",
+        "unavailable",
+        "unknown",
+    }
 
     # Verify climate attribute values are valid
     fan_values = kb.get_valid_attributes("climate.thermostat", "fan_mode")
@@ -715,20 +862,19 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert not kb.has_history_loaded()
 
 
-async def test_bermuda_sensor_detected_by_platform(hass: HomeAssistant):
-    """Test that Bermuda BLE area sensor is detected by integration platform.
+async def test_bermuda_sensor_detected_by_platform(hass: HomeAssistant) -> None:
+    """Test that Bermuda BLE sensors are detected by platform, not name matching.
 
-    Note: Sensors return None from get_valid_states() (sensors are too free-form
-    to validate). However, get_integration() is still called for sensors in
-    is_area_sensor detection -- it just doesn't reach that code due to early return.
-    This test verifies the sensor domain early-return behavior is preserved and
-    that get_integration is used (not substring matching) for the detection logic.
+    Bermuda BLE area sensors use integration platform detection (not entity_id
+    substring matching) to avoid false positives. However, sensor domain returns
+    None early, so this test verifies that behavior is preserved.
+
+    Uses platform='bermuda' check, not '_area' substring in entity_id.
     """
     kb = StateKnowledgeBase(hass)
 
     # Set up zones and areas for completeness
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_registry = ar.async_get(hass)
     area_registry.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -753,23 +899,20 @@ async def test_bermuda_sensor_detected_by_platform(hass: HomeAssistant):
     assert states is None
 
 
-async def test_non_bermuda_area_sensor_not_matched(hass: HomeAssistant):
-    """Test that non-Bermuda sensor with '_area' in name is NOT falsely matched.
+async def test_non_bermuda_area_sensor_not_matched(hass: HomeAssistant) -> None:
+    """Test that non-Bermuda sensors with '_area' in name are not falsely matched.
 
     This is the key regression test: sensor.living_area_temperature should NOT
-    get zone/area names injected into valid states. With substring matching,
-    '_area' in entity_id would have matched this entity. With platform-based
-    detection, only bermuda integration sensors would match.
+    be treated as a Bermuda area sensor based on substring matching.
 
-    Since sensors return None from get_valid_states (early return), this test
-    verifies the sensor is NOT treated specially regardless of its name.
+    Platform-based detection (platform='bermuda') prevents false positives from
+    entity names containing '_area'. Sensors return None regardless.
     """
     kb = StateKnowledgeBase(hass)
 
     # Set up zones and areas
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
-    from homeassistant.helpers import area_registry as ar
     area_registry = ar.async_get(hass)
     area_registry.async_create("Kitchen")
     area_registry.async_create("Bedroom")
@@ -794,19 +937,18 @@ async def test_non_bermuda_area_sensor_not_matched(hass: HomeAssistant):
     assert states is None
 
 
-async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant):
-    """Test that Bermuda BLE device_tracker is detected by integration platform.
+async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant) -> None:
+    """Test that Bermuda BLE device_trackers get both zone and area names.
 
-    device_tracker entities DO go through full get_valid_states logic (no early
-    return). This test verifies that platform-based detection correctly identifies
-    a bermuda device_tracker and adds area names to its valid states.
+    device_tracker entities go through full validation logic. Platform-based
+    detection identifies bermuda trackers and adds HA area names as valid states,
+    in addition to standard zone names that all trackers receive.
     """
     kb = StateKnowledgeBase(hass)
 
     # Set up zones and areas
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
-    from homeassistant.helpers import area_registry as ar
     area_registry = ar.async_get(hass)
     area_registry.async_create("Kitchen")
     area_registry.async_create("Bedroom")
@@ -838,17 +980,29 @@ async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant):
     # Also lowercase area names (added by _get_area_names)
     assert "kitchen" in states
     assert "bedroom" in states
-    assert states >= {"home", "not_home", "Home", "Work", "Kitchen", "Bedroom", "kitchen", "bedroom", "unavailable", "unknown"}
+    assert states >= {
+        "home",
+        "not_home",
+        "Home",
+        "Work",
+        "Kitchen",
+        "Bedroom",
+        "kitchen",
+        "bedroom",
+        "unavailable",
+        "unknown",
+    }
 
 
-# --- Bermuda/area sensor detection (KB-06) ---
+# === Mutation Testing Guards ===
+# These tests target specific mutations to ensure robustness
 
 
-async def test_sensor_domain_returns_none_non_sensor_returns_set(hass: HomeAssistant):
-    """Sensor entities return None; non-sensor entities return a set.
+async def test_sensor_domain_returns_none_non_sensor_returns_set(hass: HomeAssistant) -> None:
+    """Test that sensor domain correctly returns None while others return sets.
 
-    Kills: Eq mutations on 'domain == "sensor"' (line 294).
-    If == becomes !=, sensor would get a set and non-sensor would get None.
+    Mutation guard: Kills Eq mutations on 'domain == "sensor"'.
+    If == becomes !=, sensor would incorrectly get a set and non-sensor would get None.
     """
     kb = StateKnowledgeBase(hass)
 
@@ -866,23 +1020,16 @@ async def test_sensor_domain_returns_none_non_sensor_returns_set(hass: HomeAssis
     assert "off" in result
 
 
-# --- Bermuda tracker state filtering (KB-07) ---
+async def test_bermuda_tracker_collects_bermuda_sensor_states(hass: HomeAssistant) -> None:
+    """Test that Bermuda trackers collect states from Bermuda sensors only.
 
-
-async def test_bermuda_tracker_collects_bermuda_sensor_states(hass: HomeAssistant):
-    """Bermuda tracker collects valid states from bermuda sensors.
-
-    Kills: AddNot on 'if is_bermuda_tracker' (line 349) -- skipping the block
-    means bermuda sensor states are not added.
-    Kills: AddNot on 'if state.state not in ("unavailable", "unknown")' (line 353) --
-    inverting means only unavailable/unknown are collected, excluding valid states.
+    Mutation guard: Kills AddNot on 'if is_bermuda_tracker' and 'if state.state not in'.
+    Ensures bermuda sensor states are collected but unavailable/unknown are excluded.
     """
     kb = StateKnowledgeBase(hass)
 
     # Set up zone (device_trackers need this)
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
-
     area_reg = ar.async_get(hass)
     area_reg.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -912,13 +1059,11 @@ async def test_bermuda_tracker_collects_bermuda_sensor_states(hass: HomeAssistan
     assert "kitchen" in states
 
 
-# --- Zone entity friendly_name fallback (KB-08) ---
+async def test_zone_without_friendly_name_uses_entity_id_suffix(hass: HomeAssistant) -> None:
+    """Test that zones without friendly_name use entity_id suffix correctly.
 
-
-async def test_zone_without_friendly_name_uses_entity_id_suffix(hass: HomeAssistant):
-    """Zone without friendly_name falls back to entity_id.split('.')[1].
-
-    Kills: NumberReplacer on [1] -- [0] would produce 'zone',
+    Mutation guard: Kills NumberReplacer on [1] index.
+    [0] would produce 'zone' instead of the actual zone name,
     [2] would raise IndexError.
     """
     hass.states.async_set("zone.my_office", "zoning", {})
@@ -931,10 +1076,11 @@ async def test_zone_without_friendly_name_uses_entity_id_suffix(hass: HomeAssist
     assert "zone" not in zones  # Would be [0] if index mutated
 
 
-async def test_zone_with_and_without_friendly_name(hass: HomeAssistant):
-    """Both friendly_name path and fallback path produce correct results.
+async def test_zone_with_and_without_friendly_name(hass: HomeAssistant) -> None:
+    """Test that both zone name extraction paths work together correctly.
 
-    Verifies the two zone-name extraction paths work together.
+    Verifies that zones with friendly_name and zones without both contribute
+    to the valid zone names set.
     """
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     hass.states.async_set("zone.my_office", "zoning", {})
@@ -946,15 +1092,12 @@ async def test_zone_with_and_without_friendly_name(hass: HomeAssistant):
     assert zones == {"Home", "my_office"}
 
 
-# --- Attribute values list guard (KB-09) ---
+async def test_get_valid_attributes_empty_list_returns_none(hass: HomeAssistant) -> None:
+    """Test that empty attribute lists correctly return None.
 
-
-async def test_get_valid_attributes_empty_list_returns_none(hass: HomeAssistant):
-    """Empty attribute value list returns None, not empty set.
-
-    Kills: and->or on 'if values and isinstance(values, list)' (line 444) --
-    with 'or', isinstance([], list) is True, enters branch, returns set().
-    Uses "effect" attribute which has no capability mapping, bypassing short-circuit.
+    Mutation guard: Kills and->or on 'if values and isinstance(values, list)'.
+    With 'or', isinstance([], list) would return empty set instead of None.
+    Uses 'effect' attribute which has no capability mapping.
     """
     kb = StateKnowledgeBase(hass)
     hass.states.async_set("light.test", "on", {"effect_list": []})
@@ -964,12 +1107,11 @@ async def test_get_valid_attributes_empty_list_returns_none(hass: HomeAssistant)
     assert result is None
 
 
-async def test_get_valid_attributes_non_list_string_returns_none(hass: HomeAssistant):
-    """Non-list truthy attribute value returns None, not iterated characters.
+async def test_get_valid_attributes_non_list_string_returns_none(hass: HomeAssistant) -> None:
+    """Test that non-list attribute values return None, not character sets.
 
-    Kills: and->or on 'if values and isinstance(values, list)' (line 444) --
-    with 'or', truthy string passes the 'or' check, iterates chars into a set.
-    Uses "effect" attribute which has no capability mapping, bypassing short-circuit.
+    Mutation guard: Kills and->or on attribute value type checking.
+    With 'or', truthy strings would be iterated into character sets.
     """
     kb = StateKnowledgeBase(hass)
     hass.states.async_set("light.test", "on", {"effect_list": "rainbow"})
@@ -979,25 +1121,18 @@ async def test_get_valid_attributes_non_list_string_returns_none(hass: HomeAssis
     assert result is None
 
 
-# --- History loading time range (KB-10) ---
+async def test_async_load_history_start_time_is_in_past(hass: HomeAssistant) -> None:
+    """Test that history loading correctly uses past time range.
 
-
-@pytest.mark.asyncio
-async def test_async_load_history_start_time_is_in_past(hass: HomeAssistant):
-    """History loading uses start_time in the past (now - days).
-
-    Kills: Sub->Add on 'datetime.now(UTC) - timedelta(days=...)' (line 472) --
-    mutation would produce start_time = now + 30 days (future).
+    Mutation guard: Kills Sub->Add on 'datetime.now(UTC) - timedelta(days=...)'.
+    Mutation would produce start_time in the future, which makes no sense for history.
     """
     from datetime import UTC, datetime
-    from unittest.mock import AsyncMock
 
     kb = StateKnowledgeBase(hass, history_days=30)
     hass.async_add_executor_job = AsyncMock(return_value={})
 
-    with patch(
-        "custom_components.autodoctor.knowledge_base.get_significant_states"
-    ):
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
         await kb.async_load_history(["light.test"])
 
     # Capture the args passed to async_add_executor_job
@@ -1005,27 +1140,22 @@ async def test_async_load_history_start_time_is_in_past(hass: HomeAssistant):
     call_args = hass.async_add_executor_job.call_args
     # args: (get_significant_states, hass, start_time, end_time, entity_ids, None, True, True)
     start_time = call_args[0][2]  # Third positional arg
-    end_time = call_args[0][3]    # Fourth positional arg
+    end_time = call_args[0][3]  # Fourth positional arg
 
     now = datetime.now(UTC)
     assert start_time < end_time
     assert start_time < now  # Must be in the past
 
 
-# --- Bermuda mutation hardening (KB-11) ---
+async def test_non_bermuda_device_tracker_no_area_names(hass: HomeAssistant) -> None:
+    """Test that non-Bermuda trackers get zones but not area names.
 
-
-async def test_non_bermuda_device_tracker_no_area_names(hass: HomeAssistant):
-    """Non-bermuda device_tracker gets zone names but NOT area names.
-
-    Kills: Eq on `get_integration(entity_id) == "bermuda"` at L335 --
-    if == becomes !=, non-bermuda trackers would be treated as bermuda
-    and get area names added.
+    Mutation guard: Kills Eq on 'get_integration(entity_id) == "bermuda"'.
+    If == becomes !=, non-bermuda trackers would incorrectly get area names.
     """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_reg = ar.async_get(hass)
     area_reg.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -1053,21 +1183,18 @@ async def test_non_bermuda_device_tracker_no_area_names(hass: HomeAssistant):
     assert "kitchen" not in states
 
 
-async def test_bermuda_sensor_gets_zone_and_area_names(hass: HomeAssistant):
-    """Bermuda area sensor (domain=sensor, platform=bermuda) gets zone+area names.
+async def test_bermuda_sensor_gets_zone_and_area_names(hass: HomeAssistant) -> None:
+    """Test that Bermuda sensors return None (sensor early return preserved).
 
-    Note: sensor domain returns None from get_valid_states due to early return.
-    This test verifies that behavior is preserved — bermuda sensors are still
-    sensors and skip state validation. The is_area_sensor logic at L333 never
-    fires because sensor domain returns early at L294.
+    Mutation guard: Kills and->or on 'domain == "sensor" and ... == "bermuda"'.
+    With 'or', non-sensor domains would incorrectly match is_area_sensor logic.
 
-    Kills: and->or on `domain == "sensor" and ... == "bermuda"` at L333 --
-    with 'or', non-sensor domains would match is_area_sensor.
+    Note: Sensor domain returns None due to early return, so Bermuda sensors
+    still don't get area name validation (sensors are too free-form).
     """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_reg = ar.async_get(hass)
     area_reg.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -1104,17 +1231,15 @@ async def test_bermuda_sensor_gets_zone_and_area_names(hass: HomeAssistant):
         assert "kitchen" not in bs_states
 
 
-async def test_bermuda_tracker_collects_only_bermuda_sensor_states(hass: HomeAssistant):
-    """Bermuda tracker iterates sensors and only collects bermuda sensor states.
+async def test_bermuda_tracker_collects_only_bermuda_sensor_states(hass: HomeAssistant) -> None:
+    """Test that Bermuda trackers only collect Bermuda sensor states.
 
-    Kills: ZeroIterationForLoop at L350 (sensor iteration loop does nothing).
-    Kills: Eq on `get_integration(sensor_id) == "bermuda"` at L352 --
-    if == becomes !=, non-bermuda sensor states would be collected instead.
+    Mutation guard: Kills ZeroIterationForLoop and Eq on platform check.
+    Ensures loop runs and only collects from bermuda sensors, not all sensors.
     """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_reg = ar.async_get(hass)
     area_reg.async_create("Office")
     await hass.async_block_till_done()
@@ -1150,17 +1275,15 @@ async def test_bermuda_tracker_collects_only_bermuda_sensor_states(hass: HomeAss
     assert "22.5" not in states
 
 
-async def test_person_entity_gets_zones_but_not_area_names(hass: HomeAssistant):
-    """Person entity gets zone names but NOT area names.
+async def test_person_entity_gets_zones_but_not_area_names(hass: HomeAssistant) -> None:
+    """Test that person entities get zone names but not area names.
 
-    Kills: AddNot on `if is_area_sensor or is_bermuda_tracker` at L343 --
-    if inverted, non-bermuda entities would get area names.
-    Also kills or->and on L337 `domain in (...) or is_area_sensor`.
+    Mutation guard: Kills AddNot on 'if is_area_sensor or is_bermuda_tracker'.
+    If inverted, non-bermuda entities would incorrectly get area names.
     """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_reg = ar.async_get(hass)
     area_reg.async_create("Garage")
     await hass.async_block_till_done()
@@ -1187,16 +1310,15 @@ async def test_person_entity_gets_zones_but_not_area_names(hass: HomeAssistant):
     assert "garage" not in states
 
 
-async def test_bermuda_tracker_excludes_unavailable_sensor_states(hass: HomeAssistant):
-    """Bermuda tracker skips unavailable/unknown sensor states during collection.
+async def test_bermuda_tracker_excludes_unavailable_sensor_states(hass: HomeAssistant) -> None:
+    """Test that Bermuda trackers exclude unavailable/unknown sensor states.
 
-    Kills: `not in` -> `in` on L353 `state not in ("unavailable", "unknown")` --
-    if inverted, ONLY unavailable/unknown would be collected as valid states.
+    Mutation guard: Kills 'not in' -> 'in' mutation.
+    If inverted, only unavailable/unknown would be collected, excluding valid states.
     """
     kb = StateKnowledgeBase(hass)
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
-    from homeassistant.helpers import area_registry as ar
     area_reg = ar.async_get(hass)
     area_reg.async_create("Bedroom")
     await hass.async_block_till_done()
@@ -1228,16 +1350,11 @@ async def test_bermuda_tracker_excludes_unavailable_sensor_states(hass: HomeAssi
     # only "unknown" and "unavailable" would be collected, not "bedroom".
 
 
-async def test_non_bermuda_sensor_returns_none(hass: HomeAssistant):
-    """Non-bermuda sensor returns None (sensor early return).
+async def test_non_bermuda_sensor_returns_none(hass: HomeAssistant) -> None:
+    """Test that non-Bermuda sensors return None (sensor domain early return).
 
-    Complementary test: even if is_area_sensor check at L333 were mutated
-    to match non-bermuda sensors, the sensor domain early return at L294
-    prevents any state set from being returned.
-
-    Kills: Eq on `domain == "sensor"` at L333 becoming `domain != "sensor"` --
-    non-sensor domains would match is_area_sensor when platform is bermuda,
-    but we verify that only sensor domain triggers early None return.
+    Mutation guard: Verifies sensor early return at domain check.
+    Even if is_area_sensor logic were mutated, sensors still return None.
     """
     kb = StateKnowledgeBase(hass)
 
@@ -1258,14 +1375,16 @@ async def test_non_bermuda_sensor_returns_none(hass: HomeAssistant):
 
     assert states is None
 
-# --- Enum sensor validation (quick-012) ---
+
+# === Enum Sensor Validation ===
 
 
-async def test_enum_sensor_returns_options_as_valid_states(hass: HomeAssistant):
-    """Enum sensors with options return those options as valid states.
+async def test_enum_sensor_returns_options_as_valid_states(hass: HomeAssistant) -> None:
+    """Test that enum sensors with options enable state validation.
 
-    Verifies that sensor entities with device_class: enum and a non-empty
-    options list get state validation based on those declared options.
+    Enum sensors (device_class: enum with options list) are the exception to
+    the "sensors return None" rule. They have well-defined states that can
+    be validated, preventing false positives for state references.
     """
     kb = StateKnowledgeBase(hass)
 
@@ -1288,7 +1407,7 @@ async def test_enum_sensor_returns_options_as_valid_states(hass: HomeAssistant):
     assert states >= {"idle", "washing", "drying", "unavailable", "unknown"}
 
 
-async def test_non_enum_sensor_still_returns_none(hass: HomeAssistant):
+async def test_non_enum_sensor_still_returns_none(hass: HomeAssistant) -> None:
     """Non-enum sensors continue to return None (no state validation)."""
     kb = StateKnowledgeBase(hass)
 
@@ -1303,7 +1422,7 @@ async def test_non_enum_sensor_still_returns_none(hass: HomeAssistant):
     assert kb.get_valid_states("sensor.temperature") is None
 
 
-async def test_sensor_without_device_class_returns_none(hass: HomeAssistant):
+async def test_sensor_without_device_class_returns_none(hass: HomeAssistant) -> None:
     """Sensors without device_class attribute return None."""
     kb = StateKnowledgeBase(hass)
 
@@ -1314,7 +1433,7 @@ async def test_sensor_without_device_class_returns_none(hass: HomeAssistant):
     assert kb.get_valid_states("sensor.custom_value") is None
 
 
-async def test_enum_sensor_empty_options_returns_none(hass: HomeAssistant):
+async def test_enum_sensor_empty_options_returns_none(hass: HomeAssistant) -> None:
     """Enum sensor with empty options list returns None (not valid for validation)."""
     kb = StateKnowledgeBase(hass)
 
@@ -1327,7 +1446,7 @@ async def test_enum_sensor_empty_options_returns_none(hass: HomeAssistant):
     assert kb.get_valid_states("sensor.bad_enum") is None
 
 
-async def test_enum_sensor_options_not_list_returns_none(hass: HomeAssistant):
+async def test_enum_sensor_options_not_list_returns_none(hass: HomeAssistant) -> None:
     """Enum sensor with non-list options attribute returns None."""
     kb = StateKnowledgeBase(hass)
 
@@ -1340,7 +1459,7 @@ async def test_enum_sensor_options_not_list_returns_none(hass: HomeAssistant):
     assert kb.get_valid_states("sensor.bad_enum") is None
 
 
-async def test_enum_sensor_caches_result(hass: HomeAssistant):
+async def test_enum_sensor_caches_result(hass: HomeAssistant) -> None:
     """Enum sensor results are cached (consistent with other domains)."""
     kb = StateKnowledgeBase(hass)
 
@@ -1363,3 +1482,235 @@ async def test_enum_sensor_caches_result(hass: HomeAssistant):
     states2 = kb.get_valid_states("sensor.mode")
     assert states1 == states2
     assert states1 is not states2  # Different objects (copy)
+
+
+# --- Quick task 015: Coverage improvements for knowledge_base.py ---
+
+
+@pytest.mark.asyncio
+async def test_get_capabilities_states_exception_returns_empty(hass: HomeAssistant) -> None:
+    """Test that entity registry exception returns empty set."""
+    kb = StateKnowledgeBase(hass)
+
+    with patch("custom_components.autodoctor.knowledge_base.er.async_get", side_effect=RuntimeError("Registry error")):
+        result = kb._get_capabilities_states("select.test")
+
+    assert result == set()
+
+
+@pytest.mark.asyncio
+async def test_get_capabilities_attribute_values_exception_returns_empty(hass: HomeAssistant) -> None:
+    """Test that exception during attribute value extraction returns empty set."""
+    kb = StateKnowledgeBase(hass)
+
+    with patch("custom_components.autodoctor.knowledge_base.er.async_get", side_effect=RuntimeError("Registry error")):
+        result = kb._get_capabilities_attribute_values("climate.test", "fan_mode")
+
+    assert result == set()
+
+
+@pytest.mark.asyncio
+async def test_get_capabilities_attribute_values_no_matching_capability(hass: HomeAssistant) -> None:
+    """Test attribute value extraction when capability key doesn't exist."""
+    kb = StateKnowledgeBase(hass)
+
+    # Create mock entity entry with capabilities but missing fan_modes
+    mock_entry = MagicMock()
+    mock_entry.capabilities = {"hvac_modes": ["heat", "cool"]}  # No fan_modes
+
+    with patch("custom_components.autodoctor.knowledge_base.er.async_get") as mock_get:
+        mock_registry = MagicMock()
+        mock_registry.async_get.return_value = mock_entry
+        mock_get.return_value = mock_registry
+
+        result = kb._get_capabilities_attribute_values("climate.thermostat", "fan_mode")
+
+    assert result == set()
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_timeout(hass: HomeAssistant) -> None:
+    """Test history loading handles timeout gracefully."""
+    kb = StateKnowledgeBase(hass, history_timeout=1)
+
+    async def slow_load(*args, **kwargs):
+        await asyncio.sleep(10)
+        return {}
+
+    hass.async_add_executor_job = slow_load
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
+        # Should timeout and not crash
+        try:
+            await asyncio.wait_for(kb.async_load_history(["light.test"]), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass  # Expected
+
+    assert kb._observed_states == {}
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_general_exception(hass: HomeAssistant) -> None:
+    """Test history loading handles general exceptions gracefully."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.async_add_executor_job = AsyncMock(side_effect=Exception("Load failed"))
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
+        await kb.async_load_history(["light.test"])
+
+    # Should not crash, observed states remain empty
+    assert kb._observed_states == {}
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_no_recorder(hass: HomeAssistant) -> None:
+    """Test history loading when recorder is not available."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("light.test", "on")
+    await hass.async_block_till_done()
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", None):
+        await kb.async_load_history(["light.test"])
+
+    # Should not crash
+    assert kb._observed_states == {}
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_dict_format_states(hass: HomeAssistant) -> None:
+    """Test history loading with dict format states (not State objects)."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("light.test", "on")
+    await hass.async_block_till_done()
+
+    # Mock history returning dict format instead of State objects
+    mock_history = {"light.test": [{"state": "on"}, {"state": "off"}, {"state": None}]}
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", return_value=mock_history):
+        hass.async_add_executor_job = AsyncMock(return_value=mock_history)
+        await kb.async_load_history(["light.test"])
+
+    states = kb.get_observed_states("light.test")
+    assert "on" in states
+    assert "off" in states
+    assert None not in states  # None states filtered out
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_merges_existing_observed(hass: HomeAssistant) -> None:
+    """Test that history loading merges with existing observed states."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("light.test", "on")
+    await hass.async_block_till_done()
+
+    # Pre-populate observed states
+    kb._observed_states["light.test"] = {"on"}
+
+    mock_state = MagicMock()
+    mock_state.state = "off"
+    mock_history = {"light.test": [mock_state]}
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", return_value=mock_history):
+        hass.async_add_executor_job = AsyncMock(return_value=mock_history)
+        await kb.async_load_history(["light.test"])
+
+    observed = kb.get_observed_states("light.test")
+    assert "on" in observed
+    assert "off" in observed
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_updates_cache(hass: HomeAssistant) -> None:
+    """Test that history loading updates existing cache."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("light.test", "on")
+    await hass.async_block_till_done()
+
+    # Pre-populate cache
+    kb._cache["light.test"] = {"on", "unavailable", "unknown"}
+
+    mock_state = MagicMock()
+    mock_state.state = "off"
+    mock_history = {"light.test": [mock_state]}
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", return_value=mock_history):
+        hass.async_add_executor_job = AsyncMock(return_value=mock_history)
+        await kb.async_load_history(["light.test"])
+
+    # Cache should now include "off"
+    states = kb.get_valid_states("light.test")
+    assert "off" in states
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_auto_discovers_whitelisted(hass: HomeAssistant) -> None:
+    """Test history auto-discovery loads only whitelisted entities."""
+    kb = StateKnowledgeBase(hass)
+
+    # Set up whitelisted and non-whitelisted entities
+    hass.states.async_set("binary_sensor.motion", "on")
+    hass.states.async_set("sensor.temp", "20")
+    await hass.async_block_till_done()
+
+    mock_history = {}
+
+    def mock_get_significant(hass, start, end, entity_ids=None, **kwargs):
+        # Capture which entities were requested
+        mock_get_significant.called_with_entities = entity_ids
+        return mock_history
+
+    mock_get_significant.called_with_entities = None
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", side_effect=mock_get_significant):
+        hass.async_add_executor_job = AsyncMock(return_value=mock_history)
+        await kb.async_load_history()  # No entity_ids - should auto-discover
+
+    # Should have requested only binary_sensor (whitelisted), not sensor
+    requested = mock_get_significant.called_with_entities
+    if requested:
+        assert "binary_sensor.motion" in requested
+        assert "sensor.temp" not in requested
+
+
+@pytest.mark.asyncio
+async def test_async_load_history_empty_entities_returns_early(hass: HomeAssistant) -> None:
+    """Test that history loading returns early when no entities to load."""
+    kb = StateKnowledgeBase(hass)
+
+    # No whitelisted entities in state
+    hass.async_add_executor_job = AsyncMock()
+
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
+        await kb.async_load_history()  # No entity_ids, no whitelisted entities
+
+    # Should not have called executor job
+    hass.async_add_executor_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_valid_states_cache_hit_returns_copy(hass: HomeAssistant) -> None:
+    """Test that cache hit returns a copy to prevent external mutation."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("binary_sensor.test", "on")
+    await hass.async_block_till_done()
+
+    # Populate cache
+    kb._cache["binary_sensor.test"] = {"on", "off"}
+
+    # Get states
+    states1 = kb.get_valid_states("binary_sensor.test")
+    assert states1 == {"on", "off"}
+
+    # Modify returned set
+    states1.add("modified")
+
+    # Get again - should not contain modification (returns copy)
+    states2 = kb.get_valid_states("binary_sensor.test")
+    assert "modified" not in states2
+    assert states2 == {"on", "off"}

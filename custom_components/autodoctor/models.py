@@ -65,11 +65,19 @@ class ValidationIssue:
     message: str
     issue_type: IssueType | None = None
     suggestion: str | None = None
-    valid_states: list[str] = field(default_factory=list)
+    valid_states: list[str] = field(default_factory=lambda: list[str]())
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
-        return hash((self.automation_id, self.issue_type, self.entity_id, self.location, self.message))
+        return hash(
+            (
+                self.automation_id,
+                self.issue_type,
+                self.entity_id,
+                self.location,
+                self.message,
+            )
+        )
 
     def __eq__(self, other: object) -> bool:
         """Equality based on key fields for deduplication."""
@@ -122,31 +130,37 @@ class ServiceCall:
 VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
     "entity_state": {
         "label": "Entity & State",
-        "issue_types": frozenset({
-            IssueType.ENTITY_NOT_FOUND,
-            IssueType.ENTITY_REMOVED,
-            IssueType.INVALID_STATE,
-            IssueType.CASE_MISMATCH,
-            IssueType.ATTRIBUTE_NOT_FOUND,
-        }),
+        "issue_types": frozenset(
+            {
+                IssueType.ENTITY_NOT_FOUND,
+                IssueType.ENTITY_REMOVED,
+                IssueType.INVALID_STATE,
+                IssueType.CASE_MISMATCH,
+                IssueType.ATTRIBUTE_NOT_FOUND,
+            }
+        ),
     },
     "services": {
         "label": "Service Calls",
-        "issue_types": frozenset({
-            IssueType.SERVICE_NOT_FOUND,
-            IssueType.SERVICE_MISSING_REQUIRED_PARAM,
-            IssueType.SERVICE_INVALID_PARAM_TYPE,
-            IssueType.SERVICE_UNKNOWN_PARAM,
-            IssueType.SERVICE_TARGET_NOT_FOUND,
-        }),
+        "issue_types": frozenset(
+            {
+                IssueType.SERVICE_NOT_FOUND,
+                IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+                IssueType.SERVICE_INVALID_PARAM_TYPE,
+                IssueType.SERVICE_UNKNOWN_PARAM,
+                IssueType.SERVICE_TARGET_NOT_FOUND,
+            }
+        ),
     },
     "templates": {
         "label": "Templates",
-        "issue_types": frozenset({
-            IssueType.TEMPLATE_SYNTAX_ERROR,
-            IssueType.TEMPLATE_UNKNOWN_FILTER,
-            IssueType.TEMPLATE_UNKNOWN_TEST,
-        }),
+        "issue_types": frozenset(
+            {
+                IssueType.TEMPLATE_SYNTAX_ERROR,
+                IssueType.TEMPLATE_UNKNOWN_FILTER,
+                IssueType.TEMPLATE_UNKNOWN_TEST,
+            }
+        ),
     },
 }
 

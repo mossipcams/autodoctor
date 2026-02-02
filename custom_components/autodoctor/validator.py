@@ -15,12 +15,14 @@ from .models import IssueType, Severity, StateReference, ValidationIssue
 _LOGGER = logging.getLogger(__name__)
 
 # Reference types that are not entity IDs and should skip entity validation
-_NON_ENTITY_REFERENCE_TYPES = frozenset({
-    "device",       # device_id (hex hash) — validate against device registry
-    "tag",          # tag_id — no entity validation
-    "area",         # area_id — validate against area registry
-    "integration",  # integration name — no entity validation
-})
+_NON_ENTITY_REFERENCE_TYPES = frozenset(
+    {
+        "device",  # device_id (hex hash) — validate against device registry
+        "tag",  # tag_id — no entity validation
+        "area",  # area_id — validate against area registry
+        "integration",  # integration name — no entity validation
+    }
+)
 
 
 class ValidationEngine:
@@ -76,11 +78,15 @@ class ValidationEngine:
                 return issues
 
             if ref.expected_state is not None:
-                state_issues = self._validate_state(ref)
+                state_issues = self._check_state_value(
+                    ref, ref.expected_state, "State"
+                )
                 issues.extend(state_issues)
 
             if ref.transition_from is not None:
-                from_issues = self._validate_transition_from(ref)
+                from_issues = self._check_state_value(
+                    ref, ref.transition_from, "Transition from state"
+                )
                 issues.extend(from_issues)
 
             if ref.expected_attribute is not None:
@@ -90,7 +96,10 @@ class ValidationEngine:
         except (KeyError, AttributeError, TypeError, ValueError) as err:
             _LOGGER.warning(
                 "Error validating %s in %s: %s: %s",
-                ref.entity_id, ref.automation_id, type(err).__name__, err,
+                ref.entity_id,
+                ref.automation_id,
+                type(err).__name__,
+                err,
             )
             # Return empty - avoid false positives on errors
 
@@ -137,14 +146,6 @@ class ValidationEngine:
         # tag, integration — skip entity validation (no reliable registry check)
         return []
 
-    def _validate_state(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the expected state."""
-        return self._check_state_value(ref, ref.expected_state, "State")
-
-    def _validate_transition_from(self, ref: StateReference) -> list[ValidationIssue]:
-        """Validate the transition_from state value."""
-        return self._check_state_value(ref, ref.transition_from, "Transition from state")
-
     def _check_state_value(
         self,
         ref: StateReference,
@@ -171,7 +172,8 @@ class ValidationEngine:
             if valid_states is None:
                 _LOGGER.debug(
                     "Skipping state validation for %s (domain %s not in whitelist, no known states)",
-                    ref.entity_id, domain
+                    ref.entity_id,
+                    domain,
                 )
                 return []
             # Fall through to validate against the known states
@@ -217,33 +219,34 @@ class ValidationEngine:
             )
         ]
 
-
     def _validate_attribute(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the expected attribute exists.
 
         Checks against supported attributes for the domain, not just current state.
         This prevents false positives (e.g., light.brightness when light is off).
         """
+        assert ref.expected_attribute is not None
         issues: list[ValidationIssue] = []
+        expected_attr = ref.expected_attribute
 
         state = self.knowledge_base.hass.states.get(ref.entity_id)
         if state is None:
             return issues
 
         # Check if attribute is in current state
-        if ref.expected_attribute in state.attributes:
+        if expected_attr in state.attributes:
             return issues
 
         # Check if attribute is supported by this domain
         domain = self.knowledge_base.get_domain(ref.entity_id)
         domain_attrs = get_domain_attributes(domain)
-        if ref.expected_attribute in domain_attrs:
+        if expected_attr in domain_attrs:
             # Attribute is supported by this domain, don't report error
             return issues
 
         # Attribute not found in current state or domain defaults
         available = list(state.attributes.keys())
-        suggestion = self._suggest_attribute(ref.expected_attribute, available)
+        suggestion = self._suggest_attribute(expected_attr, available)
         issues.append(
             ValidationIssue(
                 issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
@@ -252,7 +255,7 @@ class ValidationEngine:
                 automation_name=ref.automation_name,
                 entity_id=ref.entity_id,
                 location=ref.location,
-                message=f"Attribute '{ref.expected_attribute}' does not exist on {ref.entity_id}",
+                message=f"Attribute '{expected_attr}' does not exist on {ref.entity_id}",
                 suggestion=suggestion,
                 valid_states=available,
             )
@@ -298,7 +301,7 @@ class ValidationEngine:
         self._ensure_entity_cache()
         domain, name = invalid.split(".", 1)
 
-        same_domain = self._entity_cache.get(domain, [])
+        same_domain = self._entity_cache.get(domain, [])  # pyright: ignore[reportOptionalMemberAccess]
         if not same_domain:
             return None
 

@@ -1,14 +1,31 @@
-"""Tests for JinjaValidator."""
+"""Tests for JinjaValidator.
+
+Comprehensive test coverage for Jinja2 template validation including:
+- Template syntax error detection
+- Unknown filter and test detection
+- Trigger field validation (to/from with Jinja)
+- Action recursion (choose, if/then/else, repeat, parallel)
+- Depth limit enforcement
+- Guard tests for removed entity validation features
+"""
+
+from __future__ import annotations
 
 import inspect
+from typing import Any
 
 import pytest
+
 from custom_components.autodoctor.jinja_validator import JinjaValidator
-from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
+from custom_components.autodoctor.models import IssueType, Severity
 
 
-def test_deeply_nested_conditions_do_not_stackoverflow():
-    """Test that deeply nested conditions hit recursion limit gracefully."""
+def test_deeply_nested_conditions_do_not_stackoverflow() -> None:
+    """Test that deeply nested conditions hit recursion limit gracefully.
+
+    Ensures that extremely deep nesting (25 levels) doesn't cause a stack
+    overflow, instead reaching the depth limit and returning gracefully.
+    """
     validator = JinjaValidator()
 
     # Build deeply nested condition (25 levels deep)
@@ -30,9 +47,17 @@ def test_deeply_nested_conditions_do_not_stackoverflow():
     assert len(issues) == 0
 
 
-@pytest.mark.parametrize("action_key", ["repeat", "parallel"])
-def test_null_action_config_does_not_crash(action_key):
-    """Test that repeat: null and parallel: null don't crash validation."""
+@pytest.mark.parametrize(
+    "action_key",
+    ["repeat", "parallel"],
+    ids=["repeat-null", "parallel-null"],
+)
+def test_null_action_config_does_not_crash(action_key: str) -> None:
+    """Test that null action values don't crash validation.
+
+    Home Assistant automations may have repeat: null or parallel: null
+    in certain edge cases. Validation should handle these gracefully.
+    """
     validator = JinjaValidator()
     automation = {
         "id": f"null_{action_key}",
@@ -45,8 +70,12 @@ def test_null_action_config_does_not_crash(action_key):
     assert len(issues) == 0
 
 
-def test_break_continue_do_not_produce_false_positives():
-    """Templates using {% break %} and {% continue %} are valid in HA."""
+def test_break_continue_do_not_produce_false_positives() -> None:
+    """Test that loop control statements are treated as valid.
+
+    Home Assistant's Jinja2 environment supports {% break %} and {% continue %}
+    within loops. These should not produce syntax errors or false positives.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "loop_control_test",
@@ -70,8 +99,12 @@ def test_break_continue_do_not_produce_false_positives():
     assert len(issues) == 0
 
 
-def test_valid_template_produces_no_issues():
-    """A valid HA template should produce no issues."""
+def test_valid_template_produces_no_issues() -> None:
+    """Test that well-formed templates produce no validation issues.
+
+    Valid templates using standard Home Assistant filters and functions
+    should pass validation without errors or warnings.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "valid_template",
@@ -94,8 +127,12 @@ def test_valid_template_produces_no_issues():
     assert len(issues) == 0
 
 
-def test_invalid_template_produces_syntax_error():
-    """A template with bad syntax should produce an error."""
+def test_invalid_template_produces_syntax_error() -> None:
+    """Test that malformed templates produce TEMPLATE_SYNTAX_ERROR.
+
+    Templates with invalid Jinja2 syntax (incomplete expressions, missing
+    operators, etc.) should be detected and reported as errors.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "bad_syntax",
@@ -115,8 +152,12 @@ def test_invalid_template_produces_syntax_error():
     assert issues[0].severity == Severity.ERROR
 
 
-def test_unknown_filter_produces_warning():
-    """A template using a filter that doesn't exist in HA should produce a warning."""
+def test_unknown_filter_produces_warning() -> None:
+    """Test that unknown filters produce TEMPLATE_UNKNOWN_FILTER warnings.
+
+    When strict validation is enabled, filters not in the Home Assistant or
+    standard Jinja2 filter registry should be flagged as warnings (not errors).
+    """
     validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "bad_filter",
@@ -137,8 +178,12 @@ def test_unknown_filter_produces_warning():
     assert "as_timestmp" in issues[0].message
 
 
-def test_unknown_test_produces_warning():
-    """A template using a test that doesn't exist in HA should produce a warning."""
+def test_unknown_test_produces_warning() -> None:
+    """Test that unknown Jinja2 tests produce TEMPLATE_UNKNOWN_TEST warnings.
+
+    When strict validation is enabled, tests (e.g., 'is match()') not in the
+    Home Assistant or standard Jinja2 test registry should be flagged as warnings.
+    """
     validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "bad_test",
@@ -159,8 +204,13 @@ def test_unknown_test_produces_warning():
     assert "mach" in issues[0].message
 
 
-def test_known_filters_are_accepted():
-    """HA and standard Jinja2 filters should not produce warnings."""
+def test_known_filters_are_accepted() -> None:
+    """Test that all known Home Assistant and Jinja2 filters are accepted.
+
+    Validates a comprehensive list of filters including HA-specific filters
+    (as_timestamp, iif, slugify, etc.) and standard Jinja2 filters (join,
+    upper, selectattr, etc.). None should produce warnings.
+    """
     validator = JinjaValidator(strict_template_validation=True)
     templates = [
         # HA filters
@@ -204,12 +254,17 @@ def test_known_filters_are_accepted():
             "actions": [],
         }
         issues = validator.validate_automations([automation])
-        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), \
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), (
             f"Unexpected filter issue for template: {tmpl}: {issues}"
+        )
 
 
-def test_ha_tests_are_accepted():
-    """Common HA tests should not produce warnings."""
+def test_ha_tests_are_accepted() -> None:
+    """Test that all known Home Assistant Jinja2 tests are accepted.
+
+    Validates HA-specific tests like 'is match()', 'is has_value',
+    'is is_number', etc. None should produce warnings.
+    """
     validator = JinjaValidator(strict_template_validation=True)
     templates = [
         "{% if states('sensor.temp') is match('\\\\d+') %}t{% endif %}",
@@ -231,8 +286,12 @@ def test_ha_tests_are_accepted():
         assert len(issues) == 0, f"Unexpected issue for template: {tmpl}: {issues}"
 
 
-def test_multiple_unknown_filters_all_reported():
-    """Multiple unknown filters in one template should each produce a warning."""
+def test_multiple_unknown_filters_all_reported() -> None:
+    """Test that all unknown filters in a template are reported.
+
+    When a template contains multiple unknown filters, each should be
+    reported as a separate warning (not just the first one encountered).
+    """
     validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "multi_bad_filter",
@@ -253,8 +312,12 @@ def test_multiple_unknown_filters_all_reported():
     assert any("blargh" in m for m in names)
 
 
-def test_syntax_error_skips_semantic_check():
-    """When there's a syntax error, semantic checks should not run."""
+def test_syntax_error_skips_semantic_check() -> None:
+    """Test that syntax errors prevent semantic validation.
+
+    When a template has a syntax error, semantic checks (filter/test
+    validation) should be skipped to avoid cascading errors.
+    """
     validator = JinjaValidator(strict_template_validation=True)
     automation = {
         "id": "syntax_then_semantic",
@@ -273,11 +336,15 @@ def test_syntax_error_skips_semantic_check():
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-# --- Trigger to/from field validation tests (Task 2: H2) ---
+# --- Trigger to/from field validation tests ---
 
 
-def test_trigger_to_with_jinja_is_validated():
-    """Template trigger with Jinja expression in 'to' field should be validated."""
+def test_trigger_to_with_jinja_is_validated() -> None:
+    """Test that Jinja templates in trigger 'to' fields are validated.
+
+    Template triggers can have Jinja expressions in the 'to' field.
+    These should be parsed and validated for syntax errors.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "trigger_to_jinja",
@@ -296,8 +363,12 @@ def test_trigger_to_with_jinja_is_validated():
     assert len(issues) == 0
 
 
-def test_trigger_to_with_bad_jinja_produces_syntax_error():
-    """Template trigger with bad Jinja in 'to' should produce syntax error."""
+def test_trigger_to_with_bad_jinja_produces_syntax_error() -> None:
+    """Test that malformed Jinja in trigger 'to' field produces syntax error.
+
+    Invalid Jinja2 syntax in a trigger's 'to' field should be detected
+    and reported with the correct location information.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "trigger_to_bad_jinja",
@@ -317,8 +388,12 @@ def test_trigger_to_with_bad_jinja_produces_syntax_error():
     assert "trigger[0].to" in issues[0].location
 
 
-def test_trigger_to_plain_string_not_treated_as_template():
-    """Plain string 'to' field (no Jinja syntax) should NOT be treated as template."""
+def test_trigger_to_plain_string_not_treated_as_template() -> None:
+    """Test that plain strings in 'to' field are not treated as templates.
+
+    State trigger 'to' fields without Jinja syntax (e.g., "on") should be
+    treated as literal values, not validated as templates.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "trigger_to_plain",
@@ -337,8 +412,12 @@ def test_trigger_to_plain_string_not_treated_as_template():
     assert len(issues) == 0
 
 
-def test_trigger_from_plain_string_not_treated_as_template():
-    """Plain string 'from' field (no Jinja syntax) should NOT be treated as template."""
+def test_trigger_from_plain_string_not_treated_as_template() -> None:
+    """Test that plain strings in 'from' field are not treated as templates.
+
+    State trigger 'from' fields without Jinja syntax (e.g., "off") should be
+    treated as literal values, not validated as templates.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "trigger_from_plain",
@@ -357,8 +436,12 @@ def test_trigger_from_plain_string_not_treated_as_template():
     assert len(issues) == 0
 
 
-def test_trigger_to_and_from_both_validated():
-    """Both to and from fields with Jinja should be validated."""
+def test_trigger_to_and_from_both_validated() -> None:
+    """Test that both 'to' and 'from' fields with Jinja are validated.
+
+    When both fields contain Jinja templates with syntax errors, both
+    should be reported with correct location information.
+    """
     validator = JinjaValidator()
     automation = {
         "id": "trigger_both",
@@ -382,11 +465,15 @@ def test_trigger_to_and_from_both_validated():
     assert all(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-# --- Exception classification tests (Task 1: C3) ---
+# --- Exception classification tests ---
 
 
-def test_jinja_syntax_error_produces_template_syntax_error():
-    """A jinja2.TemplateSyntaxError should produce TEMPLATE_SYNTAX_ERROR."""
+def test_jinja_syntax_error_produces_template_syntax_error() -> None:
+    """Test that jinja2.TemplateSyntaxError produces TEMPLATE_SYNTAX_ERROR.
+
+    Ensures that Jinja2's native TemplateSyntaxError exceptions are correctly
+    classified as TEMPLATE_SYNTAX_ERROR issues.
+    """
     validator = JinjaValidator()
     # {% if %} is invalid Jinja syntax (missing expression after 'if')
     issues = validator._check_template(
@@ -396,8 +483,12 @@ def test_jinja_syntax_error_produces_template_syntax_error():
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_non_syntax_exception_does_not_produce_template_syntax_error():
-    """A non-TemplateSyntaxError exception in _check_template should NOT produce TEMPLATE_SYNTAX_ERROR."""
+def test_non_syntax_exception_does_not_produce_template_syntax_error() -> None:
+    """Test that non-syntax exceptions don't produce TEMPLATE_SYNTAX_ERROR.
+
+    Exceptions other than TemplateSyntaxError (e.g., KeyError, ValueError)
+    should be logged and skipped, not reported as syntax errors.
+    """
     validator = JinjaValidator()
 
     # Monkey-patch the environment's parse method to raise a non-syntax exception
@@ -419,14 +510,15 @@ def test_non_syntax_exception_does_not_produce_template_syntax_error():
     validator._env.parse = original_parse
 
 
-# --- ZeroIterationForLoop mutation hardening (JV-05) ---
+# --- ZeroIterationForLoop mutation hardening ---
 
 
-def test_choose_conditions_loop_finds_template_error():
-    """Choose option with bad template in condition.
+def test_choose_conditions_loop_finds_template_error() -> None:
+    """Test that choose option conditions are validated.
 
-    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(opt_conditions)` (line 313).
-    If mutated to empty iterable, the condition's bad template is never checked.
+    Mutation test: Ensures the conditions loop is not skipped. If the loop
+    over opt_conditions is mutated to an empty iterable, the bad template
+    in the condition would never be detected.
     """
     validator = JinjaValidator()
     automation = {
@@ -439,7 +531,10 @@ def test_choose_conditions_loop_finds_template_error():
                 "choose": [
                     {
                         "conditions": [
-                            {"condition": "template", "value_template": "{{ broken > }}"}
+                            {
+                                "condition": "template",
+                                "value_template": "{{ broken > }}",
+                            }
                         ],
                         "sequence": [],
                     }
@@ -448,15 +543,16 @@ def test_choose_conditions_loop_finds_template_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_choose_options_loop_finds_template_error():
-    """Choose block with option whose sequence has bad template.
+def test_choose_options_loop_finds_template_error() -> None:
+    """Test that choose options sequence is validated.
 
-    Kills: ZeroIterationForLoop on `for opt_idx, option in enumerate(action.get("choose", []))` (line 307).
-    If mutated to empty iterable, the entire option (including sequence) is never validated.
+    Mutation test: Ensures the options loop is not skipped. If the loop
+    over choose options is mutated to empty, the bad template in the
+    option's sequence would never be detected.
     """
     validator = JinjaValidator()
     automation = {
@@ -476,15 +572,15 @@ def test_choose_options_loop_finds_template_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_if_conditions_loop_finds_template_error():
-    """If action with bad template in condition.
+def test_if_conditions_loop_finds_template_error() -> None:
+    """Test that if action conditions are validated.
 
-    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(if_conditions)` (line 351).
-    If mutated to empty iterable, the if condition's bad template is never checked.
+    Mutation test: Ensures the if conditions loop is not skipped. If the loop
+    over if_conditions is mutated to empty, the bad template would not be found.
     """
     validator = JinjaValidator()
     automation = {
@@ -500,15 +596,15 @@ def test_if_conditions_loop_finds_template_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_repeat_while_conditions_loop_finds_template_error():
-    """Repeat action with bad template in while condition.
+def test_repeat_while_conditions_loop_finds_template_error() -> None:
+    """Test that repeat while conditions are validated.
 
-    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(repeat_conditions)` (line 384)
-    via the "while" key. If mutated to empty iterable, the while condition is never checked.
+    Mutation test: Ensures the repeat while conditions loop is not skipped.
+    If mutated to empty, the bad template in the while condition is not found.
     """
     validator = JinjaValidator()
     automation = {
@@ -528,15 +624,15 @@ def test_repeat_while_conditions_loop_finds_template_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_repeat_until_conditions_loop_finds_template_error():
-    """Repeat action with bad template in until condition.
+def test_repeat_until_conditions_loop_finds_template_error() -> None:
+    """Test that repeat until conditions are validated.
 
-    Kills: ZeroIterationForLoop on `for cond_idx, cond in enumerate(repeat_conditions)` (line 384)
-    via the "until" key. If mutated to empty iterable, the until condition is never checked.
+    Mutation test: Ensures the repeat until conditions loop is not skipped.
+    If mutated to empty, the bad template in the until condition is not found.
     """
     validator = JinjaValidator()
     automation = {
@@ -556,15 +652,15 @@ def test_repeat_until_conditions_loop_finds_template_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_parallel_branches_loop_finds_template_error():
-    """Parallel action with bad template in branch.
+def test_parallel_branches_loop_finds_template_error() -> None:
+    """Test that parallel branches are validated.
 
-    Kills: ZeroIterationForLoop on `for branch_idx, branch in enumerate(branches)` (line 409).
-    If mutated to empty iterable, the branch's bad template is never checked.
+    Mutation test: Ensures the parallel branches loop is not skipped. If
+    mutated to empty, the bad template in the branch is not detected.
     """
     validator = JinjaValidator()
     automation = {
@@ -572,22 +668,18 @@ def test_parallel_branches_loop_finds_template_error():
         "alias": "ZIL Parallel",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [
-            {
-                "parallel": [{"data": {"msg": "{{ broken > }}"}}]
-            }
-        ],
+        "actions": [{"parallel": [{"data": {"msg": "{{ broken > }}"}}]}],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_nested_conditions_loop_finds_template_error():
-    """Top-level 'and' condition with nested bad template condition.
+def test_nested_conditions_loop_finds_template_error() -> None:
+    """Test that nested conditions within 'and' blocks are validated.
 
-    Kills: ZeroIterationForLoop on `for nested_idx, nested_cond in enumerate(nested)` (line 232).
-    If mutated to empty iterable, the nested condition's bad template is never checked.
+    Mutation test: Ensures the nested conditions loop is not skipped. If
+    mutated to empty, the bad template in nested conditions is not found.
     """
     validator = JinjaValidator()
     automation = {
@@ -605,18 +697,18 @@ def test_nested_conditions_loop_finds_template_error():
         "actions": [],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-# --- Depth arithmetic mutation hardening (JV-06) ---
+# --- Depth arithmetic mutation hardening ---
 
 
-def test_choose_nested_two_levels_finds_deep_error():
-    """Choose inside choose with bad template at depth 2.
+def test_choose_nested_two_levels_finds_deep_error() -> None:
+    """Test that nested choose blocks at depth 2 are validated.
 
-    Kills: _depth + 1 arithmetic mutations at choose sequence recursion (line 333).
-    Proves recursion physically reaches depth 2.
+    Mutation test: Ensures depth tracking works correctly. If depth increment
+    is mutated (e.g., _depth + 1 -> _depth), nested templates won't be found.
     """
     validator = JinjaValidator()
     automation = {
@@ -647,14 +739,14 @@ def test_choose_nested_two_levels_finds_deep_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_if_then_nested_two_levels_finds_deep_error():
-    """If/then inside if/then with bad template at depth 2.
+def test_if_then_nested_two_levels_finds_deep_error() -> None:
+    """Test that nested if/then blocks at depth 2 are validated.
 
-    Kills: _depth + 1 arithmetic mutations at if/then recursion (line 362).
+    Mutation test: Ensures depth tracking for if/then recursion is correct.
     """
     validator = JinjaValidator()
     automation = {
@@ -675,14 +767,14 @@ def test_if_then_nested_two_levels_finds_deep_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_repeat_nested_two_levels_finds_deep_error():
-    """Repeat inside repeat with bad template at depth 2.
+def test_repeat_nested_two_levels_finds_deep_error() -> None:
+    """Test that nested repeat blocks at depth 2 are validated.
 
-    Kills: _depth + 1 arithmetic mutations at repeat sequence recursion (line 401).
+    Mutation test: Ensures depth tracking for repeat recursion is correct.
     """
     validator = JinjaValidator()
     automation = {
@@ -698,9 +790,7 @@ def test_repeat_nested_two_levels_finds_deep_error():
                         {
                             "repeat": {
                                 "while": [],
-                                "sequence": [
-                                    {"data": {"msg": "{{ broken > }}"}}
-                                ],
+                                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
                             }
                         }
                     ],
@@ -709,14 +799,14 @@ def test_repeat_nested_two_levels_finds_deep_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_parallel_nested_two_levels_finds_deep_error():
-    """Parallel inside parallel with bad template at depth 2.
+def test_parallel_nested_two_levels_finds_deep_error() -> None:
+    """Test that nested parallel blocks at depth 2 are validated.
 
-    Kills: _depth + 1 arithmetic mutations at parallel recursion (line 417).
+    Mutation test: Ensures depth tracking for parallel recursion is correct.
     """
     validator = JinjaValidator()
     automation = {
@@ -725,29 +815,19 @@ def test_parallel_nested_two_levels_finds_deep_error():
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
         "actions": [
-            {
-                "parallel": [
-                    {
-                        "parallel": [
-                            {"data": {"msg": "{{ broken > }}"}}
-                        ]
-                    }
-                ]
-            }
+            {"parallel": [{"parallel": [{"data": {"msg": "{{ broken > }}"}}]}]}
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_nesting_at_depth_limit_stops_validation():
-    """Nesting 22 levels deep should hit depth limit and stop.
+def test_nesting_at_depth_limit_stops_validation() -> None:
+    """Test that depth limit (20) stops validation at 22 levels deep.
 
-    Template error at bottom should NOT be found.
-    Kills: _depth + 1 -> _depth - 1 (depth never reaches 20, so no stop)
-           _depth + 1 -> _depth * 1 (depth stays 0, so no stop)
-           _depth + 1 -> _depth + 0 (depth stays 0, so no stop)
+    When nesting exceeds the depth limit, validation should stop to prevent
+    stack overflow. The template error at the bottom should NOT be found.
     """
     validator = JinjaValidator()
 
@@ -768,12 +848,12 @@ def test_nesting_at_depth_limit_stops_validation():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_nesting_just_under_depth_limit_finds_error():
-    """Nesting 19 levels deep should be under limit and find the error.
+def test_nesting_just_under_depth_limit_finds_error() -> None:
+    """Test that nesting at 19 levels (under limit) finds template errors.
 
-    Paired with test_nesting_at_depth_limit_stops_validation to kill
-    depth arithmetic mutations: if depth never increments, both tests
-    can't pass simultaneously.
+    Paired with test_nesting_at_depth_limit_stops_validation: this ensures
+    depth tracking works correctly. At 19 levels, validation continues and
+    the error IS found.
     """
     validator = JinjaValidator()
 
@@ -789,13 +869,13 @@ def test_nesting_just_under_depth_limit_finds_error():
         "actions": inner,
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_choose_default_nested_finds_deep_error():
-    """Choose with default containing nested choose with bad template at depth 2.
+def test_choose_default_nested_finds_deep_error() -> None:
+    """Test that nested choose blocks in default path at depth 2 are validated.
 
-    Kills: _depth + 1 arithmetic mutations at choose default recursion (line 343).
+    Mutation test: Ensures depth tracking for choose default recursion is correct.
     """
     validator = JinjaValidator()
     automation = {
@@ -811,9 +891,7 @@ def test_choose_default_nested_finds_deep_error():
                         "choose": [
                             {
                                 "conditions": [],
-                                "sequence": [
-                                    {"data": {"msg": "{{ broken > }}"}}
-                                ],
+                                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
                             }
                         ]
                     }
@@ -822,14 +900,14 @@ def test_choose_default_nested_finds_deep_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_if_else_nested_finds_deep_error():
-    """If/else with nested if/then containing bad template at depth 2.
+def test_if_else_nested_finds_deep_error() -> None:
+    """Test that nested if blocks in else path at depth 2 are validated.
 
-    Kills: _depth + 1 arithmetic mutations at if/else recursion (line 371).
+    Mutation test: Ensures depth tracking for if/else recursion is correct.
     """
     validator = JinjaValidator()
     automation = {
@@ -850,19 +928,18 @@ def test_if_else_nested_finds_deep_error():
         ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-# --- Template detection, dedup, and guard mutation hardening (JV-07, JV-08, JV-09) ---
+# --- Template detection and guard mutation hardening ---
 
 
-def test_non_string_data_value_not_treated_as_template():
-    """Non-string value in action data is NOT treated as a template.
+def test_non_string_data_value_not_treated_as_template() -> None:
+    """Test that non-string values in action data are not treated as templates.
 
-    Kills: and->or swap on `isinstance(value, str) and self._is_template(value)` (line 436).
-    If `and` becomes `or`, `isinstance(42, str)` is False but `or` would try
-    `self._is_template(42)` which expects a string -- causing a crash or incorrect behavior.
+    Mutation test: Ensures isinstance check prevents non-strings from being
+    passed to template validation. If and->or mutation occurs, this would crash.
     """
     validator = JinjaValidator()
     automation = {
@@ -876,11 +953,11 @@ def test_non_string_data_value_not_treated_as_template():
     assert len(issues) == 0
 
 
-def test_template_string_in_data_is_validated():
-    """Template string in action data IS validated for syntax errors.
+def test_template_string_in_data_is_validated() -> None:
+    """Test that template strings in action data are validated.
 
-    Positive counterpart to test_non_string_data_value_not_treated_as_template.
-    Confirms the isinstance(str) + _is_template path works for real templates.
+    Positive test: Confirms that string values containing templates are
+    correctly identified and validated for syntax errors.
     """
     validator = JinjaValidator()
     automation = {
@@ -895,13 +972,12 @@ def test_template_string_in_data_is_validated():
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_data_list_with_non_string_items_not_validated():
-    """Non-string items in a data list are skipped; only template strings are validated.
+def test_data_list_with_non_string_items_not_validated() -> None:
+    """Test that non-string items in data lists are skipped.
 
-    Kills: and->or swap on `isinstance(item, str) and self._is_template(item)` (line 450).
-    If `and` becomes `or`, non-string items (42, True, None) would be passed to
-    `_is_template` or `_check_template`, potentially crashing. Only the template
-    string should produce an issue.
+    Mutation test: Ensures isinstance check in list processing prevents
+    non-strings from being validated. Mixed-type lists should only validate
+    the template string items.
     """
     validator = JinjaValidator()
     automation = {
@@ -916,13 +992,11 @@ def test_data_list_with_non_string_items_not_validated():
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_non_dict_action_skipped_dict_action_validated():
-    """Non-dict action (string) is skipped; dict action with bad template is found.
+def test_non_dict_action_skipped_dict_action_validated() -> None:
+    """Test that non-dict actions are skipped while dict actions are validated.
 
-    Kills: AddNot on `not isinstance(action, dict)` (line 274) causing dict
-           actions to be skipped and string actions to be processed (crash).
-           Also kills continue->break swap: if break is used at the string
-           action, the dict action is never reached.
+    Mutation test: Ensures the isinstance guard correctly skips non-dict
+    actions. If inverted, dict actions would be skipped and strings processed.
     """
     validator = JinjaValidator()
     automation = {
@@ -940,11 +1014,11 @@ def test_non_dict_action_skipped_dict_action_validated():
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_all_dict_actions_with_errors_all_found():
-    """Multiple dict actions with bad templates -- ALL errors are found.
+def test_all_dict_actions_with_errors_all_found() -> None:
+    """Test that all dict actions in a sequence are validated.
 
-    Positive counterpart proving every dict action in the list is processed,
-    not just the first one.
+    Ensures the action loop processes all items, not just the first one.
+    Multiple template errors should all be reported.
     """
     validator = JinjaValidator()
     automation = {
@@ -962,21 +1036,14 @@ def test_all_dict_actions_with_errors_all_found():
     assert all(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-# --- Action key detection mutation hardening (JV-10) ---
-# NOTE: "choose" in action (line 306) AddNot is already killed by
-# test_choose_conditions_loop_finds_template_error (Plan 02 / JV-05).
-# "repeat" in action (line 377) AddNot is already killed by
-# test_repeat_while_conditions_loop_finds_template_error (Plan 02 / JV-05).
-# Tests below target the REMAINING action key guards: default, else, if/then.
+# --- Action key detection mutation hardening ---
 
 
-def test_choose_action_key_detected_and_validated():
-    """Choose action with bad template in condition is found.
+def test_choose_action_key_detected_and_validated() -> None:
+    """Test that choose action blocks are detected and validated.
 
-    Targets: `"choose" in action` guard (line 306) -- JV-10.
-    NOTE: Also killed by test_choose_conditions_loop_finds_template_error (JV-05),
-    but included here with distinct structure (bad template in option sequence
-    data, not just conditions) for completeness.
+    Mutation test: Ensures 'choose' key detection works. If the key check
+    is mutated, choose blocks would not be validated.
     """
     validator = JinjaValidator()
     automation = {
@@ -984,25 +1051,27 @@ def test_choose_action_key_detected_and_validated():
         "alias": "Key Choose",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "choose": [{
-                "conditions": [],
-                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
-            }]
-        }],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ]
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_repeat_action_key_detected_and_validated():
-    """Repeat action with bad template in while condition is found.
+def test_repeat_action_key_detected_and_validated() -> None:
+    """Test that repeat action blocks are detected and validated.
 
-    Targets: `"repeat" in action` guard (line 377) -- JV-10.
-    NOTE: Also killed by test_repeat_while_conditions_loop_finds_template_error
-    (JV-05), but included here for explicit JV-10 coverage with a distinct
-    automation ID and docstring.
+    Mutation test: Ensures 'repeat' key detection works. If the key check
+    is mutated, repeat blocks would not be validated.
     """
     validator = JinjaValidator()
     automation = {
@@ -1010,24 +1079,27 @@ def test_repeat_action_key_detected_and_validated():
         "alias": "Key Repeat",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "repeat": {
-                "while": [{"condition": "template", "value_template": "{{ broken > }}"}],
-                "sequence": [],
+        "actions": [
+            {
+                "repeat": {
+                    "while": [
+                        {"condition": "template", "value_template": "{{ broken > }}"}
+                    ],
+                    "sequence": [],
+                }
             }
-        }],
+        ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_choose_default_key_detected_and_validated():
-    """Choose action with non-empty default containing bad template is found.
+def test_choose_default_key_detected_and_validated() -> None:
+    """Test that choose default blocks are detected and validated.
 
-    Targets: `if default:` guard (line 340) -- JV-10.
-    If AddNot inverts to `if not default:`, a non-empty default block is NOT
-    processed and the bad template inside is missed.
+    Mutation test: Ensures 'default' field detection works. If the truthy
+    check is inverted, non-empty defaults would not be validated.
     """
     validator = JinjaValidator()
     automation = {
@@ -1035,23 +1107,23 @@ def test_choose_default_key_detected_and_validated():
         "alias": "Key Default",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "choose": [],
-            "default": [{"data": {"msg": "{{ broken > }}"}}],
-        }],
+        "actions": [
+            {
+                "choose": [],
+                "default": [{"data": {"msg": "{{ broken > }}"}}],
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-def test_choose_empty_default_no_crash():
-    """Choose action with empty default produces no issues and does not crash.
+def test_choose_empty_default_no_crash() -> None:
+    """Test that empty default blocks are handled gracefully.
 
-    Negative counterpart: empty default (falsy) should NOT be processed.
-    If `if default:` becomes `if not default:`, the empty list IS processed
-    but since it's empty, no crash -- the real kill comes from
-    test_choose_default_key_detected_and_validated above.
+    Negative test: Empty defaults should not be processed. This ensures
+    the falsy check works correctly without crashes.
     """
     validator = JinjaValidator()
     automation = {
@@ -1059,21 +1131,22 @@ def test_choose_empty_default_no_crash():
         "alias": "Key Empty Default",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "choose": [],
-            "default": [],
-        }],
+        "actions": [
+            {
+                "choose": [],
+                "default": [],
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) == 0
 
 
-def test_if_else_key_detected_and_validated():
-    """If/else action with bad template in else block is found.
+def test_if_else_key_detected_and_validated() -> None:
+    """Test that if/else blocks are detected and validated.
 
-    Targets: `if else_actions:` guard (line 368) -- JV-10.
-    If AddNot inverts to `if not else_actions:`, a non-empty else block is NOT
-    processed and the bad template inside is missed.
+    Mutation test: Ensures 'else' field detection works. If the truthy
+    check is inverted, non-empty else blocks would not be validated.
     """
     validator = JinjaValidator()
     automation = {
@@ -1081,28 +1154,29 @@ def test_if_else_key_detected_and_validated():
         "alias": "Key If Else",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "if": [],
-            "else": [{"data": {"msg": "{{ broken > }}"}}],
-        }],
+        "actions": [
+            {
+                "if": [],
+                "else": [{"data": {"msg": "{{ broken > }}"}}],
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
-    assert len(issues) >= 1
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
-# --- Phase 24: Entity validation removal guard tests ---
-# These tests ensure entity validation is NOT present in JinjaValidator.
-# The template validator should only check syntax and filter/test semantics,
-# NOT entity existence, attribute existence, or state validity.
-# Entity validation is handled by validator.py through the analyzer path.
+# --- Entity validation removal guard tests ---
 
 
-def test_no_validation_engine_parameter():
-    """JinjaValidator.__init__ must NOT accept a validation_engine parameter.
+def test_no_validation_engine_parameter() -> None:
+    """Guard: Prevent re-introduction of validation_engine parameter.
 
-    v2.14.0 removed duplicate entity validation from the template path.
-    Entity validation is handled solely by validator.py via analyzer.
+    v2.14.0 removed duplicate entity validation from JinjaValidator.
+    Entity validation is now handled solely by validator.py via analyzer.
+    This test ensures the parameter stays removed.
+
+    See: PROJECT.md "Key Decisions" - Remove duplicate validation paths
     """
     sig = inspect.signature(JinjaValidator.__init__)
     param_names = set(sig.parameters.keys()) - {"self"}
@@ -1111,11 +1185,14 @@ def test_no_validation_engine_parameter():
     )
 
 
-def test_no_entity_validation_methods():
-    """JinjaValidator must NOT have entity validation methods.
+def test_no_entity_validation_methods() -> None:
+    """Guard: Prevent re-introduction of entity validation methods.
 
     v2.14.0 removed _extract_entity_references, _check_special_reference,
-    and _validate_entity_references. These were a duplicate code path.
+    and _validate_entity_references from JinjaValidator. These created a
+    duplicate validation path with high false positive rates.
+
+    See: PROJECT.md "Key Decisions" - Remove duplicate validation paths
     """
     assert not hasattr(JinjaValidator, "_extract_entity_references"), (
         "_extract_entity_references must be removed"
@@ -1128,23 +1205,37 @@ def test_no_entity_validation_methods():
     )
 
 
-def test_no_issue_type_remap_dict():
-    """Module must NOT export _ISSUE_TYPE_REMAP (removed in v2.14.0)."""
+def test_no_issue_type_remap_dict() -> None:
+    """Guard: Prevent re-introduction of _ISSUE_TYPE_REMAP.
+
+    v2.14.0 removed _ISSUE_TYPE_REMAP as part of entity validation removal.
+    This dict was used to remap entity issues from the template path.
+
+    See: PROJECT.md "Key Decisions" - Remove duplicate validation paths
+    """
     import custom_components.autodoctor.jinja_validator as jv_module
+
     assert not hasattr(jv_module, "_ISSUE_TYPE_REMAP"), (
         "_ISSUE_TYPE_REMAP must be removed from jinja_validator module"
     )
 
 
-def test_no_special_ref_types_dict():
-    """Module must NOT export _SPECIAL_REF_TYPES (removed in v2.14.0)."""
+def test_no_special_ref_types_dict() -> None:
+    """Guard: Prevent re-introduction of _SPECIAL_REF_TYPES.
+
+    v2.14.0 removed _SPECIAL_REF_TYPES as part of entity validation removal.
+    This dict was used for special entity reference handling in templates.
+
+    See: PROJECT.md "Key Decisions" - Remove duplicate validation paths
+    """
     import custom_components.autodoctor.jinja_validator as jv_module
+
     assert not hasattr(jv_module, "_SPECIAL_REF_TYPES"), (
         "_SPECIAL_REF_TYPES must be removed from jinja_validator module"
     )
 
 
-def test_template_with_nonexistent_entity_no_entity_issues():
+def test_template_with_nonexistent_entity_no_entity_issues() -> None:
     """Templates referencing nonexistent entities must NOT produce entity issues.
 
     After v2.14.0, JinjaValidator only checks syntax and filter/test semantics.
@@ -1190,7 +1281,7 @@ def _build_nested_choose_default(depth: int) -> list:
     return inner
 
 
-def test_choose_default_22_deep_stops_at_depth_limit():
+def test_choose_default_22_deep_stops_at_depth_limit() -> None:
     """22-deep choose→default nesting hits depth limit; error NOT found.
 
     Kills: _depth + 1 mutations at choose default recursion (L317).
@@ -1207,7 +1298,7 @@ def test_choose_default_22_deep_stops_at_depth_limit():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_choose_default_19_deep_finds_error():
+def test_choose_default_19_deep_finds_error() -> None:
     """19-deep choose→default nesting is under limit; error IS found.
 
     Paired with test_choose_default_22_deep_stops_at_depth_limit to kill
@@ -1222,7 +1313,7 @@ def test_choose_default_19_deep_finds_error():
         "actions": _build_nested_choose_default(19),
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
 def _build_nested_if_then(depth: int) -> list:
@@ -1233,7 +1324,7 @@ def _build_nested_if_then(depth: int) -> list:
     return inner
 
 
-def test_if_then_22_deep_stops_at_depth_limit():
+def test_if_then_22_deep_stops_at_depth_limit() -> None:
     """22-deep if→then nesting hits depth limit; error NOT found.
 
     Kills: _depth + 1 mutations at if/then recursion (L336).
@@ -1250,7 +1341,7 @@ def test_if_then_22_deep_stops_at_depth_limit():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_if_then_19_deep_finds_error():
+def test_if_then_19_deep_finds_error() -> None:
     """19-deep if→then nesting is under limit; error IS found.
 
     Paired with test_if_then_22_deep_stops_at_depth_limit to kill
@@ -1265,7 +1356,7 @@ def test_if_then_19_deep_finds_error():
         "actions": _build_nested_if_then(19),
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
 def _build_nested_if_else(depth: int) -> list:
@@ -1276,7 +1367,7 @@ def _build_nested_if_else(depth: int) -> list:
     return inner
 
 
-def test_if_else_22_deep_stops_at_depth_limit():
+def test_if_else_22_deep_stops_at_depth_limit() -> None:
     """22-deep if→else nesting hits depth limit; error NOT found.
 
     Kills: _depth + 1 mutations at if/else recursion (L345).
@@ -1293,7 +1384,7 @@ def test_if_else_22_deep_stops_at_depth_limit():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_if_else_19_deep_finds_error():
+def test_if_else_19_deep_finds_error() -> None:
     """19-deep if→else nesting is under limit; error IS found.
 
     Paired with test_if_else_22_deep_stops_at_depth_limit to kill
@@ -1308,7 +1399,7 @@ def test_if_else_19_deep_finds_error():
         "actions": _build_nested_if_else(19),
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
 def _build_nested_repeat_sequence(depth: int) -> list:
@@ -1319,7 +1410,7 @@ def _build_nested_repeat_sequence(depth: int) -> list:
     return inner
 
 
-def test_repeat_sequence_22_deep_stops_at_depth_limit():
+def test_repeat_sequence_22_deep_stops_at_depth_limit() -> None:
     """22-deep repeat→sequence nesting hits depth limit; error NOT found.
 
     Kills: _depth + 1 mutations at repeat sequence recursion (L375).
@@ -1336,7 +1427,7 @@ def test_repeat_sequence_22_deep_stops_at_depth_limit():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_repeat_sequence_19_deep_finds_error():
+def test_repeat_sequence_19_deep_finds_error() -> None:
     """19-deep repeat→sequence nesting is under limit; error IS found.
 
     Paired with test_repeat_sequence_22_deep_stops_at_depth_limit to kill
@@ -1351,7 +1442,7 @@ def test_repeat_sequence_19_deep_finds_error():
         "actions": _build_nested_repeat_sequence(19),
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
 def _build_nested_parallel(depth: int) -> list:
@@ -1362,7 +1453,7 @@ def _build_nested_parallel(depth: int) -> list:
     return inner
 
 
-def test_parallel_22_deep_stops_at_depth_limit():
+def test_parallel_22_deep_stops_at_depth_limit() -> None:
     """22-deep parallel nesting hits depth limit; error NOT found.
 
     Kills: _depth + 1 mutations at parallel recursion (L391).
@@ -1379,7 +1470,7 @@ def test_parallel_22_deep_stops_at_depth_limit():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_parallel_19_deep_finds_error():
+def test_parallel_19_deep_finds_error() -> None:
     """19-deep parallel nesting is under limit; error IS found.
 
     Paired with test_parallel_22_deep_stops_at_depth_limit to kill
@@ -1394,7 +1485,7 @@ def test_parallel_19_deep_finds_error():
         "actions": _build_nested_parallel(19),
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
 def _build_nested_condition(depth: int) -> dict:
@@ -1405,7 +1496,7 @@ def _build_nested_condition(depth: int) -> dict:
     return inner
 
 
-def test_condition_nesting_22_deep_stops_at_depth_limit():
+def test_condition_nesting_22_deep_stops_at_depth_limit() -> None:
     """22-deep condition nesting hits depth limit; error NOT found.
 
     Kills: _depth + 1 mutations at _validate_condition recursion (L214).
@@ -1422,7 +1513,7 @@ def test_condition_nesting_22_deep_stops_at_depth_limit():
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
-def test_condition_nesting_19_deep_finds_error():
+def test_condition_nesting_19_deep_finds_error() -> None:
     """19-deep condition nesting is under limit; error IS found.
 
     Paired with test_condition_nesting_22_deep_stops_at_depth_limit to kill
@@ -1437,4 +1528,4 @@ def test_condition_nesting_19_deep_finds_error():
         "actions": [],
     }
     issues = validator.validate_automations([automation])
-    assert any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
+    assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR

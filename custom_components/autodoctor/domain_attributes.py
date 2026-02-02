@@ -171,7 +171,9 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
 }
 
 
-def get_domain_attributes(domain: str | None = None) -> list[str] | dict[str, list[str]]:
+def get_domain_attributes(
+    domain: str | None = None,
+) -> list[str] | dict[str, list[str]]:
     """Get the standard attributes for a domain, or the full mapping.
 
     Args:
