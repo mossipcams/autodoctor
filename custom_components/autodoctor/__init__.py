@@ -421,7 +421,7 @@ async def _async_run_validators(
 
     # Initialize per-group collectors
     group_issues: dict[str, list] = {gid: [] for gid in VALIDATION_GROUP_ORDER}
-    group_durations: dict[str, int] = {gid: 0 for gid in VALIDATION_GROUP_ORDER}
+    group_durations: dict[str, int] = dict.fromkeys(VALIDATION_GROUP_ORDER, 0)
 
     # Build reverse mapping: IssueType -> group_id
     issue_type_to_group: dict[IssueType, str] = {}
@@ -540,7 +540,7 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict:
 
     empty_result = {
         "group_issues": {gid: [] for gid in VALIDATION_GROUP_ORDER},
-        "group_durations": {gid: 0 for gid in VALIDATION_GROUP_ORDER},
+        "group_durations": dict.fromkeys(VALIDATION_GROUP_ORDER, 0),
         "all_issues": [],
         "timestamp": datetime.now(UTC).isoformat(),
     }

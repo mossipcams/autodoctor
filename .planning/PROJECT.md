@@ -17,21 +17,24 @@ Catch automation mistakes before they fail silently at runtime. Every validation
 - Knowledge base with multi-source state truth (device classes, learned states, capabilities, schema, history) — existing
 - Service call validation against HA service registry — existing
 - Jinja2 template syntax and filter/test validation — existing
-- WebSocket API for frontend communication (6 commands) — existing
+- WebSocket API for frontend communication (10 commands) — existing
 - Lovelace card for issue display — existing
-- Issue suppression with state learning — existing
+- Issue suppression with state learning and orphan auto-cleanup — existing
 - Conservative validation philosophy with opt-in strict modes — existing
 - Sensor entities for issue count and health status — existing
+- Enum sensor validation via device_class detection and fallback validator — v2.16.0
+- Targeted single-automation validation on save — v2.15.0
+- Removed for_each entity extraction (false positive source) — v2.14.0
+- Removed filter argument count validation (unreliable with YAML coercion) — v2.14.0
+- Removed duplicate template entity validation path (redundant with validator.py) — v2.14.0
+- IssueType enum narrowed to 13 high-confidence members — v2.14.0
+- Orphan suppression auto-cleanup on store load — v2.14.0
 
 ### Active
 
-None — no milestone in progress.
-
-### Completed (v2.14.0 — Validation Narrowing)
-
-- [x] CUT-1: Remove duplicate template entity validation path from jinja_validator (Phase 24)
-- [x] CUT-2: Remove filter argument count validation (Phase 23)
-- [x] CUT-3: Remove for_each entity extraction from analyzer (Phase 22)
+- [ ] Full Pyright strict type safety across production and test code
+- [ ] pyrightconfig.json with strict mode, HA private import suppression
+- [ ] CI typecheck job passes clean (0 errors)
 
 ### Deferred
 
@@ -49,20 +52,19 @@ None — no milestone in progress.
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| CUT-1 | Phase 24 | Complete |
-| CUT-2 | Phase 23 | Complete |
-| CUT-3 | Phase 22 | Complete |
+No active milestone — see `.planning/milestones/` for historical traceability.
 
 ## Context
 
-- v2.14.0 focuses on removing validation paths that generate false positives in the wild
-- Three cuts identified: duplicate template entity validation, filter argument count checking, and for_each entity extraction
+- v2.14.0 shipped: removed 3 false-positive-generating validation paths (~1,676 lines cut)
+- Pattern established: validation paths that can't achieve high confidence get cut rather than patched
 - Previous removals: undefined template variable checking (40% FP rate), basic service parameter type checking (YAML coercion)
-- Pattern: validation paths that can't achieve high confidence get cut rather than patched
-- Current Jinja2 validation uses hardcoded filter/test lists in `template_semantics.py` and `jinja_validator.py` that must be manually synced with HA releases
+- Current validation: 13 high-confidence IssueType members across entity/state, service, and template syntax checks
+- Jinja2 validation uses hardcoded filter/test lists in `template_semantics.py` and `jinja_validator.py` that must be manually synced with HA releases
 - HA does not expose validation APIs or allow introspection of its template environment
+- 5,921 LOC Python across custom_components/autodoctor/
+- 477 tests passing (2 skipped pre-existing stubs), 10 guard tests protecting removed features
+- CI pipeline: pytest + ruff + Pyright on every PR
 
 ## Constraints
 
@@ -82,6 +84,9 @@ None — no milestone in progress.
 | Remove undefined variable checking | 40% false positive rate with blueprints unacceptable | Good |
 | Static analysis over runtime rendering | Can validate before automations run, no execution risk | Good |
 | Hardcoded filter/test lists | Only viable approach since HA doesn't expose introspection APIs | Revisit -- v2.7.0 replaces with HA-pattern catalog |
+| Remove rather than patch false-positive paths | Unreliable heuristics erode trust; conservative philosophy requires high confidence | Good -- v2.14.0 |
+| Guard tests for removed features | 10 tests prevent accidental re-addition of cut validation paths | Good -- v2.14.0 |
+| Lazy orphan suppression cleanup | Clean on load rather than storage version bump; simpler and sufficient | Good -- v2.14.0 |
 
 ---
-*Last updated: 2026-02-02 after quick-012 (enum sensor validation)*
+*Last updated: 2026-02-02 after v2.17.0 milestone start (Pyright Implementation)*

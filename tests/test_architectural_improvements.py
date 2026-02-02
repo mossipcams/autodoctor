@@ -354,8 +354,8 @@ def test_init_registers_entity_registry_listener():
     # The init module should reference entity registry listener registration
     assert (
         "async_track_entity_registry_updated_event" in source_text
-        or "entity_registry" in source_text
-        and "invalidate_entity_cache" in source_text
+        or ("entity_registry" in source_text
+        and "invalidate_entity_cache" in source_text)
     ), (
         "__init__.py should register an entity registry change listener that invalidates the entity cache"
     )

@@ -98,7 +98,7 @@ def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
         elif isinstance(automation_data, dict):
             total_automations = len(automation_data.get("config", []))
 
-    automations_with_issues = len(set(i.automation_id for i in issues))
+    automations_with_issues = len({i.automation_id for i in issues})
     return max(0, total_automations - automations_with_issues)
 
 

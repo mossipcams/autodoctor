@@ -293,7 +293,7 @@ class StateKnowledgeBase:
                 and isinstance(state.attributes.get("options"), list)
                 and state.attributes["options"]  # non-empty
             ):
-                valid_states = set(str(v) for v in state.attributes["options"])
+                valid_states = {str(v) for v in state.attributes["options"]}
                 valid_states.add("unavailable")
                 valid_states.add("unknown")
                 # Always include current state as valid
@@ -457,7 +457,7 @@ class StateKnowledgeBase:
         if source_attr:
             values = state.attributes.get(source_attr)
             if values and isinstance(values, list):
-                return set(str(v) for v in values)
+                return {str(v) for v in values}
 
         return None
 

@@ -536,7 +536,7 @@ async def test_media_player_extended_attributes_are_valid(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "domain,entity_id,state,attribute",
+    ("domain", "entity_id", "state", "attribute"),
     [
         ("siren", "siren.alarm", "off", "available_tones"),
         ("siren", "siren.alarm", "off", "supported_features"),

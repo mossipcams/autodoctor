@@ -38,11 +38,18 @@ select = [
     "UP",     # pyupgrade
     "B",      # flake8-bugbear
     "SIM",    # flake8-simplify
+    "A",      # flake8-builtins (builtin shadowing)
+    "BLE",    # flake8-blind-except
+    "PT",     # flake8-pytest-style
+    "RUF",    # Ruff-specific rules
+    "C4",     # flake8-comprehensions
+    "PIE",    # flake8-pie (misc bug patterns)
 ]
 ignore = [
-    "E501",   # line too long (handled by formatter)
-    "SIM102", # nested ifs can be more readable
-    "SIM108", # ternary isn't always clearer
+    "E501",    # line too long (handled by formatter)
+    "SIM102",  # nested ifs can be more readable
+    "SIM108",  # ternary isn't always clearer
+    "BLE001",  # blind exception catches are acceptable for defensive error handling in HA integrations
 ]
 
 [tool.ruff.format]

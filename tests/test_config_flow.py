@@ -26,7 +26,7 @@ def _init_flow(flow, hass):
     flow.hass = hass
     flow.context = {"source": "user"}
     flow.flow_id = "test_flow"
-    flow._flow_result = lambda **kwargs: kwargs  # noqa: ARG005
+    flow._flow_result = lambda **kwargs: kwargs
     return flow
 
 

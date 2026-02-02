@@ -806,7 +806,7 @@ async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant)
 
 
 @pytest.mark.parametrize(
-    "service,param",
+    ("service", "param"),
     [
         ("media_player.play_media", "media_content_id"),
         ("media_player.play_media", "media_content_type"),
