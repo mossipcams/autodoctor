@@ -40,7 +40,34 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -e '.[dev]'
+        run: pip install '.[dev]'
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
+
+  typecheck:
+    runs-on: ubuntu-latest
+    if: "!startsWith(github.event.pull_request.title, 'Release ')"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install '.[dev]' pyright
+
+      - name: Run pyright
+        run: pyright custom_components/
+
+  quality-gate:
+    runs-on: ubuntu-latest
+    if: "!startsWith(github.event.pull_request.title, 'Release ')"
+    needs: [lint, test, typecheck]
+
+    steps:
+      - name: All checks passed
+        run: echo "All quality checks passed successfully"
