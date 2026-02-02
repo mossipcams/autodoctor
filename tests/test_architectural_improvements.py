@@ -205,7 +205,8 @@ def test_get_entity_suggestion_importable_from_validator():
 def test_websocket_api_imports_from_validator_not_fix_engine():
     """websocket_api imports get_entity_suggestion from validator (not the removed fix_engine module)."""
 
-    source = ast.parse(open(ws_mod.__file__).read())
+    with open(ws_mod.__file__) as f:
+        source = ast.parse(f.read())
 
     imports = []
     for node in ast.walk(source):
@@ -309,8 +310,9 @@ def test_init_registers_entity_registry_listener():
 
     import custom_components.autodoctor.__init__ as init_mod
 
-    source = ast.parse(open(init_mod.__file__).read())
-    source_text = open(init_mod.__file__).read()
+    with open(init_mod.__file__) as f:
+        source_text = f.read()
+    ast.parse(source_text)
 
     # The init module should reference entity registry listener registration
     assert "async_track_entity_registry_updated_event" in source_text or \
@@ -320,9 +322,8 @@ def test_init_registers_entity_registry_listener():
 
 def test_init_cleans_up_entity_registry_listener_on_unload():
     """__init__.py should unsubscribe the entity registry listener on unload."""
-    source_text = open(
-        __import__("custom_components.autodoctor.__init__", fromlist=["__init__"]).__file__
-    ).read()
+    with open(__import__("custom_components.autodoctor.__init__", fromlist=["__init__"]).__file__) as f:
+        source_text = f.read()
 
     assert "unsub_entity_registry_listener" in source_text, \
         "__init__.py should store and clean up the entity registry listener unsub callback"

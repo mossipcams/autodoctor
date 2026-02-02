@@ -407,7 +407,7 @@ async def test_load_history_uses_executor(hass: HomeAssistant):
 
     with patch(
         "custom_components.autodoctor.knowledge_base.get_significant_states"
-    ) as mock_get:
+    ):
         await kb.async_load_history(["light.test"])
 
     # Should have called async_add_executor_job

@@ -941,7 +941,7 @@ async def test_run_validators_failed_automation_warning(grouped_hass):
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch("custom_components.autodoctor._LOGGER") as mock_logger:
-        result = await _async_run_validators(
+        await _async_run_validators(
             grouped_hass, [{"id": "bad", "alias": "Bad"}]
         )
 
@@ -1097,7 +1097,7 @@ async def test_validate_automation_matches_correct_id(grouped_hass):
             {"id": "auto_b", "alias": "Auto B"},
         ],
     ):
-        issues = await async_validate_automation(grouped_hass, "automation.auto_b")
+        await async_validate_automation(grouped_hass, "automation.auto_b")
 
     # validate_automations should be called with ONLY auto_b (single-element list)
     call_args = grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.call_args

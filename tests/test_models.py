@@ -298,7 +298,7 @@ def test_validation_groups_cover_all_issue_types():
     # Collect all issue types from all groups
     all_grouped: list[IssueType] = []
     grouped_set: set[IssueType] = set()
-    for group_id, group_def in VALIDATION_GROUPS.items():
+    for _group_id, group_def in VALIDATION_GROUPS.items():
         issue_types = group_def["issue_types"]
         all_grouped.extend(issue_types)
         grouped_set |= issue_types

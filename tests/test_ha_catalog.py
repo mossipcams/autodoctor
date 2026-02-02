@@ -166,6 +166,6 @@ class TestCatalogCompleteness:
         import importlib
         try:
             importlib.import_module("custom_components.autodoctor.template_semantics")
-            assert False, "template_semantics is still importable — delete it"
+            raise AssertionError("template_semantics is still importable — delete it")
         except ImportError:
             pass  # Expected
