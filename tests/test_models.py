@@ -252,7 +252,10 @@ def test_service_issue_types_exist():
     assert hasattr(IssueType, "SERVICE_UNKNOWN_PARAM")
 
     assert IssueType.SERVICE_NOT_FOUND.value == "service_not_found"
-    assert IssueType.SERVICE_MISSING_REQUIRED_PARAM.value == "service_missing_required_param"
+    assert (
+        IssueType.SERVICE_MISSING_REQUIRED_PARAM.value
+        == "service_missing_required_param"
+    )
     assert IssueType.SERVICE_INVALID_PARAM_TYPE.value == "service_invalid_param_type"
     assert IssueType.SERVICE_UNKNOWN_PARAM.value == "service_unknown_param"
 
@@ -280,11 +283,13 @@ def test_removed_template_entity_issue_types():
 def test_templates_validation_group_narrowed():
     """Test that templates VALIDATION_GROUP contains only syntax-level checks after v2.14.0."""
     templates_group = VALIDATION_GROUPS["templates"]["issue_types"]
-    expected = frozenset({
-        IssueType.TEMPLATE_SYNTAX_ERROR,
-        IssueType.TEMPLATE_UNKNOWN_FILTER,
-        IssueType.TEMPLATE_UNKNOWN_TEST,
-    })
+    expected = frozenset(
+        {
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+            IssueType.TEMPLATE_UNKNOWN_FILTER,
+            IssueType.TEMPLATE_UNKNOWN_TEST,
+        }
+    )
     assert templates_group == expected, (
         f"Templates group should contain only syntax-level checks. "
         f"Got: {templates_group}, Expected: {expected}"

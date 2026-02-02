@@ -91,13 +91,29 @@ class TestRegistryAccessors:
         """Core HA filters must be in the catalog."""
         filters = get_known_filters()
         core_filters = {
-            "as_datetime", "as_timestamp", "as_local",
-            "to_json", "from_json",
-            "float", "int", "bool",
-            "regex_match", "regex_search", "regex_replace",
-            "slugify", "base64_encode", "base64_decode",
-            "md5", "sha1", "sha256", "sha512",
-            "iif", "multiply", "add", "average", "median",
+            "as_datetime",
+            "as_timestamp",
+            "as_local",
+            "to_json",
+            "from_json",
+            "float",
+            "int",
+            "bool",
+            "regex_match",
+            "regex_search",
+            "regex_replace",
+            "slugify",
+            "base64_encode",
+            "base64_decode",
+            "md5",
+            "sha1",
+            "sha256",
+            "sha512",
+            "iif",
+            "multiply",
+            "add",
+            "average",
+            "median",
         }
         missing = core_filters - filters
         assert not missing, f"Missing core filters: {missing}"
@@ -106,10 +122,16 @@ class TestRegistryAccessors:
         """Core HA tests must be in the catalog."""
         tests = get_known_tests()
         core_tests = {
-            "match", "search",
-            "is_number", "has_value", "contains",
-            "is_list", "is_set", "is_tuple",
-            "is_state", "is_state_attr",
+            "match",
+            "search",
+            "is_number",
+            "has_value",
+            "contains",
+            "is_list",
+            "is_set",
+            "is_tuple",
+            "is_state",
+            "is_state_attr",
         }
         missing = core_tests - tests
         assert not missing, f"Missing core tests: {missing}"
@@ -117,11 +139,13 @@ class TestRegistryAccessors:
     def test_get_filter_entry_removed(self):
         """get_filter_entry() no longer exists in the public API."""
         import custom_components.autodoctor.ha_catalog as catalog
+
         assert not hasattr(catalog, "get_filter_entry")
 
     def test_get_test_entry_removed(self):
         """get_test_entry() no longer exists in the public API."""
         import custom_components.autodoctor.ha_catalog as catalog
+
         assert not hasattr(catalog, "get_test_entry")
 
 
@@ -143,6 +167,7 @@ class TestCatalogCompleteness:
     def test_catalog_has_no_arg_fields(self):
         """CatalogEntry no longer carries min_args/max_args."""
         from custom_components.autodoctor.ha_catalog import _FILTER_REGISTRY
+
         for name, entry in _FILTER_REGISTRY.items():
             assert not hasattr(entry, "min_args"), f"Filter '{name}' still has min_args"
             assert not hasattr(entry, "max_args"), f"Filter '{name}' still has max_args"
@@ -150,6 +175,7 @@ class TestCatalogCompleteness:
     def test_ha_filters_not_in_jinja_validator(self):
         """After migration, _HA_FILTERS should not exist in jinja_validator.py."""
         import custom_components.autodoctor.jinja_validator as jv
+
         assert not hasattr(jv, "_HA_FILTERS"), (
             "_HA_FILTERS still exists in jinja_validator.py — migration incomplete"
         )
@@ -157,6 +183,7 @@ class TestCatalogCompleteness:
     def test_ha_tests_not_in_jinja_validator(self):
         """After migration, _HA_TESTS should not exist in jinja_validator.py."""
         import custom_components.autodoctor.jinja_validator as jv
+
         assert not hasattr(jv, "_HA_TESTS"), (
             "_HA_TESTS still exists in jinja_validator.py — migration incomplete"
         )
@@ -164,6 +191,7 @@ class TestCatalogCompleteness:
     def test_template_semantics_not_importable(self):
         """After migration, template_semantics module should not exist."""
         import importlib
+
         try:
             importlib.import_module("custom_components.autodoctor.template_semantics")
             raise AssertionError("template_semantics is still importable — delete it")

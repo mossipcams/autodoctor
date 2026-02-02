@@ -85,7 +85,11 @@ async def test_options_step_init_shows_form(hass: HomeAssistant):
     handler.hass = hass
     handler.flow_id = "test_options"
     # Patch the read-only config_entry property to return our mock
-    with patch.object(type(handler), "config_entry", new_callable=lambda: property(lambda self: mock_entry)):
+    with patch.object(
+        type(handler),
+        "config_entry",
+        new_callable=lambda: property(lambda self: mock_entry),
+    ):
         result = await handler.async_step_init(user_input=None)
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "init"

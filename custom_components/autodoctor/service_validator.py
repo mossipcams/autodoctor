@@ -32,25 +32,50 @@ _TARGET_FIELDS = frozenset({"entity_id", "device_id", "area_id"})
 # are conditionally present based on entity features.
 _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     # --- Light ---
-    "light.turn_on": frozenset({
-        "brightness", "brightness_pct", "brightness_step", "brightness_step_pct",
-        "color_temp", "color_temp_kelvin", "kelvin",
-        "hs_color", "rgb_color", "rgbw_color", "rgbww_color", "xy_color",
-        "color_name", "white", "profile", "flash", "effect", "transition",
-    }),
+    "light.turn_on": frozenset(
+        {
+            "brightness",
+            "brightness_pct",
+            "brightness_step",
+            "brightness_step_pct",
+            "color_temp",
+            "color_temp_kelvin",
+            "kelvin",
+            "hs_color",
+            "rgb_color",
+            "rgbw_color",
+            "rgbww_color",
+            "xy_color",
+            "color_name",
+            "white",
+            "profile",
+            "flash",
+            "effect",
+            "transition",
+        }
+    ),
     "light.turn_off": frozenset({"transition", "flash"}),
     # --- Climate ---
-    "climate.set_temperature": frozenset({
-        "temperature", "target_temp_high", "target_temp_low",
-    }),
+    "climate.set_temperature": frozenset(
+        {
+            "temperature",
+            "target_temp_high",
+            "target_temp_low",
+        }
+    ),
     "climate.set_hvac_mode": frozenset({"hvac_mode"}),
     # --- Cover ---
     "cover.set_cover_position": frozenset({"position"}),
     "cover.set_cover_tilt_position": frozenset({"tilt_position"}),
     # --- Media player ---
-    "media_player.play_media": frozenset({
-        "media_content_id", "media_content_type", "enqueue", "announce",
-    }),
+    "media_player.play_media": frozenset(
+        {
+            "media_content_id",
+            "media_content_type",
+            "enqueue",
+            "announce",
+        }
+    ),
     "media_player.select_source": frozenset({"source"}),
     "media_player.select_sound_mode": frozenset({"sound_mode"}),
     # --- Fan ---
@@ -76,9 +101,14 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     # --- Input select ---
     "input_select.select_option": frozenset({"option"}),
     # --- Input datetime ---
-    "input_datetime.set_datetime": frozenset({
-        "date", "time", "datetime", "timestamp",
-    }),
+    "input_datetime.set_datetime": frozenset(
+        {
+            "date",
+            "time",
+            "datetime",
+            "timestamp",
+        }
+    ),
     # --- Select ---
     "select.select_option": frozenset({"option"}),
     # --- Text ---
@@ -90,9 +120,14 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     # --- Siren ---
     "siren.turn_on": frozenset({"tone", "volume_level", "duration"}),
     # --- Remote ---
-    "remote.send_command": frozenset({
-        "command", "device", "delay_secs", "num_repeats",
-    }),
+    "remote.send_command": frozenset(
+        {
+            "command",
+            "device",
+            "delay_secs",
+            "num_repeats",
+        }
+    ),
     # --- TTS ---
     "tts.speak": frozenset({"message", "cache", "language", "options"}),
     # --- Humidifier ---
@@ -132,14 +167,13 @@ class ServiceCallValidator:
         """Load service descriptions from Home Assistant."""
         try:
             from homeassistant.helpers.service import async_get_all_descriptions
+
             self._service_descriptions = await async_get_all_descriptions(self.hass)
         except Exception as err:
             _LOGGER.warning("Failed to load service descriptions: %s", err)
             self._service_descriptions = None
 
-    def _get_service_fields(
-        self, domain: str, service: str
-    ) -> dict[str, Any] | None:
+    def _get_service_fields(self, domain: str, service: str) -> dict[str, Any] | None:
         """Get field definitions for a service.
 
         Returns None if descriptions are unavailable.
@@ -172,15 +206,17 @@ class ServiceCallValidator:
 
             # Parse domain.service
             if "." not in call.service:
-                issues.append(ValidationIssue(
-                    severity=Severity.ERROR,
-                    automation_id=call.automation_id,
-                    automation_name=call.automation_name,
-                    entity_id="",
-                    location=call.location,
-                    message=f"Invalid service format: '{call.service}' (expected 'domain.service')",
-                    issue_type=IssueType.SERVICE_NOT_FOUND,
-                ))
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=f"Invalid service format: '{call.service}' (expected 'domain.service')",
+                        issue_type=IssueType.SERVICE_NOT_FOUND,
+                    )
+                )
                 continue
 
             domain, service = call.service.split(".", 1)
@@ -191,16 +227,18 @@ class ServiceCallValidator:
                 suggestion = self._suggest_service(call.service)
                 if suggestion:
                     msg += f". Did you mean '{suggestion}'?"
-                issues.append(ValidationIssue(
-                    severity=Severity.ERROR,
-                    automation_id=call.automation_id,
-                    automation_name=call.automation_name,
-                    entity_id="",
-                    location=call.location,
-                    message=msg,
-                    issue_type=IssueType.SERVICE_NOT_FOUND,
-                    suggestion=suggestion,
-                ))
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=msg,
+                        issue_type=IssueType.SERVICE_NOT_FOUND,
+                        suggestion=suggestion,
+                    )
+                )
                 continue
 
             # Get field definitions for parameter validation
@@ -250,18 +288,20 @@ class ServiceCallValidator:
             if has_any_template:
                 continue
 
-            issues.append(ValidationIssue(
-                severity=Severity.ERROR,
-                automation_id=call.automation_id,
-                automation_name=call.automation_name,
-                entity_id="",
-                location=call.location,
-                message=(
-                    f"Missing required parameter '{field_name}' "
-                    f"for service '{call.service}'"
-                ),
-                issue_type=IssueType.SERVICE_MISSING_REQUIRED_PARAM,
-            ))
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.ERROR,
+                    automation_id=call.automation_id,
+                    automation_name=call.automation_name,
+                    entity_id="",
+                    location=call.location,
+                    message=(
+                        f"Missing required parameter '{field_name}' "
+                        f"for service '{call.service}'"
+                    ),
+                    issue_type=IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+                )
+            )
 
         return issues
 
@@ -287,45 +327,49 @@ class ServiceCallValidator:
 
             if param_name not in fields:
                 # Check if this is a known capability-dependent parameter
-                capability_params = _CAPABILITY_DEPENDENT_PARAMS.get(call.service, frozenset())
+                capability_params = _CAPABILITY_DEPENDENT_PARAMS.get(
+                    call.service, frozenset()
+                )
                 if param_name in capability_params:
                     continue
 
                 suggestion = self._suggest_param(param_name, list(fields.keys()))
-                issues.append(ValidationIssue(
-                    severity=Severity.WARNING,
-                    automation_id=call.automation_id,
-                    automation_name=call.automation_name,
-                    entity_id="",
-                    location=call.location,
-                    message=(
-                        f"Unknown parameter '{param_name}' "
-                        f"for service '{call.service}'"
-                    ),
-                    issue_type=IssueType.SERVICE_UNKNOWN_PARAM,
-                    suggestion=suggestion,
-                ))
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            f"Unknown parameter '{param_name}' "
+                            f"for service '{call.service}'"
+                        ),
+                        issue_type=IssueType.SERVICE_UNKNOWN_PARAM,
+                        suggestion=suggestion,
+                    )
+                )
 
         # Check target dict for non-standard keys
         for param_name in target:
             if param_name not in _TARGET_FIELDS:
-                suggestion = self._suggest_param(
-                    param_name, list(_TARGET_FIELDS)
+                suggestion = self._suggest_param(param_name, list(_TARGET_FIELDS))
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            f"Unknown target key '{param_name}' "
+                            f"for service '{call.service}'. "
+                            f"Valid target keys: {sorted(_TARGET_FIELDS)}"
+                        ),
+                        issue_type=IssueType.SERVICE_UNKNOWN_PARAM,
+                        suggestion=suggestion,
+                    )
                 )
-                issues.append(ValidationIssue(
-                    severity=Severity.WARNING,
-                    automation_id=call.automation_id,
-                    automation_name=call.automation_name,
-                    entity_id="",
-                    location=call.location,
-                    message=(
-                        f"Unknown target key '{param_name}' "
-                        f"for service '{call.service}'. "
-                        f"Valid target keys: {sorted(_TARGET_FIELDS)}"
-                    ),
-                    issue_type=IssueType.SERVICE_UNKNOWN_PARAM,
-                    suggestion=suggestion,
-                ))
 
         return issues
 
@@ -463,16 +507,18 @@ class ServiceCallValidator:
                 msg = f"Entity '{entity_id}' in service target does not exist"
                 if suggestion:
                     msg += f". Did you mean '{suggestion}'?"
-                issues.append(ValidationIssue(
-                    severity=Severity.WARNING,
-                    automation_id=call.automation_id,
-                    automation_name=call.automation_name,
-                    entity_id=entity_id,
-                    location=call.location,
-                    message=msg,
-                    issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
-                    suggestion=suggestion,
-                ))
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id=entity_id,
+                        location=call.location,
+                        message=msg,
+                        issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                        suggestion=suggestion,
+                    )
+                )
         return issues
 
     def _suggest_target_entity(self, invalid: str) -> str | None:
@@ -491,9 +537,7 @@ class ServiceCallValidator:
         matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
         return names[matches[0]] if matches else None
 
-    def _suggest_param(
-        self, invalid: str, valid_params: list[str]
-    ) -> str | None:
+    def _suggest_param(self, invalid: str, valid_params: list[str]) -> str | None:
         """Suggest a correction for an unknown parameter name."""
         matches = get_close_matches(invalid, valid_params, n=1, cutoff=0.75)
         return matches[0] if matches else None

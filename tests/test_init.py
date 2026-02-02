@@ -118,9 +118,9 @@ async def test_validate_all_with_groups_classification(grouped_hass):
 
     # Set up service issues from service validator
     service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = [
-        service_issue
-    ]
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = [service_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch(
@@ -158,7 +158,9 @@ async def test_validate_all_with_groups_timing(grouped_hass):
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch(
@@ -189,7 +191,9 @@ async def test_validate_all_with_groups_status_logic(grouped_hass):
     ]
 
     # services gets no issues -> status should be "pass"
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch(
@@ -234,9 +238,9 @@ async def test_validate_automation_includes_service_validation(grouped_hass):
     """
     # Set up a service issue
     service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = [
-        service_issue
-    ]
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = [service_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     # No issues from other validators
@@ -255,7 +259,9 @@ async def test_validate_automation_includes_service_validation(grouped_hass):
     assert issues[0].issue_type == IssueType.SERVICE_NOT_FOUND
 
     # Verify service validator was actually called
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.assert_called_once()
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -268,9 +274,9 @@ async def test_validate_automation_includes_all_families(grouped_hass):
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
         template_issue
     ]
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = [
-        service_issue
-    ]
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = [service_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
@@ -293,7 +299,9 @@ async def test_validate_automation_includes_all_families(grouped_hass):
 async def test_validate_automation_not_found(grouped_hass):
     """Test that async_validate_automation returns empty when automation not found."""
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
 
     with patch(
@@ -312,7 +320,9 @@ async def test_validate_all_is_thin_wrapper(grouped_hass):
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch(
@@ -337,6 +347,7 @@ def test_no_dedup_cross_family_function():
     produces entity validation issues (entity validation path was removed).
     """
     import custom_components.autodoctor as init_module
+
     assert not hasattr(init_module, "_dedup_cross_family"), (
         "_dedup_cross_family must be removed from __init__.py"
     )
@@ -408,7 +419,11 @@ async def test_reload_listener_single_automation_change(mock_hass):
     # One automation changed
     changed_configs = [
         {"id": "auto_1", "alias": "Auto 1", "trigger": [{"platform": "state"}]},
-        {"id": "auto_2", "alias": "Auto 2 CHANGED", "trigger": [{"platform": "time", "at": "12:00"}]},
+        {
+            "id": "auto_2",
+            "alias": "Auto 2 CHANGED",
+            "trigger": [{"platform": "time", "at": "12:00"}],
+        },
         {"id": "auto_3", "alias": "Auto 3", "trigger": [{"platform": "sun"}]},
     ]
 
@@ -428,16 +443,20 @@ async def test_reload_listener_single_automation_change(mock_hass):
 
     mock_hass.bus.async_listen = mock_async_listen
 
-    with patch(
-        "custom_components.autodoctor._get_automation_configs",
-        return_value=changed_configs,
-    ), patch(
-        "custom_components.autodoctor.async_validate_automation",
-        new_callable=AsyncMock,
-    ) as mock_validate_auto, patch(
-        "custom_components.autodoctor.async_validate_all",
-        new_callable=AsyncMock,
-    ) as mock_validate_all:
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=changed_configs,
+        ),
+        patch(
+            "custom_components.autodoctor.async_validate_automation",
+            new_callable=AsyncMock,
+        ) as mock_validate_auto,
+        patch(
+            "custom_components.autodoctor.async_validate_all",
+            new_callable=AsyncMock,
+        ) as mock_validate_all,
+    ):
         _setup_reload_listener(mock_hass, debounce_seconds=0)
         assert listener_callback is not None
 
@@ -489,16 +508,20 @@ async def test_reload_listener_bulk_reload_validates_all(mock_hass):
 
     mock_hass.bus.async_listen = mock_async_listen
 
-    with patch(
-        "custom_components.autodoctor._get_automation_configs",
-        return_value=changed_configs,
-    ), patch(
-        "custom_components.autodoctor.async_validate_automation",
-        new_callable=AsyncMock,
-    ) as mock_validate_auto, patch(
-        "custom_components.autodoctor.async_validate_all",
-        new_callable=AsyncMock,
-    ) as mock_validate_all:
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=changed_configs,
+        ),
+        patch(
+            "custom_components.autodoctor.async_validate_automation",
+            new_callable=AsyncMock,
+        ) as mock_validate_auto,
+        patch(
+            "custom_components.autodoctor.async_validate_all",
+            new_callable=AsyncMock,
+        ) as mock_validate_all,
+    ):
         _setup_reload_listener(mock_hass, debounce_seconds=0)
         listener_callback(MagicMock())
         await asyncio.sleep(0.1)
@@ -532,16 +555,20 @@ async def test_reload_listener_no_snapshot_validates_all(mock_hass):
 
     mock_hass.bus.async_listen = mock_async_listen
 
-    with patch(
-        "custom_components.autodoctor._get_automation_configs",
-        return_value=configs,
-    ), patch(
-        "custom_components.autodoctor.async_validate_automation",
-        new_callable=AsyncMock,
-    ) as mock_validate_auto, patch(
-        "custom_components.autodoctor.async_validate_all",
-        new_callable=AsyncMock,
-    ) as mock_validate_all:
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=configs,
+        ),
+        patch(
+            "custom_components.autodoctor.async_validate_automation",
+            new_callable=AsyncMock,
+        ) as mock_validate_auto,
+        patch(
+            "custom_components.autodoctor.async_validate_all",
+            new_callable=AsyncMock,
+        ) as mock_validate_all,
+    ):
         _setup_reload_listener(mock_hass, debounce_seconds=0)
         listener_callback(MagicMock())
         await asyncio.sleep(0.1)
@@ -576,12 +603,15 @@ async def test_snapshot_updated_after_validation(mock_hass):
 
     mock_hass.bus.async_listen = mock_async_listen
 
-    with patch(
-        "custom_components.autodoctor._get_automation_configs",
-        return_value=configs,
-    ), patch(
-        "custom_components.autodoctor.async_validate_all",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=configs,
+        ),
+        patch(
+            "custom_components.autodoctor.async_validate_all",
+            new_callable=AsyncMock,
+        ),
     ):
         _setup_reload_listener(mock_hass, debounce_seconds=0)
 
@@ -753,9 +783,7 @@ async def test_register_card_current_version_already_registered():
 
     card_url = f"{CARD_URL_BASE}?v={VERSION}"
     mock_resources = MagicMock()
-    mock_resources.async_items.return_value = [
-        {"url": card_url, "id": "existing_id"}
-    ]
+    mock_resources.async_items.return_value = [{"url": card_url, "id": "existing_id"}]
     mock_resources.async_create_item = AsyncMock()
     mock_resources.async_delete_item = AsyncMock()
 
@@ -935,19 +963,22 @@ async def test_run_validators_failed_automation_warning(grouped_hass):
     """
     from custom_components.autodoctor import _async_run_validators
 
-    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.side_effect = Exception("boom")
+    grouped_hass.data[DOMAIN][
+        "analyzer"
+    ].extract_state_references.side_effect = Exception("boom")
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch("custom_components.autodoctor._LOGGER") as mock_logger:
-        await _async_run_validators(
-            grouped_hass, [{"id": "bad", "alias": "Bad"}]
-        )
+        await _async_run_validators(grouped_hass, [{"id": "bad", "alias": "Bad"}])
 
     # Warning should mention 1 failed automation
-    warning_calls = [c for c in mock_logger.warning.call_args_list
-                     if "failed automations" in str(c)]
+    warning_calls = [
+        c for c in mock_logger.warning.call_args_list if "failed automations" in str(c)
+    ]
     assert len(warning_calls) == 1
     assert "1" in str(warning_calls[0])
 
@@ -964,17 +995,18 @@ async def test_run_validators_no_failures_no_warning(grouped_hass):
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch("custom_components.autodoctor._LOGGER") as mock_logger:
-        await _async_run_validators(
-            grouped_hass, [{"id": "good", "alias": "Good"}]
-        )
+        await _async_run_validators(grouped_hass, [{"id": "good", "alias": "Good"}])
 
     # No "failed automations" warning
-    warning_calls = [c for c in mock_logger.warning.call_args_list
-                     if "failed automations" in str(c)]
+    warning_calls = [
+        c for c in mock_logger.warning.call_args_list if "failed automations" in str(c)
+    ]
     assert len(warning_calls) == 0
 
 
@@ -991,10 +1023,14 @@ async def test_run_validators_group_durations_and_mapping(grouped_hass):
 
     # Create a real issue that should be classified
     template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
-    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [template_issue]
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
+        template_issue
+    ]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     result = await _async_run_validators(
@@ -1034,13 +1070,16 @@ async def test_handle_validate_with_automation_id():
     call = MagicMock()
     call.data = {"automation_id": "automation.test123"}
 
-    with patch(
-        "custom_components.autodoctor.async_validate_automation",
-        new_callable=AsyncMock,
-    ) as mock_targeted, patch(
-        "custom_components.autodoctor.async_validate_all",
-        new_callable=AsyncMock,
-    ) as mock_all:
+    with (
+        patch(
+            "custom_components.autodoctor.async_validate_automation",
+            new_callable=AsyncMock,
+        ) as mock_targeted,
+        patch(
+            "custom_components.autodoctor.async_validate_all",
+            new_callable=AsyncMock,
+        ) as mock_all,
+    ):
         await validate_handler(call)
 
     mock_targeted.assert_called_once_with(hass, "automation.test123")
@@ -1085,7 +1124,9 @@ async def test_validate_automation_matches_correct_id(grouped_hass):
     at L614 -- wrong matching would validate wrong or no automation.
     """
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
@@ -1100,7 +1141,9 @@ async def test_validate_automation_matches_correct_id(grouped_hass):
         await async_validate_automation(grouped_hass, "automation.auto_b")
 
     # validate_automations should be called with ONLY auto_b (single-element list)
-    call_args = grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.call_args
+    call_args = grouped_hass.data[DOMAIN][
+        "jinja_validator"
+    ].validate_automations.call_args
     validated = call_args[0][0]
     assert len(validated) == 1
     assert validated[0]["id"] == "auto_b"
@@ -1125,13 +1168,16 @@ async def test_handle_validate_without_automation_id():
     call = MagicMock()
     call.data = {}  # No automation_id
 
-    with patch(
-        "custom_components.autodoctor.async_validate_automation",
-        new_callable=AsyncMock,
-    ) as mock_targeted, patch(
-        "custom_components.autodoctor.async_validate_all",
-        new_callable=AsyncMock,
-    ) as mock_all:
+    with (
+        patch(
+            "custom_components.autodoctor.async_validate_automation",
+            new_callable=AsyncMock,
+        ) as mock_targeted,
+        patch(
+            "custom_components.autodoctor.async_validate_all",
+            new_callable=AsyncMock,
+        ) as mock_all,
+    ):
         await validate_handler(call)
 
     mock_all.assert_called_once()
@@ -1174,9 +1220,7 @@ async def test_run_validators_skips_missing_jinja_validator(mock_hass):
     mock_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     mock_hass.data[DOMAIN]["validator"].validate_all.return_value = []
 
-    result = await _async_run_validators(
-        mock_hass, [{"id": "test", "alias": "Test"}]
-    )
+    result = await _async_run_validators(mock_hass, [{"id": "test", "alias": "Test"}])
 
     assert result["group_issues"]["templates"] == []
 
@@ -1196,8 +1240,12 @@ async def test_run_validators_all_issues_canonical_order(grouped_hass):
 
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
-    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [template_issue]
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = [service_issue]
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
+        template_issue
+    ]
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = [service_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     result = await _async_run_validators(

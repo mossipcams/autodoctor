@@ -239,8 +239,12 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant):
 @pytest.mark.asyncio
 async def test_websocket_run_validation_steps_with_suppression(hass: HomeAssistant):
     """Test run_steps filters suppressed issues."""
-    issue1 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
-    issue2 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
+    issue1 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
+    )
+    issue2 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
+    )
 
     # Mock suppression store that suppresses issue1
     suppression_store = MagicMock()
@@ -361,8 +365,12 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
     hass: HomeAssistant,
 ):
     """Test that cached steps command filters suppressed issues at read time."""
-    issue1 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
-    issue2 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
+    issue1 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
+    )
+    issue2 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
+    )
 
     # Mock suppression store that suppresses issue1
     suppression_store = MagicMock()
@@ -469,8 +477,12 @@ async def test_existing_commands_still_registered(hass: HomeAssistant):
 @pytest.mark.asyncio
 async def test_websocket_list_suppressions(hass: HomeAssistant):
     """Test listing suppressed issues with metadata."""
-    issue1 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
-    issue2 = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
+    issue1 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
+    )
+    issue2 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
+    )
 
     suppression_store = MagicMock()
     suppression_store.keys = frozenset({issue1.get_suppression_key()})
@@ -578,4 +590,9 @@ async def test_suppression_store_keys_property(hass: HomeAssistant):
     await store.async_suppress("automation.b:light.b:entity_not_found")
     result = store.keys
     assert isinstance(result, frozenset)
-    assert result == frozenset({"automation.a:light.a:entity_not_found", "automation.b:light.b:entity_not_found"})
+    assert result == frozenset(
+        {
+            "automation.a:light.a:entity_not_found",
+            "automation.b:light.b:entity_not_found",
+        }
+    )

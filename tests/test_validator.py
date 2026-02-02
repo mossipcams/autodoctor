@@ -342,9 +342,7 @@ async def test_light_rgb_color_attribute_is_valid(hass: HomeAssistant):
         "effect_list",
     ],
 )
-async def test_light_domain_attributes_are_valid(
-    hass: HomeAssistant, attribute: str
-):
+async def test_light_domain_attributes_are_valid(hass: HomeAssistant, attribute: str):
     """Test that all standard light attributes are recognized as valid."""
     # Create a light with only brightness
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
@@ -388,9 +386,7 @@ async def test_light_domain_attributes_are_valid(
         "hvac_modes",
     ],
 )
-async def test_climate_domain_attributes_are_valid(
-    hass: HomeAssistant, attribute: str
-):
+async def test_climate_domain_attributes_are_valid(hass: HomeAssistant, attribute: str):
     """Test that all standard climate attributes are recognized as valid."""
     # Create a climate entity with minimal attributes
     hass.states.async_set("climate.living_room", "heat", {"temperature": 22})
@@ -411,7 +407,9 @@ async def test_climate_domain_attributes_are_valid(
     issues = validator.validate_reference(ref)
 
     # Should NOT report error - all these attributes are valid for climate domain
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for climate domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for climate domain"
+    )
 
 
 @pytest.mark.asyncio
@@ -464,7 +462,9 @@ async def test_media_player_domain_attributes_are_valid(
     issues = validator.validate_reference(ref)
 
     # Should NOT report error - all these attributes are valid for media_player domain
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for media_player domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for media_player domain"
+    )
 
 
 @pytest.mark.asyncio
@@ -477,9 +477,7 @@ async def test_media_player_domain_attributes_are_valid(
         "supported_features",
     ],
 )
-async def test_light_extended_attributes_are_valid(
-    hass: HomeAssistant, attribute: str
-):
+async def test_light_extended_attributes_are_valid(hass: HomeAssistant, attribute: str):
     """Test that extended light attributes (kelvin, supported_features) are recognized."""
     hass.states.async_set("light.bedroom", "on", {"brightness": 255})
     await hass.async_block_till_done()
@@ -531,7 +529,9 @@ async def test_media_player_extended_attributes_are_valid(
     )
 
     issues = validator.validate_reference(ref)
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for media_player domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for media_player domain"
+    )
 
 
 @pytest.mark.asyncio
@@ -557,8 +557,7 @@ async def test_media_player_extended_attributes_are_valid(
     ],
 )
 async def test_new_domain_attributes_are_valid(
-    hass: HomeAssistant, domain: str, entity_id: str, state: str,
-    attribute: str
+    hass: HomeAssistant, domain: str, entity_id: str, state: str, attribute: str
 ):
     """Test that attributes for newer HA domains are recognized as valid."""
     hass.states.async_set(entity_id, state, {})
@@ -577,7 +576,9 @@ async def test_new_domain_attributes_are_valid(
     )
 
     issues = validator.validate_reference(ref)
-    assert len(issues) == 0, f"Attribute '{attribute}' should be valid for {domain} domain"
+    assert len(issues) == 0, (
+        f"Attribute '{attribute}' should be valid for {domain} domain"
+    )
 
 
 @pytest.mark.asyncio

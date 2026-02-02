@@ -64,15 +64,15 @@ ATTRIBUTE_VALUE_SOURCES: dict[str, str] = {
 
 # Capability introspection - map capability keys to state vs attribute values
 CAPABILITY_STATE_SOURCES: dict[str, bool] = {
-    "options": True,              # select/input_select - STATES
-    "hvac_modes": True,           # climate - STATES
+    "options": True,  # select/input_select - STATES
+    "hvac_modes": True,  # climate - STATES
 }
 
 CAPABILITY_ATTRIBUTE_SOURCES: dict[str, bool] = {
-    "fan_modes": True,            # climate fan_mode attribute
-    "preset_modes": True,         # climate/fan preset_mode attribute
-    "swing_modes": True,          # climate swing_mode attribute
-    "swing_horizontal_modes": True, # climate swing_horizontal_mode attribute
+    "fan_modes": True,  # climate fan_mode attribute
+    "preset_modes": True,  # climate/fan preset_mode attribute
+    "swing_modes": True,  # climate swing_mode attribute
+    "swing_horizontal_modes": True,  # climate swing_horizontal_mode attribute
 }
 
 
@@ -195,11 +195,7 @@ class StateKnowledgeBase:
             return states
 
         except Exception as err:
-            _LOGGER.debug(
-                "Failed to get capabilities for %s: %s",
-                entity_id,
-                err
-            )
+            _LOGGER.debug("Failed to get capabilities for %s: %s", entity_id, err)
             return set()
 
     def _attribute_maps_to_capability(self, attribute_name: str) -> str | None:
@@ -339,15 +335,15 @@ class StateKnowledgeBase:
         if capabilities_states:
             valid_states.update(capabilities_states)
             _LOGGER.debug(
-                "Entity %s: capabilities states = %s",
-                entity_id,
-                capabilities_states
+                "Entity %s: capabilities states = %s", entity_id, capabilities_states
             )
 
         # For zone-aware entities, add all zone names as valid states
         # Device trackers and person entities can report zone names as their state
         # Also handle Bermuda BLE area sensors (detected by integration platform)
-        is_area_sensor = domain == "sensor" and self.get_integration(entity_id) == "bermuda"
+        is_area_sensor = (
+            domain == "sensor" and self.get_integration(entity_id) == "bermuda"
+        )
         is_bermuda_tracker = (
             domain == "device_tracker" and self.get_integration(entity_id) == "bermuda"
         )
@@ -450,7 +446,9 @@ class StateKnowledgeBase:
             return None
 
         # Try capability values first (works on fresh install)
-        capability_values = self._get_capabilities_attribute_values(entity_id, attribute)
+        capability_values = self._get_capabilities_attribute_values(
+            entity_id, attribute
+        )
         if capability_values:
             return capability_values
 

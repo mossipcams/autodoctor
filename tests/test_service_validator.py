@@ -1,6 +1,5 @@
 """Tests for ServiceCallValidator."""
 
-
 import pytest
 from homeassistant.core import HomeAssistant
 
@@ -120,7 +119,9 @@ async def test_validate_missing_required_param(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
     assert len(missing_issues) == 1
     assert missing_issues[0].severity == Severity.ERROR
     assert missing_issues[0].entity_id == ""
@@ -162,7 +163,9 @@ async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
     assert len(missing_issues) == 0
 
 
@@ -187,7 +190,9 @@ async def test_validate_skips_required_check_when_templated(hass: HomeAssistant)
     assert len(issues) == 0
 
 
-async def test_validate_skips_required_check_when_data_is_templated(hass: HomeAssistant):
+async def test_validate_skips_required_check_when_data_is_templated(
+    hass: HomeAssistant,
+):
     """Test required param check skipped when data values contain templates."""
     from custom_components.autodoctor.models import IssueType, ServiceCall
 
@@ -225,7 +230,9 @@ async def test_validate_skips_required_check_when_data_is_templated(hass: HomeAs
     issues = validator.validate_service_calls([call])
 
     # Should not flag brightness as missing since it's present (even though templated)
-    missing_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM]
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
     assert len(missing_issues) == 0
 
 
@@ -262,7 +269,9 @@ async def test_validate_unknown_param(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
     assert len(unknown_issues) == 1
     assert unknown_issues[0].severity == Severity.WARNING
     assert unknown_issues[0].entity_id == ""
@@ -299,7 +308,9 @@ async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
     assert len(unknown_issues) == 0
 
 
@@ -337,7 +348,9 @@ async def test_validate_invalid_param_type_number(hass: HomeAssistant):
     issues = validator.validate_service_calls([call])
 
     # Type checking removed v2.7.0 — verify no false positives
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 0
 
 
@@ -374,7 +387,9 @@ async def test_validate_valid_param_type_number(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 0
 
 
@@ -412,7 +427,9 @@ async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
     issues = validator.validate_service_calls([call])
 
     # Type checking removed v2.7.0 — verify no false positives
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 0
 
 
@@ -449,7 +466,9 @@ async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistan
 
     issues = validator.validate_service_calls([call])
 
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 0
 
 
@@ -486,7 +505,9 @@ async def test_validate_select_option_valid(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 0
 
 
@@ -523,7 +544,9 @@ async def test_validate_select_option_invalid(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 1
     assert type_issues[0].severity == Severity.WARNING
     assert type_issues[0].entity_id == ""
@@ -554,8 +577,10 @@ async def test_validate_no_description_available(hass: HomeAssistant):
 
     # Should only check existence, no param validation without descriptions
     param_issues = [
-        i for i in issues
-        if i.issue_type in (
+        i
+        for i in issues
+        if i.issue_type
+        in (
             IssueType.SERVICE_MISSING_REQUIRED_PARAM,
             IssueType.SERVICE_UNKNOWN_PARAM,
             IssueType.SERVICE_INVALID_PARAM_TYPE,
@@ -597,7 +622,7 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
         service="test.service",
         location="action[0]",
         data={
-            "mode": "turbo",          # Invalid select option
+            "mode": "turbo",  # Invalid select option
             "unknown_field": "value",  # Unknown param
             # Missing: required_field
         },
@@ -614,7 +639,10 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
     for issue in issues:
         if issue.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM:
             assert issue.severity == Severity.ERROR
-        elif issue.issue_type == IssueType.SERVICE_UNKNOWN_PARAM or issue.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE:
+        elif (
+            issue.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+            or issue.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        ):
             assert issue.severity == Severity.WARNING
 
 
@@ -640,7 +668,13 @@ async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
                         "required": False,
                         "selector": {
                             "select": {
-                                "options": ["config", "share", "ssl", "media", "addons"],
+                                "options": [
+                                    "config",
+                                    "share",
+                                    "ssl",
+                                    "media",
+                                    "addons",
+                                ],
                                 "multiple": True,
                             }
                         },
@@ -661,8 +695,12 @@ async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
     issues = validator.validate_service_calls([call])
 
     # Should NOT report any issues - ['config'] contains valid items
-    invalid_param_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
-    assert len(invalid_param_issues) == 0, f"False positive: {[i.message for i in invalid_param_issues]}"
+    invalid_param_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
+    assert len(invalid_param_issues) == 0, (
+        f"False positive: {[i.message for i in invalid_param_issues]}"
+    )
 
 
 async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
@@ -711,8 +749,13 @@ async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
     issues = validator.validate_service_calls([call])
 
     # Should NOT report these as unknown - they're valid light.turn_on params
-    unknown_param_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
-    assert len(unknown_param_issues) == 0, f"False positives: {[i.message for i in unknown_param_issues]}"
+    unknown_param_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
+    assert len(unknown_param_issues) == 0, (
+        f"False positives: {[i.message for i in unknown_param_issues]}"
+    )
+
 
 async def test_unknown_param_not_flagged_without_strict_mode(hass: HomeAssistant):
     """Without strict mode, unknown params should not produce warnings."""
@@ -747,7 +790,9 @@ async def test_unknown_param_not_flagged_without_strict_mode(hass: HomeAssistant
 
     issues = validator.validate_service_calls([call])
 
-    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
     assert len(unknown_issues) == 0
 
 
@@ -760,47 +805,50 @@ async def test_strict_service_mode_flag_stored_on_validator(hass: HomeAssistant)
     assert validator_strict._strict_validation is True
 
 
-@pytest.mark.parametrize("service,param", [
-    ("media_player.play_media", "media_content_id"),
-    ("media_player.play_media", "media_content_type"),
-    ("media_player.select_source", "source"),
-    ("media_player.select_sound_mode", "sound_mode"),
-    ("fan.set_percentage", "percentage"),
-    ("fan.set_preset_mode", "preset_mode"),
-    ("fan.set_direction", "direction"),
-    ("vacuum.send_command", "command"),
-    ("alarm_control_panel.alarm_arm_away", "code"),
-    ("alarm_control_panel.alarm_arm_home", "code"),
-    ("alarm_control_panel.alarm_disarm", "code"),
-    ("number.set_value", "value"),
-    ("input_text.set_value", "value"),
-    ("input_number.set_value", "value"),
-    ("input_select.select_option", "option"),
-    ("input_datetime.set_datetime", "date"),
-    ("input_datetime.set_datetime", "time"),
-    ("input_datetime.set_datetime", "datetime"),
-    ("input_datetime.set_datetime", "timestamp"),
-    ("select.select_option", "option"),
-    ("text.set_value", "value"),
-    ("lock.lock", "code"),
-    ("lock.unlock", "code"),
-    ("lock.open", "code"),
-    ("siren.turn_on", "tone"),
-    ("siren.turn_on", "volume_level"),
-    ("siren.turn_on", "duration"),
-    ("remote.send_command", "command"),
-    ("remote.send_command", "device"),
-    ("remote.send_command", "delay_secs"),
-    ("remote.send_command", "num_repeats"),
-    ("tts.speak", "message"),
-    ("tts.speak", "cache"),
-    ("tts.speak", "language"),
-    ("tts.speak", "options"),
-    ("humidifier.set_humidity", "humidity"),
-    ("humidifier.set_mode", "mode"),
-    ("water_heater.set_temperature", "temperature"),
-    ("water_heater.set_operation_mode", "operation_mode"),
-])
+@pytest.mark.parametrize(
+    "service,param",
+    [
+        ("media_player.play_media", "media_content_id"),
+        ("media_player.play_media", "media_content_type"),
+        ("media_player.select_source", "source"),
+        ("media_player.select_sound_mode", "sound_mode"),
+        ("fan.set_percentage", "percentage"),
+        ("fan.set_preset_mode", "preset_mode"),
+        ("fan.set_direction", "direction"),
+        ("vacuum.send_command", "command"),
+        ("alarm_control_panel.alarm_arm_away", "code"),
+        ("alarm_control_panel.alarm_arm_home", "code"),
+        ("alarm_control_panel.alarm_disarm", "code"),
+        ("number.set_value", "value"),
+        ("input_text.set_value", "value"),
+        ("input_number.set_value", "value"),
+        ("input_select.select_option", "option"),
+        ("input_datetime.set_datetime", "date"),
+        ("input_datetime.set_datetime", "time"),
+        ("input_datetime.set_datetime", "datetime"),
+        ("input_datetime.set_datetime", "timestamp"),
+        ("select.select_option", "option"),
+        ("text.set_value", "value"),
+        ("lock.lock", "code"),
+        ("lock.unlock", "code"),
+        ("lock.open", "code"),
+        ("siren.turn_on", "tone"),
+        ("siren.turn_on", "volume_level"),
+        ("siren.turn_on", "duration"),
+        ("remote.send_command", "command"),
+        ("remote.send_command", "device"),
+        ("remote.send_command", "delay_secs"),
+        ("remote.send_command", "num_repeats"),
+        ("tts.speak", "message"),
+        ("tts.speak", "cache"),
+        ("tts.speak", "language"),
+        ("tts.speak", "options"),
+        ("humidifier.set_humidity", "humidity"),
+        ("humidifier.set_mode", "mode"),
+        ("water_heater.set_temperature", "temperature"),
+        ("water_heater.set_operation_mode", "operation_mode"),
+    ],
+)
 async def test_capability_dependent_params_not_flagged(
     hass: HomeAssistant, service: str, param: str
 ):
@@ -838,7 +886,9 @@ async def test_capability_dependent_params_not_flagged(
 
     issues = validator.validate_service_calls([call])
 
-    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
     assert len(unknown_issues) == 0, (
         f"Parameter '{param}' flagged as unknown for '{service}': "
         f"{[i.message for i in unknown_issues]}"
@@ -962,7 +1012,9 @@ async def test_unknown_target_key_flagged(hass: HomeAssistant):
 
     issues = validator.validate_service_calls([call])
 
-    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
     assert len(unknown_issues) == 1
     assert unknown_issues[0].severity == Severity.WARNING
     assert unknown_issues[0].entity_id == ""
@@ -999,12 +1051,18 @@ async def test_valid_target_keys_not_flagged(hass: HomeAssistant):
         service="light.turn_on",
         location="action[0]",
         data={},
-        target={"entity_id": "light.kitchen", "device_id": "abc123", "area_id": "living_room"},
+        target={
+            "entity_id": "light.kitchen",
+            "device_id": "abc123",
+            "area_id": "living_room",
+        },
     )
 
     issues = validator.validate_service_calls([call])
 
-    unknown_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM]
+    unknown_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_UNKNOWN_PARAM
+    ]
     assert len(unknown_issues) == 0
 
 
@@ -1175,11 +1233,15 @@ async def test_multiple_required_fields_all_checked(hass: HomeAssistant):
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
-        "light": {"turn_on": {"fields": {
-            "field_a": {"required": True},
-            "field_b": {"required": True},
-            "field_c": {"required": True},
-        }}}
+        "light": {
+            "turn_on": {
+                "fields": {
+                    "field_a": {"required": True},
+                    "field_b": {"required": True},
+                    "field_c": {"required": True},
+                }
+            }
+        }
     }
 
     call = ServiceCall(
@@ -1214,9 +1276,13 @@ async def test_multiple_unknown_params_all_checked(hass: HomeAssistant):
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
-        "light": {"turn_on": {"fields": {
-            "brightness": {"required": False},
-        }}}
+        "light": {
+            "turn_on": {
+                "fields": {
+                    "brightness": {"required": False},
+                }
+            }
+        }
     }
 
     call = ServiceCall(
@@ -1288,6 +1354,7 @@ async def test_suggest_service_fuzzy_match_sensitivity(hass: HomeAssistant):
     _suggest_service uses cutoff=0.6 (lower than others' 0.75).
     Kills: NumberReplacer on cutoff=0.6 and n=1 in _suggest_service.
     """
+
     async def handler(call):
         pass
 
@@ -1378,7 +1445,6 @@ async def test_validate_required_param_from_inline_params(hass: HomeAssistant):
     issues = validator.validate_service_calls([call])
 
     missing_issues = [
-        i for i in issues
-        if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
     ]
     assert len(missing_issues) == 0

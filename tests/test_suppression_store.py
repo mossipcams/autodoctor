@@ -24,7 +24,9 @@ async def test_async_load_strips_orphaned_issue_types(hass: HomeAssistant):
     }
 
     with (
-        patch.object(store._store, "async_load", new_callable=AsyncMock, return_value=stored_data),
+        patch.object(
+            store._store, "async_load", new_callable=AsyncMock, return_value=stored_data
+        ),
         patch.object(store._store, "async_save", new_callable=AsyncMock) as mock_save,
     ):
         await store.async_load()

@@ -53,8 +53,12 @@ class JinjaValidator:
         self._strict_validation = strict_template_validation
         # Use a sandboxed environment for safe parsing
         self._env = SandboxedEnvironment(extensions=["jinja2.ext.loopcontrols"])
-        self._known_filters: frozenset[str] = frozenset(self._env.filters.keys()) | get_known_filters()
-        self._known_tests: frozenset[str] = frozenset(self._env.tests.keys()) | get_known_tests()
+        self._known_filters: frozenset[str] = (
+            frozenset(self._env.filters.keys()) | get_known_filters()
+        )
+        self._known_tests: frozenset[str] = (
+            frozenset(self._env.tests.keys()) | get_known_tests()
+        )
 
     def validate_automations(
         self, automations: list[dict[str, Any]]
@@ -70,7 +74,7 @@ class JinjaValidator:
         issues: list[ValidationIssue] = []
 
         for auto in automations:
-            auto_id = f"automation.{auto.get("id", "unknown")}"
+            auto_id = f"automation.{auto.get('id', 'unknown')}"
             auto_name = auto.get("alias", auto_id)
             issues.extend(self._validate_automation(auto, auto_id, auto_name))
 
@@ -90,13 +94,19 @@ class JinjaValidator:
         auto_vars = self._extract_automation_variables(automation)
 
         # Validate triggers
-        triggers = _ensure_list(automation.get("triggers") or automation.get("trigger", []))
+        triggers = _ensure_list(
+            automation.get("triggers") or automation.get("trigger", [])
+        )
         for idx, trigger in enumerate(triggers):
             if isinstance(trigger, dict):
-                issues.extend(self._validate_trigger(trigger, idx, auto_id, auto_name, auto_vars))
+                issues.extend(
+                    self._validate_trigger(trigger, idx, auto_id, auto_name, auto_vars)
+                )
 
         # Validate conditions
-        conditions = _ensure_list(automation.get("conditions") or automation.get("condition", []))
+        conditions = _ensure_list(
+            automation.get("conditions") or automation.get("condition", [])
+        )
         for idx, condition in enumerate(conditions):
             issues.extend(
                 self._validate_condition(
@@ -105,8 +115,12 @@ class JinjaValidator:
             )
 
         # Validate actions
-        actions = _ensure_list(automation.get("actions") or automation.get("action", []))
-        issues.extend(self._validate_actions(actions, auto_id, auto_name, auto_vars=auto_vars))
+        actions = _ensure_list(
+            automation.get("actions") or automation.get("action", [])
+        )
+        issues.extend(
+            self._validate_actions(actions, auto_id, auto_name, auto_vars=auto_vars)
+        )
 
         return issues
 
@@ -141,19 +155,33 @@ class JinjaValidator:
         # Check value_template
         value_template = trigger.get("value_template")
         if value_template and isinstance(value_template, str):
-            issues.extend(self._check_template(
-                value_template, f"trigger[{index}].value_template", auto_id, auto_name,
-                auto_vars=auto_vars,
-            ))
+            issues.extend(
+                self._check_template(
+                    value_template,
+                    f"trigger[{index}].value_template",
+                    auto_id,
+                    auto_name,
+                    auto_vars=auto_vars,
+                )
+            )
 
         # Check to/from fields for Jinja expressions (template triggers)
         for field_name in ("to", "from"):
             field_value = trigger.get(field_name)
-            if field_value and isinstance(field_value, str) and self._is_template(field_value):
-                issues.extend(self._check_template(
-                    field_value, f"trigger[{index}].{field_name}", auto_id, auto_name,
-                    auto_vars=auto_vars,
-                ))
+            if (
+                field_value
+                and isinstance(field_value, str)
+                and self._is_template(field_value)
+            ):
+                issues.extend(
+                    self._check_template(
+                        field_value,
+                        f"trigger[{index}].{field_name}",
+                        auto_id,
+                        auto_name,
+                        auto_vars=auto_vars,
+                    )
+                )
 
         return issues
 
@@ -173,17 +201,23 @@ class JinjaValidator:
         if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
             _LOGGER.warning(
                 "Max recursion depth exceeded in %s at %s, stopping validation",
-                auto_id, location_prefix
+                auto_id,
+                location_prefix,
             )
             return issues
 
         # String condition (template shorthand)
         if isinstance(condition, str):
             if self._is_template(condition):
-                issues.extend(self._check_template(
-                    condition, f"{location_prefix}[{index}]", auto_id, auto_name,
-                    auto_vars=auto_vars,
-                ))
+                issues.extend(
+                    self._check_template(
+                        condition,
+                        f"{location_prefix}[{index}]",
+                        auto_id,
+                        auto_name,
+                        auto_vars=auto_vars,
+                    )
+                )
             return issues
 
         if not isinstance(condition, dict):
@@ -192,13 +226,15 @@ class JinjaValidator:
         # Check value_template
         value_template = condition.get("value_template")
         if value_template and isinstance(value_template, str):
-            issues.extend(self._check_template(
-                value_template,
-                f"{location_prefix}[{index}].value_template",
-                auto_id,
-                auto_name,
-                auto_vars=auto_vars,
-            ))
+            issues.extend(
+                self._check_template(
+                    value_template,
+                    f"{location_prefix}[{index}].value_template",
+                    auto_id,
+                    auto_name,
+                    auto_vars=auto_vars,
+                )
+            )
 
         # Check nested conditions (and/or/not)
         for key in ("conditions", "and", "or", "not"):
@@ -233,7 +269,8 @@ class JinjaValidator:
         if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
             _LOGGER.warning(
                 "Max recursion depth exceeded in %s at %s, stopping validation",
-                auto_id, location_prefix
+                auto_id,
+                location_prefix,
             )
             return issues
 
@@ -263,7 +300,10 @@ class JinjaValidator:
             if isinstance(data, dict):
                 issues.extend(
                     self._validate_data_templates(
-                        data, f"{location}.data", auto_id, auto_name,
+                        data,
+                        f"{location}.data",
+                        auto_id,
+                        auto_name,
                         auto_vars=action_level_vars,
                     )
                 )
@@ -271,10 +311,15 @@ class JinjaValidator:
             # Check wait_template
             wait_template = action.get("wait_template")
             if wait_template and isinstance(wait_template, str):
-                issues.extend(self._check_template(
-                    wait_template, f"{location}.wait_template", auto_id, auto_name,
-                    auto_vars=action_level_vars,
-                ))
+                issues.extend(
+                    self._check_template(
+                        wait_template,
+                        f"{location}.wait_template",
+                        auto_id,
+                        auto_name,
+                        auto_vars=action_level_vars,
+                    )
+                )
 
             # Check choose blocks
             if "choose" in action:
@@ -314,7 +359,11 @@ class JinjaValidator:
                 if default:
                     issues.extend(
                         self._validate_actions(
-                            default, auto_id, auto_name, f"{location}.default", _depth + 1,
+                            default,
+                            auto_id,
+                            auto_name,
+                            f"{location}.default",
+                            _depth + 1,
                             auto_vars=action_level_vars,
                         )
                     )
@@ -325,7 +374,11 @@ class JinjaValidator:
                 for cond_idx, cond in enumerate(if_conditions):
                     issues.extend(
                         self._validate_condition(
-                            cond, cond_idx, auto_id, auto_name, f"{location}.if",
+                            cond,
+                            cond_idx,
+                            auto_id,
+                            auto_name,
+                            f"{location}.if",
                             auto_vars=action_level_vars,
                         )
                     )
@@ -333,7 +386,11 @@ class JinjaValidator:
                 then_actions = action.get("then", [])
                 issues.extend(
                     self._validate_actions(
-                        then_actions, auto_id, auto_name, f"{location}.then", _depth + 1,
+                        then_actions,
+                        auto_id,
+                        auto_name,
+                        f"{location}.then",
+                        _depth + 1,
                         auto_vars=action_level_vars,
                     )
                 )
@@ -342,7 +399,11 @@ class JinjaValidator:
                 if else_actions:
                     issues.extend(
                         self._validate_actions(
-                            else_actions, auto_id, auto_name, f"{location}.else", _depth + 1,
+                            else_actions,
+                            auto_id,
+                            auto_name,
+                            f"{location}.else",
+                            _depth + 1,
                             auto_vars=action_level_vars,
                         )
                     )
@@ -372,7 +433,11 @@ class JinjaValidator:
                 sequence = repeat_config.get("sequence", [])
                 issues.extend(
                     self._validate_actions(
-                        sequence, auto_id, auto_name, f"{location}.repeat.sequence", _depth + 1,
+                        sequence,
+                        auto_id,
+                        auto_name,
+                        f"{location}.repeat.sequence",
+                        _depth + 1,
                         auto_vars=action_level_vars,
                     )
                 )
@@ -408,28 +473,44 @@ class JinjaValidator:
 
         for key, value in data.items():
             if isinstance(value, str) and self._is_template(value):
-                issues.extend(self._check_template(
-                    value, f"{location}.{key}", auto_id, auto_name,
-                    auto_vars=auto_vars,
-                ))
+                issues.extend(
+                    self._check_template(
+                        value,
+                        f"{location}.{key}",
+                        auto_id,
+                        auto_name,
+                        auto_vars=auto_vars,
+                    )
+                )
             elif isinstance(value, dict):
                 issues.extend(
                     self._validate_data_templates(
-                        value, f"{location}.{key}", auto_id, auto_name,
+                        value,
+                        f"{location}.{key}",
+                        auto_id,
+                        auto_name,
                         auto_vars=auto_vars,
                     )
                 )
             elif isinstance(value, list):
                 for idx, item in enumerate(value):
                     if isinstance(item, str) and self._is_template(item):
-                        issues.extend(self._check_template(
-                            item, f"{location}.{key}[{idx}]", auto_id, auto_name,
-                            auto_vars=auto_vars,
-                        ))
+                        issues.extend(
+                            self._check_template(
+                                item,
+                                f"{location}.{key}[{idx}]",
+                                auto_id,
+                                auto_name,
+                                auto_vars=auto_vars,
+                            )
+                        )
                     elif isinstance(item, dict):
                         issues.extend(
                             self._validate_data_templates(
-                                item, f"{location}.{key}[{idx}]", auto_id, auto_name,
+                                item,
+                                f"{location}.{key}[{idx}]",
+                                auto_id,
+                                auto_name,
                                 auto_vars=auto_vars,
                             )
                         )
@@ -459,7 +540,11 @@ class JinjaValidator:
         # about, leading to false positives when strict mode is off.
         if self._strict_validation:
             for node in ast.find_all(nodes.Filter):
-                _LOGGER.debug("Found filter: %s, known: %s", node.name, node.name in self._known_filters)
+                _LOGGER.debug(
+                    "Found filter: %s, known: %s",
+                    node.name,
+                    node.name in self._known_filters,
+                )
                 if node.name not in self._known_filters:
                     issues.append(
                         ValidationIssue(

@@ -89,6 +89,7 @@ async def test_clear_cache(hass: HomeAssistant):
     # Set up zone and area
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_registry = ar.async_get(hass)
     area_registry.async_create("Living Room")
     await hass.async_block_till_done()
@@ -132,7 +133,17 @@ async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant):
     assert "cool" in states
     assert "auto" in states
     # Device class defaults + schema introspection + unavailable/unknown
-    assert states >= {"off", "heat", "cool", "auto", "heat_cool", "dry", "fan_only", "unavailable", "unknown"}
+    assert states >= {
+        "off",
+        "heat",
+        "cool",
+        "auto",
+        "heat_cool",
+        "dry",
+        "fan_only",
+        "unavailable",
+        "unknown",
+    }
 
 
 async def test_schema_introspection_select_options(hass: HomeAssistant):
@@ -339,7 +350,17 @@ async def test_get_valid_states_includes_learned_states(hass: HomeAssistant):
     # Should still include device class defaults
     assert "cleaning" in states
     assert "docked" in states
-    assert states >= {"segment_cleaning", "cleaning", "docked", "idle", "paused", "returning", "error", "unavailable", "unknown"}
+    assert states >= {
+        "segment_cleaning",
+        "cleaning",
+        "docked",
+        "idle",
+        "paused",
+        "returning",
+        "error",
+        "unavailable",
+        "unknown",
+    }
 
 
 async def test_zone_names_are_cached(hass: HomeAssistant):
@@ -405,9 +426,7 @@ async def test_load_history_uses_executor(hass: HomeAssistant):
     # Mock async_add_executor_job
     hass.async_add_executor_job = AsyncMock(return_value={})
 
-    with patch(
-        "custom_components.autodoctor.knowledge_base.get_significant_states"
-    ):
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
         await kb.async_load_history(["light.test"])
 
     # Should have called async_add_executor_job
@@ -694,7 +713,13 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert "option_a" in select_states
     assert "option_b" in select_states
     assert "option_c" in select_states
-    assert select_states == {"option_a", "option_b", "option_c", "unavailable", "unknown"}
+    assert select_states == {
+        "option_a",
+        "option_b",
+        "option_c",
+        "unavailable",
+        "unknown",
+    }
 
     # Verify climate hvac_modes are valid (no false positives)
     climate_states = kb.get_valid_states("climate.thermostat")
@@ -702,7 +727,17 @@ async def test_fresh_install_no_false_positives(hass: HomeAssistant):
     assert "cool" in climate_states
     assert "auto" in climate_states
     assert "off" in climate_states
-    assert climate_states >= {"heat", "cool", "auto", "off", "heat_cool", "dry", "fan_only", "unavailable", "unknown"}
+    assert climate_states >= {
+        "heat",
+        "cool",
+        "auto",
+        "off",
+        "heat_cool",
+        "dry",
+        "fan_only",
+        "unavailable",
+        "unknown",
+    }
 
     # Verify climate attribute values are valid
     fan_values = kb.get_valid_attributes("climate.thermostat", "fan_mode")
@@ -729,6 +764,7 @@ async def test_bermuda_sensor_detected_by_platform(hass: HomeAssistant):
     # Set up zones and areas for completeness
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_registry = ar.async_get(hass)
     area_registry.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -770,6 +806,7 @@ async def test_non_bermuda_area_sensor_not_matched(hass: HomeAssistant):
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
     from homeassistant.helpers import area_registry as ar
+
     area_registry = ar.async_get(hass)
     area_registry.async_create("Kitchen")
     area_registry.async_create("Bedroom")
@@ -807,6 +844,7 @@ async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant):
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     hass.states.async_set("zone.work", "zoning", {"friendly_name": "Work"})
     from homeassistant.helpers import area_registry as ar
+
     area_registry = ar.async_get(hass)
     area_registry.async_create("Kitchen")
     area_registry.async_create("Bedroom")
@@ -838,7 +876,18 @@ async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant):
     # Also lowercase area names (added by _get_area_names)
     assert "kitchen" in states
     assert "bedroom" in states
-    assert states >= {"home", "not_home", "Home", "Work", "Kitchen", "Bedroom", "kitchen", "bedroom", "unavailable", "unknown"}
+    assert states >= {
+        "home",
+        "not_home",
+        "Home",
+        "Work",
+        "Kitchen",
+        "Bedroom",
+        "kitchen",
+        "bedroom",
+        "unavailable",
+        "unknown",
+    }
 
 
 # --- Bermuda/area sensor detection (KB-06) ---
@@ -995,9 +1044,7 @@ async def test_async_load_history_start_time_is_in_past(hass: HomeAssistant):
     kb = StateKnowledgeBase(hass, history_days=30)
     hass.async_add_executor_job = AsyncMock(return_value={})
 
-    with patch(
-        "custom_components.autodoctor.knowledge_base.get_significant_states"
-    ):
+    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
         await kb.async_load_history(["light.test"])
 
     # Capture the args passed to async_add_executor_job
@@ -1005,7 +1052,7 @@ async def test_async_load_history_start_time_is_in_past(hass: HomeAssistant):
     call_args = hass.async_add_executor_job.call_args
     # args: (get_significant_states, hass, start_time, end_time, entity_ids, None, True, True)
     start_time = call_args[0][2]  # Third positional arg
-    end_time = call_args[0][3]    # Fourth positional arg
+    end_time = call_args[0][3]  # Fourth positional arg
 
     now = datetime.now(UTC)
     assert start_time < end_time
@@ -1026,6 +1073,7 @@ async def test_non_bermuda_device_tracker_no_area_names(hass: HomeAssistant):
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_reg = ar.async_get(hass)
     area_reg.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -1068,6 +1116,7 @@ async def test_bermuda_sensor_gets_zone_and_area_names(hass: HomeAssistant):
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_reg = ar.async_get(hass)
     area_reg.async_create("Kitchen")
     await hass.async_block_till_done()
@@ -1115,6 +1164,7 @@ async def test_bermuda_tracker_collects_only_bermuda_sensor_states(hass: HomeAss
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_reg = ar.async_get(hass)
     area_reg.async_create("Office")
     await hass.async_block_till_done()
@@ -1161,6 +1211,7 @@ async def test_person_entity_gets_zones_but_not_area_names(hass: HomeAssistant):
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_reg = ar.async_get(hass)
     area_reg.async_create("Garage")
     await hass.async_block_till_done()
@@ -1197,6 +1248,7 @@ async def test_bermuda_tracker_excludes_unavailable_sensor_states(hass: HomeAssi
 
     hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
     from homeassistant.helpers import area_registry as ar
+
     area_reg = ar.async_get(hass)
     area_reg.async_create("Bedroom")
     await hass.async_block_till_done()
@@ -1257,6 +1309,7 @@ async def test_non_bermuda_sensor_returns_none(hass: HomeAssistant):
         states = kb.get_valid_states("sensor.generic_temp")
 
     assert states is None
+
 
 # --- Enum sensor validation (quick-012) ---
 

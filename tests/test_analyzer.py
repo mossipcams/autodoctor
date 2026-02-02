@@ -1003,8 +1003,8 @@ def test_extract_zone_trigger():
             "platform": "zone",
             "entity_id": "device_tracker.paulus",
             "zone": "zone.home",
-            "event": "enter"
-        }
+            "event": "enter",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1024,11 +1024,7 @@ def test_extract_sun_trigger():
     automation = {
         "id": "test_sun",
         "alias": "Test Sun Trigger",
-        "trigger": {
-            "platform": "sun",
-            "event": "sunset",
-            "offset": "-01:00:00"
-        }
+        "trigger": {"platform": "sun", "event": "sunset", "offset": "-01:00:00"},
     }
 
     analyzer = AutomationAnalyzer()
@@ -1049,8 +1045,8 @@ def test_extract_calendar_trigger():
             "platform": "calendar",
             "entity_id": "calendar.events",
             "event": "start",
-            "offset": "-00:05:00"
-        }
+            "offset": "-00:05:00",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1072,8 +1068,8 @@ def test_extract_device_trigger():
             "device_id": "abc123def456",
             "domain": "mqtt",
             "type": "button_short_press",
-            "subtype": "button_1"
-        }
+            "subtype": "button_1",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1093,8 +1089,8 @@ def test_extract_tag_trigger():
         "trigger": {
             "platform": "tag",
             "tag_id": "AABBCCDD",
-            "device_id": "scanner_device_123"
-        }
+            "device_id": "scanner_device_123",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1114,10 +1110,7 @@ def test_extract_tag_trigger_no_device():
     automation = {
         "id": "test_tag_no_device",
         "alias": "Test Tag No Device",
-        "trigger": {
-            "platform": "tag",
-            "tag_id": "EEFFGGHH"
-        }
+        "trigger": {"platform": "tag", "tag_id": "EEFFGGHH"},
     }
 
     analyzer = AutomationAnalyzer()
@@ -1137,8 +1130,8 @@ def test_extract_geo_location_trigger():
             "platform": "geo_location",
             "source": "nsw_rural_fire_service_feed",
             "zone": "zone.home",
-            "event": "enter"
-        }
+            "event": "enter",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1158,10 +1151,8 @@ def test_extract_event_trigger_with_template():
         "trigger": {
             "platform": "event",
             "event_type": "my_custom_event",
-            "event_data": {
-                "entity": "{{ states('input_text.target') }}"
-            }
-        }
+            "event_data": {"entity": "{{ states('input_text.target') }}"},
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1180,8 +1171,8 @@ def test_extract_mqtt_trigger_with_template():
         "trigger": {
             "platform": "mqtt",
             "topic": "home/{{ states('input_text.room') }}/light",
-            "payload": "ON"
-        }
+            "payload": "ON",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1200,8 +1191,8 @@ def test_extract_webhook_trigger():
         "trigger": {
             "platform": "webhook",
             "webhook_id": "my_webhook_123",
-            "allowed_methods": ["POST", "PUT"]
-        }
+            "allowed_methods": ["POST", "PUT"],
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1218,8 +1209,8 @@ def test_extract_webhook_trigger_with_template():
         "alias": "Test Webhook Template",
         "trigger": {
             "platform": "webhook",
-            "webhook_id": "webhook_{{ states('input_text.name') }}"
-        }
+            "webhook_id": "webhook_{{ states('input_text.name') }}",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1237,8 +1228,8 @@ def test_extract_persistent_notification_trigger():
         "trigger": {
             "platform": "persistent_notification",
             "notification_id": "alert_{{ states('input_text.alert_name') }}",
-            "update_type": "added"
-        }
+            "update_type": "added",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1253,10 +1244,7 @@ def test_extract_time_trigger_with_entity():
     automation = {
         "id": "test_time",
         "alias": "Test Time Trigger",
-        "trigger": {
-            "platform": "time",
-            "at": "input_datetime.wake_up_time"
-        }
+        "trigger": {"platform": "time", "at": "input_datetime.wake_up_time"},
     }
 
     analyzer = AutomationAnalyzer()
@@ -1273,10 +1261,7 @@ def test_extract_time_trigger_with_time_string():
     automation = {
         "id": "test_time_string",
         "alias": "Test Time String",
-        "trigger": {
-            "platform": "time",
-            "at": "07:30:00"
-        }
+        "trigger": {"platform": "time", "at": "07:30:00"},
     }
 
     analyzer = AutomationAnalyzer()
@@ -1293,12 +1278,8 @@ def test_extract_time_trigger_with_multiple():
         "alias": "Test Time Multiple",
         "trigger": {
             "platform": "time",
-            "at": [
-                "input_datetime.wake_up",
-                "07:30:00",
-                "sensor.sunset_time"
-            ]
-        }
+            "at": ["input_datetime.wake_up", "07:30:00", "sensor.sunset_time"],
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1319,8 +1300,8 @@ def test_extract_numeric_state_condition():
             "condition": "numeric_state",
             "entity_id": "sensor.temperature",
             "above": 20,
-            "below": 30
-        }
+            "below": 30,
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1341,8 +1322,8 @@ def test_extract_numeric_state_condition_with_attribute():
             "condition": "numeric_state",
             "entity_id": "climate.living_room",
             "attribute": "temperature",
-            "above": 20
-        }
+            "above": 20,
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1363,8 +1344,8 @@ def test_extract_numeric_state_condition_with_template():
             "condition": "numeric_state",
             "entity_id": "sensor.data",
             "value_template": "{{ state.attributes.value | float }}",
-            "above": 10
-        }
+            "above": 10,
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1384,8 +1365,8 @@ def test_extract_zone_condition():
         "condition": {
             "condition": "zone",
             "entity_id": "device_tracker.paulus",
-            "zone": "zone.home"
-        }
+            "zone": "zone.home",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1407,8 +1388,8 @@ def test_extract_sun_condition():
         "condition": {
             "condition": "sun",
             "after": "sunset",
-            "after_offset": "-01:00:00"
-        }
+            "after_offset": "-01:00:00",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1429,8 +1410,8 @@ def test_extract_time_condition_with_entity():
             "condition": "time",
             "after": "input_datetime.wake_up",
             "before": "22:00:00",
-            "weekday": ["mon", "tue", "wed"]
-        }
+            "weekday": ["mon", "tue", "wed"],
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1446,11 +1427,7 @@ def test_extract_time_condition_no_entities():
     automation = {
         "id": "test_time_cond_strings",
         "alias": "Test Time Strings",
-        "condition": {
-            "condition": "time",
-            "after": "08:00:00",
-            "before": "22:00:00"
-        }
+        "condition": {"condition": "time", "after": "08:00:00", "before": "22:00:00"},
     }
 
     analyzer = AutomationAnalyzer()
@@ -1469,8 +1446,8 @@ def test_extract_device_condition():
             "condition": "device",
             "device_id": "abc123def456",
             "domain": "light",
-            "type": "is_on"
-        }
+            "type": "is_on",
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1491,8 +1468,8 @@ def test_extract_numeric_state_trigger_with_attribute():
             "platform": "numeric_state",
             "entity_id": "climate.living_room",
             "attribute": "temperature",
-            "above": 20
-        }
+            "above": 20,
+        },
     }
 
     analyzer = AutomationAnalyzer()
@@ -1532,9 +1509,7 @@ def test_extract_templated_service_call():
     automation = {
         "id": "test",
         "alias": "Test",
-        "action": [
-            {"service": "{{ service_var }}"}
-        ],
+        "action": [{"service": "{{ service_var }}"}],
     }
 
     analyzer = AutomationAnalyzer()
@@ -1658,16 +1633,8 @@ def test_extract_service_calls_from_choose():
         "action": [
             {
                 "choose": [
-                    {
-                        "sequence": [
-                            {"service": "light.turn_on"}
-                        ]
-                    },
-                    {
-                        "sequence": [
-                            {"service": "light.turn_off"}
-                        ]
-                    }
+                    {"sequence": [{"service": "light.turn_on"}]},
+                    {"sequence": [{"service": "light.turn_off"}]},
                 ]
             }
         ],
@@ -1690,12 +1657,7 @@ def test_extract_service_call_data_entity_id():
         "alias": "Turn On Light",
         "trigger": [{"platform": "time", "at": "08:00:00"}],
         "action": [
-            {
-                "service": "light.turn_on",
-                "data": {
-                    "entity_id": "light.kitchen"
-                }
-            }
+            {"service": "light.turn_on", "data": {"entity_id": "light.kitchen"}}
         ],
     }
 
@@ -1718,9 +1680,7 @@ def test_extract_service_call_multiple_entities():
         "action": [
             {
                 "service": "light.turn_on",
-                "data": {
-                    "entity_id": ["light.kitchen", "light.bedroom"]
-                }
+                "data": {"entity_id": ["light.kitchen", "light.bedroom"]},
             }
         ],
     }
@@ -1743,12 +1703,7 @@ def test_extract_service_call_target_entity_id():
         "alias": "Turn On Light",
         "trigger": [{"platform": "time", "at": "08:00:00"}],
         "action": [
-            {
-                "service": "light.turn_on",
-                "target": {
-                    "entity_id": "light.living_room"
-                }
-            }
+            {"service": "light.turn_on", "target": {"entity_id": "light.living_room"}}
         ],
     }
 
@@ -1768,12 +1723,7 @@ def test_extract_scene_turn_on():
         "alias": "Activate Scene",
         "trigger": [{"platform": "time", "at": "20:00:00"}],
         "action": [
-            {
-                "service": "scene.turn_on",
-                "target": {
-                    "entity_id": "scene.movie_time"
-                }
-            }
+            {"service": "scene.turn_on", "target": {"entity_id": "scene.movie_time"}}
         ],
     }
 
@@ -1794,9 +1744,7 @@ def test_extract_script_turn_on():
         "action": [
             {
                 "service": "script.turn_on",
-                "target": {
-                    "entity_id": "script.bedtime_routine"
-                }
+                "target": {"entity_id": "script.bedtime_routine"},
             }
         ],
     }
@@ -1815,11 +1763,7 @@ def test_extract_script_shorthand():
         "id": "run_script_shorthand",
         "alias": "Run Script Shorthand",
         "trigger": [{"platform": "time", "at": "22:00:00"}],
-        "action": [
-            {
-                "service": "script.bedtime_routine"
-            }
-        ],
+        "action": [{"service": "script.bedtime_routine"}],
     }
 
     analyzer = AutomationAnalyzer()
@@ -1861,7 +1805,7 @@ def test_extract_device_id_function():
         "condition": [
             {
                 "condition": "template",
-                "value_template": "{{ device_id('light.kitchen') == device_id('light.bedroom') }}"
+                "value_template": "{{ device_id('light.kitchen') == device_id('light.bedroom') }}",
             }
         ],
         "action": [],
@@ -1886,7 +1830,7 @@ def test_extract_area_name_and_id_functions():
         "condition": [
             {
                 "condition": "template",
-                "value_template": "{{ area_name('sensor.temperature') == 'Kitchen' and area_id('light.bedroom') == 'bedroom' }}"
+                "value_template": "{{ area_name('sensor.temperature') == 'Kitchen' and area_id('light.bedroom') == 'bedroom' }}",
             }
         ],
         "action": [],
@@ -1911,7 +1855,7 @@ def test_extract_has_value_function():
         "condition": [
             {
                 "condition": "template",
-                "value_template": "{{ has_value('sensor.temperature') }}"
+                "value_template": "{{ has_value('sensor.temperature') }}",
             }
         ],
         "action": [],
@@ -1935,7 +1879,7 @@ def test_extract_deduplication_helper_functions():
         "condition": [
             {
                 "condition": "template",
-                "value_template": "{{ is_state('light.kitchen', 'on') and device_id('light.kitchen') }}"
+                "value_template": "{{ is_state('light.kitchen', 'on') and device_id('light.kitchen') }}",
             }
         ],
         "action": [],
@@ -1964,25 +1908,13 @@ def test_extract_full_automation_with_all_patterns():
         "condition": [
             {
                 "condition": "template",
-                "value_template": "{{ has_value('sensor.temperature') }}"
+                "value_template": "{{ has_value('sensor.temperature') }}",
             }
         ],
         "action": [
-            {
-                "service": "light.turn_on",
-                "target": {
-                    "entity_id": "light.kitchen"
-                }
-            },
-            {
-                "service": "script.bedtime_routine"
-            },
-            {
-                "service": "scene.turn_on",
-                "data": {
-                    "entity_id": "scene.movie_time"
-                }
-            },
+            {"service": "light.turn_on", "target": {"entity_id": "light.kitchen"}},
+            {"service": "script.bedtime_routine"},
+            {"service": "scene.turn_on", "data": {"entity_id": "scene.movie_time"}},
         ],
     }
 
@@ -1991,21 +1923,35 @@ def test_extract_full_automation_with_all_patterns():
 
     # Check each expected extraction
     # 1. State trigger
-    assert any(r.entity_id == "binary_sensor.motion" and "trigger" in r.location for r in refs)
+    assert any(
+        r.entity_id == "binary_sensor.motion" and "trigger" in r.location for r in refs
+    )
 
     # 2. has_value in condition
     assert any(r.entity_id == "sensor.temperature" for r in refs)
 
     # 3. Service call target
-    service_refs = [r for r in refs if r.entity_id == "light.kitchen" and r.reference_type == "service_call"]
+    service_refs = [
+        r
+        for r in refs
+        if r.entity_id == "light.kitchen" and r.reference_type == "service_call"
+    ]
     assert len(service_refs) == 1
 
     # 4. Script shorthand
-    script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine" and r.reference_type == "script"]
+    script_refs = [
+        r
+        for r in refs
+        if r.entity_id == "script.bedtime_routine" and r.reference_type == "script"
+    ]
     assert len(script_refs) == 1
 
     # 5. Scene
-    scene_refs = [r for r in refs if r.entity_id == "scene.movie_time" and r.reference_type == "scene"]
+    scene_refs = [
+        r
+        for r in refs
+        if r.entity_id == "scene.movie_time" and r.reference_type == "scene"
+    ]
     assert len(scene_refs) == 1
 
 
@@ -2085,11 +2031,7 @@ def test_extract_service_calls_from_choose_default():
         "alias": "Test",
         "action": [
             {
-                "choose": [
-                    {
-                        "sequence": [{"service": "light.turn_on"}]
-                    }
-                ],
+                "choose": [{"sequence": [{"service": "light.turn_on"}]}],
                 "default": [{"service": "light.turn_off"}],
             }
         ],
@@ -2115,7 +2057,13 @@ def test_extract_service_calls_deeply_nested():
                     {
                         "sequence": [
                             {
-                                "if": [{"condition": "state", "entity_id": "sensor.x", "state": "on"}],
+                                "if": [
+                                    {
+                                        "condition": "state",
+                                        "entity_id": "sensor.x",
+                                        "state": "on",
+                                    }
+                                ],
                                 "then": [
                                     {
                                         "repeat": {

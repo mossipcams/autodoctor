@@ -355,7 +355,9 @@ def _setup_reload_listener(
                 old_snapshot = data.get("_automation_snapshot")
                 if old_snapshot is not None:
                     all_ids = set(old_snapshot) | set(new_snapshot)
-                    changed = [a for a in all_ids if old_snapshot.get(a) != new_snapshot.get(a)]
+                    changed = [
+                        a for a in all_ids if old_snapshot.get(a) != new_snapshot.get(a)
+                    ]
                     if 1 <= len(changed) <= 2:
                         for aid in changed:
                             await async_validate_automation(hass, f"automation.{aid}")
@@ -400,7 +402,6 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, "refresh_knowledge_base", handle_refresh, schema=SERVICE_REFRESH_SCHEMA
     )
-
 
 
 async def _async_run_validators(
@@ -481,9 +482,7 @@ async def _async_run_validators(
                 len(refs),
             )
             issues = validator.validate_all(refs)
-            _LOGGER.debug(
-                "Automation '%s': found %d issues", auto_name, len(issues)
-            )
+            _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
             for issue in issues:
                 gid = issue_type_to_group.get(issue.issue_type, "entity_state")
                 group_issues[gid].append(issue)

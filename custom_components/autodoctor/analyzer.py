@@ -81,17 +81,41 @@ JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
 # Keys at the action dict level that are structural (not service parameters).
 # Any key NOT in this set is treated as an inline service parameter.
-_ACTION_STRUCTURAL_KEYS = frozenset({
-    "service", "action", "data", "target", "entity_id",
-    "enabled", "alias", "continue_on_error", "response_variable",
-    # Control flow keys (handled separately)
-    "choose", "default", "if", "then", "else",
-    "repeat", "parallel", "sequence", "for_each",
-    "wait_template", "wait_for_trigger", "delay", "event",
-    "scene", "stop", "variables", "set_conversation_response",
-    "device_id", "domain", "type",  # device action keys
-    "metadata",
-})
+_ACTION_STRUCTURAL_KEYS = frozenset(
+    {
+        "service",
+        "action",
+        "data",
+        "target",
+        "entity_id",
+        "enabled",
+        "alias",
+        "continue_on_error",
+        "response_variable",
+        # Control flow keys (handled separately)
+        "choose",
+        "default",
+        "if",
+        "then",
+        "else",
+        "repeat",
+        "parallel",
+        "sequence",
+        "for_each",
+        "wait_template",
+        "wait_for_trigger",
+        "delay",
+        "event",
+        "scene",
+        "stop",
+        "variables",
+        "set_conversation_response",
+        "device_id",
+        "domain",
+        "type",  # device action keys
+        "metadata",
+    }
+)
 
 
 class AutomationAnalyzer:
@@ -177,7 +201,9 @@ class AutomationAnalyzer:
         if not isinstance(trigger, dict):
             _LOGGER.warning(
                 "Skipping non-dict trigger[%d] in %s: %s",
-                index, automation_id, type(trigger).__name__
+                index,
+                automation_id,
+                type(trigger).__name__,
             )
             return refs
 
@@ -434,7 +460,11 @@ class AutomationAnalyzer:
 
             for at_value in at_values:
                 # If it looks like an entity_id (contains a dot but not a colon), validate it
-                if isinstance(at_value, str) and "." in at_value and ":" not in at_value:
+                if (
+                    isinstance(at_value, str)
+                    and "." in at_value
+                    and ":" not in at_value
+                ):
                     refs.append(
                         StateReference(
                             automation_id=automation_id,
@@ -593,7 +623,12 @@ class AutomationAnalyzer:
             before_value = condition.get("before")
 
             # If it looks like an entity_id (contains a dot but not a colon), validate it
-            if after_value and isinstance(after_value, str) and "." in after_value and ":" not in after_value:
+            if (
+                after_value
+                and isinstance(after_value, str)
+                and "." in after_value
+                and ":" not in after_value
+            ):
                 refs.append(
                     StateReference(
                         automation_id=automation_id,
@@ -606,7 +641,12 @@ class AutomationAnalyzer:
                     )
                 )
 
-            if before_value and isinstance(before_value, str) and "." in before_value and ":" not in before_value:
+            if (
+                before_value
+                and isinstance(before_value, str)
+                and "." in before_value
+                and ":" not in before_value
+            ):
                 refs.append(
                     StateReference(
                         automation_id=automation_id,
@@ -865,7 +905,11 @@ class AutomationAnalyzer:
             return refs
 
         # Shorthand script call: service: script.my_script
-        if service.startswith("script.") and service not in ("script.turn_on", "script.reload", "script.turn_off"):
+        if service.startswith("script.") and service not in (
+            "script.turn_on",
+            "script.reload",
+            "script.turn_off",
+        ):
             refs.append(
                 StateReference(
                     automation_id=automation_id,
@@ -1148,7 +1192,8 @@ class AutomationAnalyzer:
                     merged_data = explicit_data
                 else:
                     inline_params = {
-                        k: v for k, v in action.items()
+                        k: v
+                        for k, v in action.items()
                         if k not in _ACTION_STRUCTURAL_KEYS
                     }
                     explicit_data = explicit_data or {}
@@ -1158,15 +1203,17 @@ class AutomationAnalyzer:
                         else explicit_data
                     ) or None
 
-                service_calls.append(ServiceCall(
-                    automation_id=automation_id,
-                    automation_name=automation_name,
-                    service=service,
-                    location=location,
-                    target=action.get("target"),
-                    data=merged_data,
-                    is_template=is_template,
-                ))
+                service_calls.append(
+                    ServiceCall(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        service=service,
+                        location=location,
+                        target=action.get("target"),
+                        data=merged_data,
+                        is_template=is_template,
+                    )
+                )
 
             # Choose branches
             if "choose" in action:
@@ -1176,31 +1223,46 @@ class AutomationAnalyzer:
                         if isinstance(option, dict):
                             sequence = option.get("sequence", [])
                             self._extract_service_calls_from_actions(
-                                sequence, automation_id, automation_name,
+                                sequence,
+                                automation_id,
+                                automation_name,
                                 f"{location}.choose[{opt_idx}].sequence",
-                                service_calls, _depth + 1,
+                                service_calls,
+                                _depth + 1,
                             )
 
                 # Default branch
                 default = action.get("default") or []
                 if default:
                     self._extract_service_calls_from_actions(
-                        default, automation_id, automation_name,
-                        f"{location}.default", service_calls, _depth + 1,
+                        default,
+                        automation_id,
+                        automation_name,
+                        f"{location}.default",
+                        service_calls,
+                        _depth + 1,
                     )
 
             # If/then/else
             if "if" in action:
                 then_actions = action.get("then", [])
                 self._extract_service_calls_from_actions(
-                    then_actions, automation_id, automation_name,
-                    f"{location}.then", service_calls, _depth + 1,
+                    then_actions,
+                    automation_id,
+                    automation_name,
+                    f"{location}.then",
+                    service_calls,
+                    _depth + 1,
                 )
                 else_actions = action.get("else", [])
                 if else_actions:
                     self._extract_service_calls_from_actions(
-                        else_actions, automation_id, automation_name,
-                        f"{location}.else", service_calls, _depth + 1,
+                        else_actions,
+                        automation_id,
+                        automation_name,
+                        f"{location}.else",
+                        service_calls,
+                        _depth + 1,
                     )
 
             # Repeat
@@ -1209,8 +1271,12 @@ class AutomationAnalyzer:
                 if isinstance(repeat_config, dict):
                     sequence = repeat_config.get("sequence", [])
                     self._extract_service_calls_from_actions(
-                        sequence, automation_id, automation_name,
-                        f"{location}.repeat.sequence", service_calls, _depth + 1,
+                        sequence,
+                        automation_id,
+                        automation_name,
+                        f"{location}.repeat.sequence",
+                        service_calls,
+                        _depth + 1,
                     )
 
             # Parallel
@@ -1221,12 +1287,19 @@ class AutomationAnalyzer:
                 for branch in branches:
                     if isinstance(branch, list):
                         self._extract_service_calls_from_actions(
-                            branch, automation_id, automation_name,
-                            f"{location}.parallel", service_calls, _depth + 1,
+                            branch,
+                            automation_id,
+                            automation_name,
+                            f"{location}.parallel",
+                            service_calls,
+                            _depth + 1,
                         )
                     elif isinstance(branch, dict):
                         self._extract_service_calls_from_actions(
-                            [branch], automation_id, automation_name,
-                            f"{location}.parallel", service_calls, _depth + 1,
+                            [branch],
+                            automation_id,
+                            automation_name,
+                            f"{location}.parallel",
+                            service_calls,
+                            _depth + 1,
                         )
-

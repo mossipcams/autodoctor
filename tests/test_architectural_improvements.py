@@ -63,7 +63,9 @@ def test_extract_from_actions_enforces_depth_limit():
     automation = {
         "id": "deep_actions",
         "alias": "Deep Actions",
-        "trigger": [{"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}],
+        "trigger": [
+            {"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}
+        ],
         "action": actions,
     }
 
@@ -90,7 +92,9 @@ def test_extract_from_actions_depth_limit_if_then_else():
     automation = {
         "id": "deep_if",
         "alias": "Deep If",
-        "trigger": [{"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}],
+        "trigger": [
+            {"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}
+        ],
         "action": actions,
     }
 
@@ -105,14 +109,18 @@ def test_extract_from_actions_depth_limit_repeat():
     analyzer = AutomationAnalyzer()
 
     # Build 100-level deep nesting using repeat/sequence
-    actions = [{"service": "light.turn_on", "target": {"entity_id": "light.deep_repeat"}}]
+    actions = [
+        {"service": "light.turn_on", "target": {"entity_id": "light.deep_repeat"}}
+    ]
     for _ in range(100):
         actions = [{"repeat": {"count": 1, "sequence": actions}}]
 
     automation = {
         "id": "deep_repeat",
         "alias": "Deep Repeat",
-        "trigger": [{"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}],
+        "trigger": [
+            {"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}
+        ],
         "action": actions,
     }
 
@@ -127,14 +135,18 @@ def test_extract_from_actions_depth_limit_parallel():
     analyzer = AutomationAnalyzer()
 
     # Build 100-level deep nesting using parallel branches
-    actions = [{"service": "light.turn_on", "target": {"entity_id": "light.deep_parallel"}}]
+    actions = [
+        {"service": "light.turn_on", "target": {"entity_id": "light.deep_parallel"}}
+    ]
     for _ in range(100):
         actions = [{"parallel": [actions]}]
 
     automation = {
         "id": "deep_parallel",
         "alias": "Deep Parallel",
-        "trigger": [{"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}],
+        "trigger": [
+            {"platform": "state", "entity_id": "binary_sensor.test", "to": "on"}
+        ],
         "action": actions,
     }
 
@@ -176,21 +188,48 @@ def test_extract_service_calls_depth_limit_if_repeat_parallel():
     for _ in range(100):
         actions_if = [{"if": [], "then": actions_if}]
     auto_if = {"id": "deep_if", "alias": "X", "trigger": [], "action": actions_if}
-    assert len([c for c in analyzer.extract_service_calls(auto_if) if c.service == "light.turn_on"]) == 0
+    assert (
+        len(
+            [
+                c
+                for c in analyzer.extract_service_calls(auto_if)
+                if c.service == "light.turn_on"
+            ]
+        )
+        == 0
+    )
 
     # repeat nesting
     actions_rpt = [{"service": "fan.turn_on", "target": {"entity_id": "fan.rpt"}}]
     for _ in range(100):
         actions_rpt = [{"repeat": {"count": 1, "sequence": actions_rpt}}]
     auto_rpt = {"id": "deep_rpt", "alias": "X", "trigger": [], "action": actions_rpt}
-    assert len([c for c in analyzer.extract_service_calls(auto_rpt) if c.service == "fan.turn_on"]) == 0
+    assert (
+        len(
+            [
+                c
+                for c in analyzer.extract_service_calls(auto_rpt)
+                if c.service == "fan.turn_on"
+            ]
+        )
+        == 0
+    )
 
     # parallel nesting
     actions_par = [{"service": "switch.toggle", "target": {"entity_id": "switch.par"}}]
     for _ in range(100):
         actions_par = [{"parallel": [actions_par]}]
     auto_par = {"id": "deep_par", "alias": "X", "trigger": [], "action": actions_par}
-    assert len([c for c in analyzer.extract_service_calls(auto_par) if c.service == "switch.toggle"]) == 0
+    assert (
+        len(
+            [
+                c
+                for c in analyzer.extract_service_calls(auto_par)
+                if c.service == "switch.toggle"
+            ]
+        )
+        == 0
+    )
 
 
 def test_get_entity_suggestion_importable_from_validator():
@@ -216,15 +255,13 @@ def test_websocket_api_imports_from_validator_not_fix_engine():
 
     # Should import from .validator
     assert any(
-        "validator" in mod and name == "get_entity_suggestion"
-        for mod, name in imports
+        "validator" in mod and name == "get_entity_suggestion" for mod, name in imports
     ), "websocket_api should import get_entity_suggestion from validator"
 
     # Should NOT import from .fix_engine
-    assert not any(
-        "fix_engine" in mod
-        for mod, name in imports
-    ), "websocket_api should not import from fix_engine"
+    assert not any("fix_engine" in mod for mod, name in imports), (
+        "websocket_api should not import from fix_engine"
+    )
 
 
 @pytest.mark.asyncio
@@ -315,27 +352,37 @@ def test_init_registers_entity_registry_listener():
     ast.parse(source_text)
 
     # The init module should reference entity registry listener registration
-    assert "async_track_entity_registry_updated_event" in source_text or \
-           "entity_registry" in source_text and "invalidate_entity_cache" in source_text, \
+    assert (
+        "async_track_entity_registry_updated_event" in source_text
+        or "entity_registry" in source_text
+        and "invalidate_entity_cache" in source_text
+    ), (
         "__init__.py should register an entity registry change listener that invalidates the entity cache"
+    )
 
 
 def test_init_cleans_up_entity_registry_listener_on_unload():
     """__init__.py should unsubscribe the entity registry listener on unload."""
-    with open(__import__("custom_components.autodoctor.__init__", fromlist=["__init__"]).__file__) as f:
+    with open(
+        __import__(
+            "custom_components.autodoctor.__init__", fromlist=["__init__"]
+        ).__file__
+    ) as f:
         source_text = f.read()
 
-    assert "unsub_entity_registry_listener" in source_text, \
+    assert "unsub_entity_registry_listener" in source_text, (
         "__init__.py should store and clean up the entity registry listener unsub callback"
+    )
 
     # Verify the unload function actually calls the unsub
     source = ast.parse(source_text)
     for node in ast.walk(source):
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_unload_entry":
             body_text = ast.dump(node)
-            assert "unsub_entity_registry_listener" in body_text or \
-                   "unsub_entity_reg" in body_text, \
-                "async_unload_entry should clean up the entity registry listener"
+            assert (
+                "unsub_entity_registry_listener" in body_text
+                or "unsub_entity_reg" in body_text
+            ), "async_unload_entry should clean up the entity registry listener"
             break
     else:
         pytest.fail("async_unload_entry function not found")

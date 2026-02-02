@@ -205,8 +205,9 @@ def test_known_filters_are_accepted():
             "actions": [],
         }
         issues = validator.validate_automations([automation])
-        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), \
+        assert all(i.issue_type != IssueType.TEMPLATE_UNKNOWN_FILTER for i in issues), (
             f"Unexpected filter issue for template: {tmpl}: {issues}"
+        )
 
 
 def test_ha_tests_are_accepted():
@@ -440,7 +441,10 @@ def test_choose_conditions_loop_finds_template_error():
                 "choose": [
                     {
                         "conditions": [
-                            {"condition": "template", "value_template": "{{ broken > }}"}
+                            {
+                                "condition": "template",
+                                "value_template": "{{ broken > }}",
+                            }
                         ],
                         "sequence": [],
                     }
@@ -573,11 +577,7 @@ def test_parallel_branches_loop_finds_template_error():
         "alias": "ZIL Parallel",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [
-            {
-                "parallel": [{"data": {"msg": "{{ broken > }}"}}]
-            }
-        ],
+        "actions": [{"parallel": [{"data": {"msg": "{{ broken > }}"}}]}],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
@@ -699,9 +699,7 @@ def test_repeat_nested_two_levels_finds_deep_error():
                         {
                             "repeat": {
                                 "while": [],
-                                "sequence": [
-                                    {"data": {"msg": "{{ broken > }}"}}
-                                ],
+                                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
                             }
                         }
                     ],
@@ -726,15 +724,7 @@ def test_parallel_nested_two_levels_finds_deep_error():
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
         "actions": [
-            {
-                "parallel": [
-                    {
-                        "parallel": [
-                            {"data": {"msg": "{{ broken > }}"}}
-                        ]
-                    }
-                ]
-            }
+            {"parallel": [{"parallel": [{"data": {"msg": "{{ broken > }}"}}]}]}
         ],
     }
     issues = validator.validate_automations([automation])
@@ -812,9 +802,7 @@ def test_choose_default_nested_finds_deep_error():
                         "choose": [
                             {
                                 "conditions": [],
-                                "sequence": [
-                                    {"data": {"msg": "{{ broken > }}"}}
-                                ],
+                                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
                             }
                         ]
                     }
@@ -985,12 +973,16 @@ def test_choose_action_key_detected_and_validated():
         "alias": "Key Choose",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "choose": [{
-                "conditions": [],
-                "sequence": [{"data": {"msg": "{{ broken > }}"}}],
-            }]
-        }],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [{"data": {"msg": "{{ broken > }}"}}],
+                    }
+                ]
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
@@ -1011,12 +1003,16 @@ def test_repeat_action_key_detected_and_validated():
         "alias": "Key Repeat",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "repeat": {
-                "while": [{"condition": "template", "value_template": "{{ broken > }}"}],
-                "sequence": [],
+        "actions": [
+            {
+                "repeat": {
+                    "while": [
+                        {"condition": "template", "value_template": "{{ broken > }}"}
+                    ],
+                    "sequence": [],
+                }
             }
-        }],
+        ],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
@@ -1036,10 +1032,12 @@ def test_choose_default_key_detected_and_validated():
         "alias": "Key Default",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "choose": [],
-            "default": [{"data": {"msg": "{{ broken > }}"}}],
-        }],
+        "actions": [
+            {
+                "choose": [],
+                "default": [{"data": {"msg": "{{ broken > }}"}}],
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
@@ -1060,10 +1058,12 @@ def test_choose_empty_default_no_crash():
         "alias": "Key Empty Default",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "choose": [],
-            "default": [],
-        }],
+        "actions": [
+            {
+                "choose": [],
+                "default": [],
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) == 0
@@ -1082,10 +1082,12 @@ def test_if_else_key_detected_and_validated():
         "alias": "Key If Else",
         "triggers": [{"platform": "time", "at": "12:00:00"}],
         "conditions": [],
-        "actions": [{
-            "if": [],
-            "else": [{"data": {"msg": "{{ broken > }}"}}],
-        }],
+        "actions": [
+            {
+                "if": [],
+                "else": [{"data": {"msg": "{{ broken > }}"}}],
+            }
+        ],
     }
     issues = validator.validate_automations([automation])
     assert len(issues) >= 1
@@ -1132,6 +1134,7 @@ def test_no_entity_validation_methods():
 def test_no_issue_type_remap_dict():
     """Module must NOT export _ISSUE_TYPE_REMAP (removed in v2.14.0)."""
     import custom_components.autodoctor.jinja_validator as jv_module
+
     assert not hasattr(jv_module, "_ISSUE_TYPE_REMAP"), (
         "_ISSUE_TYPE_REMAP must be removed from jinja_validator module"
     )
@@ -1140,6 +1143,7 @@ def test_no_issue_type_remap_dict():
 def test_no_special_ref_types_dict():
     """Module must NOT export _SPECIAL_REF_TYPES (removed in v2.14.0)."""
     import custom_components.autodoctor.jinja_validator as jv_module
+
     assert not hasattr(jv_module, "_SPECIAL_REF_TYPES"), (
         "_SPECIAL_REF_TYPES must be removed from jinja_validator module"
     )

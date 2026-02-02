@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     """Set up WebSocket API."""
     websocket_api.async_register_command(hass, websocket_get_issues)
@@ -37,6 +38,7 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_get_validation_steps)
     websocket_api.async_register_command(hass, websocket_list_suppressions)
     websocket_api.async_register_command(hass, websocket_unsuppress)
+
 
 def _format_issues_with_fixes(
     hass: HomeAssistant,
@@ -85,6 +87,7 @@ def _format_issues_with_fixes(
         )
     return issues_with_fixes
 
+
 def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
     """Calculate healthy automation count."""
     automation_data = hass.data.get("automation")
@@ -98,6 +101,7 @@ def _get_healthy_count(hass: HomeAssistant, issues: list) -> int:
     automations_with_issues = len(set(i.automation_id for i in issues))
     return max(0, total_automations - automations_with_issues)
 
+
 def _compute_group_status(issues: list) -> str:
     """Compute group status from its issues.
 
@@ -110,18 +114,24 @@ def _compute_group_status(issues: list) -> str:
         return "warning"
     return "pass"
 
+
 def _filter_suppressed(
     issues: list[ValidationIssue],
     suppression_store: SuppressionStore | None,
 ) -> tuple[list[ValidationIssue], int]:
     """Filter suppressed issues and return visible issues with suppressed count."""
     if suppression_store:
-        visible = [i for i in issues if not suppression_store.is_suppressed(i.get_suppression_key())]
+        visible = [
+            i
+            for i in issues
+            if not suppression_store.is_suppressed(i.get_suppression_key())
+        ]
         suppressed_count = len(issues) - len(visible)
     else:
         visible = issues
         suppressed_count = 0
     return visible, suppressed_count
+
 
 @websocket_api.websocket_command(
     {
@@ -149,6 +159,7 @@ async def websocket_get_issues(
         },
     )
 
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "autodoctor/refresh",
@@ -166,6 +177,7 @@ async def websocket_refresh(
     issues = await async_validate_all(hass)
 
     connection.send_result(msg["id"], {"success": True, "issue_count": len(issues)})
+
 
 @websocket_api.websocket_command(
     {
@@ -199,6 +211,7 @@ async def websocket_get_validation(
         },
     )
 
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "autodoctor/validation/run",
@@ -219,7 +232,9 @@ async def websocket_run_validation(
 
         all_issues = await async_validate_all(hass)
 
-        visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
+        visible_issues, suppressed_count = _filter_suppressed(
+            all_issues, suppression_store
+        )
 
         issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
         healthy_count = _get_healthy_count(hass, visible_issues)
@@ -271,7 +286,9 @@ async def websocket_run_validation_steps(
 
         for gid in VALIDATION_GROUP_ORDER:
             raw_issues = result["group_issues"][gid]
-            visible, suppressed_count = _filter_suppressed(raw_issues, suppression_store)
+            visible, suppressed_count = _filter_suppressed(
+                raw_issues, suppression_store
+            )
             total_suppressed += suppressed_count
 
             all_visible_issues.extend(visible)
@@ -298,7 +315,9 @@ async def websocket_run_validation_steps(
             msg["id"],
             {
                 "groups": groups,
-                "issues": _format_issues_with_fixes(hass, all_visible_issues, all_entity_ids),
+                "issues": _format_issues_with_fixes(
+                    hass, all_visible_issues, all_entity_ids
+                ),
                 "healthy_count": _get_healthy_count(hass, all_visible_issues),
                 "last_run": result["timestamp"],
                 "suppressed_count": total_suppressed,
@@ -354,7 +373,9 @@ async def websocket_get_validation_steps(
         # Apply suppression filtering at READ time (not from cache)
         for gid in VALIDATION_GROUP_ORDER:
             raw_issues = cached_groups[gid]["issues"]
-            visible, suppressed_count = _filter_suppressed(raw_issues, suppression_store)
+            visible, suppressed_count = _filter_suppressed(
+                raw_issues, suppression_store
+            )
             total_suppressed += suppressed_count
 
             all_visible_issues.extend(visible)
@@ -383,7 +404,9 @@ async def websocket_get_validation_steps(
         msg["id"],
         {
             "groups": groups,
-            "issues": _format_issues_with_fixes(hass, all_visible_issues, all_entity_ids),
+            "issues": _format_issues_with_fixes(
+                hass, all_visible_issues, all_entity_ids
+            ),
             "healthy_count": healthy_count,
             "last_run": last_run,
             "suppressed_count": total_suppressed,
@@ -445,6 +468,7 @@ async def websocket_suppress(
     connection.send_result(
         msg["id"], {"success": True, "suppressed_count": suppression_store.count}
     )
+
 
 @websocket_api.websocket_command(
     {
@@ -508,8 +532,12 @@ async def websocket_list_suppressions(
                 "key": key,
                 "automation_id": issue.automation_id if issue else key.split(":")[0],
                 "automation_name": issue.automation_name if issue else "",
-                "entity_id": issue.entity_id if issue else (key.split(":")[1] if ":" in key else ""),
-                "issue_type": issue.issue_type.value if issue and issue.issue_type else (key.split(":")[-1] if ":" in key else ""),
+                "entity_id": issue.entity_id
+                if issue
+                else (key.split(":")[1] if ":" in key else ""),
+                "issue_type": issue.issue_type.value
+                if issue and issue.issue_type
+                else (key.split(":")[-1] if ":" in key else ""),
                 "message": issue.message if issue else "",
             }
         )

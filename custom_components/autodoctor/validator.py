@@ -15,12 +15,14 @@ from .models import IssueType, Severity, StateReference, ValidationIssue
 _LOGGER = logging.getLogger(__name__)
 
 # Reference types that are not entity IDs and should skip entity validation
-_NON_ENTITY_REFERENCE_TYPES = frozenset({
-    "device",       # device_id (hex hash) — validate against device registry
-    "tag",          # tag_id — no entity validation
-    "area",         # area_id — validate against area registry
-    "integration",  # integration name — no entity validation
-})
+_NON_ENTITY_REFERENCE_TYPES = frozenset(
+    {
+        "device",  # device_id (hex hash) — validate against device registry
+        "tag",  # tag_id — no entity validation
+        "area",  # area_id — validate against area registry
+        "integration",  # integration name — no entity validation
+    }
+)
 
 
 class ValidationEngine:
@@ -90,7 +92,10 @@ class ValidationEngine:
         except (KeyError, AttributeError, TypeError, ValueError) as err:
             _LOGGER.warning(
                 "Error validating %s in %s: %s: %s",
-                ref.entity_id, ref.automation_id, type(err).__name__, err,
+                ref.entity_id,
+                ref.automation_id,
+                type(err).__name__,
+                err,
             )
             # Return empty - avoid false positives on errors
 
@@ -143,7 +148,9 @@ class ValidationEngine:
 
     def _validate_transition_from(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the transition_from state value."""
-        return self._check_state_value(ref, ref.transition_from, "Transition from state")
+        return self._check_state_value(
+            ref, ref.transition_from, "Transition from state"
+        )
 
     def _check_state_value(
         self,
@@ -171,7 +178,8 @@ class ValidationEngine:
             if valid_states is None:
                 _LOGGER.debug(
                     "Skipping state validation for %s (domain %s not in whitelist, no known states)",
-                    ref.entity_id, domain
+                    ref.entity_id,
+                    domain,
                 )
                 return []
             # Fall through to validate against the known states
@@ -216,7 +224,6 @@ class ValidationEngine:
                 valid_states=valid_states_list,
             )
         ]
-
 
     def _validate_attribute(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate the expected attribute exists.
