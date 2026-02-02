@@ -65,7 +65,7 @@ class ValidationIssue:
     message: str
     issue_type: IssueType | None = None
     suggestion: str | None = None
-    valid_states: list[str] = field(default_factory=list)
+    valid_states: list[str] = field(default_factory=lambda: list[str]())
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
