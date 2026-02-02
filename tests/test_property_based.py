@@ -16,7 +16,6 @@ from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.service_validator import _is_template_value
 from custom_components.autodoctor.validator import get_entity_suggestion
 
-
 # ============================================================================
 # Analyzer Tests - AutomationAnalyzer is pure Python, no HA mocks needed
 # ============================================================================
