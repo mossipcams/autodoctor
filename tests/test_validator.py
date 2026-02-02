@@ -7,7 +7,10 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import IssueType, Severity, StateReference
-from custom_components.autodoctor.validator import ValidationEngine, _NON_ENTITY_REFERENCE_TYPES
+from custom_components.autodoctor.validator import (
+    _NON_ENTITY_REFERENCE_TYPES,
+    ValidationEngine,
+)
 
 
 @pytest.fixture

@@ -5,11 +5,11 @@ from unittest.mock import MagicMock
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.core import HomeAssistant
 
+from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.sensor import (
     ValidationIssuesSensor,
     async_setup_entry,
 )
-from custom_components.autodoctor.const import DOMAIN
 
 
 async def test_async_setup_entry_adds_entity(hass: HomeAssistant):

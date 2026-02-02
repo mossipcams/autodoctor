@@ -3,11 +3,11 @@
 import pytest
 
 from custom_components.autodoctor.models import (
+    VALIDATION_GROUPS,
     IssueType,
     Severity,
     StateReference,
     ValidationIssue,
-    VALIDATION_GROUPS,
 )
 
 

@@ -10,8 +10,6 @@ from custom_components.autodoctor.models import (
     IssueType,
     Severity,
     ValidationIssue,
-    VALIDATION_GROUPS,
-    VALIDATION_GROUP_ORDER,
 )
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,

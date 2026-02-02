@@ -10,6 +10,7 @@ from .models import IssueType, Severity, ValidationIssue
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
     from .models import ServiceCall
 
 _LOGGER = logging.getLogger(__name__)

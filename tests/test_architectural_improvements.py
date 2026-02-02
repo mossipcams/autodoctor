@@ -2,10 +2,11 @@
 
 import ast
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+import custom_components.autodoctor.websocket_api as ws_mod
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.const import (
     CONF_STRICT_SERVICE_VALIDATION,
@@ -15,13 +16,8 @@ from custom_components.autodoctor.const import (
     MAX_RECURSION_DEPTH,
     STATE_VALIDATION_WHITELIST,
 )
-from custom_components.autodoctor.jinja_validator import JinjaValidator
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
-from custom_components.autodoctor.models import (
-    StateReference,
-)
 from custom_components.autodoctor.validator import get_entity_suggestion
-import custom_components.autodoctor.websocket_api as ws_mod
 
 
 def test_state_validation_whitelist_exists():
@@ -49,14 +45,12 @@ def test_strict_config_keys_exist():
 
 def test_max_recursion_depth_constant():
     """MAX_RECURSION_DEPTH should exist in const."""
-    from custom_components.autodoctor.const import MAX_RECURSION_DEPTH
 
     assert MAX_RECURSION_DEPTH == 50
 
 
 def test_extract_from_actions_enforces_depth_limit():
     """_extract_from_actions should stop recursing beyond MAX_RECURSION_DEPTH."""
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
     analyzer = AutomationAnalyzer()
 
@@ -85,7 +79,6 @@ def test_extract_from_actions_enforces_depth_limit():
 
 def test_extract_from_actions_depth_limit_if_then_else():
     """Depth limit should also apply to if/then/else nesting."""
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
     analyzer = AutomationAnalyzer()
 
@@ -108,7 +101,6 @@ def test_extract_from_actions_depth_limit_if_then_else():
 
 def test_extract_from_actions_depth_limit_repeat():
     """Depth limit should also apply to repeat nesting."""
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
     analyzer = AutomationAnalyzer()
 
@@ -131,7 +123,6 @@ def test_extract_from_actions_depth_limit_repeat():
 
 def test_extract_from_actions_depth_limit_parallel():
     """Depth limit should also apply to parallel nesting."""
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
     analyzer = AutomationAnalyzer()
 
@@ -154,7 +145,6 @@ def test_extract_from_actions_depth_limit_parallel():
 
 def test_extract_service_calls_enforces_depth_limit():
     """extract_service_calls should also enforce depth limit."""
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
     analyzer = AutomationAnalyzer()
 
@@ -178,7 +168,6 @@ def test_extract_service_calls_enforces_depth_limit():
 
 def test_extract_service_calls_depth_limit_if_repeat_parallel():
     """Service call depth limit should apply to if/then, repeat, and parallel branches."""
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
     analyzer = AutomationAnalyzer()
 
@@ -206,7 +195,6 @@ def test_extract_service_calls_depth_limit_if_repeat_parallel():
 
 def test_get_entity_suggestion_importable_from_validator():
     """get_entity_suggestion should be importable from validator module."""
-    from custom_components.autodoctor.validator import get_entity_suggestion
 
     # Basic smoke test — entity suggestion from validator
     all_entities = ["light.living_room", "light.bedroom", "switch.kitchen"]
@@ -216,9 +204,7 @@ def test_get_entity_suggestion_importable_from_validator():
 
 def test_websocket_api_imports_from_validator_not_fix_engine():
     """websocket_api imports get_entity_suggestion from validator (not the removed fix_engine module)."""
-    import ast
 
-    import custom_components.autodoctor.websocket_api as ws_mod
     source = ast.parse(open(ws_mod.__file__).read())
 
     imports = []
@@ -243,7 +229,6 @@ def test_websocket_api_imports_from_validator_not_fix_engine():
 @pytest.mark.asyncio
 async def test_async_load_history_times_out_on_slow_recorder():
     """async_load_history should timeout if recorder is too slow."""
-    import asyncio
 
     mock_hass = MagicMock()
     mock_states = [MagicMock(entity_id="binary_sensor.test")]
@@ -264,7 +249,7 @@ async def test_async_load_history_times_out_on_slow_recorder():
         # Should complete without hanging — internal timeout should kick in
         try:
             await asyncio.wait_for(kb.async_load_history(), timeout=5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail("async_load_history should have its own internal timeout")
 
 
@@ -321,7 +306,6 @@ def test_validation_engine_has_invalidate_entity_cache():
 
 def test_init_registers_entity_registry_listener():
     """__init__.py should register an entity registry change listener."""
-    import ast
 
     import custom_components.autodoctor.__init__ as init_mod
 
@@ -344,7 +328,6 @@ def test_init_cleans_up_entity_registry_listener_on_unload():
         "__init__.py should store and clean up the entity registry listener unsub callback"
 
     # Verify the unload function actually calls the unsub
-    import ast
     source = ast.parse(source_text)
     for node in ast.walk(source):
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_unload_entry":

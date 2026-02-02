@@ -1,6 +1,7 @@
 """Tests for ha_catalog — HA-specific Jinja2 filter/test catalog."""
 
 import pytest
+
 from custom_components.autodoctor.ha_catalog import (
     CatalogEntry,
     EntryKind,

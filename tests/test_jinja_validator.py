@@ -3,8 +3,9 @@
 import inspect
 
 import pytest
+
 from custom_components.autodoctor.jinja_validator import JinjaValidator
-from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
+from custom_components.autodoctor.models import IssueType, Severity
 
 
 def test_deeply_nested_conditions_do_not_stackoverflow():

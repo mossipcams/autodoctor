@@ -11,8 +11,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
+from .models import (
+    VALIDATION_GROUP_ORDER,
+    VALIDATION_GROUPS,
+    IssueType,
+    Severity,
+    ValidationIssue,
+)
 from .validator import get_entity_suggestion
-from .models import IssueType, Severity, ValidationIssue, VALIDATION_GROUPS, VALIDATION_GROUP_ORDER
 
 if TYPE_CHECKING:
     from .suppression_store import SuppressionStore

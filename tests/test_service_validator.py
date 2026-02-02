@@ -1,8 +1,7 @@
 """Tests for ServiceCallValidator."""
 
-import pytest
-from unittest.mock import MagicMock
 
+import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.service_validator import ServiceCallValidator
@@ -16,7 +15,7 @@ async def test_service_validator_initialization(hass: HomeAssistant):
 
 async def test_validate_service_not_found(hass: HomeAssistant):
     """Test validation for non-existent service."""
-    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     validator = ServiceCallValidator(hass)
 
@@ -83,7 +82,7 @@ async def test_validate_skips_templated_service(hass: HomeAssistant):
 
 async def test_validate_missing_required_param(hass: HomeAssistant):
     """Test validation for missing required parameter."""
-    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     # Register a test service
     async def test_service(call):
@@ -131,7 +130,7 @@ async def test_validate_missing_required_param(hass: HomeAssistant):
 
 async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
     """Test that required param in target is not flagged as missing."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -169,7 +168,7 @@ async def test_validate_missing_required_param_in_target(hass: HomeAssistant):
 
 async def test_validate_skips_required_check_when_templated(hass: HomeAssistant):
     """Test that required param check is skipped for templated service calls."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import ServiceCall
 
     validator = ServiceCallValidator(hass)
 
@@ -190,7 +189,7 @@ async def test_validate_skips_required_check_when_templated(hass: HomeAssistant)
 
 async def test_validate_skips_required_check_when_data_is_templated(hass: HomeAssistant):
     """Test required param check skipped when data values contain templates."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -232,7 +231,7 @@ async def test_validate_skips_required_check_when_data_is_templated(hass: HomeAs
 
 async def test_validate_unknown_param(hass: HomeAssistant):
     """Test validation for unknown parameter."""
-    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     async def test_service(call):
         pass
@@ -274,7 +273,7 @@ async def test_validate_unknown_param(hass: HomeAssistant):
 
 async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant):
     """Test unknown param check skips services with no fields defined."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -306,7 +305,7 @@ async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant):
 
 async def test_validate_invalid_param_type_number(hass: HomeAssistant):
     """Test validation for invalid parameter type (expected number, got string)."""
-    from custom_components.autodoctor.models import ServiceCall, Severity, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -344,7 +343,7 @@ async def test_validate_invalid_param_type_number(hass: HomeAssistant):
 
 async def test_validate_valid_param_type_number(hass: HomeAssistant):
     """Test that valid number type passes."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -381,7 +380,7 @@ async def test_validate_valid_param_type_number(hass: HomeAssistant):
 
 async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
     """Test validation for invalid parameter type (expected boolean)."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -419,7 +418,7 @@ async def test_validate_invalid_param_type_boolean(hass: HomeAssistant):
 
 async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistant):
     """Test that type validation is skipped for templated values."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -456,7 +455,7 @@ async def test_validate_skips_type_check_for_templated_values(hass: HomeAssistan
 
 async def test_validate_select_option_valid(hass: HomeAssistant):
     """Test validation passes for valid select option."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -493,7 +492,7 @@ async def test_validate_select_option_valid(hass: HomeAssistant):
 
 async def test_validate_select_option_invalid(hass: HomeAssistant):
     """Test validation flags invalid select option."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     async def test_service(call):
         pass
@@ -533,7 +532,7 @@ async def test_validate_select_option_invalid(hass: HomeAssistant):
 
 async def test_validate_no_description_available(hass: HomeAssistant):
     """Test validation when no service description is available."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -567,7 +566,7 @@ async def test_validate_no_description_available(hass: HomeAssistant):
 
 async def test_validate_all_checks_combined(hass: HomeAssistant):
     """Test all validation checks work together."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     async def test_service(call):
         pass
@@ -615,9 +614,7 @@ async def test_validate_all_checks_combined(hass: HomeAssistant):
     for issue in issues:
         if issue.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM:
             assert issue.severity == Severity.ERROR
-        elif issue.issue_type == IssueType.SERVICE_UNKNOWN_PARAM:
-            assert issue.severity == Severity.WARNING
-        elif issue.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE:
+        elif issue.issue_type == IssueType.SERVICE_UNKNOWN_PARAM or issue.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE:
             assert issue.severity == Severity.WARNING
 
 
@@ -627,7 +624,7 @@ async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant):
     This reproduces the false positive from the logs:
     Parameter 'include_folders' value '['config']' is not a valid option
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -676,7 +673,7 @@ async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
     - Unknown parameter 'color_temp' for service 'light.turn_on'
     - Unknown parameter 'kelvin' for service 'light.turn_on'
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -719,7 +716,7 @@ async def test_validate_capability_dependent_light_params(hass: HomeAssistant):
 
 async def test_unknown_param_not_flagged_without_strict_mode(hass: HomeAssistant):
     """Without strict mode, unknown params should not produce warnings."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -808,7 +805,7 @@ async def test_capability_dependent_params_not_flagged(
     hass: HomeAssistant, service: str, param: str
 ):
     """Capability-dependent params should not be flagged as unknown."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     domain, svc = service.split(".", 1)
 
@@ -850,7 +847,7 @@ async def test_capability_dependent_params_not_flagged(
 
 async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant):
     """Test SERVICE_NOT_FOUND includes fuzzy suggestion for close match."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     # Register "turn_off" so "turn_of" (typo) can be suggested
     async def test_service(call):
@@ -881,7 +878,7 @@ async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant):
 
 async def test_service_not_found_no_suggestion_wrong_domain(hass: HomeAssistant):
     """Test SERVICE_NOT_FOUND without suggestion when domain has no services."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     validator = ServiceCallValidator(hass)
 
@@ -904,7 +901,7 @@ async def test_service_not_found_no_suggestion_wrong_domain(hass: HomeAssistant)
 
 async def test_service_not_found_no_suggestion_no_close_match(hass: HomeAssistant):
     """Test SERVICE_NOT_FOUND without suggestion when no close match exists."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     async def test_service(call):
         pass
@@ -933,7 +930,7 @@ async def test_service_not_found_no_suggestion_no_close_match(hass: HomeAssistan
 
 async def test_unknown_target_key_flagged(hass: HomeAssistant):
     """Test that non-standard keys in target dict are flagged."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     async def test_service(call):
         pass
@@ -975,7 +972,7 @@ async def test_unknown_target_key_flagged(hass: HomeAssistant):
 
 async def test_valid_target_keys_not_flagged(hass: HomeAssistant):
     """Test that standard target keys (entity_id, device_id, area_id) are not flagged."""
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -1030,7 +1027,7 @@ async def test_template_entity_id_skips_validation(hass: HomeAssistant):
     Kills: AddNot on 'if "{{" in entity_id' -- if the condition is inverted,
     the template entity would be validated and produce a target-not-found issue.
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -1063,7 +1060,7 @@ async def test_non_template_entity_validated(hass: HomeAssistant):
     Contrast test for SV-01: proves non-template entities are validated.
     Kills AddNot on template check (both directions covered).
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType, Severity
+    from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 
     async def test_service(call):
         pass
@@ -1098,7 +1095,7 @@ async def test_existing_target_entity_no_issue(hass: HomeAssistant):
     Kills: Is->IsNot on 'hass.states.get(entity_id) is None' -- if mutated
     to 'is not None', existing entities would be incorrectly flagged.
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -1133,7 +1130,7 @@ async def test_multiple_nonexistent_entities_all_produce_issues(hass: HomeAssist
     If break replaces continue, only the first entity would be checked and the
     loop would exit early, producing only 1 issue instead of 3.
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -1168,7 +1165,7 @@ async def test_multiple_required_fields_all_checked(hass: HomeAssistant):
     Kills: ReplaceContinueWithBreak on _validate_required_params loop.
     If break replaces continue, only the first missing field would be reported.
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -1207,7 +1204,7 @@ async def test_multiple_unknown_params_all_checked(hass: HomeAssistant):
     Kills: ReplaceContinueWithBreak on _validate_unknown_params data loop.
     If break replaces continue, only the first unknown param would be reported.
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     async def test_service(call):
         pass
@@ -1341,7 +1338,7 @@ async def test_validate_required_param_from_inline_params(hass: HomeAssistant):
     End-to-end integration test: a ServiceCall with data populated from inline
     params should NOT trigger SERVICE_MISSING_REQUIRED_PARAM.
     """
-    from custom_components.autodoctor.models import ServiceCall, IssueType
+    from custom_components.autodoctor.models import IssueType, ServiceCall
 
     # Register a test service
     async def test_service(call):

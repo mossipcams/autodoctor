@@ -8,7 +8,6 @@ dependencies (recorder, frontend, etc.) that aren't available in the test env.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -19,12 +18,6 @@ from custom_components.autodoctor.const import (
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
-    DEFAULT_DEBOUNCE_SECONDS,
-    DEFAULT_HISTORY_DAYS,
-    DEFAULT_STRICT_SERVICE_VALIDATION,
-    DEFAULT_STRICT_TEMPLATE_VALIDATION,
-    DEFAULT_VALIDATE_ON_RELOAD,
-    DOMAIN,
 )
 
 

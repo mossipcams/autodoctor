@@ -1,9 +1,10 @@
 """Tests for autodoctor __init__.py."""
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+
 from custom_components.autodoctor import (
     async_validate_all,
     async_validate_all_with_groups,
@@ -11,10 +12,10 @@ from custom_components.autodoctor import (
 )
 from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.models import (
+    VALIDATION_GROUP_ORDER,
     IssueType,
     Severity,
     ValidationIssue,
-    VALIDATION_GROUP_ORDER,
 )
 
 
@@ -391,7 +392,10 @@ def test_build_config_snapshot_skips_configs_without_id():
 @pytest.mark.asyncio
 async def test_reload_listener_single_automation_change(mock_hass):
     """When only one automation config changes, validate just that automation."""
-    from custom_components.autodoctor import _build_config_snapshot, _setup_reload_listener
+    from custom_components.autodoctor import (
+        _build_config_snapshot,
+        _setup_reload_listener,
+    )
 
     # Build a baseline snapshot of 3 automations
     original_configs = [
@@ -451,7 +455,10 @@ async def test_reload_listener_single_automation_change(mock_hass):
 @pytest.mark.asyncio
 async def test_reload_listener_bulk_reload_validates_all(mock_hass):
     """When 3+ automations change, validate all instead of targeted."""
-    from custom_components.autodoctor import _build_config_snapshot, _setup_reload_listener
+    from custom_components.autodoctor import (
+        _build_config_snapshot,
+        _setup_reload_listener,
+    )
 
     original_configs = [
         {"id": "auto_1", "alias": "Auto 1"},
@@ -546,7 +553,10 @@ async def test_reload_listener_no_snapshot_validates_all(mock_hass):
 @pytest.mark.asyncio
 async def test_snapshot_updated_after_validation(mock_hass):
     """Snapshot in hass.data is updated after reload validation completes."""
-    from custom_components.autodoctor import _build_config_snapshot, _setup_reload_listener
+    from custom_components.autodoctor import (
+        _build_config_snapshot,
+        _setup_reload_listener,
+    )
 
     configs = [
         {"id": "auto_1", "alias": "Auto 1"},
@@ -735,7 +745,7 @@ async def test_register_card_current_version_already_registered():
     Kills: AddNot on `if current_exists` (L173) -- if inverted,
     already-registered version would be re-created.
     """
-    from custom_components.autodoctor import _async_register_card, CARD_URL_BASE
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
     from custom_components.autodoctor.const import VERSION
 
     hass = MagicMock()
@@ -930,7 +940,6 @@ async def test_run_validators_failed_automation_warning(grouped_hass):
     grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
-    import logging
     with patch("custom_components.autodoctor._LOGGER") as mock_logger:
         result = await _async_run_validators(
             grouped_hass, [{"id": "bad", "alias": "Bad"}]
