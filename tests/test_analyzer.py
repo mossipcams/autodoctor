@@ -1,11 +1,34 @@
-"""Tests for AutomationAnalyzer."""
+"""Tests for AutomationAnalyzer.
+
+The AutomationAnalyzer is responsible for parsing Home Assistant automation
+configurations and extracting all entity references, state expectations, and
+service calls. This includes support for:
+- 21 trigger types (state, numeric_state, template, time, zone, sun, etc.)
+- 10 condition types (state, numeric_state, template, zone, sun, time, etc.)
+- Service call extraction from all action types
+- Template parsing (is_state, states, expand, area_entities, etc.)
+"""
+
+from typing import Any
+
+import pytest
 
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
+from custom_components.autodoctor.models import StateReference
 
 
-def test_extract_state_trigger_to():
-    """Test extraction of 'to' state from state trigger."""
-    automation = {
+# ============================================================================
+# State Trigger Tests
+# ============================================================================
+
+
+def test_extract_state_trigger_to() -> None:
+    """Test extraction of 'to' state from state trigger.
+
+    State triggers with 'to' are the most common automation pattern,
+    tracking when an entity changes to a specific state.
+    """
+    automation: dict[str, Any] = {
         "id": "welcome_home",
         "alias": "Welcome Home",
         "trigger": [
@@ -28,9 +51,13 @@ def test_extract_state_trigger_to():
     assert refs[0].location == "trigger[0].to"
 
 
-def test_extract_state_trigger_from_and_to():
-    """Test extraction of 'from' and 'to' states."""
-    automation = {
+def test_extract_state_trigger_from_and_to() -> None:
+    """Test extraction of 'from' and 'to' states in state trigger.
+
+    State triggers can specify both from and to states to detect specific
+    state transitions (e.g., person leaving home).
+    """
+    automation: dict[str, Any] = {
         "id": "left_home",
         "alias": "Left Home",
         "trigger": [
@@ -55,9 +82,13 @@ def test_extract_state_trigger_from_and_to():
     assert to_ref.expected_state == "not_home"
 
 
-def test_extract_multiple_entity_ids():
-    """Test extraction with multiple entity IDs in trigger."""
-    automation = {
+def test_extract_multiple_entity_ids() -> None:
+    """Test extraction with multiple entity IDs in single trigger.
+
+    Home Assistant allows specifying multiple entities in a single trigger,
+    which creates references for each entity with the same state expectation.
+    """
+    automation: dict[str, Any] = {
         "id": "motion_detected",
         "alias": "Motion Detected",
         "trigger": [
@@ -79,7 +110,7 @@ def test_extract_multiple_entity_ids():
     assert "binary_sensor.motion_2" in entity_ids
 
 
-def test_extract_state_condition():
+def test_extract_state_condition() -> None:
     """Test extraction from state condition."""
     automation = {
         "id": "check_alarm",
@@ -104,7 +135,7 @@ def test_extract_state_condition():
     assert refs[0].location == "condition[0].state"
 
 
-def test_extract_is_state_from_template():
+def test_extract_is_state_from_template() -> None:
     """Test extraction of is_state() calls from templates."""
     automation = {
         "id": "template_test",
@@ -126,7 +157,7 @@ def test_extract_is_state_from_template():
     assert refs[0].expected_state == "on"
 
 
-def test_extract_multiple_is_state_calls():
+def test_extract_multiple_is_state_calls() -> None:
     """Test extraction of multiple is_state() calls."""
     automation = {
         "id": "multi_template",
@@ -150,7 +181,7 @@ def test_extract_multiple_is_state_calls():
     assert "sun.sun" in entities
 
 
-def test_extract_states_object_access():
+def test_extract_states_object_access() -> None:
     """Test extraction of states.domain.entity references."""
     automation = {
         "id": "states_access",
@@ -167,11 +198,13 @@ def test_extract_states_object_access():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert len(refs) >= 1
-    assert any(r.entity_id == "binary_sensor.motion" for r in refs)
+    assert len(refs) == 1
+    assert refs[0].entity_id == "binary_sensor.motion"
+    assert refs[0].automation_id == "automation.states_access"
+    assert refs[0].location == "trigger[0].states_object"
 
 
-def test_extract_state_attr_from_template():
+def test_extract_state_attr_from_template() -> None:
     """Test extraction of state_attr() calls."""
     automation = {
         "id": "attr_test",
@@ -193,7 +226,7 @@ def test_extract_state_attr_from_template():
     assert refs[0].expected_attribute == "current_temperature"
 
 
-def test_extract_is_state_attr_from_template():
+def test_extract_is_state_attr_from_template() -> None:
     """Test extraction of is_state_attr() calls from templates."""
     automation = {
         "id": "state_attr_test",
@@ -215,7 +248,7 @@ def test_extract_is_state_attr_from_template():
     assert refs[0].expected_attribute == "hvac_mode"
 
 
-def test_extract_template_with_escaped_quotes():
+def test_extract_template_with_escaped_quotes() -> None:
     """Test extraction handles escaped quotes in templates."""
     automation = {
         "id": "escaped_quotes_test",
@@ -236,7 +269,7 @@ def test_extract_template_with_escaped_quotes():
     assert refs[0].entity_id == "sensor.name_with_quote"
 
 
-def test_extract_multiline_template():
+def test_extract_multiline_template() -> None:
     """Test extraction handles multiline templates."""
     automation = {
         "id": "multiline_test",
@@ -261,7 +294,7 @@ def test_extract_multiline_template():
     assert refs[0].expected_state == "on"
 
 
-def test_extract_template_strips_jinja_comments():
+def test_extract_template_strips_jinja_comments() -> None:
     """Test that Jinja2 comments are stripped before parsing."""
     automation = {
         "id": "comment_test",
@@ -282,135 +315,124 @@ def test_extract_template_strips_jinja_comments():
     assert refs[0].entity_id == "sensor.test"
 
 
-def test_extract_from_choose_action():
-    """Test extraction from choose action conditions."""
-    automation = {
-        "id": "choose_test",
-        "alias": "Choose Test",
-        "trigger": [{"platform": "time", "at": "08:00:00"}],
-        "condition": [],
-        "action": [
-            {
-                "choose": [
-                    {
-                        "conditions": [
+@pytest.mark.parametrize(
+    ("action_type", "entity_id", "expected_state"),
+    [
+        ("choose", "sensor.mode", "day"),
+        ("if", "binary_sensor.presence", "on"),
+        ("repeat_while", "sensor.temp", "high"),
+        ("repeat_until", "lock.front", "locked"),
+        ("wait_template", "binary_sensor.door", "off"),
+    ],
+    ids=["choose-action", "if-action", "repeat-while", "repeat-until", "wait-template"],
+)
+def test_extract_from_nested_action_structures(
+    action_type: str, entity_id: str, expected_state: str
+) -> None:
+    """Test extraction from nested action structures (choose, if, repeat, wait).
+
+    The analyzer must recursively walk nested action structures to find
+    all entity references in embedded conditions and templates.
+    """
+    if action_type == "choose":
+        automation = {
+            "id": "choose_test",
+            "alias": "Choose Test",
+            "trigger": [{"platform": "time", "at": "08:00:00"}],
+            "condition": [],
+            "action": [
+                {
+                    "choose": [
+                        {
+                            "conditions": [
+                                {
+                                    "condition": "template",
+                                    "value_template": f"{{{{ is_state('{entity_id}', '{expected_state}') }}}}",
+                                }
+                            ],
+                            "sequence": [{"service": "light.turn_on"}],
+                        }
+                    ]
+                }
+            ],
+        }
+    elif action_type == "if":
+        automation = {
+            "id": "if_test",
+            "alias": "If Test",
+            "trigger": [{"platform": "time", "at": "08:00:00"}],
+            "action": [
+                {
+                    "if": [
+                        {
+                            "condition": "template",
+                            "value_template": f"{{{{ is_state('{entity_id}', '{expected_state}') }}}}",
+                        }
+                    ],
+                    "then": [{"service": "light.turn_on"}],
+                }
+            ],
+        }
+    elif action_type == "repeat_while":
+        automation = {
+            "id": "repeat_while_test",
+            "alias": "Repeat While Test",
+            "trigger": [{"platform": "time", "at": "08:00:00"}],
+            "action": [
+                {
+                    "repeat": {
+                        "while": [
                             {
                                 "condition": "template",
-                                "value_template": "{{ is_state('sensor.mode', 'day') }}",
+                                "value_template": f"{{{{ is_state('{entity_id}', '{expected_state}') }}}}",
                             }
                         ],
-                        "sequence": [{"service": "light.turn_on"}],
+                        "sequence": [{"service": "climate.set_temperature"}],
                     }
-                ]
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert any(r.entity_id == "sensor.mode" for r in refs)
-
-
-def test_extract_from_if_action():
-    """Test extraction from if action conditions."""
-    automation = {
-        "id": "if_test",
-        "alias": "If Test",
-        "trigger": [{"platform": "time", "at": "08:00:00"}],
-        "action": [
-            {
-                "if": [
-                    {
-                        "condition": "template",
-                        "value_template": "{{ is_state('binary_sensor.presence', 'on') }}",
+                }
+            ],
+        }
+    elif action_type == "repeat_until":
+        automation = {
+            "id": "repeat_until_test",
+            "alias": "Repeat Until Test",
+            "trigger": [{"platform": "time", "at": "08:00:00"}],
+            "action": [
+                {
+                    "repeat": {
+                        "until": [
+                            {
+                                "condition": "template",
+                                "value_template": f"{{{{ is_state('{entity_id}', '{expected_state}') }}}}",
+                            }
+                        ],
+                        "sequence": [{"service": "lock.lock"}],
                     }
-                ],
-                "then": [{"service": "light.turn_on"}],
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert any(r.entity_id == "binary_sensor.presence" for r in refs)
-
-
-def test_extract_from_repeat_while_action():
-    """Test extraction from repeat while condition."""
-    automation = {
-        "id": "repeat_while_test",
-        "alias": "Repeat While Test",
-        "trigger": [{"platform": "time", "at": "08:00:00"}],
-        "action": [
-            {
-                "repeat": {
-                    "while": [
-                        {
-                            "condition": "template",
-                            "value_template": "{{ is_state('sensor.temp', 'high') }}",
-                        }
-                    ],
-                    "sequence": [{"service": "climate.set_temperature"}],
                 }
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert any(r.entity_id == "sensor.temp" for r in refs)
-
-
-def test_extract_from_repeat_until_action():
-    """Test extraction from repeat until condition."""
-    automation = {
-        "id": "repeat_until_test",
-        "alias": "Repeat Until Test",
-        "trigger": [{"platform": "time", "at": "08:00:00"}],
-        "action": [
-            {
-                "repeat": {
-                    "until": [
-                        {
-                            "condition": "template",
-                            "value_template": "{{ is_state('lock.front', 'locked') }}",
-                        }
-                    ],
-                    "sequence": [{"service": "lock.lock"}],
+            ],
+        }
+    else:  # wait_template
+        automation = {
+            "id": "wait_template_test",
+            "alias": "Wait Template Test",
+            "trigger": [{"platform": "time", "at": "08:00:00"}],
+            "action": [
+                {
+                    "wait_template": f"{{{{ is_state('{entity_id}', '{expected_state}') }}}}",
                 }
-            }
-        ],
-    }
+            ],
+        }
 
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "lock.front" for r in refs)
+    # Strengthen assertion: verify exact entity found with expected state
+    matching_refs = [r for r in refs if r.entity_id == entity_id]
+    assert len(matching_refs) == 1
+    assert matching_refs[0].expected_state == expected_state
 
 
-def test_extract_from_wait_template_action():
-    """Test extraction from wait_template action."""
-    automation = {
-        "id": "wait_template_test",
-        "alias": "Wait Template Test",
-        "trigger": [{"platform": "time", "at": "08:00:00"}],
-        "action": [
-            {
-                "wait_template": "{{ is_state('binary_sensor.door', 'off') }}",
-            }
-        ],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert any(r.entity_id == "binary_sensor.door" for r in refs)
-
-
-def test_extract_from_parallel_action():
+def test_extract_from_parallel_action() -> None:
     """Test extraction from parallel action branches."""
     automation = {
         "id": "parallel_test",
@@ -437,11 +459,16 @@ def test_extract_from_parallel_action():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "sensor.a" for r in refs)
-    assert any(r.entity_id == "sensor.b" for r in refs)
+    # Verify both parallel branches were extracted
+    assert len(refs) == 2
+    entity_ids = {r.entity_id for r in refs}
+    assert entity_ids == {"sensor.a", "sensor.b"}
+    # Verify both have expected state
+    for ref in refs:
+        assert ref.expected_state == "ready"
 
 
-def test_extract_from_nested_choose_default():
+def test_extract_from_nested_choose_default() -> None:
     """Test extraction from choose default sequence."""
     automation = {
         "id": "choose_default_test",
@@ -473,10 +500,13 @@ def test_extract_from_nested_choose_default():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "sensor.fallback" for r in refs)
+    # Should extract from both choose condition and default sequence
+    fallback_refs = [r for r in refs if r.entity_id == "sensor.fallback"]
+    assert len(fallback_refs) == 1
+    assert fallback_refs[0].expected_state == "ready"
 
 
-def test_extract_implicit_state_condition_in_if():
+def test_extract_implicit_state_condition_in_if() -> None:
     """Test extraction of implicit state condition (HA 2024+ shorthand)."""
     automation = {
         "id": "implicit_condition",
@@ -498,12 +528,12 @@ def test_extract_implicit_state_condition_in_if():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(
-        r.entity_id == "binary_sensor.motion" and r.expected_state == "on" for r in refs
-    )
+    assert len(refs) == 1
+    assert refs[0].entity_id == "binary_sensor.motion"
+    assert refs[0].expected_state == "on"
 
 
-def test_extract_explicit_state_condition_in_if():
+def test_extract_explicit_state_condition_in_if() -> None:
     """Test extraction of explicit state condition in if block."""
     automation = {
         "id": "explicit_condition",
@@ -526,12 +556,12 @@ def test_extract_explicit_state_condition_in_if():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(
-        r.entity_id == "person.matt" and r.expected_state == "home" for r in refs
-    )
+    assert len(refs) == 1
+    assert refs[0].entity_id == "person.matt"
+    assert refs[0].expected_state == "home"
 
 
-def test_extract_state_condition_in_choose():
+def test_extract_state_condition_in_choose() -> None:
     """Test extraction of state condition in choose block."""
     automation = {
         "id": "choose_state",
@@ -558,12 +588,12 @@ def test_extract_state_condition_in_choose():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(
-        r.entity_id == "input_select.mode" and r.expected_state == "away" for r in refs
-    )
+    assert len(refs) == 1
+    assert refs[0].entity_id == "input_select.mode"
+    assert refs[0].expected_state == "away"
 
 
-def test_extract_implicit_state_condition_in_repeat_while():
+def test_extract_implicit_state_condition_in_repeat_while() -> None:
     """Test extraction of implicit state condition in repeat while."""
     automation = {
         "id": "repeat_implicit",
@@ -587,13 +617,12 @@ def test_extract_implicit_state_condition_in_repeat_while():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(
-        r.entity_id == "binary_sensor.running" and r.expected_state == "on"
-        for r in refs
-    )
+    assert len(refs) == 1
+    assert refs[0].entity_id == "binary_sensor.running"
+    assert refs[0].expected_state == "on"
 
 
-def test_extract_implicit_state_condition_in_repeat_until():
+def test_extract_implicit_state_condition_in_repeat_until() -> None:
     """Test extraction of implicit state condition in repeat until."""
     automation = {
         "id": "repeat_until_implicit",
@@ -617,123 +646,91 @@ def test_extract_implicit_state_condition_in_repeat_until():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(
-        r.entity_id == "lock.front_door" and r.expected_state == "locked" for r in refs
-    )
+    assert len(refs) == 1
+    assert refs[0].entity_id == "lock.front_door"
+    assert refs[0].expected_state == "locked"
 
 
-def test_extract_handles_null_entity_id_in_trigger():
-    """Test that null entity_id in trigger doesn't crash extraction."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_null_entity",
-        "alias": "Test Null Entity",
-        "triggers": [
+@pytest.mark.parametrize(
+    ("null_field", "automation_spec"),
+    [
+        (
+            "state_trigger_entity_id",
             {
-                "platform": "state",
-                "entity_id": None,  # Explicitly null
-                "to": "on",
-            }
-        ],
-        "actions": [],
-    }
-    # Should not raise, should return empty list
-    refs = analyzer.extract_state_references(automation)
+                "id": "test_null_entity",
+                "alias": "Test Null Entity",
+                "triggers": [{"platform": "state", "entity_id": None, "to": "on"}],
+                "actions": [],
+            },
+        ),
+        (
+            "numeric_state_trigger_entity_id",
+            {
+                "id": "test_numeric_null",
+                "alias": "Test Numeric Null",
+                "triggers": [{"platform": "numeric_state", "entity_id": None, "above": 50}],
+                "actions": [],
+            },
+        ),
+        (
+            "condition_entity_id",
+            {
+                "id": "test_cond_null",
+                "alias": "Test Condition Null",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "conditions": [{"condition": "state", "entity_id": None, "state": "on"}],
+                "actions": [],
+            },
+        ),
+        (
+            "choose_options",
+            {
+                "id": "test_choose_null",
+                "alias": "Test Choose Null",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "actions": [{"choose": None}],
+            },
+        ),
+        (
+            "if_conditions",
+            {
+                "id": "test_if_null",
+                "alias": "Test If Null",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "actions": [{"if": None, "then": [{"service": "light.turn_on"}]}],
+            },
+        ),
+        (
+            "parallel_branches",
+            {
+                "id": "test_parallel_null",
+                "alias": "Test Parallel Null",
+                "triggers": [{"platform": "time", "at": "12:00:00"}],
+                "actions": [{"parallel": None}],
+            },
+        ),
+    ],
+    ids=[
+        "null-state-trigger-entity",
+        "null-numeric-trigger-entity",
+        "null-condition-entity",
+        "null-choose-options",
+        "null-if-conditions",
+        "null-parallel-branches",
+    ],
+)
+def test_extract_handles_null_values(null_field: str, automation_spec: dict[str, Any]) -> None:
+    """Test that null values in various automation fields don't crash extraction.
+
+    The analyzer must gracefully handle malformed or incomplete automation
+    configurations without raising exceptions.
+    """
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation_spec)
     assert isinstance(refs, list)
 
 
-def test_extract_handles_null_entity_id_in_numeric_state_trigger():
-    """Test null entity_id in numeric_state trigger."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_numeric_null",
-        "alias": "Test Numeric Null",
-        "triggers": [
-            {
-                "platform": "numeric_state",
-                "entity_id": None,
-                "above": 50,
-            }
-        ],
-        "actions": [],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_entity_id_in_condition():
-    """Test null entity_id in condition."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_cond_null",
-        "alias": "Test Condition Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "conditions": [
-            {
-                "condition": "state",
-                "entity_id": None,
-                "state": "on",
-            }
-        ],
-        "actions": [],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_choose_options():
-    """Test null choose options don't crash."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_choose_null",
-        "alias": "Test Choose Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [
-            {
-                "choose": None,  # Explicitly null
-            }
-        ],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_if_conditions():
-    """Test null if conditions don't crash."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_if_null",
-        "alias": "Test If Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [
-            {
-                "if": None,  # Explicitly null
-                "then": [{"service": "light.turn_on"}],
-            }
-        ],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_extract_handles_null_parallel_branches():
-    """Test null parallel branches don't crash."""
-    analyzer = AutomationAnalyzer()
-    automation = {
-        "id": "test_parallel_null",
-        "alias": "Test Parallel Null",
-        "triggers": [{"platform": "time", "at": "12:00:00"}],
-        "actions": [
-            {
-                "parallel": None,  # Explicitly null
-            }
-        ],
-    }
-    refs = analyzer.extract_state_references(automation)
-    assert isinstance(refs, list)
-
-
-def test_malformed_trigger_does_not_crash():
+def test_malformed_trigger_does_not_crash() -> None:
     """Test that malformed trigger dict doesn't crash extraction."""
     analyzer = AutomationAnalyzer()
     automation = {
@@ -747,11 +744,12 @@ def test_malformed_trigger_does_not_crash():
     }
     refs = analyzer.extract_state_references(automation)
     # Should skip malformed trigger, extract from valid one
-    assert len(refs) >= 1
-    assert any(r.entity_id == "light.valid" for r in refs)
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.valid"
+    assert refs[0].expected_state == "on"
 
 
-def test_extract_states_function_basic():
+def test_extract_states_function_basic() -> None:
     """Test extraction of states('entity_id') function calls."""
     automation = {
         "id": "states_function_test",
@@ -774,7 +772,7 @@ def test_extract_states_function_basic():
     assert "states" in refs[0].location
 
 
-def test_extract_states_function_with_double_quotes():
+def test_extract_states_function_with_double_quotes() -> None:
     """Test extraction of states() with double quotes."""
     automation = {
         "id": "states_double_quotes",
@@ -795,7 +793,7 @@ def test_extract_states_function_with_double_quotes():
     assert refs[0].entity_id == "light.bedroom"
 
 
-def test_extract_states_function_with_default_filter():
+def test_extract_states_function_with_default_filter() -> None:
     """Test extraction of states() with | default() filter."""
     automation = {
         "id": "states_default_filter",
@@ -816,7 +814,7 @@ def test_extract_states_function_with_default_filter():
     assert refs[0].entity_id == "binary_sensor.door"
 
 
-def test_extract_states_function_multiline():
+def test_extract_states_function_multiline() -> None:
     """Test extraction of states() in multiline templates."""
     automation = {
         "id": "states_multiline",
@@ -841,7 +839,7 @@ def test_extract_states_function_multiline():
     assert refs[0].entity_id == "sensor.humidity"
 
 
-def test_extract_states_function_deduplicates_with_is_state():
+def test_extract_states_function_deduplicates_with_is_state() -> None:
     """Test that states() doesn't duplicate entities already found by is_state()."""
     automation = {
         "id": "states_dedupe",
@@ -865,15 +863,31 @@ def test_extract_states_function_deduplicates_with_is_state():
     assert sensor_refs[0].expected_state == "on"
 
 
-def test_extract_expand_group():
-    """Test extraction of expand('group.xxx') calls."""
+@pytest.mark.parametrize(
+    ("function", "argument", "expected_type"),
+    [
+        ("expand", "group.all_lights", "group"),
+        ("area_entities", "living_room", "area"),
+        ("device_entities", "abc123", "device"),
+        ("integration_entities", "hue", "integration"),
+    ],
+    ids=["expand-group", "area-entities", "device-entities", "integration-entities"],
+)
+def test_extract_helper_functions(
+    function: str, argument: str, expected_type: str
+) -> None:
+    """Test extraction of template helper functions (expand, area_entities, etc).
+
+    These functions reference collections of entities or registry items
+    and should be extracted with the appropriate reference_type.
+    """
     automation = {
-        "id": "expand_group_test",
-        "alias": "Expand Group Test",
+        "id": f"{function}_test",
+        "alias": f"{function.title()} Test",
         "trigger": [
             {
                 "platform": "template",
-                "value_template": "{{ expand('group.all_lights') | selectattr('state', 'eq', 'on') | list | count > 0 }}",
+                "value_template": f"{{{{ {function}('{argument}') | list | count > 0 }}}}",
             }
         ],
         "action": [],
@@ -883,119 +897,79 @@ def test_extract_expand_group():
     refs = analyzer.extract_state_references(automation)
 
     assert len(refs) == 1
-    assert refs[0].entity_id == "group.all_lights"
+    assert refs[0].entity_id == argument
+    assert refs[0].reference_type == expected_type
 
 
-def test_expand_group_has_reference_type():
-    """Test that expand() references have reference_type='group'."""
-    automation = {
-        "id": "expand_ref_type",
-        "alias": "Expand Ref Type",
-        "trigger": [
-            {
-                "platform": "template",
-                "value_template": "{{ expand('group.lights') | list | count > 0 }}",
-            }
-        ],
-        "action": [],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].reference_type == "group"
-
-
-def test_extract_area_entities():
-    """Test extraction of area_entities() calls."""
-    automation = {
-        "id": "area_entities_test",
-        "alias": "Area Entities Test",
-        "trigger": [
-            {
-                "platform": "template",
-                "value_template": "{{ area_entities('living_room') | list | count > 0 }}",
-            }
-        ],
-        "action": [],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "living_room"
-    assert refs[0].reference_type == "area"
-
-
-def test_extract_device_entities():
-    """Test extraction of device_entities() calls."""
-    automation = {
-        "id": "device_entities_test",
-        "alias": "Device Entities Test",
-        "trigger": [
-            {
-                "platform": "template",
-                "value_template": "{{ device_entities('abc123') | list | count > 0 }}",
-            }
-        ],
-        "action": [],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "abc123"
-    assert refs[0].reference_type == "device"
-
-
-def test_extract_integration_entities():
-    """Test extraction of integration_entities() calls."""
-    automation = {
-        "id": "integration_entities_test",
-        "alias": "Integration Entities Test",
-        "trigger": [
-            {
-                "platform": "template",
-                "value_template": "{{ integration_entities('hue') | list | count > 0 }}",
-            }
-        ],
-        "action": [],
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "hue"
-    assert refs[0].reference_type == "integration"
-
-
-def test_normalize_entity_ids_single_string():
+def test_normalize_entity_ids_single_string() -> None:
     """Test normalizing single entity_id string to list."""
     analyzer = AutomationAnalyzer()
     result = analyzer._normalize_entity_ids("light.kitchen")
     assert result == ["light.kitchen"]
 
 
-def test_normalize_entity_ids_list():
+def test_normalize_entity_ids_list() -> None:
     """Test normalizing entity_id list."""
     analyzer = AutomationAnalyzer()
     result = analyzer._normalize_entity_ids(["light.kitchen", "light.bedroom"])
     assert result == ["light.kitchen", "light.bedroom"]
 
 
-def test_normalize_entity_ids_none():
+def test_normalize_entity_ids_none() -> None:
     """Test normalizing None entity_id."""
     analyzer = AutomationAnalyzer()
     result = analyzer._normalize_entity_ids(None)
     assert result == []
 
 
-def test_extract_zone_trigger():
-    """Test zone trigger extraction."""
+@pytest.mark.parametrize(
+    ("platform", "expected_entity", "expected_type", "expected_location"),
+    [
+        ("sun", "sun.sun", "direct", "trigger[0]"),
+        ("calendar", "calendar.events", "direct", "trigger[0].entity_id"),
+    ],
+    ids=["sun-trigger", "calendar-trigger"],
+)
+def test_extract_simple_entity_trigger(
+    platform: str, expected_entity: str, expected_type: str, expected_location: str
+) -> None:
+    """Test extraction of simple triggers that reference a single entity.
+
+    Sun and calendar triggers follow similar patterns - they create a single
+    entity reference with known entity_id and reference_type.
+    """
+    if platform == "sun":
+        automation = {
+            "id": "test_sun",
+            "alias": "Test Sun Trigger",
+            "trigger": {"platform": "sun", "event": "sunset", "offset": "-01:00:00"},
+        }
+    else:  # calendar
+        automation = {
+            "id": "test_calendar",
+            "alias": "Test Calendar Trigger",
+            "trigger": {
+                "platform": "calendar",
+                "entity_id": "calendar.events",
+                "event": "start",
+                "offset": "-00:05:00",
+            },
+        }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == expected_entity
+    assert refs[0].reference_type == expected_type
+    assert refs[0].location == expected_location
+
+
+def test_extract_zone_trigger() -> None:
+    """Test zone trigger extraction.
+
+    Zone triggers create two references: the tracked entity and the zone.
+    """
     automation = {
         "id": "test_zone",
         "alias": "Test Zone Trigger",
@@ -1019,69 +993,50 @@ def test_extract_zone_trigger():
     assert refs[1].location == "trigger[0].zone"
 
 
-def test_extract_sun_trigger():
-    """Test sun trigger extraction."""
-    automation = {
-        "id": "test_sun",
-        "alias": "Test Sun Trigger",
-        "trigger": {"platform": "sun", "event": "sunset", "offset": "-01:00:00"},
-    }
+@pytest.mark.parametrize(
+    ("id_field", "id_value", "expected_type"),
+    [
+        ("device_id", "abc123def456", "device"),
+        ("tag_id", "AABBCCDD", "tag"),
+    ],
+    ids=["device-trigger", "tag-trigger-single"],
+)
+def test_extract_registry_trigger(
+    id_field: str, id_value: str, expected_type: str
+) -> None:
+    """Test extraction of registry-based triggers (device, tag).
+
+    These triggers reference items in HA registries rather than entities.
+    """
+    if id_field == "device_id":
+        automation = {
+            "id": "test_device",
+            "alias": "Test Device Trigger",
+            "trigger": {
+                "platform": "device",
+                "device_id": id_value,
+                "domain": "mqtt",
+                "type": "button_short_press",
+                "subtype": "button_1",
+            },
+        }
+    else:  # tag_id
+        automation = {
+            "id": "test_tag_no_device",
+            "alias": "Test Tag No Device",
+            "trigger": {"platform": "tag", "tag_id": id_value},
+        }
 
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
     assert len(refs) == 1
-    assert refs[0].entity_id == "sun.sun"
-    assert refs[0].reference_type == "direct"
-    assert refs[0].location == "trigger[0]"
+    assert refs[0].entity_id == id_value
+    assert refs[0].reference_type == expected_type
+    assert refs[0].location == f"trigger[0].{id_field}"
 
 
-def test_extract_calendar_trigger():
-    """Test calendar trigger extraction."""
-    automation = {
-        "id": "test_calendar",
-        "alias": "Test Calendar Trigger",
-        "trigger": {
-            "platform": "calendar",
-            "entity_id": "calendar.events",
-            "event": "start",
-            "offset": "-00:05:00",
-        },
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "calendar.events"
-    assert refs[0].reference_type == "direct"
-    assert refs[0].location == "trigger[0].entity_id"
-
-
-def test_extract_device_trigger():
-    """Test device trigger extraction."""
-    automation = {
-        "id": "test_device",
-        "alias": "Test Device Trigger",
-        "trigger": {
-            "platform": "device",
-            "device_id": "abc123def456",
-            "domain": "mqtt",
-            "type": "button_short_press",
-            "subtype": "button_1",
-        },
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "abc123def456"
-    assert refs[0].reference_type == "device"
-    assert refs[0].location == "trigger[0].device_id"
-
-
-def test_extract_tag_trigger():
+def test_extract_tag_trigger() -> None:
     """Test tag trigger extraction."""
     automation = {
         "id": "test_tag",
@@ -1105,23 +1060,9 @@ def test_extract_tag_trigger():
     assert refs[1].location == "trigger[0].device_id"
 
 
-def test_extract_tag_trigger_no_device():
-    """Test tag trigger without device_id."""
-    automation = {
-        "id": "test_tag_no_device",
-        "alias": "Test Tag No Device",
-        "trigger": {"platform": "tag", "tag_id": "EEFFGGHH"},
-    }
-
-    analyzer = AutomationAnalyzer()
-    refs = analyzer.extract_state_references(automation)
-
-    assert len(refs) == 1
-    assert refs[0].entity_id == "EEFFGGHH"
-    assert refs[0].reference_type == "tag"
 
 
-def test_extract_geo_location_trigger():
+def test_extract_geo_location_trigger() -> None:
     """Test geo_location trigger extraction."""
     automation = {
         "id": "test_geo",
@@ -1143,7 +1084,7 @@ def test_extract_geo_location_trigger():
     assert refs[0].location == "trigger[0].zone"
 
 
-def test_extract_event_trigger_with_template():
+def test_extract_event_trigger_with_template() -> None:
     """Test event trigger with template in event_data."""
     automation = {
         "id": "test_event",
@@ -1163,7 +1104,7 @@ def test_extract_event_trigger_with_template():
     assert refs[0].location == "trigger[0].event_data.entity.states_function"
 
 
-def test_extract_mqtt_trigger_with_template():
+def test_extract_mqtt_trigger_with_template() -> None:
     """Test MQTT trigger with template in topic."""
     automation = {
         "id": "test_mqtt",
@@ -1183,7 +1124,7 @@ def test_extract_mqtt_trigger_with_template():
     assert refs[0].location == "trigger[0].topic.states_function"
 
 
-def test_extract_webhook_trigger():
+def test_extract_webhook_trigger() -> None:
     """Test webhook trigger (no entity references expected)."""
     automation = {
         "id": "test_webhook",
@@ -1202,7 +1143,7 @@ def test_extract_webhook_trigger():
     assert len(refs) == 0
 
 
-def test_extract_webhook_trigger_with_template():
+def test_extract_webhook_trigger_with_template() -> None:
     """Test webhook trigger with template in webhook_id."""
     automation = {
         "id": "test_webhook_template",
@@ -1220,7 +1161,7 @@ def test_extract_webhook_trigger_with_template():
     assert refs[0].entity_id == "input_text.name"
 
 
-def test_extract_persistent_notification_trigger():
+def test_extract_persistent_notification_trigger() -> None:
     """Test persistent_notification trigger with template."""
     automation = {
         "id": "test_notification",
@@ -1239,7 +1180,7 @@ def test_extract_persistent_notification_trigger():
     assert refs[0].entity_id == "input_text.alert_name"
 
 
-def test_extract_time_trigger_with_entity():
+def test_extract_time_trigger_with_entity() -> None:
     """Test time trigger with entity reference."""
     automation = {
         "id": "test_time",
@@ -1256,7 +1197,7 @@ def test_extract_time_trigger_with_entity():
     assert refs[0].location == "trigger[0].at"
 
 
-def test_extract_time_trigger_with_time_string():
+def test_extract_time_trigger_with_time_string() -> None:
     """Test time trigger with time string (no entity reference)."""
     automation = {
         "id": "test_time_string",
@@ -1271,7 +1212,7 @@ def test_extract_time_trigger_with_time_string():
     assert len(refs) == 0
 
 
-def test_extract_time_trigger_with_multiple():
+def test_extract_time_trigger_with_multiple() -> None:
     """Test time trigger with multiple at values."""
     automation = {
         "id": "test_time_multi",
@@ -1291,7 +1232,7 @@ def test_extract_time_trigger_with_multiple():
     assert "sensor.sunset_time" in entity_ids
 
 
-def test_extract_numeric_state_condition():
+def test_extract_numeric_state_condition() -> None:
     """Test numeric_state condition extraction."""
     automation = {
         "id": "test_numeric_cond",
@@ -1313,7 +1254,7 @@ def test_extract_numeric_state_condition():
     assert refs[0].location == "condition[0]"
 
 
-def test_extract_numeric_state_condition_with_attribute():
+def test_extract_numeric_state_condition_with_attribute() -> None:
     """Test numeric_state condition with attribute."""
     automation = {
         "id": "test_numeric_attr",
@@ -1335,7 +1276,7 @@ def test_extract_numeric_state_condition_with_attribute():
     assert refs[0].location == "condition[0]"
 
 
-def test_extract_numeric_state_condition_with_template():
+def test_extract_numeric_state_condition_with_template() -> None:
     """Test numeric_state condition with value_template."""
     automation = {
         "id": "test_numeric_template",
@@ -1352,12 +1293,12 @@ def test_extract_numeric_state_condition_with_template():
     refs = analyzer.extract_state_references(automation)
 
     # Should extract entity_id
-    assert len(refs) >= 1
-    entity_ids = [r.entity_id for r in refs]
-    assert "sensor.data" in entity_ids
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.data"
+    assert refs[0].location == "condition[0]"
 
 
-def test_extract_zone_condition():
+def test_extract_zone_condition() -> None:
     """Test zone condition extraction."""
     automation = {
         "id": "test_zone_cond",
@@ -1380,7 +1321,7 @@ def test_extract_zone_condition():
     assert refs[1].location == "condition[0].zone"
 
 
-def test_extract_sun_condition():
+def test_extract_sun_condition() -> None:
     """Test sun condition extraction."""
     automation = {
         "id": "test_sun_cond",
@@ -1401,7 +1342,7 @@ def test_extract_sun_condition():
     assert refs[0].location == "condition[0]"
 
 
-def test_extract_time_condition_with_entity():
+def test_extract_time_condition_with_entity() -> None:
     """Test time condition with entity references."""
     automation = {
         "id": "test_time_cond",
@@ -1422,7 +1363,7 @@ def test_extract_time_condition_with_entity():
     assert refs[0].location == "condition[0].after"
 
 
-def test_extract_time_condition_no_entities():
+def test_extract_time_condition_no_entities() -> None:
     """Test time condition with time strings only."""
     automation = {
         "id": "test_time_cond_strings",
@@ -1437,7 +1378,7 @@ def test_extract_time_condition_no_entities():
     assert len(refs) == 0
 
 
-def test_extract_device_condition():
+def test_extract_device_condition() -> None:
     """Test device condition extraction."""
     automation = {
         "id": "test_device_cond",
@@ -1459,7 +1400,7 @@ def test_extract_device_condition():
     assert refs[0].location == "condition[0].device_id"
 
 
-def test_extract_numeric_state_trigger_with_attribute():
+def test_extract_numeric_state_trigger_with_attribute() -> None:
     """Test numeric_state trigger now extracts attribute for validation."""
     automation = {
         "id": "test_numeric_trigger_attr",
@@ -1481,7 +1422,7 @@ def test_extract_numeric_state_trigger_with_attribute():
     assert refs[0].location == "trigger[0]"
 
 
-def test_extract_direct_service_call():
+def test_extract_direct_service_call() -> None:
     """Test extracting a direct service call."""
     automation = {
         "id": "test",
@@ -1504,7 +1445,7 @@ def test_extract_direct_service_call():
     assert calls[0].is_template is False
 
 
-def test_extract_templated_service_call():
+def test_extract_templated_service_call() -> None:
     """Test extracting a templated service call."""
     automation = {
         "id": "test",
@@ -1519,7 +1460,7 @@ def test_extract_templated_service_call():
     assert calls[0].is_template is True
 
 
-def test_extract_service_call_inline_params():
+def test_extract_service_call_inline_params() -> None:
     """Test that inline parameters (without data: wrapper) are captured in ServiceCall.data."""
     automation = {
         "id": "test",
@@ -1541,7 +1482,7 @@ def test_extract_service_call_inline_params():
     assert calls[0].data == {"brightness": 255, "transition": 2}
 
 
-def test_extract_service_call_inline_params_merged_with_data():
+def test_extract_service_call_inline_params_merged_with_data() -> None:
     """Test that inline params are merged with explicit data: dict, with data: winning on conflict."""
     automation = {
         "id": "test",
@@ -1563,7 +1504,7 @@ def test_extract_service_call_inline_params_merged_with_data():
     assert calls[0].data == {"transition": 2, "brightness": 128}
 
 
-def test_extract_service_call_entity_id_not_inline_param():
+def test_extract_service_call_entity_id_not_inline_param() -> None:
     """Test that entity_id at action level is not treated as an inline param."""
     automation = {
         "id": "test",
@@ -1584,7 +1525,7 @@ def test_extract_service_call_entity_id_not_inline_param():
     assert calls[0].data == {"brightness": 255}
 
 
-def test_extract_service_call_no_inline_no_data():
+def test_extract_service_call_no_inline_no_data() -> None:
     """Test action with only service + target produces data=None."""
     automation = {
         "id": "test",
@@ -1604,7 +1545,7 @@ def test_extract_service_call_no_inline_no_data():
     assert calls[0].data is None
 
 
-def test_extract_service_call_action_key_with_inline_params():
+def test_extract_service_call_action_key_with_inline_params() -> None:
     """Test using 'action' key (HA 2024.x style) with inline params."""
     automation = {
         "id": "test",
@@ -1625,7 +1566,7 @@ def test_extract_service_call_action_key_with_inline_params():
     assert calls[0].data == {"brightness": 255}
 
 
-def test_extract_service_calls_from_choose():
+def test_extract_service_calls_from_choose() -> None:
     """Test extracting service calls from choose branches."""
     automation = {
         "id": "test",
@@ -1650,7 +1591,7 @@ def test_extract_service_calls_from_choose():
     assert calls[1].location == "action[0].choose[1].sequence[0]"
 
 
-def test_extract_service_call_data_entity_id():
+def test_extract_service_call_data_entity_id() -> None:
     """Test extraction from service call with data.entity_id."""
     automation = {
         "id": "turn_on_light",
@@ -1671,7 +1612,7 @@ def test_extract_service_call_data_entity_id():
     assert service_refs[0].reference_type == "service_call"
 
 
-def test_extract_service_call_multiple_entities():
+def test_extract_service_call_multiple_entities() -> None:
     """Test extraction from service call with multiple entity_ids."""
     automation = {
         "id": "turn_on_lights",
@@ -1696,7 +1637,7 @@ def test_extract_service_call_multiple_entities():
     assert "light.bedroom" in entity_ids
 
 
-def test_extract_service_call_target_entity_id():
+def test_extract_service_call_target_entity_id() -> None:
     """Test extraction from service call with target.entity_id."""
     automation = {
         "id": "turn_on_light",
@@ -1716,7 +1657,39 @@ def test_extract_service_call_target_entity_id():
     assert service_refs[0].reference_type == "service_call"
 
 
-def test_extract_scene_turn_on():
+def test_extract_service_call_with_none_merged_data() -> None:
+    """Test that service call extraction handles None merged_data gracefully.
+
+    When inline params exist but no explicit data dict, merged_data may be None.
+    This test ensures the analyzer doesn't crash on this edge case.
+    """
+    automation = {
+        "id": "turn_on_with_inline",
+        "alias": "Turn On With Inline",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.bedroom"},
+                # No data dict, only inline params handled by analyzer
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    # Should not crash
+    refs = analyzer.extract_state_references(automation)
+    calls = analyzer.extract_service_calls(automation)
+
+    # Verify extraction succeeded
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.bedroom"
+    assert refs[0].reference_type == "service_call"
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+
+
+def test_extract_scene_turn_on() -> None:
     """Test extraction from scene.turn_on service."""
     automation = {
         "id": "activate_scene",
@@ -1735,7 +1708,7 @@ def test_extract_scene_turn_on():
     assert scene_refs[0].reference_type == "scene"
 
 
-def test_extract_script_turn_on():
+def test_extract_script_turn_on() -> None:
     """Test extraction from script.turn_on service."""
     automation = {
         "id": "run_script",
@@ -1757,7 +1730,7 @@ def test_extract_script_turn_on():
     assert script_refs[0].reference_type == "script"
 
 
-def test_extract_script_shorthand():
+def test_extract_script_shorthand() -> None:
     """Test extraction from shorthand script call."""
     automation = {
         "id": "run_script_shorthand",
@@ -1775,7 +1748,7 @@ def test_extract_script_shorthand():
     assert script_refs[0].location == "action[0].service"
 
 
-def test_script_meta_service_not_extracted():
+def test_script_meta_service_not_extracted() -> None:
     """Test that script meta-services are not extracted as entities."""
     automation = {
         "id": "reload_scripts",
@@ -1796,7 +1769,7 @@ def test_script_meta_service_not_extracted():
     assert script_refs[0].entity_id == "script.test"
 
 
-def test_extract_device_id_function():
+def test_extract_device_id_function() -> None:
     """Test extraction from device_id() function."""
     automation = {
         "id": "check_device",
@@ -1821,7 +1794,7 @@ def test_extract_device_id_function():
     assert "light.bedroom" in entity_ids
 
 
-def test_extract_area_name_and_id_functions():
+def test_extract_area_name_and_id_functions() -> None:
     """Test extraction from area_name() and area_id() functions."""
     automation = {
         "id": "check_area",
@@ -1846,7 +1819,7 @@ def test_extract_area_name_and_id_functions():
     assert "light.bedroom" in entity_ids
 
 
-def test_extract_has_value_function():
+def test_extract_has_value_function() -> None:
     """Test extraction from has_value() function."""
     automation = {
         "id": "check_value",
@@ -1870,7 +1843,7 @@ def test_extract_has_value_function():
     assert has_value_refs[0].reference_type == "entity"
 
 
-def test_extract_deduplication_helper_functions():
+def test_extract_deduplication_helper_functions() -> None:
     """Test that same entity via different patterns is deduplicated."""
     automation = {
         "id": "dedupe_test",
@@ -1893,7 +1866,7 @@ def test_extract_deduplication_helper_functions():
     assert len(kitchen_refs) == 1
 
 
-def test_extract_full_automation_with_all_patterns():
+def test_extract_full_automation_with_all_patterns() -> None:
     """Test extraction from automation using all new patterns."""
     automation = {
         "id": "comprehensive_test",
@@ -1923,12 +1896,14 @@ def test_extract_full_automation_with_all_patterns():
 
     # Check each expected extraction
     # 1. State trigger
-    assert any(
-        r.entity_id == "binary_sensor.motion" and "trigger" in r.location for r in refs
-    )
+    motion_refs = [r for r in refs if r.entity_id == "binary_sensor.motion"]
+    assert len(motion_refs) == 1
+    assert "trigger" in motion_refs[0].location
+    assert motion_refs[0].expected_state == "on"
 
     # 2. has_value in condition
-    assert any(r.entity_id == "sensor.temperature" for r in refs)
+    temp_refs = [r for r in refs if r.entity_id == "sensor.temperature"]
+    assert len(temp_refs) == 1
 
     # 3. Service call target
     service_refs = [
@@ -1955,7 +1930,7 @@ def test_extract_full_automation_with_all_patterns():
     assert len(scene_refs) == 1
 
 
-def test_extract_service_calls_from_if_then_else():
+def test_extract_service_calls_from_if_then_else() -> None:
     """Test extracting service calls from if/then/else branches."""
     automation = {
         "id": "test",
@@ -1978,7 +1953,7 @@ def test_extract_service_calls_from_if_then_else():
     assert "light.turn_off" in services
 
 
-def test_extract_service_calls_from_repeat_sequence():
+def test_extract_service_calls_from_repeat_sequence() -> None:
     """Test extracting service calls from repeat sequence."""
     automation = {
         "id": "test",
@@ -2000,7 +1975,7 @@ def test_extract_service_calls_from_repeat_sequence():
     assert calls[0].service == "light.toggle"
 
 
-def test_extract_service_calls_from_parallel():
+def test_extract_service_calls_from_parallel() -> None:
     """Test extracting service calls from parallel branches."""
     automation = {
         "id": "test",
@@ -2024,7 +1999,7 @@ def test_extract_service_calls_from_parallel():
     assert "notify.send_message" in services
 
 
-def test_extract_service_calls_from_choose_default():
+def test_extract_service_calls_from_choose_default() -> None:
     """Test extracting service calls from choose default branch."""
     automation = {
         "id": "test",
@@ -2046,7 +2021,7 @@ def test_extract_service_calls_from_choose_default():
     assert "light.turn_off" in services
 
 
-def test_extract_service_calls_deeply_nested():
+def test_extract_service_calls_deeply_nested() -> None:
     """Test extracting service calls from deeply nested structure."""
     automation = {
         "id": "test",
@@ -2087,7 +2062,7 @@ def test_extract_service_calls_deeply_nested():
     assert calls[0].service == "light.turn_on"
 
 
-def test_extract_service_calls_supports_action_key():
+def test_extract_service_calls_supports_action_key() -> None:
     """Test extracting service calls using 'action' key (newer HA syntax)."""
     automation = {
         "id": "test",
@@ -2104,7 +2079,7 @@ def test_extract_service_calls_supports_action_key():
     assert calls[0].service == "light.turn_on"
 
 
-def test_extract_service_calls_supports_actions_key():
+def test_extract_service_calls_supports_actions_key() -> None:
     """Test extracting service calls from 'actions' key (alternate format)."""
     automation = {
         "id": "test",
@@ -2121,7 +2096,7 @@ def test_extract_service_calls_supports_actions_key():
     assert calls[0].service == "light.turn_on"
 
 
-def test_extract_null_repeat_config_does_not_crash():
+def test_extract_null_repeat_config_does_not_crash() -> None:
     """Test that action with repeat: null does not crash (C4 fix)."""
     automation = {
         "id": "null_repeat",
@@ -2141,7 +2116,7 @@ def test_extract_null_repeat_config_does_not_crash():
     assert isinstance(refs, list)
 
 
-def test_extract_valid_repeat_after_null_guard():
+def test_extract_valid_repeat_after_null_guard() -> None:
     """Test that valid repeat config still works after isinstance guard."""
     automation = {
         "id": "valid_repeat",
@@ -2165,10 +2140,12 @@ def test_extract_valid_repeat_after_null_guard():
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert any(r.entity_id == "sensor.temp" for r in refs)
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.temp"
+    assert refs[0].expected_state == "high"
 
 
-def test_extract_multi_key_action_service_and_choose():
+def test_extract_multi_key_action_service_and_choose() -> None:
     """Test that action with both service and choose processes all keys (M4 fix)."""
     automation = {
         "id": "multi_key",
@@ -2216,7 +2193,7 @@ def test_extract_multi_key_action_service_and_choose():
     assert len(bedroom_refs) >= 1, "Choose branch sequence service entity not extracted"
 
 
-def test_extract_null_wait_template_does_not_crash():
+def test_extract_null_wait_template_does_not_crash() -> None:
     """Test that action with wait_template: null does not crash."""
     automation = {
         "id": "null_wait",
