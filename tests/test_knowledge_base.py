@@ -11,6 +11,7 @@ Tests cover the multi-source state validation system including:
 """
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -625,7 +626,9 @@ async def test_get_capabilities_states_no_registry_entry(hass: HomeAssistant) ->
     assert states == set()
 
 
-async def test_get_capabilities_states_invalid_capability_format(hass: HomeAssistant) -> None:
+async def test_get_capabilities_states_invalid_capability_format(
+    hass: HomeAssistant,
+) -> None:
     """Test that malformed capability values are safely ignored.
 
     Defensive programming: capabilities should be lists, but if they're not,
@@ -998,7 +1001,9 @@ async def test_bermuda_device_tracker_detected_by_platform(hass: HomeAssistant) 
 # These tests target specific mutations to ensure robustness
 
 
-async def test_sensor_domain_returns_none_non_sensor_returns_set(hass: HomeAssistant) -> None:
+async def test_sensor_domain_returns_none_non_sensor_returns_set(
+    hass: HomeAssistant,
+) -> None:
     """Test that sensor domain correctly returns None while others return sets.
 
     Mutation guard: Kills Eq mutations on 'domain == "sensor"'.
@@ -1020,7 +1025,9 @@ async def test_sensor_domain_returns_none_non_sensor_returns_set(hass: HomeAssis
     assert "off" in result
 
 
-async def test_bermuda_tracker_collects_bermuda_sensor_states(hass: HomeAssistant) -> None:
+async def test_bermuda_tracker_collects_bermuda_sensor_states(
+    hass: HomeAssistant,
+) -> None:
     """Test that Bermuda trackers collect states from Bermuda sensors only.
 
     Mutation guard: Kills AddNot on 'if is_bermuda_tracker' and 'if state.state not in'.
@@ -1059,7 +1066,9 @@ async def test_bermuda_tracker_collects_bermuda_sensor_states(hass: HomeAssistan
     assert "kitchen" in states
 
 
-async def test_zone_without_friendly_name_uses_entity_id_suffix(hass: HomeAssistant) -> None:
+async def test_zone_without_friendly_name_uses_entity_id_suffix(
+    hass: HomeAssistant,
+) -> None:
     """Test that zones without friendly_name use entity_id suffix correctly.
 
     Mutation guard: Kills NumberReplacer on [1] index.
@@ -1092,7 +1101,9 @@ async def test_zone_with_and_without_friendly_name(hass: HomeAssistant) -> None:
     assert zones == {"Home", "my_office"}
 
 
-async def test_get_valid_attributes_empty_list_returns_none(hass: HomeAssistant) -> None:
+async def test_get_valid_attributes_empty_list_returns_none(
+    hass: HomeAssistant,
+) -> None:
     """Test that empty attribute lists correctly return None.
 
     Mutation guard: Kills and->or on 'if values and isinstance(values, list)'.
@@ -1107,7 +1118,9 @@ async def test_get_valid_attributes_empty_list_returns_none(hass: HomeAssistant)
     assert result is None
 
 
-async def test_get_valid_attributes_non_list_string_returns_none(hass: HomeAssistant) -> None:
+async def test_get_valid_attributes_non_list_string_returns_none(
+    hass: HomeAssistant,
+) -> None:
     """Test that non-list attribute values return None, not character sets.
 
     Mutation guard: Kills and->or on attribute value type checking.
@@ -1231,7 +1244,9 @@ async def test_bermuda_sensor_gets_zone_and_area_names(hass: HomeAssistant) -> N
         assert "kitchen" not in bs_states
 
 
-async def test_bermuda_tracker_collects_only_bermuda_sensor_states(hass: HomeAssistant) -> None:
+async def test_bermuda_tracker_collects_only_bermuda_sensor_states(
+    hass: HomeAssistant,
+) -> None:
     """Test that Bermuda trackers only collect Bermuda sensor states.
 
     Mutation guard: Kills ZeroIterationForLoop and Eq on platform check.
@@ -1310,7 +1325,9 @@ async def test_person_entity_gets_zones_but_not_area_names(hass: HomeAssistant) 
     assert "garage" not in states
 
 
-async def test_bermuda_tracker_excludes_unavailable_sensor_states(hass: HomeAssistant) -> None:
+async def test_bermuda_tracker_excludes_unavailable_sensor_states(
+    hass: HomeAssistant,
+) -> None:
     """Test that Bermuda trackers exclude unavailable/unknown sensor states.
 
     Mutation guard: Kills 'not in' -> 'in' mutation.
@@ -1488,29 +1505,41 @@ async def test_enum_sensor_caches_result(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_capabilities_states_exception_returns_empty(hass: HomeAssistant) -> None:
+async def test_get_capabilities_states_exception_returns_empty(
+    hass: HomeAssistant,
+) -> None:
     """Test that entity registry exception returns empty set."""
     kb = StateKnowledgeBase(hass)
 
-    with patch("custom_components.autodoctor.knowledge_base.er.async_get", side_effect=RuntimeError("Registry error")):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        side_effect=RuntimeError("Registry error"),
+    ):
         result = kb._get_capabilities_states("select.test")
 
     assert result == set()
 
 
 @pytest.mark.asyncio
-async def test_get_capabilities_attribute_values_exception_returns_empty(hass: HomeAssistant) -> None:
+async def test_get_capabilities_attribute_values_exception_returns_empty(
+    hass: HomeAssistant,
+) -> None:
     """Test that exception during attribute value extraction returns empty set."""
     kb = StateKnowledgeBase(hass)
 
-    with patch("custom_components.autodoctor.knowledge_base.er.async_get", side_effect=RuntimeError("Registry error")):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.er.async_get",
+        side_effect=RuntimeError("Registry error"),
+    ):
         result = kb._get_capabilities_attribute_values("climate.test", "fan_mode")
 
     assert result == set()
 
 
 @pytest.mark.asyncio
-async def test_get_capabilities_attribute_values_no_matching_capability(hass: HomeAssistant) -> None:
+async def test_get_capabilities_attribute_values_no_matching_capability(
+    hass: HomeAssistant,
+) -> None:
     """Test attribute value extraction when capability key doesn't exist."""
     kb = StateKnowledgeBase(hass)
 
@@ -1539,12 +1568,12 @@ async def test_async_load_history_timeout(hass: HomeAssistant) -> None:
 
     hass.async_add_executor_job = slow_load
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
+    with (
+        patch("custom_components.autodoctor.knowledge_base.get_significant_states"),
+        contextlib.suppress(TimeoutError),
+    ):
         # Should timeout and not crash
-        try:
-            await asyncio.wait_for(kb.async_load_history(["light.test"]), timeout=0.5)
-        except asyncio.TimeoutError:
-            pass  # Expected
+        await asyncio.wait_for(kb.async_load_history(["light.test"]), timeout=0.5)
 
     assert kb._observed_states == {}
 
@@ -1571,7 +1600,9 @@ async def test_async_load_history_no_recorder(hass: HomeAssistant) -> None:
     hass.states.async_set("light.test", "on")
     await hass.async_block_till_done()
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", None):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states", None
+    ):
         await kb.async_load_history(["light.test"])
 
     # Should not crash
@@ -1589,7 +1620,10 @@ async def test_async_load_history_dict_format_states(hass: HomeAssistant) -> Non
     # Mock history returning dict format instead of State objects
     mock_history = {"light.test": [{"state": "on"}, {"state": "off"}, {"state": None}]}
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", return_value=mock_history):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
+        return_value=mock_history,
+    ):
         hass.async_add_executor_job = AsyncMock(return_value=mock_history)
         await kb.async_load_history(["light.test"])
 
@@ -1614,7 +1648,10 @@ async def test_async_load_history_merges_existing_observed(hass: HomeAssistant) 
     mock_state.state = "off"
     mock_history = {"light.test": [mock_state]}
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", return_value=mock_history):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
+        return_value=mock_history,
+    ):
         hass.async_add_executor_job = AsyncMock(return_value=mock_history)
         await kb.async_load_history(["light.test"])
 
@@ -1638,7 +1675,10 @@ async def test_async_load_history_updates_cache(hass: HomeAssistant) -> None:
     mock_state.state = "off"
     mock_history = {"light.test": [mock_state]}
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", return_value=mock_history):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
+        return_value=mock_history,
+    ):
         hass.async_add_executor_job = AsyncMock(return_value=mock_history)
         await kb.async_load_history(["light.test"])
 
@@ -1648,7 +1688,9 @@ async def test_async_load_history_updates_cache(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_load_history_auto_discovers_whitelisted(hass: HomeAssistant) -> None:
+async def test_async_load_history_auto_discovers_whitelisted(
+    hass: HomeAssistant,
+) -> None:
     """Test history auto-discovery loads only whitelisted entities."""
     kb = StateKnowledgeBase(hass)
 
@@ -1666,7 +1708,10 @@ async def test_async_load_history_auto_discovers_whitelisted(hass: HomeAssistant
 
     mock_get_significant.called_with_entities = None
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states", side_effect=mock_get_significant):
+    with patch(
+        "custom_components.autodoctor.knowledge_base.get_significant_states",
+        side_effect=mock_get_significant,
+    ):
         hass.async_add_executor_job = AsyncMock(return_value=mock_history)
         await kb.async_load_history()  # No entity_ids - should auto-discover
 
@@ -1678,7 +1723,9 @@ async def test_async_load_history_auto_discovers_whitelisted(hass: HomeAssistant
 
 
 @pytest.mark.asyncio
-async def test_async_load_history_empty_entities_returns_early(hass: HomeAssistant) -> None:
+async def test_async_load_history_empty_entities_returns_early(
+    hass: HomeAssistant,
+) -> None:
     """Test that history loading returns early when no entities to load."""
     kb = StateKnowledgeBase(hass)
 

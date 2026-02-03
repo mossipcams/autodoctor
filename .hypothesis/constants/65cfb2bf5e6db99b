@@ -1,0 +1,4 @@
+# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/knowledge_base.py
+# hypothesis_version: 6.151.4
+
+[120, '.', 'bermuda', 'climate', 'device_class', 'device_tracker', 'effect', 'effect_list', 'enum', 'fan', 'fan_mode', 'fan_modes', 'friendly_name', 'hvac_mode', 'hvac_modes', 'input_select', 'options', 'person', 'preset_mode', 'preset_modes', 'select', 'sensor', 'state', 'swing_mode', 'swing_modes', 'unavailable', 'unknown', 'zone']

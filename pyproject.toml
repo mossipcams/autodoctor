@@ -18,6 +18,7 @@ dev = [
     "pytest-homeassistant-custom-component>=0.13.0",
     "tdd-guard-pytest",
     "mutmut>=3.4.0",
+    "hypothesis>=6.0.0",
 ]
 
 [tool.pytest.ini_options]

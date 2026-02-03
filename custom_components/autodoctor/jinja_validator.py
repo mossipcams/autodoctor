@@ -450,7 +450,9 @@ class JinjaValidator:
             if "parallel" in action:
                 branches = _ensure_list(action["parallel"])
                 for branch_idx, branch in enumerate(branches):
-                    branch_actions = cast(list[Any], branch if isinstance(branch, list) else [branch])
+                    branch_actions = cast(
+                        list[Any], branch if isinstance(branch, list) else [branch]
+                    )
                     issues.extend(
                         self._validate_actions(
                             branch_actions,

@@ -189,7 +189,9 @@ class TestRegistryAccessors:
         must be recognized by the validator to avoid false positives.
         """
         filters = get_known_filters()
-        assert core_filter in filters, f"Core filter '{core_filter}' missing from catalog"
+        assert core_filter in filters, (
+            f"Core filter '{core_filter}' missing from catalog"
+        )
 
     @pytest.mark.parametrize(
         "core_test",
@@ -240,9 +242,9 @@ class TestRegistryAccessors:
         """
         import custom_components.autodoctor.ha_catalog as catalog
 
-        assert not hasattr(
-            catalog, removed_function
-        ), f"{removed_function}() still exists in public API"
+        assert not hasattr(catalog, removed_function), (
+            f"{removed_function}() still exists in public API"
+        )
 
 
 class TestCatalogCompleteness:

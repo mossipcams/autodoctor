@@ -1,0 +1,4 @@
+# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/validator.py
+# hypothesis_version: 6.151.4
+
+[0.75, '.', 'State', 'area', 'device', 'integration', 'tag']

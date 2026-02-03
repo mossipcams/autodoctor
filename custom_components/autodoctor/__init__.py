@@ -39,7 +39,12 @@ from .const import (
 from .jinja_validator import JinjaValidator
 from .knowledge_base import StateKnowledgeBase
 from .learned_states_store import LearnedStatesStore
-from .models import VALIDATION_GROUP_ORDER, VALIDATION_GROUPS, IssueType, ValidationIssue
+from .models import (
+    VALIDATION_GROUP_ORDER,
+    VALIDATION_GROUPS,
+    IssueType,
+    ValidationIssue,
+)
 from .reporter import IssueReporter
 from .service_validator import ServiceCallValidator
 from .suppression_store import SuppressionStore
@@ -425,7 +430,9 @@ async def _async_run_validators(
     service_validator = data.get("service_validator")
 
     # Initialize per-group collectors
-    group_issues: dict[str, list[ValidationIssue]] = {gid: [] for gid in VALIDATION_GROUP_ORDER}
+    group_issues: dict[str, list[ValidationIssue]] = {
+        gid: [] for gid in VALIDATION_GROUP_ORDER
+    }
     group_durations: dict[str, int] = dict.fromkeys(VALIDATION_GROUP_ORDER, 0)
 
     # Build reverse mapping: IssueType -> group_id
@@ -599,7 +606,9 @@ async def async_validate_all(hass: HomeAssistant) -> list[ValidationIssue]:
     return result["all_issues"]
 
 
-async def async_validate_automation(hass: HomeAssistant, automation_id: str) -> list[ValidationIssue]:
+async def async_validate_automation(
+    hass: HomeAssistant, automation_id: str
+) -> list[ValidationIssue]:
     """Validate a specific automation.
 
     Routes through the shared validation core so that ALL validator families

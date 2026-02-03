@@ -23,15 +23,12 @@ from custom_components.autodoctor.models import (
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
     async_setup_websocket_api,
-    websocket_clear_suppressions,
     websocket_get_issues,
     websocket_get_validation,
     websocket_get_validation_steps,
     websocket_list_suppressions,
-    websocket_refresh,
     websocket_run_validation,
     websocket_run_validation_steps,
-    websocket_suppress,
     websocket_unsuppress,
 )
 
@@ -640,7 +637,11 @@ async def test_websocket_unsuppress_not_ready(hass: HomeAssistant) -> None:
 
     connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
-    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/unsuppress", "key": "some:key:here"}
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/unsuppress",
+        "key": "some:key:here",
+    }
 
     await websocket_unsuppress.__wrapped__(hass, connection, msg)
 

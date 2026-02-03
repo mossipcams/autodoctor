@@ -1,6 +1,5 @@
 """Tests for IssueReporter."""
 
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -122,7 +121,9 @@ async def test_clear_all_issues(hass: HomeAssistant) -> None:
     reporter = IssueReporter(hass)
     reporter._active_issues = frozenset({"issue_a", "issue_b"})
 
-    with patch("custom_components.autodoctor.reporter.ir.async_delete_issue") as mock_delete:
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_delete_issue"
+    ) as mock_delete:
         reporter.clear_all_issues()
 
     assert reporter._active_issues == frozenset()
@@ -153,7 +154,10 @@ async def test_report_issues_create_exception_continues(hass: HomeAssistant) -> 
         ),
     ]
 
-    with patch("custom_components.autodoctor.reporter.ir.async_create_issue", side_effect=Exception("Failed")):
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_create_issue",
+        side_effect=Exception("Failed"),
+    ):
         await reporter.async_report_issues(issues)
 
     # Both attempts should have been made despite failures
@@ -237,7 +241,9 @@ async def test_report_issues_groups_by_automation(hass: HomeAssistant) -> None:
         ),
     ]
 
-    with patch("custom_components.autodoctor.reporter.ir.async_create_issue") as mock_create:
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_create_issue"
+    ) as mock_create:
         await reporter.async_report_issues(issues)
 
     # Should create one repair per automation
@@ -270,7 +276,9 @@ async def test_report_issues_uses_highest_severity(hass: HomeAssistant) -> None:
 
     from custom_components.autodoctor.reporter import ir
 
-    with patch("custom_components.autodoctor.reporter.ir.async_create_issue") as mock_create:
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_create_issue"
+    ) as mock_create:
         await reporter.async_report_issues(issues)
 
     call_kwargs = mock_create.call_args[1]
@@ -282,7 +290,9 @@ async def test_report_issues_no_issues_logs_clean(hass: HomeAssistant) -> None:
     """Test that empty issue list logs clean validation without creating repairs."""
     reporter = IssueReporter(hass)
 
-    with patch("custom_components.autodoctor.reporter.ir.async_create_issue") as mock_create:
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_create_issue"
+    ) as mock_create:
         await reporter.async_report_issues([])
 
     mock_create.assert_not_called()

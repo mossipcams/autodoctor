@@ -1,0 +1,4 @@
+# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/jinja_validator.py
+# hypothesis_version: 6.151.4
+
+['\\{[{%#]', 'action', 'actions', 'alias', 'and', 'choose', 'condition', 'conditions', 'data', 'default', 'else', 'from', 'if', 'not', 'or', 'parallel', 'repeat', 'sequence', 'then', 'to', 'trigger', 'triggers', 'until', 'value_template', 'variables', 'wait_template', 'while']

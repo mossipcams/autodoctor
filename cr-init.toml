@@ -1,0 +1,7 @@
+[cosmic-ray]
+module-path = "custom_components/autodoctor/__init__.py"
+timeout = 30.0
+test-command = ".venv/bin/python -m pytest -x tests/"
+
+[cosmic-ray.distributor]
+name = "local"
