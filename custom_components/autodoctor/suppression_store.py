@@ -52,39 +52,50 @@ class SuppressionStore:
                         len(raw_keys) - len(cleaned),
                     )
                     self._suppressions = cleaned
-                    await self.async_save()
+                    await self._async_save()
                 else:
                     self._suppressions = cleaned
 
-    async def async_save(self) -> None:
-        """Save suppressions to storage.
+    async def _async_save(self) -> None:
+        """Save suppressions to storage (private).
 
-        Note: Caller must hold _lock when calling this method.
+        MUST be called while holding self._lock. This method is private to
+        enforce that callers use the public async methods which handle locking.
         """
         await self._store.async_save({"suppressions": list(self._suppressions)})
 
     def is_suppressed(self, key: str) -> bool:
-        """Check if an issue is suppressed."""
-        # Reading from set is atomic in CPython, no lock needed
-        return key in self._suppressions
+        """Check if an issue is suppressed.
+
+        Thread-safety: Uses atomic reference read pattern. While set membership
+        checking is atomic, the set object itself can be replaced during
+        async_load(). This pattern captures a consistent reference to work with.
+
+        Race window: During async_load() (integration startup/reload only),
+        suppressions may briefly appear incorrect. This is acceptable - the
+        window is microseconds and self-corrects immediately.
+        """
+        # Atomic reference read - capture current set before checking
+        suppressions = self._suppressions
+        return key in suppressions
 
     async def async_suppress(self, key: str) -> None:
         """Add a suppression."""
         async with self._lock:
             self._suppressions.add(key)
-            await self.async_save()
+            await self._async_save()
 
     async def async_unsuppress(self, key: str) -> None:
         """Remove a single suppression by key."""
         async with self._lock:
             self._suppressions.discard(key)
-            await self.async_save()
+            await self._async_save()
 
     async def async_clear_all(self) -> None:
         """Clear all suppressions."""
         async with self._lock:
             self._suppressions.clear()
-            await self.async_save()
+            await self._async_save()
 
     @property
     def keys(self) -> frozenset[str]:

@@ -185,9 +185,9 @@ Supports all 10 Home Assistant condition types:
 
 ## Test Files
 
-**Test Suite Quality:** All test files fully type-annotated (440+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
+**Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
 
-**Test Coverage:** 660 tests passing (2 skipped stubs), ~14,272 lines
+**Test Coverage:** 704 tests passing (2 skipped stubs), ~16,200 lines
 
 **Core Test Files:**
 - `test_analyzer.py` (99 tests) - Automation parsing (21 trigger types, 10 condition types, depth limits)
@@ -201,18 +201,22 @@ Supports all 10 Home Assistant condition types:
 - `test_ha_catalog.py` (19 tests, 50 parameterized cases) - HA Jinja2 catalog completeness
 - `test_architectural_improvements.py` (16 tests) - Guard tests for architectural decisions (with "Guard:" docstrings)
 - `test_reporter.py` (4 tests) - Issue reporting to repair registry
-- `test_learned_states_store.py` (5 tests) - Learned state persistence
+- `test_learned_states_store.py` (14 tests) - Learned state persistence, domain/integration isolation, unicode, concurrency
 - `test_entity_suggestion.py` (4 tests, 8 parameterized cases) - Fuzzy entity matching
 - `test_device_class_states.py` (8 tests) - Device class default states
 - `test_websocket_api_learning.py` (3 tests) - State learning on suppression
-- `test_suppression_store.py` (1 test) - Orphan suppression cleanup
+- `test_suppression_store.py` (10 tests) - Orphan cleanup, async_clear_all (CRITICAL), data verification, edge cases, concurrency
 - `test_config_flow.py` (6 tests) - Configuration UI flow
 - `test_sensor.py` (6 tests) - Issue count sensor platform
 - `test_binary_sensor.py` (5 tests) - Health status sensor platform
-- `test_property_based.py` (8 tests, 200 examples each) - Hypothesis property-based fuzzing for analyzer/service-validator functions
-- `test_property_based_validator.py` (12 tests, 200 examples each) - Hypothesis property-based fuzzing for validator/device-class/domain-attribute pure functions
-- `test_property_based_jinja.py` (9 tests, 200 examples each) - Hypothesis property-based fuzzing for jinja_validator pure functions (including deeply nested action structures)
-- `test_property_based_remaining.py` (12 tests, 200 examples each) - Hypothesis property-based fuzzing for reporter, websocket_api, knowledge_base, and models pure functions
+
+**Property-Based Test Files (Hypothesis fuzzing, 200 examples each):**
+- `test_property_based.py` (8 tests) - Analyzer/service-validator functions: automation extraction, template parsing, state normalization
+- `test_property_based_validator.py` (12 tests) - Validator/device-class/domain-attribute pure functions: entity suggestions, state lookups, attribute mappings
+- `test_property_based_jinja.py` (9 tests) - Jinja validator pure functions: template validation, nested action structures, variable extraction
+- `test_property_based_remaining.py` (12 tests) - Reporter, websocket_api, knowledge_base, and models pure functions: issue formatting, status computation, domain extraction
+- `test_property_based_stores.py` (16 tests) - LearnedStatesStore and SuppressionStore: hierarchical isolation, key parsing, orphan cleanup, unicode handling
+- `test_property_based_analyzer_advanced.py` (11 tests) - Advanced analyzer patterns: filter chains, nested control flow, registry functions, parallel actions, multiline templates
 - `conftest.py` - Shared fixtures (all type-annotated)
 
 ## Scripts
