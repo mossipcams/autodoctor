@@ -130,7 +130,9 @@ def test_compute_group_status_never_crashes(issues: list[ValidationIssue]) -> No
 
 @given(issues_lists=st.lists(validation_issue_list(), max_size=5))
 @settings(max_examples=200)
-def test_compute_group_status_multiple_lists(issues_lists: list[list[ValidationIssue]]) -> None:
+def test_compute_group_status_multiple_lists(
+    issues_lists: list[list[ValidationIssue]],
+) -> None:
     """Property: _compute_group_status is consistent across multiple calls.
 
     Tests that calling with same input produces same output (deterministic).
@@ -251,9 +253,15 @@ def test_validation_issue_to_dict_never_crashes(
     assert set(result.keys()) == expected_keys
 
 
-@given(issue=validation_issue_list().filter(lambda lst: len(lst) > 0).map(lambda lst: lst[0]))
+@given(
+    issue=validation_issue_list()
+    .filter(lambda lst: len(lst) > 0)
+    .map(lambda lst: lst[0])
+)
 @settings(max_examples=200)
-def test_validation_issue_get_suppression_key_never_crashes(issue: ValidationIssue) -> None:
+def test_validation_issue_get_suppression_key_never_crashes(
+    issue: ValidationIssue,
+) -> None:
     """Property: get_suppression_key() handles any ValidationIssue without crashing.
 
     Tests that:
@@ -269,8 +277,12 @@ def test_validation_issue_get_suppression_key_never_crashes(issue: ValidationIss
 
 
 @given(
-    issue1=validation_issue_list().filter(lambda lst: len(lst) > 0).map(lambda lst: lst[0]),
-    issue2=validation_issue_list().filter(lambda lst: len(lst) > 0).map(lambda lst: lst[0]),
+    issue1=validation_issue_list()
+    .filter(lambda lst: len(lst) > 0)
+    .map(lambda lst: lst[0]),
+    issue2=validation_issue_list()
+    .filter(lambda lst: len(lst) > 0)
+    .map(lambda lst: lst[0]),
 )
 @settings(max_examples=200)
 def test_validation_issue_hash_and_eq_consistency(
@@ -284,7 +296,11 @@ def test_validation_issue_hash_and_eq_consistency(
         assert hash(issue1) == hash(issue2)
 
 
-@given(issue=validation_issue_list().filter(lambda lst: len(lst) > 0).map(lambda lst: lst[0]))
+@given(
+    issue=validation_issue_list()
+    .filter(lambda lst: len(lst) > 0)
+    .map(lambda lst: lst[0])
+)
 @settings(max_examples=200)
 def test_validation_issue_hash_deterministic(issue: ValidationIssue) -> None:
     """Property: hash is deterministic across calls.

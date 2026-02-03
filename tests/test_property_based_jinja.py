@@ -62,7 +62,8 @@ def test_ensure_list_never_crashes(value: Any) -> None:
 
 @given(
     text=st.text(
-        max_size=500, alphabet=st.characters(blacklist_categories=("Cs",))  # Exclude surrogates
+        max_size=500,
+        alphabet=st.characters(blacklist_categories=("Cs",)),  # Exclude surrogates
     )
 )
 @settings(max_examples=200)
@@ -101,9 +102,7 @@ def test_is_template_detects_jinja_markers(
 
 
 @given(
-    template=st.text(
-        max_size=500, alphabet=st.characters(blacklist_categories=("Cs",))
-    )
+    template=st.text(max_size=500, alphabet=st.characters(blacklist_categories=("Cs",)))
 )
 @settings(max_examples=200)
 def test_check_template_never_crashes(template: str) -> None:
@@ -124,9 +123,7 @@ def test_check_template_never_crashes(template: str) -> None:
 
 
 @given(
-    template=st.text(
-        max_size=500, alphabet=st.characters(blacklist_categories=("Cs",))
-    )
+    template=st.text(max_size=500, alphabet=st.characters(blacklist_categories=("Cs",)))
 )
 @settings(max_examples=200)
 def test_check_template_strict_never_crashes(template: str) -> None:
@@ -157,7 +154,9 @@ def test_check_template_strict_never_crashes(template: str) -> None:
         optional={
             "variables": st.one_of(
                 st.none(),
-                st.dictionaries(st.text(max_size=20), st.text(max_size=50), max_size=10),
+                st.dictionaries(
+                    st.text(max_size=20), st.text(max_size=50), max_size=10
+                ),
                 st.text(max_size=50),  # Wrong type
                 st.integers(),  # Wrong type
                 st.lists(st.text(max_size=20), max_size=5),  # Wrong type
@@ -216,7 +215,9 @@ def automation_dicts_with_templates(draw: Any) -> dict[str, Any]:
                 "alias": st.text(max_size=50),
             },
             optional={
-                "variables": st.dictionaries(st.text(max_size=20), st.text(max_size=50), max_size=5),
+                "variables": st.dictionaries(
+                    st.text(max_size=20), st.text(max_size=50), max_size=5
+                ),
                 "trigger": st.lists(item_dict, max_size=3),
                 "condition": st.lists(item_dict, max_size=3),
                 "action": st.lists(item_dict, max_size=3),
@@ -248,7 +249,9 @@ def deeply_nested_automation(draw: Any) -> dict[str, Any]:
         if depth >= 5:  # Limit nesting to 5 levels
             return {"service": "test.service"}
 
-        action_type = draw(st.sampled_from(["choose", "if", "repeat", "parallel", "simple"]))
+        action_type = draw(
+            st.sampled_from(["choose", "if", "repeat", "parallel", "simple"])
+        )
 
         if action_type == "simple":
             return {"service": "test.service"}
@@ -292,7 +295,9 @@ def deeply_nested_automation(draw: Any) -> dict[str, Any]:
 
 @given(automation=deeply_nested_automation())
 @settings(max_examples=200)
-def test_validate_deeply_nested_actions_never_crashes(automation: dict[str, Any]) -> None:
+def test_validate_deeply_nested_actions_never_crashes(
+    automation: dict[str, Any],
+) -> None:
     """Property: validate_automations handles deeply nested actions without stack overflow.
 
     Tests that automations with choose/if/repeat/parallel nesting up to 5 levels
