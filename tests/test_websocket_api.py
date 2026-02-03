@@ -637,7 +637,11 @@ async def test_websocket_unsuppress_not_ready(hass: HomeAssistant) -> None:
 
     connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
-    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/unsuppress", "key": "some:key:here"}
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/unsuppress",
+        "key": "some:key:here",
+    }
 
     await websocket_unsuppress.__wrapped__(hass, connection, msg)
 

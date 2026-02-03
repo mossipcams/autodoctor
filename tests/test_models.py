@@ -317,9 +317,7 @@ def test_service_call_template_detection() -> None:
         "unknown-param",
     ],
 )
-def test_service_issue_types_exist(
-    issue_type_name: str, expected_value: str
-) -> None:
+def test_service_issue_types_exist(issue_type_name: str, expected_value: str) -> None:
     """Test service validation issue types exist with correct values.
 
     Service validation was added in v2.13.0 and requires these

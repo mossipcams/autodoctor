@@ -10,7 +10,9 @@ from custom_components.autodoctor.suppression_store import SuppressionStore
 from custom_components.autodoctor.websocket_api import websocket_suppress
 
 
-async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant) -> None:
+async def test_suppress_learns_state_for_invalid_state_issue(
+    hass: HomeAssistant,
+) -> None:
     """Test that suppressing invalid_state issues learns the state.
 
     When a user suppresses an invalid_state issue, the state should be
@@ -61,7 +63,9 @@ async def test_suppress_learns_state_for_invalid_state_issue(hass: HomeAssistant
     )
 
 
-async def test_suppress_does_not_learn_for_non_state_issues(hass: HomeAssistant) -> None:
+async def test_suppress_does_not_learn_for_non_state_issues(
+    hass: HomeAssistant,
+) -> None:
     """Test that non-state issues don't trigger automatic learning.
 
     Only invalid_state issues should trigger state learning. Other issue types

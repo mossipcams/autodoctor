@@ -1,0 +1,20 @@
+[cosmic-ray]
+module-path = "custom_components/autodoctor"
+timeout = 30.0
+excluded-modules = [
+    "custom_components.autodoctor.www",
+    "custom_components.autodoctor.__init__",
+    "custom_components.autodoctor.config_flow",
+    "custom_components.autodoctor.const",
+    "custom_components.autodoctor.coordinator",
+    "custom_components.autodoctor.diagnostics",
+    "custom_components.autodoctor.issue_registry",
+    "custom_components.autodoctor.models",
+    "custom_components.autodoctor.sensor",
+    "custom_components.autodoctor.suppression_manager",
+    "custom_components.autodoctor.websocket_api",
+]
+test-command = ".venv/bin/python -m pytest -x tests/"
+
+[cosmic-ray.distributor]
+name = "local"

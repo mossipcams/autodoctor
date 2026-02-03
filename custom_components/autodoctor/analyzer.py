@@ -679,7 +679,7 @@ class AutomationAnalyzer:
 
     def _extract_from_template(
         self,
-        template: str,
+        template: Any,  # Can be str or any type from YAML
         location: str,
         automation_id: str,
         automation_name: str,
@@ -1111,7 +1111,9 @@ class AutomationAnalyzer:
                         )
 
                     # Recurse into sequence
-                    repeat_sequence = cast(list[Any], repeat_config.get("sequence") or [])
+                    repeat_sequence = cast(
+                        list[Any], repeat_config.get("sequence") or []
+                    )
                     refs.extend(
                         self._extract_from_actions(
                             repeat_sequence, automation_id, automation_name, _depth + 1
@@ -1137,7 +1139,9 @@ class AutomationAnalyzer:
                 if not isinstance(branches, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                     branches = [branches]
                 for branch in branches:
-                    branch_actions = cast(list[Any], branch if isinstance(branch, list) else [branch])
+                    branch_actions = cast(
+                        list[Any], branch if isinstance(branch, list) else [branch]
+                    )
                     refs.extend(
                         self._extract_from_actions(
                             branch_actions, automation_id, automation_name, _depth + 1
@@ -1149,7 +1153,10 @@ class AutomationAnalyzer:
     def extract_service_calls(self, automation: dict[str, Any]) -> list[ServiceCall]:
         """Extract all service calls from automation actions."""
         service_calls: list[ServiceCall] = []
-        actions = cast(list[dict[str, Any]], automation.get("actions") or automation.get("action") or [])
+        actions = cast(
+            list[dict[str, Any]],
+            automation.get("actions") or automation.get("action") or [],
+        )
         if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
             actions = [actions]
 
@@ -1157,7 +1164,11 @@ class AutomationAnalyzer:
         automation_name: str = automation.get("alias", "Unknown")
 
         self._extract_service_calls_from_actions(
-            cast(list[dict[str, Any]], actions), automation_id, automation_name, "action", service_calls
+            cast(list[dict[str, Any]], actions),
+            automation_id,
+            automation_name,
+            "action",
+            service_calls,
         )
         return service_calls
 
@@ -1198,7 +1209,9 @@ class AutomationAnalyzer:
                 explicit_data: Any = action.get("data")
                 if isinstance(explicit_data, str):
                     # Template string in data: — pass through as-is
-                    merged_data: dict[str, Any] | None = cast(dict[str, Any] | None, explicit_data)
+                    merged_data: dict[str, Any] | None = cast(
+                        dict[str, Any] | None, explicit_data
+                    )
                 else:
                     inline_params = {
                         k: v

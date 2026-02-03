@@ -256,7 +256,9 @@ async def test_validate_all_with_groups_status_logic(grouped_hass: MagicMock) ->
 
 
 @pytest.mark.asyncio
-async def test_validate_all_with_groups_empty_automations(grouped_hass: MagicMock) -> None:
+async def test_validate_all_with_groups_empty_automations(
+    grouped_hass: MagicMock,
+) -> None:
     """Test that empty automation list returns empty group structure.
 
     When no automations exist, grouped validation should return a well-formed
@@ -1092,7 +1094,9 @@ async def test_unload_entry_removes_services() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_validators_failed_automation_warning(grouped_hass: MagicMock) -> None:
+async def test_run_validators_failed_automation_warning(
+    grouped_hass: MagicMock,
+) -> None:
     """Test that failed automation count is logged when 1+ automations fail validation.
 
     When an automation raises an exception during analysis (e.g., malformed
@@ -1485,8 +1489,13 @@ async def test_async_setup_entry_full_lifecycle() -> None:
     with (
         patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
         patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
-        patch("custom_components.autodoctor._async_register_card", new_callable=AsyncMock) as mock_register_card,
-        patch("custom_components.autodoctor.async_setup_websocket_api", new_callable=AsyncMock),
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ) as mock_register_card,
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_suppression = AsyncMock()
         mock_suppression.async_load = AsyncMock()
@@ -1531,8 +1540,13 @@ async def test_async_setup_entry_no_reload_listener() -> None:
     with (
         patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
         patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
-        patch("custom_components.autodoctor._async_register_card", new_callable=AsyncMock),
-        patch("custom_components.autodoctor.async_setup_websocket_api", new_callable=AsyncMock),
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_suppression = AsyncMock()
         mock_suppression.async_load = AsyncMock()
@@ -1553,7 +1567,9 @@ async def test_register_card_exceptions() -> None:
 
     hass = MagicMock()
     hass.http = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock(side_effect=ValueError("Already registered"))
+    hass.http.async_register_static_paths = AsyncMock(
+        side_effect=ValueError("Already registered")
+    )
     hass.data = {}
 
     with patch("pathlib.Path.exists", return_value=True):
@@ -1580,12 +1596,14 @@ async def test_run_validators_exception_isolation() -> None:
     mock_analyzer.extract_state_references.return_value = []
     mock_validator.validate_all.return_value = []
 
-    mock_hass.data = {DOMAIN: {
-        "analyzer": mock_analyzer,
-        "validator": mock_validator,
-        "jinja_validator": mock_jinja,
-        "service_validator": mock_service,
-    }}
+    mock_hass.data = {
+        DOMAIN: {
+            "analyzer": mock_analyzer,
+            "validator": mock_validator,
+            "jinja_validator": mock_jinja,
+            "service_validator": mock_service,
+        }
+    }
 
     await _async_run_validators(mock_hass, [{"id": "test", "alias": "Test"}])
     mock_jinja.validate_automations.assert_called_once()
@@ -1600,18 +1618,23 @@ async def test_validate_all_loads_history() -> None:
     mock_kb.has_history_loaded.return_value = False
     mock_kb.async_load_history = AsyncMock()
 
-    mock_hass.data = {DOMAIN: {
-        "analyzer": MagicMock(),
-        "validator": MagicMock(),
-        "reporter": AsyncMock(),
-        "knowledge_base": mock_kb,
-        "jinja_validator": None,
-        "service_validator": None,
-    }}
+    mock_hass.data = {
+        DOMAIN: {
+            "analyzer": MagicMock(),
+            "validator": MagicMock(),
+            "reporter": AsyncMock(),
+            "knowledge_base": mock_kb,
+            "jinja_validator": None,
+            "service_validator": None,
+        }
+    }
     mock_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     mock_hass.data[DOMAIN]["validator"].validate_all.return_value = []
 
-    with patch("custom_components.autodoctor._get_automation_configs", return_value=[{"id": "t", "alias": "T"}]):
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "t", "alias": "T"}],
+    ):
         await async_validate_all_with_groups(mock_hass)
 
     mock_kb.async_load_history.assert_called_once()

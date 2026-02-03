@@ -666,7 +666,9 @@ def test_extract_implicit_state_condition_in_repeat_until() -> None:
             {
                 "id": "test_numeric_null",
                 "alias": "Test Numeric Null",
-                "triggers": [{"platform": "numeric_state", "entity_id": None, "above": 50}],
+                "triggers": [
+                    {"platform": "numeric_state", "entity_id": None, "above": 50}
+                ],
                 "actions": [],
             },
         ),
@@ -676,7 +678,9 @@ def test_extract_implicit_state_condition_in_repeat_until() -> None:
                 "id": "test_cond_null",
                 "alias": "Test Condition Null",
                 "triggers": [{"platform": "time", "at": "12:00:00"}],
-                "conditions": [{"condition": "state", "entity_id": None, "state": "on"}],
+                "conditions": [
+                    {"condition": "state", "entity_id": None, "state": "on"}
+                ],
                 "actions": [],
             },
         ),
@@ -717,7 +721,9 @@ def test_extract_implicit_state_condition_in_repeat_until() -> None:
         "null-parallel-branches",
     ],
 )
-def test_extract_handles_null_values(null_field: str, automation_spec: dict[str, Any]) -> None:
+def test_extract_handles_null_values(
+    null_field: str, automation_spec: dict[str, Any]
+) -> None:
     """Test that null values in various automation fields don't crash extraction.
 
     The analyzer must gracefully handle malformed or incomplete automation
@@ -1056,8 +1062,6 @@ def test_extract_tag_trigger() -> None:
     assert refs[1].entity_id == "scanner_device_123"
     assert refs[1].reference_type == "device"
     assert refs[1].location == "trigger[0].device_id"
-
-
 
 
 def test_extract_geo_location_trigger() -> None:

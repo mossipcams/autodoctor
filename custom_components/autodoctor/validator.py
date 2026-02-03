@@ -78,9 +78,7 @@ class ValidationEngine:
                 return issues
 
             if ref.expected_state is not None:
-                state_issues = self._check_state_value(
-                    ref, ref.expected_state, "State"
-                )
+                state_issues = self._check_state_value(ref, ref.expected_state, "State")
                 issues.extend(state_issues)
 
             if ref.transition_from is not None:

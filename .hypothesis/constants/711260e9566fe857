@@ -1,0 +1,4 @@
+# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/binary_sensor.py
+# hypothesis_version: 6.151.4
+
+['Autodoctor', 'Automation Validator', 'Problems', 'reporter']

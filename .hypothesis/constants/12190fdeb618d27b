@@ -1,0 +1,4 @@
+# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/websocket_api.py
+# hypothesis_version: 6.151.4
+
+[0.8, '.', ':', 'autodoctor/issues', 'autodoctor/refresh', 'autodoctor/suppress', 'automation', 'automation.', 'automation_id', 'automation_name', 'confidence', 'config', 'description', 'duration_ms', 'edit_url', 'entities', 'entity_id', 'error_count', 'fail', 'fix', 'fix_value', 'group_durations', 'group_issues', 'groups', 'healthy_count', 'id', 'invalid_state', 'issue', 'issue_count', 'issue_type', 'issues', 'key', 'label', 'last_run', 'learned_states_store', 'message', 'not_ready', 'pass', 'state', 'status', 'success', 'suppressed_count', 'suppression_store', 'suppressions', 'timestamp', 'type', 'validation_failed', 'validation_groups', 'validation_issues', 'validation_last_run', 'warning', 'warning_count']

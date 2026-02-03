@@ -769,7 +769,9 @@ async def test_tag_reference_skips_entity_validation(hass: HomeAssistant) -> Non
 
 
 @pytest.mark.asyncio
-async def test_integration_reference_skips_entity_validation(hass: HomeAssistant) -> None:
+async def test_integration_reference_skips_entity_validation(
+    hass: HomeAssistant,
+) -> None:
     """Test that integration references are skipped (no entity validation).
 
     Integration names in templates should not be validated as entities.
@@ -792,7 +794,9 @@ async def test_integration_reference_skips_entity_validation(hass: HomeAssistant
 
 
 @pytest.mark.asyncio
-async def test_area_reference_validates_against_area_registry(hass: HomeAssistant) -> None:
+async def test_area_reference_validates_against_area_registry(
+    hass: HomeAssistant,
+) -> None:
     """Test that area references are validated against area registry.
 
     Area-based automations should be validated using the area registry

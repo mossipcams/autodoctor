@@ -208,7 +208,13 @@ def entity_id_with_suggestion(draw: Any) -> tuple[str, list[str], str]:
     """
     # Generate a valid-looking entity ID
     domain = draw(st.sampled_from(["light", "switch", "sensor", "binary_sensor"]))
-    base_name = draw(st.text(alphabet=st.characters(min_codepoint=97, max_codepoint=122), min_size=3, max_size=10))
+    base_name = draw(
+        st.text(
+            alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+            min_size=3,
+            max_size=10,
+        )
+    )
     correct_entity = f"{domain}.{base_name}"
 
     # Create typo by replacing one character
@@ -236,7 +242,7 @@ def entity_id_with_suggestion(draw: Any) -> tuple[str, list[str], str]:
 @given(data=entity_id_with_suggestion())
 @settings(max_examples=200)
 def test_get_entity_suggestion_returns_valid_entity(
-    data: tuple[str, list[str], str]
+    data: tuple[str, list[str], str],
 ) -> None:
     """Property: when suggestion is not None, it's always from all_entities list.
 
@@ -274,9 +280,7 @@ def test_get_entity_suggestion_no_same_domain_returns_none(
     name=st.text(min_size=1, max_size=20),
 )
 @settings(max_examples=200)
-def test_get_entity_suggestion_exact_match_empty_list(
-    domain: str, name: str
-) -> None:
+def test_get_entity_suggestion_exact_match_empty_list(domain: str, name: str) -> None:
     """Property: get_entity_suggestion with empty entity list always returns None.
 
     Tests that if all_entities is empty, no suggestion can be made.

@@ -1,0 +1,4 @@
+# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/models.py
+# hypothesis_version: 6.151.4
+
+['Entity & State', 'Service Calls', 'Templates', 'attribute_not_found', 'automation_id', 'automation_name', 'case_mismatch', 'direct', 'entity_id', 'entity_not_found', 'entity_removed', 'entity_state', 'invalid_state', 'issue_type', 'issue_types', 'label', 'location', 'message', 'service_not_found', 'services', 'severity', 'suggestion', 'templates', 'unknown', 'valid_states']
