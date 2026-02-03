@@ -39,7 +39,12 @@ from .const import (
 from .jinja_validator import JinjaValidator
 from .knowledge_base import StateKnowledgeBase
 from .learned_states_store import LearnedStatesStore
-from .models import VALIDATION_GROUP_ORDER, VALIDATION_GROUPS, IssueType, ValidationIssue
+from .models import (
+    VALIDATION_GROUP_ORDER,
+    VALIDATION_GROUPS,
+    IssueType,
+    ValidationIssue,
+)
 from .reporter import IssueReporter
 from .service_validator import ServiceCallValidator
 from .suppression_store import SuppressionStore

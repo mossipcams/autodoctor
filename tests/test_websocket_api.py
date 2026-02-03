@@ -23,15 +23,12 @@ from custom_components.autodoctor.models import (
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
     async_setup_websocket_api,
-    websocket_clear_suppressions,
     websocket_get_issues,
     websocket_get_validation,
     websocket_get_validation_steps,
     websocket_list_suppressions,
-    websocket_refresh,
     websocket_run_validation,
     websocket_run_validation_steps,
-    websocket_suppress,
     websocket_unsuppress,
 )
 

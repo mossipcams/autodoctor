@@ -14,8 +14,6 @@ from typing import Any
 import pytest
 
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
-from custom_components.autodoctor.models import StateReference
-
 
 # ============================================================================
 # State Trigger Tests

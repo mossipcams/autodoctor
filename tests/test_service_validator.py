@@ -11,7 +11,8 @@ Tests cover service validation including:
 """
 
 import pytest
-from homeassistant.core import HomeAssistant, ServiceCall as HAServiceCall
+from homeassistant.core import HomeAssistant
+from homeassistant.core import ServiceCall as HAServiceCall
 
 from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 from custom_components.autodoctor.service_validator import ServiceCallValidator

@@ -11,6 +11,7 @@ Tests cover the multi-source state validation system including:
 """
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1539,12 +1540,12 @@ async def test_async_load_history_timeout(hass: HomeAssistant) -> None:
 
     hass.async_add_executor_job = slow_load
 
-    with patch("custom_components.autodoctor.knowledge_base.get_significant_states"):
+    with (
+        patch("custom_components.autodoctor.knowledge_base.get_significant_states"),
+        contextlib.suppress(TimeoutError),
+    ):
         # Should timeout and not crash
-        try:
-            await asyncio.wait_for(kb.async_load_history(["light.test"]), timeout=0.5)
-        except asyncio.TimeoutError:
-            pass  # Expected
+        await asyncio.wait_for(kb.async_load_history(["light.test"]), timeout=0.5)
 
     assert kb._observed_states == {}
 

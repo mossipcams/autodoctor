@@ -16,7 +16,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # Import issue registry with fallback
 try:
-    from homeassistant.helpers import issue_registry as ir  # pyright: ignore[reportAssignmentType]
+    from homeassistant.helpers import (
+        issue_registry as ir,  # pyright: ignore[reportAssignmentType]
+    )
 
     HAS_ISSUE_REGISTRY = True
 except ImportError:

@@ -12,7 +12,6 @@ Comprehensive test coverage for Jinja2 template validation including:
 from __future__ import annotations
 
 import inspect
-from typing import Any
 
 import pytest
 

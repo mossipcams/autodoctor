@@ -35,11 +35,15 @@ try:
 except ImportError:
     try:
         # Alternative location
-        from homeassistant.helpers.recorder import get_significant_states  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+        from homeassistant.helpers.recorder import (
+            get_significant_states,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+        )
     except ImportError:
         try:
             # Legacy fallback
-            from homeassistant.components.recorder import get_significant_states  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+            from homeassistant.components.recorder import (
+                get_significant_states,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+            )
         except ImportError:
             get_significant_states = None
 

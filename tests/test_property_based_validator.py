@@ -113,7 +113,7 @@ def test_get_domain_attributes_never_crashes(domain: str | None) -> None:
     if domain is None:
         # None should return the full dict
         assert isinstance(result, dict)
-        assert all(isinstance(k, str) for k in result.keys())
+        assert all(isinstance(k, str) for k in result)
         assert all(isinstance(v, list) for v in result.values())
     else:
         # String domain should return list (empty if unknown domain)
@@ -228,7 +228,7 @@ def entity_id_with_suggestion(draw: Any) -> tuple[str, list[str], str]:
             max_size=10,
         )
     )
-    all_entities = [correct_entity] + other_entities
+    all_entities = [correct_entity, *other_entities]
 
     return invalid_entity, all_entities, correct_entity
 
