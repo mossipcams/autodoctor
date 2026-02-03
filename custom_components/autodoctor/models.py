@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, IntEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 
@@ -15,7 +15,7 @@ class Severity(IntEnum):
     ERROR = 3
 
 
-class IssueType(str, Enum):
+class IssueType(StrEnum):
     """Types of validation issues.
 
     Note: TEMPLATE_UNKNOWN_VARIABLE was removed in v2.7.0 due to high false
