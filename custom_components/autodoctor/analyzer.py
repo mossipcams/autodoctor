@@ -217,6 +217,7 @@ class AutomationAnalyzer:
 
             to_states = self._normalize_states(trigger.get("to"))
             from_states = self._normalize_states(trigger.get("from"))
+            trigger_attribute = trigger.get("attribute")
 
             for entity_id in entity_ids:
                 for state in to_states:
@@ -226,7 +227,7 @@ class AutomationAnalyzer:
                             automation_name=automation_name,
                             entity_id=entity_id,
                             expected_state=state,
-                            expected_attribute=None,
+                            expected_attribute=trigger_attribute,
                             location=f"trigger[{index}].to",
                             transition_from=from_states[0] if from_states else None,
                         )
@@ -238,7 +239,7 @@ class AutomationAnalyzer:
                             automation_name=automation_name,
                             entity_id=entity_id,
                             expected_state=state,
-                            expected_attribute=None,
+                            expected_attribute=trigger_attribute,
                             location=f"trigger[{index}].from",
                         )
                     )
@@ -520,6 +521,7 @@ class AutomationAnalyzer:
                 entity_ids = [entity_ids]
 
             states = self._normalize_states(condition.get("state"))
+            condition_attribute = condition.get("attribute")
 
             for entity_id in entity_ids:
                 for state in states:
@@ -529,7 +531,7 @@ class AutomationAnalyzer:
                             automation_name=automation_name,
                             entity_id=entity_id,
                             expected_state=state,
-                            expected_attribute=None,
+                            expected_attribute=condition_attribute,
                             location=f"{location_prefix}[{index}].state",
                         )
                     )
@@ -710,13 +712,13 @@ class AutomationAnalyzer:
 
         # Extract is_state_attr() calls
         for match in IS_STATE_ATTR_PATTERN.finditer(template):
-            entity_id, attribute, _value = match.groups()
+            entity_id, attribute, attr_value = match.groups()
             refs.append(
                 StateReference(
                     automation_id=automation_id,
                     automation_name=automation_name,
                     entity_id=entity_id,
-                    expected_state=None,
+                    expected_state=attr_value,
                     expected_attribute=attribute,
                     location=f"{location}.is_state_attr",
                 )

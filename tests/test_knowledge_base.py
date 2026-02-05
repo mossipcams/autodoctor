@@ -1761,3 +1761,91 @@ async def test_get_valid_states_cache_hit_returns_copy(hass: HomeAssistant) -> N
     states2 = kb.get_valid_states("binary_sensor.test")
     assert "modified" not in states2
     assert states2 == {"on", "off"}
+
+
+async def test_has_confirmed_states_with_history(hass: HomeAssistant) -> None:
+    """Test that has_confirmed_states returns True when history has been observed.
+
+    When an entity has observed states from recorder history, the valid states
+    list is higher confidence than device class defaults alone.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # Simulate observed history
+    kb._observed_states["vacuum.roborock_s7"] = {"cleaning", "docked"}
+
+    assert kb.has_confirmed_states("vacuum.roborock_s7") is True
+
+
+async def test_has_confirmed_states_with_capabilities(hass: HomeAssistant) -> None:
+    """Test that has_confirmed_states returns True when capabilities provide states.
+
+    When an entity has capabilities in the entity registry (e.g., select.options),
+    the valid states are confirmed even without history.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # Create entity with capabilities
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        domain="select",
+        platform="test",
+        unique_id="test_confirmed_caps",
+        suggested_object_id="mode",
+        capabilities={"options": ["auto", "manual"]},
+    )
+    hass.states.async_set("select.mode", "auto")
+    await hass.async_block_till_done()
+
+    assert kb.has_confirmed_states("select.mode") is True
+
+
+async def test_has_confirmed_states_defaults_only(hass: HomeAssistant) -> None:
+    """Test that has_confirmed_states returns False with only device class defaults.
+
+    When an entity has no observed history and no capabilities in the registry,
+    valid states come only from device_class_states.py defaults — low confidence.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    # vacuum with no capabilities in registry and no observed history
+    hass.states.async_set("vacuum.basic", "cleaning")
+    await hass.async_block_till_done()
+
+    assert kb.has_confirmed_states("vacuum.basic") is False
+
+
+async def test_has_confirmed_states_enum_sensor_options(hass: HomeAssistant) -> None:
+    """Test that has_confirmed_states returns True for enum sensors with options.
+
+    Enum sensors declare their valid states explicitly via the options attribute.
+    This is a high-confidence source even without capabilities or history.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "sensor.washing_machine",
+        "idle",
+        {"device_class": "enum", "options": ["idle", "washing", "drying"]},
+    )
+    await hass.async_block_till_done()
+
+    assert kb.has_confirmed_states("sensor.washing_machine") is True
+
+
+async def test_has_confirmed_states_schema_introspection(hass: HomeAssistant) -> None:
+    """Test that has_confirmed_states returns True when schema introspection provides states.
+
+    Climate entities expose hvac_modes in state attributes, which is a
+    high-confidence source of valid states even without capabilities or history.
+    """
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "climate.thermostat",
+        "heat",
+        {"hvac_modes": ["off", "heat", "cool", "auto"]},
+    )
+    await hass.async_block_till_done()
+
+    assert kb.has_confirmed_states("climate.thermostat") is True

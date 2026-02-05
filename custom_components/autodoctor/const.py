@@ -39,11 +39,18 @@ STATE_VALIDATION_WHITELIST: frozenset[str] = frozenset(
         "climate",
         "cover",
         "device_tracker",
+        "fan",
         "group",
         "input_boolean",
+        "light",
         "lock",
+        "media_player",
         "person",
         "sun",
+        "switch",
+        "timer",
+        "vacuum",
+        "weather",
     }
 )
 

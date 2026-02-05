@@ -905,6 +905,8 @@ async def test_transition_from_invalid_produces_issue(hass: HomeAssistant) -> No
     await hass.async_block_till_done()
 
     kb = StateKnowledgeBase(hass)
+    # Simulate confirmed states (history observed) so severity is ERROR
+    kb._observed_states["binary_sensor.motion"] = {"on", "off"}
     validator = ValidationEngine(kb)
 
     ref = StateReference(
@@ -1236,6 +1238,7 @@ async def test_enum_sensor_invalid_state_reports_issue(hass: HomeAssistant) -> N
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.INVALID_STATE
+    # Enum sensor with options is high confidence (confirmed states)
     assert issues[0].severity == Severity.ERROR
     assert issues[0].entity_id == "sensor.washing_machine"
     assert "washign" in issues[0].message

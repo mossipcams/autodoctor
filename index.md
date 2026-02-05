@@ -55,7 +55,7 @@ autodoctor/
 
 ### Analysis Layer
 - **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions (21 trigger types, 10 condition types, depth-limited recursion)
-- **`validator.py`** - Validates state references against knowledge base (conservative mode: only validates whitelisted domains with stable states); also provides `get_entity_suggestion()` for fuzzy entity matching
+- **`validator.py`** - Validates state references and attribute values against knowledge base (conservative mode: only validates whitelisted domains with stable states); also provides `get_entity_suggestion()` for fuzzy entity matching
 - **`service_validator.py`** - Validates service calls against HA service registry (existence, required params, capability-dependent param handling, select/enum option validation)
 - **`ha_catalog.py`** - Dataclass-based registry of HA's Jinja2 filters and tests (101 filters, 23 tests). Single source of truth for filter/test name recognition.
 - **`jinja_validator.py`** - Validates Jinja2 template syntax and semantics (syntax errors; opt-in unknown filter/test warnings). Entity validation handled solely by `validator.py` via the analyzer path.
@@ -119,15 +119,16 @@ autodoctor/
 Autodoctor performs three distinct families of validation:
 
 ### 1. State Reference Validation (`validator.py`)
-Validates entity states, attributes, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (binary_sensor, person, sun, device_tracker, input_boolean, group, alarm_control_panel, climate, cover, lock) plus enum sensors (device_class: enum with declared options).
+Validates entity states, attributes, attribute values, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (`alarm_control_panel`, `binary_sensor`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `input_boolean`, `light`, `lock`, `media_player`, `person`, `sun`, `switch`, `timer`, `vacuum`, `weather`) plus enum sensors (device_class: enum with declared options).
 
 | Check | Severity | Description |
 |-------|----------|-------------|
 | Entity doesn't exist | ERROR | Entity ID not found in entity registry |
 | Entity existed historically | INFO | Entity was removed/renamed |
 | State never valid | ERROR | State value never observed for entity (whitelisted domains only) |
-| Case mismatch | WARNING | State exists but with different casing |
+| Case mismatch | WARNING | State or attribute value exists but with different casing |
 | Attribute doesn't exist | WARNING | Attribute not found on entity |
+| Invalid attribute value | WARNING | Attribute value not in known valid values (e.g., fan_mode, preset_mode) |
 | Device not found | ERROR | Device ID not in device registry |
 | Area not found | ERROR | Area ID not in area registry |
 | Tag not found | ERROR | Tag ID not in tag registry |
@@ -187,7 +188,7 @@ Supports all 10 Home Assistant condition types:
 
 **Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
 
-**Test Coverage:** 708 tests passing (2 skipped stubs), ~16,200 lines
+**Test Coverage:** 693 tests passing (2 skipped stubs), ~15,600 lines
 
 **Core Test Files:**
 - `test_analyzer.py` (99 tests) - Automation parsing (21 trigger types, 10 condition types, depth limits)
@@ -210,6 +211,7 @@ Supports all 10 Home Assistant condition types:
 - `test_sensor.py` (6 tests) - Issue count sensor platform
 - `test_binary_sensor.py` (5 tests) - Health status sensor platform
 - `test_defect_regressions.py` (4 tests) - P0/P1 defect regression tests (hass.data update, template data crash, required param skip, entity cache recovery)
+- `test_attribute_value_validation.py` (11 tests) - Attribute value validation (analyzer extraction, validator checks, edge cases)
 
 **Property-Based Test Files (Hypothesis fuzzing, 200 examples each):**
 - `test_property_based.py` (8 tests) - Analyzer/service-validator functions: automation extraction, template parsing, state normalization
@@ -235,11 +237,11 @@ Autodoctor has undergone validation scope narrowing to reduce false positives an
 - Basic service parameter type checking (number/boolean/text validation unreliable due to YAML coercion)
 - Filter argument count validation (CatalogEntry simplified to name/kind/source/category only)
 - `for_each` template variable extraction (produced false positives)
-- **Template entity validation (v2.14.0)**: Entity existence, state validity, attribute existence, and registry reference checks removed from `jinja_validator.py` -- these were a duplicate code path also covered by `validator.py` via the analyzer, and generated false positives. 7 TEMPLATE_* IssueType members removed (13 remain). Cross-family dedup machinery removed.
+- **Template entity validation (v2.14.0)**: Entity existence, state validity, attribute existence, and registry reference checks removed from `jinja_validator.py` -- these were a duplicate code path also covered by `validator.py` via the analyzer, and generated false positives. 7 TEMPLATE_* IssueType members removed (14 remain). Cross-family dedup machinery removed.
 
 **Conservative State Validation:**
 - State validation now only applies to domains with stable, well-defined states
-- **Whitelisted domains**: `alarm_control_panel`, `binary_sensor`, `climate`, `cover`, `device_tracker`, `group`, `input_boolean`, `lock`, `person`, `sun`
+- **Whitelisted domains**: `alarm_control_panel`, `binary_sensor`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `input_boolean`, `light`, `lock`, `media_player`, `person`, `sun`, `switch`, `timer`, `vacuum`, `weather`
 - **Enum sensors**: `device_class: enum` sensors validated against their declared `options` attribute (without adding sensor domain to whitelist)
 - Non-enum sensors and flexible integrations skip state validation to avoid false positives
 
