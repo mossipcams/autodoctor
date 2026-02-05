@@ -289,7 +289,7 @@ class ValidationEngine:
                 self._entity_cache[domain].append(entity.entity_id)
         except Exception as err:
             _LOGGER.warning("Failed to build entity cache: %s", err)
-            self._entity_cache = {}
+            self._entity_cache = None
 
     def _suggest_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID."""

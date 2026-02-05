@@ -187,7 +187,7 @@ Supports all 10 Home Assistant condition types:
 
 **Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
 
-**Test Coverage:** 704 tests passing (2 skipped stubs), ~16,200 lines
+**Test Coverage:** 708 tests passing (2 skipped stubs), ~16,200 lines
 
 **Core Test Files:**
 - `test_analyzer.py` (99 tests) - Automation parsing (21 trigger types, 10 condition types, depth limits)
@@ -209,6 +209,7 @@ Supports all 10 Home Assistant condition types:
 - `test_config_flow.py` (6 tests) - Configuration UI flow
 - `test_sensor.py` (6 tests) - Issue count sensor platform
 - `test_binary_sensor.py` (5 tests) - Health status sensor platform
+- `test_defect_regressions.py` (4 tests) - P0/P1 defect regression tests (hass.data update, template data crash, required param skip, entity cache recovery)
 
 **Property-Based Test Files (Hypothesis fuzzing, 200 examples each):**
 - `test_property_based.py` (8 tests) - Analyzer/service-validator functions: automation extraction, template parsing, state normalization
