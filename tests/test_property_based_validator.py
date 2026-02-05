@@ -21,7 +21,11 @@ from custom_components.autodoctor.device_class_states import (
     get_device_class_states,
 )
 from custom_components.autodoctor.domain_attributes import get_domain_attributes
+from custom_components.autodoctor.knowledge_base import SCHEMA_ATTRIBUTES
 from custom_components.autodoctor.validator import get_entity_suggestion
+
+# Domains that use schema introspection (entity options attr) instead of DEVICE_CLASS_STATES
+_SCHEMA_INTROSPECTION_DOMAINS = frozenset(SCHEMA_ATTRIBUTES.keys())
 
 # ============================================================================
 # Device Class States Tests - Pure functions, no HA mocks needed
@@ -80,11 +84,17 @@ def test_get_all_known_domains_consistency() -> None:
 @given(domain=st.sampled_from(list(STATE_VALIDATION_WHITELIST)))
 @settings(max_examples=200)
 def test_whitelisted_domains_have_valid_states(domain: str) -> None:
-    """Property: all STATE_VALIDATION_WHITELIST domains have non-empty state sets.
+    """Property: all STATE_VALIDATION_WHITELIST domains have state sources.
 
-    Tests that every domain in the whitelist used for validation has a
-    corresponding state set in DEVICE_CLASS_STATES.
+    Tests that every domain in the whitelist has either a corresponding
+    state set in DEVICE_CLASS_STATES, or uses schema introspection
+    (entity options attribute) for dynamic state validation.
     """
+    if domain in _SCHEMA_INTROSPECTION_DOMAINS:
+        # Schema introspection domains get valid states from entity attributes
+        # (e.g., select.options), not from DEVICE_CLASS_STATES
+        return
+
     result = get_device_class_states(domain)
     assert result is not None, f"Whitelisted domain {domain} has no state mapping"
     assert isinstance(result, set)

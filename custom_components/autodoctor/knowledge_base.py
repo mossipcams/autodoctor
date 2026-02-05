@@ -64,6 +64,9 @@ ATTRIBUTE_VALUE_SOURCES: dict[str, str] = {
     "hvac_mode": "hvac_modes",
     "fan_mode": "fan_modes",
     "swing_mode": "swing_modes",
+    "source": "source_list",
+    "sound_mode": "sound_mode_list",
+    "fan_speed": "fan_speed_list",
 }
 
 # Capability introspection - map capability keys to state vs attribute values

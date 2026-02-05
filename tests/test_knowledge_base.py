@@ -1833,6 +1833,79 @@ async def test_has_confirmed_states_enum_sensor_options(hass: HomeAssistant) -> 
     assert kb.has_confirmed_states("sensor.washing_machine") is True
 
 
+async def test_get_valid_attributes_media_player_source(hass: HomeAssistant) -> None:
+    """Test that media_player source attribute values come from source_list."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "media_player.living_room",
+        "playing",
+        {"source": "HDMI 1", "source_list": ["HDMI 1", "HDMI 2", "Bluetooth", "TV"]},
+    )
+    await hass.async_block_till_done()
+
+    result = kb.get_valid_attributes("media_player.living_room", "source")
+    assert result is not None
+    assert result == {"HDMI 1", "HDMI 2", "Bluetooth", "TV"}
+
+
+async def test_get_valid_attributes_vacuum_fan_speed(hass: HomeAssistant) -> None:
+    """Test that vacuum fan_speed attribute values come from fan_speed_list."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "vacuum.roborock",
+        "cleaning",
+        {"fan_speed": "balanced", "fan_speed_list": ["silent", "balanced", "turbo", "max"]},
+    )
+    await hass.async_block_till_done()
+
+    result = kb.get_valid_attributes("vacuum.roborock", "fan_speed")
+    assert result is not None
+    assert result == {"silent", "balanced", "turbo", "max"}
+
+
+async def test_get_valid_states_automation(hass: HomeAssistant) -> None:
+    """Test that automation domain returns on/off/unavailable/unknown."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("automation.morning_routine", "on")
+    await hass.async_block_till_done()
+
+    states = kb.get_valid_states("automation.morning_routine")
+    assert states == {"on", "off", "unavailable", "unknown"}
+
+
+async def test_get_valid_states_water_heater(hass: HomeAssistant) -> None:
+    """Test that water_heater domain returns all operation modes."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("water_heater.tank", "eco")
+    await hass.async_block_till_done()
+
+    states = kb.get_valid_states("water_heater.tank")
+    assert states >= {
+        "off", "eco", "electric", "gas", "heat_pump",
+        "high_demand", "performance", "heat", "auto",
+        "unavailable", "unknown",
+    }
+
+
+async def test_get_valid_states_select_uses_options(hass: HomeAssistant) -> None:
+    """Test that select domain uses options from entity attribute for valid states."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set(
+        "select.mode",
+        "eco",
+        {"options": ["eco", "comfort", "boost"]},
+    )
+    await hass.async_block_till_done()
+
+    states = kb.get_valid_states("select.mode")
+    assert states == {"eco", "comfort", "boost", "unavailable", "unknown"}
+
+
 async def test_has_confirmed_states_schema_introspection(hass: HomeAssistant) -> None:
     """Test that has_confirmed_states returns True when schema introspection provides states.
 

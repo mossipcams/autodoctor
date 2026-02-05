@@ -373,6 +373,194 @@ async def test_attribute_value_template_skipped(
 
 
 # ============================================================================
+# Part 3b: Media player source / sound_mode / vacuum fan_speed validation
+# ============================================================================
+
+
+async def test_source_valid_value_no_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a valid media_player source value produces no issue.
+
+    'HDMI 1' is in source_list → no issue should be reported.
+    """
+    hass.states.async_set(
+        "media_player.tv",
+        "playing",
+        {"source": "HDMI 1", "source_list": ["HDMI 1", "HDMI 2", "Bluetooth"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="media_player.tv",
+        expected_state="HDMI 1",
+        expected_attribute="source",
+        location="trigger[0].to",
+    )
+
+    issues = engine.validate_reference(ref)
+    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    assert len(attr_issues) == 0
+
+
+async def test_source_invalid_value_flagged(
+    hass: HomeAssistant,
+) -> None:
+    """Test that an invalid media_player source value is flagged.
+
+    'AUX' is not in source_list → should produce INVALID_ATTRIBUTE_VALUE.
+    """
+    hass.states.async_set(
+        "media_player.tv",
+        "playing",
+        {"source": "HDMI 1", "source_list": ["HDMI 1", "HDMI 2", "Bluetooth"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="media_player.tv",
+        expected_state="AUX",
+        expected_attribute="source",
+        location="trigger[0].to",
+    )
+
+    issues = engine.validate_reference(ref)
+    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    assert len(attr_issues) == 1
+    assert "AUX" in attr_issues[0].message
+    assert "source" in attr_issues[0].message
+
+
+async def test_source_no_source_list_skips(
+    hass: HomeAssistant,
+) -> None:
+    """Test that media_player without source_list skips source validation.
+
+    Entity without source_list → no validation, no false positive.
+    """
+    hass.states.async_set(
+        "media_player.simple",
+        "playing",
+        {"source": "HDMI 1"},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="media_player.simple",
+        expected_state="AUX",
+        expected_attribute="source",
+        location="trigger[0].to",
+    )
+
+    issues = engine.validate_reference(ref)
+    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    assert len(attr_issues) == 0
+
+
+async def test_sound_mode_valid_value_no_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a valid media_player sound_mode value produces no issue."""
+    hass.states.async_set(
+        "media_player.receiver",
+        "on",
+        {"sound_mode": "stereo", "sound_mode_list": ["stereo", "surround", "night"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="media_player.receiver",
+        expected_state="surround",
+        expected_attribute="sound_mode",
+        location="trigger[0].to",
+    )
+
+    issues = engine.validate_reference(ref)
+    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    assert len(attr_issues) == 0
+
+
+async def test_sound_mode_invalid_value_flagged(
+    hass: HomeAssistant,
+) -> None:
+    """Test that an invalid media_player sound_mode value is flagged."""
+    hass.states.async_set(
+        "media_player.receiver",
+        "on",
+        {"sound_mode": "stereo", "sound_mode_list": ["stereo", "surround", "night"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="media_player.receiver",
+        expected_state="dolby",
+        expected_attribute="sound_mode",
+        location="trigger[0].to",
+    )
+
+    issues = engine.validate_reference(ref)
+    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    assert len(attr_issues) == 1
+    assert "dolby" in attr_issues[0].message
+    assert "sound_mode" in attr_issues[0].message
+
+
+async def test_fan_speed_invalid_value_flagged(
+    hass: HomeAssistant,
+) -> None:
+    """Test that an invalid vacuum fan_speed value is flagged."""
+    hass.states.async_set(
+        "vacuum.roborock",
+        "cleaning",
+        {"fan_speed": "balanced", "fan_speed_list": ["silent", "balanced", "turbo", "max"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="vacuum.roborock",
+        expected_state="ultra",
+        expected_attribute="fan_speed",
+        location="trigger[0].to",
+    )
+
+    issues = engine.validate_reference(ref)
+    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    assert len(attr_issues) == 1
+    assert "ultra" in attr_issues[0].message
+    assert "fan_speed" in attr_issues[0].message
+
+
+# ============================================================================
 # Part 4: Confidence-aware state validation severity
 # ============================================================================
 

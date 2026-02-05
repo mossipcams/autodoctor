@@ -51,7 +51,32 @@ def test_state_validation_whitelist_exists() -> None:
     assert "switch" in STATE_VALIDATION_WHITELIST
     assert "timer" in STATE_VALIDATION_WHITELIST
     assert "weather" in STATE_VALIDATION_WHITELIST
-    # Dynamic domains should not be in the whitelist
+    # Binary on/off domains
+    assert "automation" in STATE_VALIDATION_WHITELIST
+    assert "script" in STATE_VALIDATION_WHITELIST
+    assert "siren" in STATE_VALIDATION_WHITELIST
+    assert "humidifier" in STATE_VALIDATION_WHITELIST
+    assert "remote" in STATE_VALIDATION_WHITELIST
+    assert "update" in STATE_VALIDATION_WHITELIST
+    assert "schedule" in STATE_VALIDATION_WHITELIST
+    assert "calendar" in STATE_VALIDATION_WHITELIST
+    # Multi-state domains
+    assert "water_heater" in STATE_VALIDATION_WHITELIST
+    assert "valve" in STATE_VALIDATION_WHITELIST
+    assert "lawn_mower" in STATE_VALIDATION_WHITELIST
+    # Dynamic-state domains (schema introspection)
+    assert "select" in STATE_VALIDATION_WHITELIST
+    assert "input_select" in STATE_VALIDATION_WHITELIST
+    # Domains that should NOT be in the whitelist
+    assert "sensor" not in STATE_VALIDATION_WHITELIST
+    assert "button" not in STATE_VALIDATION_WHITELIST
+    assert "input_button" not in STATE_VALIDATION_WHITELIST
+    assert "scene" not in STATE_VALIDATION_WHITELIST
+    assert "event" not in STATE_VALIDATION_WHITELIST
+    assert "number" not in STATE_VALIDATION_WHITELIST
+    assert "input_number" not in STATE_VALIDATION_WHITELIST
+    assert "text" not in STATE_VALIDATION_WHITELIST
+    assert "input_text" not in STATE_VALIDATION_WHITELIST
     assert "sensor" not in STATE_VALIDATION_WHITELIST
 
 

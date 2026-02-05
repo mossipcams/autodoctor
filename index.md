@@ -119,7 +119,7 @@ autodoctor/
 Autodoctor performs three distinct families of validation:
 
 ### 1. State Reference Validation (`validator.py`)
-Validates entity states, attributes, attribute values, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (`alarm_control_panel`, `binary_sensor`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `input_boolean`, `light`, `lock`, `media_player`, `person`, `sun`, `switch`, `timer`, `vacuum`, `weather`) plus enum sensors (device_class: enum with declared options).
+Validates entity states, attributes, attribute values, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (`alarm_control_panel`, `automation`, `binary_sensor`, `calendar`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `humidifier`, `input_boolean`, `input_select`, `lawn_mower`, `light`, `lock`, `media_player`, `person`, `remote`, `schedule`, `script`, `select`, `siren`, `sun`, `switch`, `timer`, `update`, `vacuum`, `valve`, `water_heater`, `weather`) plus enum sensors (device_class: enum with declared options).
 
 | Check | Severity | Description |
 |-------|----------|-------------|
@@ -241,7 +241,7 @@ Autodoctor has undergone validation scope narrowing to reduce false positives an
 
 **Conservative State Validation:**
 - State validation now only applies to domains with stable, well-defined states
-- **Whitelisted domains**: `alarm_control_panel`, `binary_sensor`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `input_boolean`, `light`, `lock`, `media_player`, `person`, `sun`, `switch`, `timer`, `vacuum`, `weather`
+- **Whitelisted domains** (30): `alarm_control_panel`, `automation`, `binary_sensor`, `calendar`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `humidifier`, `input_boolean`, `input_select`, `lawn_mower`, `light`, `lock`, `media_player`, `person`, `remote`, `schedule`, `script`, `select`, `siren`, `sun`, `switch`, `timer`, `update`, `vacuum`, `valve`, `water_heater`, `weather`
 - **Enum sensors**: `device_class: enum` sensors validated against their declared `options` attribute (without adding sensor domain to whitelist)
 - Non-enum sensors and flexible integrations skip state validation to avoid false positives
 
