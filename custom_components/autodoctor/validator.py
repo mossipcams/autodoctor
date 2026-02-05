@@ -85,9 +85,7 @@ class ValidationEngine:
                 )
                 issues.extend(self._validate_attribute(ref))
             elif ref.expected_state is not None:
-                issues.extend(
-                    self._check_state_value(ref, ref.expected_state, "State")
-                )
+                issues.extend(self._check_state_value(ref, ref.expected_state, "State"))
             elif ref.expected_attribute is not None:
                 issues.extend(self._validate_attribute(ref))
 

@@ -156,7 +156,9 @@ def test_invalid_attribute_value_in_entity_state_group() -> None:
     This ensures the WebSocket API correctly groups attribute value issues
     with other entity/state checks.
     """
-    entity_state_types: frozenset[IssueType] = VALIDATION_GROUPS["entity_state"]["issue_types"]  # type: ignore[assignment]
+    entity_state_types: frozenset[IssueType] = VALIDATION_GROUPS["entity_state"][
+        "issue_types"
+    ]  # type: ignore[assignment]
     assert IssueType.INVALID_ATTRIBUTE_VALUE in entity_state_types
 
 
@@ -193,7 +195,9 @@ async def test_valid_attribute_value_no_issue(
 
     issues = engine.validate_reference(ref)
     # Should have no INVALID_ATTRIBUTE_VALUE issues
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 0
 
 
@@ -224,7 +228,9 @@ async def test_invalid_attribute_value_flagged(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 1
     assert attr_issues[0].severity == Severity.WARNING
     assert "turbo" in attr_issues[0].message
@@ -292,7 +298,9 @@ async def test_attribute_value_no_valid_values_skips(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 0
 
 
@@ -324,9 +332,13 @@ async def test_transition_from_attribute_value(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 1
     assert "turbo" in attr_issues[0].message
+
+
 async def test_attribute_value_template_skipped(
     hass: HomeAssistant,
 ) -> None:
@@ -354,7 +366,9 @@ async def test_attribute_value_template_skipped(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 0
 
 

@@ -271,7 +271,7 @@ class ServiceCallValidator:
         target = call.target or {}
 
         # If data is a template string (not a dict), skip validation entirely
-        if not isinstance(data, dict):
+        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
             return issues
 
         for field_name, field_schema in fields.items():
@@ -312,7 +312,7 @@ class ServiceCallValidator:
         target = call.target or {}
 
         # If data is a template string (not a dict), skip validation entirely
-        if not isinstance(data, dict):
+        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
             return issues
 
         # If service has no fields defined at all, skip — it may accept
@@ -383,7 +383,7 @@ class ServiceCallValidator:
         data = call.data or {}
 
         # If data is a template string (not a dict), skip validation entirely
-        if not isinstance(data, dict):
+        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
             return issues
 
         for param_name, value in data.items():
