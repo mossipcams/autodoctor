@@ -713,3 +713,28 @@ def test_format_issues_fix_for_attribute_not_found(hass: HomeAssistant) -> None:
     assert result[0]["fix"] is not None
     assert result[0]["fix"]["description"] == "Did you mean 'fan_mode'?"
     assert result[0]["fix"]["fix_value"] == "fan_mode"
+
+
+def test_format_issues_fix_for_invalid_attribute_value_with_suggestion(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fix is generated for INVALID_ATTRIBUTE_VALUE with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fan.bedroom",
+        location="condition[0]",
+        message="Invalid value 'aut' for fan_mode",
+        issue_type=IssueType.INVALID_ATTRIBUTE_VALUE,
+        suggestion="auto",
+        valid_states=["auto", "low", "high"],
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["fix_value"] == "auto"
+    assert "auto" in result[0]["fix"]["description"]
+    assert "Valid values:" in result[0]["fix"]["description"]

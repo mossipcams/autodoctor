@@ -78,6 +78,11 @@ def _format_issues_with_fixes(
                 "confidence": 0.8,
                 "fix_value": issue.suggestion,
             }
+        elif issue.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE and issue.suggestion:
+            desc = f"Did you mean '{issue.suggestion}'?"
+            if issue.valid_states:
+                desc += f" Valid values: {', '.join(issue.valid_states)}"
+            fix = {"description": desc, "confidence": 0.8, "fix_value": issue.suggestion}
 
         automation_id = (
             issue.automation_id.replace("automation.", "")
