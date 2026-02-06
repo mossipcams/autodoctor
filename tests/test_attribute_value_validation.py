@@ -404,7 +404,9 @@ async def test_source_valid_value_no_issue(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 0
 
 
@@ -435,7 +437,9 @@ async def test_source_invalid_value_flagged(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 1
     assert "AUX" in attr_issues[0].message
     assert "source" in attr_issues[0].message
@@ -468,7 +472,9 @@ async def test_source_no_source_list_skips(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 0
 
 
@@ -496,7 +502,9 @@ async def test_sound_mode_valid_value_no_issue(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 0
 
 
@@ -524,7 +532,9 @@ async def test_sound_mode_invalid_value_flagged(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 1
     assert "dolby" in attr_issues[0].message
     assert "sound_mode" in attr_issues[0].message
@@ -537,7 +547,10 @@ async def test_fan_speed_invalid_value_flagged(
     hass.states.async_set(
         "vacuum.roborock",
         "cleaning",
-        {"fan_speed": "balanced", "fan_speed_list": ["silent", "balanced", "turbo", "max"]},
+        {
+            "fan_speed": "balanced",
+            "fan_speed_list": ["silent", "balanced", "turbo", "max"],
+        },
     )
     await hass.async_block_till_done()
 
@@ -554,7 +567,9 @@ async def test_fan_speed_invalid_value_flagged(
     )
 
     issues = engine.validate_reference(ref)
-    attr_issues = [i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE]
+    attr_issues = [
+        i for i in issues if i.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE
+    ]
     assert len(attr_issues) == 1
     assert "ultra" in attr_issues[0].message
     assert "fan_speed" in attr_issues[0].message

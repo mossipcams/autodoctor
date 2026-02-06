@@ -1856,7 +1856,10 @@ async def test_get_valid_attributes_vacuum_fan_speed(hass: HomeAssistant) -> Non
     hass.states.async_set(
         "vacuum.roborock",
         "cleaning",
-        {"fan_speed": "balanced", "fan_speed_list": ["silent", "balanced", "turbo", "max"]},
+        {
+            "fan_speed": "balanced",
+            "fan_speed_list": ["silent", "balanced", "turbo", "max"],
+        },
     )
     await hass.async_block_till_done()
 
@@ -1885,9 +1888,17 @@ async def test_get_valid_states_water_heater(hass: HomeAssistant) -> None:
 
     states = kb.get_valid_states("water_heater.tank")
     assert states >= {
-        "off", "eco", "electric", "gas", "heat_pump",
-        "high_demand", "performance", "heat", "auto",
-        "unavailable", "unknown",
+        "off",
+        "eco",
+        "electric",
+        "gas",
+        "heat_pump",
+        "high_demand",
+        "performance",
+        "heat",
+        "auto",
+        "unavailable",
+        "unknown",
     }
 
 
