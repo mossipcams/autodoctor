@@ -296,3 +296,47 @@ async def test_report_issues_no_issues_logs_clean(hass: HomeAssistant) -> None:
         await reporter.async_report_issues([])
 
     mock_create.assert_not_called()
+
+
+def test_format_issues_for_repair_includes_suggestion(hass: HomeAssistant) -> None:
+    """Test that repair text includes suggestion hint when issue.suggestion is set."""
+    reporter = IssueReporter(hass)
+
+    issues = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="person.matt",
+            location="trigger[0].to",
+            message="State 'away' is not valid",
+            suggestion="not_home",
+        )
+    ]
+
+    result = reporter._format_issues_for_repair(issues)
+
+    assert "Did you mean 'not_home'?" in result
+
+
+def test_format_issues_for_repair_no_suggestion_unchanged(hass: HomeAssistant) -> None:
+    """Test that repair text is unchanged when issue.suggestion is None."""
+    reporter = IssueReporter(hass)
+
+    issues = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="sensor.temp",
+            location="trigger[0]",
+            message="Entity not found",
+            suggestion=None,
+        )
+    ]
+
+    result = reporter._format_issues_for_repair(issues)
+
+    assert "Did you mean" not in result
+    assert "sensor.temp" in result
+    assert "Entity not found" in result
