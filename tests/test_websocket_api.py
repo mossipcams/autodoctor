@@ -762,3 +762,25 @@ def test_format_issues_fix_for_invalid_attribute_value_valid_states_only(
     assert result[0]["fix"] is not None
     assert "Valid values:" in result[0]["fix"]["description"]
     assert result[0]["fix"]["fix_value"] is None
+
+
+def test_format_issues_fix_for_case_mismatch(hass: HomeAssistant) -> None:
+    """Test that fix is generated for CASE_MISMATCH with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.Living_Room",
+        location="action[0].entity_id",
+        message="Case mismatch: did you mean 'light.living_room'?",
+        issue_type=IssueType.CASE_MISMATCH,
+        suggestion="light.living_room",
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["description"] == "Did you mean 'light.living_room'?"
+    assert result[0]["fix"]["fix_value"] == "light.living_room"
+    assert result[0]["fix"]["confidence"] == 0.9

@@ -90,6 +90,12 @@ def _format_issues_with_fixes(
                     "confidence": 0.6,
                     "fix_value": None,
                 }
+        elif issue.issue_type == IssueType.CASE_MISMATCH and issue.suggestion:
+            fix = {
+                "description": f"Did you mean '{issue.suggestion}'?",
+                "confidence": 0.9,
+                "fix_value": issue.suggestion,
+            }
 
         automation_id = (
             issue.automation_id.replace("automation.", "")
