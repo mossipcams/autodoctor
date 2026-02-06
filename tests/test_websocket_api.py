@@ -738,3 +738,27 @@ def test_format_issues_fix_for_invalid_attribute_value_with_suggestion(
     assert result[0]["fix"]["fix_value"] == "auto"
     assert "auto" in result[0]["fix"]["description"]
     assert "Valid values:" in result[0]["fix"]["description"]
+
+
+def test_format_issues_fix_for_invalid_attribute_value_valid_states_only(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fix is generated for INVALID_ATTRIBUTE_VALUE with valid_states only."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fan.bedroom",
+        location="condition[0]",
+        message="Invalid value for fan_mode",
+        issue_type=IssueType.INVALID_ATTRIBUTE_VALUE,
+        suggestion=None,
+        valid_states=["auto", "low", "high"],
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert "Valid values:" in result[0]["fix"]["description"]
+    assert result[0]["fix"]["fix_value"] is None
