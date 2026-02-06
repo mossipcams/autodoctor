@@ -22,6 +22,7 @@ from custom_components.autodoctor.models import (
 )
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
+    _format_issues_with_fixes,
     async_setup_websocket_api,
     websocket_get_issues,
     websocket_get_validation,
@@ -691,3 +692,24 @@ async def test_suppression_store_keys_property(hass: HomeAssistant) -> None:
             "automation.b:light.b:entity_not_found",
         }
     )
+
+
+def test_format_issues_fix_for_attribute_not_found(hass: HomeAssistant) -> None:
+    """Test that fix is generated for ATTRIBUTE_NOT_FOUND with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fan.bedroom",
+        location="condition[0]",
+        message="Attribute 'fanmode' not found",
+        issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
+        suggestion="fan_mode",
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["description"] == "Did you mean 'fan_mode'?"
+    assert result[0]["fix"]["fix_value"] == "fan_mode"

@@ -72,6 +72,12 @@ def _format_issues_with_fixes(
                     "confidence": 0.8,
                     "fix_value": suggestion,
                 }
+        elif issue.issue_type == IssueType.ATTRIBUTE_NOT_FOUND and issue.suggestion:
+            fix = {
+                "description": f"Did you mean '{issue.suggestion}'?",
+                "confidence": 0.8,
+                "fix_value": issue.suggestion,
+            }
 
         automation_id = (
             issue.automation_id.replace("automation.", "")
