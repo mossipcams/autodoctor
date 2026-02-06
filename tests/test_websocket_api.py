@@ -22,6 +22,7 @@ from custom_components.autodoctor.models import (
 )
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
+    _format_issues_with_fixes,
     async_setup_websocket_api,
     websocket_get_issues,
     websocket_get_validation,
@@ -691,3 +692,95 @@ async def test_suppression_store_keys_property(hass: HomeAssistant) -> None:
             "automation.b:light.b:entity_not_found",
         }
     )
+
+
+def test_format_issues_fix_for_attribute_not_found(hass: HomeAssistant) -> None:
+    """Test that fix is generated for ATTRIBUTE_NOT_FOUND with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fan.bedroom",
+        location="condition[0]",
+        message="Attribute 'fanmode' not found",
+        issue_type=IssueType.ATTRIBUTE_NOT_FOUND,
+        suggestion="fan_mode",
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["description"] == "Did you mean 'fan_mode'?"
+    assert result[0]["fix"]["fix_value"] == "fan_mode"
+
+
+def test_format_issues_fix_for_invalid_attribute_value_with_suggestion(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fix is generated for INVALID_ATTRIBUTE_VALUE with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fan.bedroom",
+        location="condition[0]",
+        message="Invalid value 'aut' for fan_mode",
+        issue_type=IssueType.INVALID_ATTRIBUTE_VALUE,
+        suggestion="auto",
+        valid_states=["auto", "low", "high"],
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["fix_value"] == "auto"
+    assert "auto" in result[0]["fix"]["description"]
+    assert "Valid values:" in result[0]["fix"]["description"]
+
+
+def test_format_issues_fix_for_invalid_attribute_value_valid_states_only(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fix is generated for INVALID_ATTRIBUTE_VALUE with valid_states only."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="fan.bedroom",
+        location="condition[0]",
+        message="Invalid value for fan_mode",
+        issue_type=IssueType.INVALID_ATTRIBUTE_VALUE,
+        suggestion=None,
+        valid_states=["auto", "low", "high"],
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert "Valid values:" in result[0]["fix"]["description"]
+    assert result[0]["fix"]["fix_value"] is None
+
+
+def test_format_issues_fix_for_case_mismatch(hass: HomeAssistant) -> None:
+    """Test that fix is generated for CASE_MISMATCH with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.Living_Room",
+        location="action[0].entity_id",
+        message="Case mismatch: did you mean 'light.living_room'?",
+        issue_type=IssueType.CASE_MISMATCH,
+        suggestion="light.living_room",
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["description"] == "Did you mean 'light.living_room'?"
+    assert result[0]["fix"]["fix_value"] == "light.living_room"
+    assert result[0]["fix"]["confidence"] == 0.9

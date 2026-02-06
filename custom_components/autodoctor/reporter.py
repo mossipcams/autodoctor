@@ -64,7 +64,10 @@ class IssueReporter:
         """Format multiple issues into a single repair description."""
         lines = []
         for issue in issues:
-            lines.append(f"• **{issue.entity_id}** ({issue.location}): {issue.message}")
+            line = f"• **{issue.entity_id}** ({issue.location}): {issue.message}"
+            if issue.suggestion:
+                line += f" -- Did you mean '{issue.suggestion}'?"
+            lines.append(line)
         return "\n".join(lines)
 
     async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
