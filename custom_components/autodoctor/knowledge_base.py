@@ -64,6 +64,9 @@ ATTRIBUTE_VALUE_SOURCES: dict[str, str] = {
     "hvac_mode": "hvac_modes",
     "fan_mode": "fan_modes",
     "swing_mode": "swing_modes",
+    "source": "source_list",
+    "sound_mode": "sound_mode_list",
+    "fan_speed": "fan_speed_list",
 }
 
 # Capability introspection - map capability keys to state vs attribute values
@@ -555,6 +558,34 @@ class StateKnowledgeBase:
                 loaded_count,
                 len(new_observed),
             )
+
+    def has_confirmed_states(self, entity_id: str) -> bool:
+        """Check if valid states have been confirmed by capabilities or history.
+
+        Returns True if capabilities or observed history provided states
+        for this entity, meaning the valid states list is higher confidence
+        than device class defaults alone.
+        """
+        if self._observed_states.get(entity_id):
+            return True
+        if self._get_capabilities_states(entity_id):
+            return True
+        state = self.hass.states.get(entity_id)
+        if state:
+            domain = self.get_domain(entity_id)
+            if (
+                domain == "sensor"
+                and state.attributes.get("device_class") == "enum"
+                and isinstance(state.attributes.get("options"), list)
+                and state.attributes["options"]
+            ):
+                return True
+            if domain in SCHEMA_ATTRIBUTES:
+                for attr_name in SCHEMA_ATTRIBUTES[domain]:
+                    attr_value = state.attributes.get(attr_name)
+                    if attr_value and isinstance(attr_value, list):
+                        return True
+        return False
 
     def get_observed_states(self, entity_id: str) -> set[str]:
         """Get states that have been observed in history."""

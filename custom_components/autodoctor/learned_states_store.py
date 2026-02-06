@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.helpers.storage import Store
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -64,10 +67,20 @@ class LearnedStatesStore:
 
         Returns:
             Set of learned state values
+
+        Thread-safety:
+            Uses atomic reference read to minimize race condition window with
+            concurrent async_learn_state() calls. While not perfectly thread-safe,
+            this pattern significantly reduces the risk of KeyError crashes by
+            working with a consistent snapshot of the learned states dict.
         """
-        if domain not in self._learned:
+        # Atomic reference read - capture current state before any checks
+        learned = self._learned
+        if domain not in learned:
             return set()
-        return set(self._learned[domain].get(integration, []))
+        # Use .get() with default to safely handle concurrent modifications
+        domain_data = learned.get(domain, {})
+        return set(domain_data.get(integration, []))
 
     async def async_learn_state(
         self, domain: str, integration: str, state: str
@@ -88,4 +101,17 @@ class LearnedStatesStore:
 
             if state not in self._learned[domain][integration]:
                 self._learned[domain][integration].append(state)
-                await self._async_save()
+                try:
+                    await self._async_save()
+                except Exception as err:
+                    # Rollback the mutation on save failure to maintain consistency
+                    # between in-memory state and persisted state
+                    self._learned[domain][integration].remove(state)
+                    _LOGGER.error(
+                        "Failed to save learned state %s for %s.%s: %s",
+                        state,
+                        domain,
+                        integration,
+                        err,
+                    )
+                    raise

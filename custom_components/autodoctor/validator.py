@@ -77,19 +77,30 @@ class ValidationEngine:
                     )
                 return issues
 
-            if ref.expected_state is not None:
-                state_issues = self._check_state_value(ref, ref.expected_state, "State")
-                issues.extend(state_issues)
-
-            if ref.transition_from is not None:
-                from_issues = self._check_state_value(
-                    ref, ref.transition_from, "Transition from state"
+            if ref.expected_state is not None and ref.expected_attribute is not None:
+                issues.extend(
+                    self._check_attribute_value(
+                        ref, ref.expected_attribute, ref.expected_state
+                    )
                 )
-                issues.extend(from_issues)
+                issues.extend(self._validate_attribute(ref))
+            elif ref.expected_state is not None:
+                issues.extend(self._check_state_value(ref, ref.expected_state, "State"))
+            elif ref.expected_attribute is not None:
+                issues.extend(self._validate_attribute(ref))
 
-            if ref.expected_attribute is not None:
-                attr_issues = self._validate_attribute(ref)
-                issues.extend(attr_issues)
+            if ref.transition_from is not None and ref.expected_attribute is not None:
+                issues.extend(
+                    self._check_attribute_value(
+                        ref, ref.expected_attribute, ref.transition_from
+                    )
+                )
+            elif ref.transition_from is not None:
+                issues.extend(
+                    self._check_state_value(
+                        ref, ref.transition_from, "Transition from state"
+                    )
+                )
 
         except (KeyError, AttributeError, TypeError, ValueError) as err:
             _LOGGER.warning(
@@ -203,10 +214,15 @@ class ValidationEngine:
             ]
 
         suggestion = self._suggest_state(state_value, valid_states)
+        severity = (
+            Severity.ERROR
+            if self.knowledge_base.has_confirmed_states(ref.entity_id)
+            else Severity.WARNING
+        )
         return [
             ValidationIssue(
                 issue_type=IssueType.INVALID_STATE,
-                severity=Severity.ERROR,
+                severity=severity,
                 automation_id=ref.automation_id,
                 automation_name=ref.automation_name,
                 entity_id=ref.entity_id,
@@ -261,6 +277,67 @@ class ValidationEngine:
 
         return issues
 
+    def _check_attribute_value(
+        self,
+        ref: StateReference,
+        attribute: str,
+        value: str,
+    ) -> list[ValidationIssue]:
+        """Check an attribute value against valid values from the knowledge base.
+
+        Args:
+            ref: The state reference being validated
+            attribute: The attribute name (e.g., 'fan_mode')
+            value: The value to check (e.g., 'eco')
+        """
+        # Skip template values — can't validate statically
+        if "{{" in value or "{%" in value:
+            return []
+
+        valid_values = self.knowledge_base.get_valid_attributes(
+            ref.entity_id, attribute
+        )
+        if valid_values is None:
+            return []
+
+        if value in valid_values:
+            return []
+
+        valid_values_list = list(valid_values)
+
+        # Check case-insensitive match
+        lower_map = {v.lower(): v for v in valid_values}
+        if value.lower() in lower_map:
+            correct_case = lower_map[value.lower()]
+            return [
+                ValidationIssue(
+                    issue_type=IssueType.CASE_MISMATCH,
+                    severity=Severity.WARNING,
+                    automation_id=ref.automation_id,
+                    automation_name=ref.automation_name,
+                    entity_id=ref.entity_id,
+                    location=ref.location,
+                    message=f"Attribute '{attribute}' value '{value}' has incorrect case, should be '{correct_case}'",
+                    suggestion=correct_case,
+                    valid_states=valid_values_list,
+                )
+            ]
+
+        suggestion = self._suggest_state(value, valid_values)
+        return [
+            ValidationIssue(
+                issue_type=IssueType.INVALID_ATTRIBUTE_VALUE,
+                severity=Severity.WARNING,
+                automation_id=ref.automation_id,
+                automation_name=ref.automation_name,
+                entity_id=ref.entity_id,
+                location=ref.location,
+                message=f"Attribute '{attribute}' value '{value}' is not valid for {ref.entity_id}",
+                suggestion=suggestion,
+                valid_states=valid_values_list,
+            )
+        ]
+
     def _suggest_state(self, invalid: str, valid_states: set[str]) -> str | None:
         """Suggest a correction for an invalid state."""
         matches = get_close_matches(
@@ -289,7 +366,7 @@ class ValidationEngine:
                 self._entity_cache[domain].append(entity.entity_id)
         except Exception as err:
             _LOGGER.warning("Failed to build entity cache: %s", err)
-            self._entity_cache = {}
+            self._entity_cache = None
 
     def _suggest_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID."""

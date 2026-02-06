@@ -270,9 +270,9 @@ class ServiceCallValidator:
         data = call.data or {}
         target = call.target or {}
 
-        # Check if any data value is a template — if so, we can't fully
-        # validate required params since templates may produce extra keys
-        has_any_template = any(_is_template_value(v) for v in data.values())
+        # If data is a template string (not a dict), skip validation entirely
+        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
+            return issues
 
         for field_name, field_schema in fields.items():
             if not isinstance(field_schema, dict):
@@ -282,10 +282,6 @@ class ServiceCallValidator:
 
             # Check in both data and target
             if field_name in data or field_name in target:
-                continue
-
-            # If data has template values, skip — templates may produce this key
-            if has_any_template:
                 continue
 
             issues.append(
@@ -314,6 +310,10 @@ class ServiceCallValidator:
         issues: list[ValidationIssue] = []
         data = call.data or {}
         target = call.target or {}
+
+        # If data is a template string (not a dict), skip validation entirely
+        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
+            return issues
 
         # If service has no fields defined at all, skip — it may accept
         # arbitrary extra keys
@@ -381,6 +381,10 @@ class ServiceCallValidator:
         """Validate parameter value types match schema selectors."""
         issues: list[ValidationIssue] = []
         data = call.data or {}
+
+        # If data is a template string (not a dict), skip validation entirely
+        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
+            return issues
 
         for param_name, value in data.items():
             # Skip templated values

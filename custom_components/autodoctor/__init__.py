@@ -635,4 +635,20 @@ async def async_validate_automation(
     result = await _async_run_validators(hass, [automation])
 
     await reporter.async_report_issues(result["all_issues"])
+
+    # Merge single-automation results into global state so WebSocket API
+    # serves up-to-date data.  Replace issues for the re-validated automation
+    # while keeping issues for all other automations intact.
+    existing_issues: list[ValidationIssue] = data.get("validation_issues", [])
+    other_issues = [i for i in existing_issues if i.automation_id != automation_id]
+    merged_issues = other_issues + result["all_issues"]
+
+    hass.data[DOMAIN].update(
+        {
+            "issues": merged_issues,
+            "validation_issues": merged_issues,
+            "validation_last_run": result["timestamp"],
+        }
+    )
+
     return result["all_issues"]

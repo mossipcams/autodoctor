@@ -29,23 +29,55 @@ def test_state_validation_whitelist_exists() -> None:
     """Guard: Ensure STATE_VALIDATION_WHITELIST exists and contains correct domains.
 
     This test protects the architectural decision to only validate state values
-    for domains with well-defined, finite state sets (binary_sensor, person, etc.)
-    and exclude dynamic domains (sensor, light, switch) that have unpredictable
-    state values.
+    for domains with well-defined, finite state sets. Domains with stable,
+    small state sets are whitelisted; sensor is excluded because most sensors
+    have free-form numeric/text states.
 
     See: PROJECT.md "Key Decisions" - Selective state validation
     """
     assert isinstance(STATE_VALIDATION_WHITELIST, frozenset)
+    # Original domains
     assert "binary_sensor" in STATE_VALIDATION_WHITELIST
     assert "person" in STATE_VALIDATION_WHITELIST
     assert "sun" in STATE_VALIDATION_WHITELIST
     assert "device_tracker" in STATE_VALIDATION_WHITELIST
     assert "input_boolean" in STATE_VALIDATION_WHITELIST
     assert "group" in STATE_VALIDATION_WHITELIST
-    # Dynamic domains should not be in the whitelist
+    # Expanded domains with stable state sets
+    assert "vacuum" in STATE_VALIDATION_WHITELIST
+    assert "media_player" in STATE_VALIDATION_WHITELIST
+    assert "fan" in STATE_VALIDATION_WHITELIST
+    assert "light" in STATE_VALIDATION_WHITELIST
+    assert "switch" in STATE_VALIDATION_WHITELIST
+    assert "timer" in STATE_VALIDATION_WHITELIST
+    assert "weather" in STATE_VALIDATION_WHITELIST
+    # Binary on/off domains
+    assert "automation" in STATE_VALIDATION_WHITELIST
+    assert "script" in STATE_VALIDATION_WHITELIST
+    assert "siren" in STATE_VALIDATION_WHITELIST
+    assert "humidifier" in STATE_VALIDATION_WHITELIST
+    assert "remote" in STATE_VALIDATION_WHITELIST
+    assert "update" in STATE_VALIDATION_WHITELIST
+    assert "schedule" in STATE_VALIDATION_WHITELIST
+    assert "calendar" in STATE_VALIDATION_WHITELIST
+    # Multi-state domains
+    assert "water_heater" in STATE_VALIDATION_WHITELIST
+    assert "valve" in STATE_VALIDATION_WHITELIST
+    assert "lawn_mower" in STATE_VALIDATION_WHITELIST
+    # Dynamic-state domains (schema introspection)
+    assert "select" in STATE_VALIDATION_WHITELIST
+    assert "input_select" in STATE_VALIDATION_WHITELIST
+    # Domains that should NOT be in the whitelist
     assert "sensor" not in STATE_VALIDATION_WHITELIST
-    assert "light" not in STATE_VALIDATION_WHITELIST
-    assert "switch" not in STATE_VALIDATION_WHITELIST
+    assert "button" not in STATE_VALIDATION_WHITELIST
+    assert "input_button" not in STATE_VALIDATION_WHITELIST
+    assert "scene" not in STATE_VALIDATION_WHITELIST
+    assert "event" not in STATE_VALIDATION_WHITELIST
+    assert "number" not in STATE_VALIDATION_WHITELIST
+    assert "input_number" not in STATE_VALIDATION_WHITELIST
+    assert "text" not in STATE_VALIDATION_WHITELIST
+    assert "input_text" not in STATE_VALIDATION_WHITELIST
+    assert "sensor" not in STATE_VALIDATION_WHITELIST
 
 
 def test_strict_config_keys_exist() -> None:

@@ -905,6 +905,8 @@ async def test_transition_from_invalid_produces_issue(hass: HomeAssistant) -> No
     await hass.async_block_till_done()
 
     kb = StateKnowledgeBase(hass)
+    # Simulate confirmed states (history observed) so severity is ERROR
+    kb._observed_states["binary_sensor.motion"] = {"on", "off"}
     validator = ValidationEngine(kb)
 
     ref = StateReference(
@@ -1236,6 +1238,7 @@ async def test_enum_sensor_invalid_state_reports_issue(hass: HomeAssistant) -> N
 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.INVALID_STATE
+    # Enum sensor with options is high confidence (confirmed states)
     assert issues[0].severity == Severity.ERROR
     assert issues[0].entity_id == "sensor.washing_machine"
     assert "washign" in issues[0].message
@@ -1281,3 +1284,204 @@ async def test_non_enum_sensor_skips_validation(hass: HomeAssistant) -> None:
 
     # Should be skipped, no issues reported
     assert len(issues) == 0
+
+
+# --- Whitelist expansion: binary on/off domains ---
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("domain", "entity_id"),
+    [
+        ("automation", "automation.morning_routine"),
+        ("script", "script.cleanup"),
+        ("siren", "siren.alarm"),
+        ("humidifier", "humidifier.bedroom"),
+        ("remote", "remote.tv"),
+        ("update", "update.firmware"),
+        ("schedule", "schedule.work"),
+        ("calendar", "calendar.events"),
+    ],
+)
+async def test_binary_domain_valid_off_no_issue(
+    hass: HomeAssistant, domain: str, entity_id: str
+) -> None:
+    """Test that binary on/off domains accept 'off' as valid state."""
+    hass.states.async_set(entity_id, "on")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=entity_id,
+        expected_state="off",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0, f"{domain} should accept 'off' as valid state"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("domain", "entity_id"),
+    [
+        ("automation", "automation.morning_routine"),
+        ("script", "script.cleanup"),
+        ("siren", "siren.alarm"),
+        ("humidifier", "humidifier.bedroom"),
+        ("remote", "remote.tv"),
+        ("update", "update.firmware"),
+        ("schedule", "schedule.work"),
+        ("calendar", "calendar.events"),
+    ],
+)
+async def test_binary_domain_invalid_state_flagged(
+    hass: HomeAssistant, domain: str, entity_id: str
+) -> None:
+    """Test that binary on/off domains flag 'active' as invalid state."""
+    hass.states.async_set(entity_id, "on")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=entity_id,
+        expected_state="active",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    state_issues = [i for i in issues if i.issue_type == IssueType.INVALID_STATE]
+    assert len(state_issues) == 1, f"{domain} should flag 'active' as invalid"
+
+
+# --- Whitelist expansion: multi-state domains ---
+
+
+@pytest.mark.asyncio
+async def test_water_heater_valid_eco_no_issue(hass: HomeAssistant) -> None:
+    """Test that water_heater accepts 'eco' as valid operation mode."""
+    hass.states.async_set("water_heater.tank", "eco")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="water_heater.tank",
+        expected_state="heat_pump",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_valve_valid_opening_no_issue(hass: HomeAssistant) -> None:
+    """Test that valve accepts 'opening' as valid state."""
+    hass.states.async_set("valve.water", "closed")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="valve.water",
+        expected_state="opening",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_lawn_mower_valid_mowing_no_issue(hass: HomeAssistant) -> None:
+    """Test that lawn_mower accepts 'mowing' as valid state."""
+    hass.states.async_set("lawn_mower.garden", "docked")
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="lawn_mower.garden",
+        expected_state="mowing",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_select_dynamic_options_valid(hass: HomeAssistant) -> None:
+    """Test that select entity uses options attribute for state validation."""
+    hass.states.async_set(
+        "select.mode",
+        "eco",
+        {"options": ["eco", "comfort", "boost"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="select.mode",
+        expected_state="comfort",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+async def test_input_select_dynamic_options_invalid(hass: HomeAssistant) -> None:
+    """Test that input_select flags invalid options from entity attributes."""
+    hass.states.async_set(
+        "input_select.theme",
+        "light",
+        {"options": ["light", "dark", "auto"]},
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="input_select.theme",
+        expected_state="blue",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    issues = validator.validate_reference(ref)
+    state_issues = [i for i in issues if i.issue_type == IssueType.INVALID_STATE]
+    assert len(state_issues) == 1
+    assert "blue" in state_issues[0].message
