@@ -241,6 +241,7 @@ def test_validation_issue_to_dict_never_crashes(
     # Verify expected keys present
     expected_keys = {
         "severity",
+        "confidence",
         "automation_id",
         "automation_name",
         "entity_id",

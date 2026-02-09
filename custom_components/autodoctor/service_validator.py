@@ -297,9 +297,11 @@ class ServiceCallValidator:
     def _validate_payload_shapes(self, call: ServiceCall) -> list[ValidationIssue]:
         """Validate top-level payload structures for target/data."""
         issues: list[ValidationIssue] = []
+        raw_target: Any = call.target
+        raw_data: Any = call.data
 
-        if call.target is not None and not isinstance(call.target, dict):
-            if not _is_template_value(call.target):
+        if raw_target is not None and not isinstance(raw_target, dict):
+            if not _is_template_value(raw_target):
                 issues.append(
                     ValidationIssue(
                         severity=Severity.WARNING,
@@ -312,10 +314,10 @@ class ServiceCallValidator:
                     )
                 )
 
-        if call.data is not None and not isinstance(call.data, dict):
+        if raw_data is not None and not isinstance(raw_data, dict):
             # Keep template strings conservative: dynamic payloads cannot be
             # validated statically.
-            if not _is_template_value(call.data):
+            if not _is_template_value(raw_data):
                 issues.append(
                     ValidationIssue(
                         severity=Severity.WARNING,
@@ -466,7 +468,7 @@ class ServiceCallValidator:
             has_temperature = "temperature" in data
             has_range = "target_temp_high" in data or "target_temp_low" in data
             if has_temperature and has_range:
-                conflicting = sorted(
+                conflicting_params = sorted(
                     {
                         k
                         for k in ("temperature", "target_temp_high", "target_temp_low")
@@ -483,7 +485,7 @@ class ServiceCallValidator:
                         location=call.location,
                         message=(
                             "Service 'climate.set_temperature' has conflicting "
-                            f"parameters: {conflicting}"
+                            f"parameters: {conflicting_params}"
                         ),
                         issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
                     )

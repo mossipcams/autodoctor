@@ -16,6 +16,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor import async_validate_automation
+from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import (
@@ -24,7 +25,6 @@ from custom_components.autodoctor.models import (
     Severity,
     ValidationIssue,
 )
-from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.service_validator import ServiceCallValidator
 from custom_components.autodoctor.validator import ValidationEngine
 
