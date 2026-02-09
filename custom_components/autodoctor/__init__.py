@@ -265,6 +265,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],
         "validation_last_run": None,
+        "validation_run_stats": {
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+        },
         "entry": entry,
         "debounce_task": None,
         "unsub_reload_listener": None,
@@ -282,6 +286,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data[DOMAIN].get("card_registered"):
         await _async_register_card(hass)
         hass.data[DOMAIN]["card_registered"] = True
+
+    # Load history immediately (handles reload case where HA_STARTED already fired)
+    await knowledge_base.async_load_history()
+    _LOGGER.info("State knowledge base loaded")
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
@@ -421,7 +429,8 @@ async def _async_run_validators(
     """Run all validators on the given automations.
 
     This is the shared validation core used by all three public entry points.
-    Returns a dict with keys: group_issues, group_durations, all_issues, timestamp.
+    Returns a dict with keys: group_issues, group_durations, all_issues, timestamp,
+    analyzed_automations, failed_automations.
     """
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
@@ -482,6 +491,7 @@ async def _async_run_validators(
     # --- Entity & State group timing ---
     t0 = time.monotonic()
     failed_automations = 0
+    total_automations = len(automations)
     for automation in automations:
         auto_id = automation.get("id", "unknown")
         auto_name = automation.get("alias", auto_id)
@@ -533,6 +543,8 @@ async def _async_run_validators(
         "group_durations": group_durations,
         "all_issues": all_issues,
         "timestamp": timestamp,
+        "analyzed_automations": total_automations - failed_automations,
+        "failed_automations": failed_automations,
     }
 
 
@@ -542,7 +554,8 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
     This is THE primary validation entry point. All other validation functions
     route through _async_run_validators which this function also uses.
 
-    Returns dict with keys: group_issues, group_durations, all_issues, timestamp.
+    Returns dict with keys: group_issues, group_durations, all_issues, timestamp,
+    analyzed_automations, failed_automations.
     """
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
@@ -555,6 +568,8 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
         "group_durations": dict.fromkeys(VALIDATION_GROUP_ORDER, 0),
         "all_issues": [],
         "timestamp": datetime.now(UTC).isoformat(),
+        "analyzed_automations": 0,
+        "failed_automations": 0,
     }
 
     if not all([analyzer, validator, reporter]):
@@ -589,6 +604,10 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
                     "duration_ms": result["group_durations"][gid],
                 }
                 for gid in VALIDATION_GROUP_ORDER
+            },
+            "validation_run_stats": {
+                "analyzed_automations": result["analyzed_automations"],
+                "failed_automations": result["failed_automations"],
             },
         }
     )
@@ -634,20 +653,24 @@ async def async_validate_automation(
 
     result = await _async_run_validators(hass, [automation])
 
-    await reporter.async_report_issues(result["all_issues"])
-
-    # Merge single-automation results into global state so WebSocket API
-    # serves up-to-date data.  Replace issues for the re-validated automation
-    # while keeping issues for all other automations intact.
+    # Merge single-automation results with existing issues for OTHER automations
+    # to prevent reporter from clearing their repair entries. Reporter's
+    # _clear_resolved_issues deletes all repairs NOT in the provided list.
     existing_issues: list[ValidationIssue] = data.get("validation_issues", [])
     other_issues = [i for i in existing_issues if i.automation_id != automation_id]
     merged_issues = other_issues + result["all_issues"]
+
+    await reporter.async_report_issues(merged_issues)
 
     hass.data[DOMAIN].update(
         {
             "issues": merged_issues,
             "validation_issues": merged_issues,
             "validation_last_run": result["timestamp"],
+            "validation_run_stats": {
+                "analyzed_automations": result.get("analyzed_automations", 0),
+                "failed_automations": result.get("failed_automations", 0),
+            },
         }
     )
 

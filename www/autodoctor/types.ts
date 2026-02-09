@@ -54,6 +54,8 @@ export interface StepsResponse {
   healthy_count: number;
   last_run: string | null;
   suppressed_count: number;
+  analyzed_automations?: number;
+  failed_automations?: number;
 }
 
 export interface SuppressionEntry {

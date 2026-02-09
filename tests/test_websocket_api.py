@@ -278,6 +278,8 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
     # Verify flat issues and metadata
     assert "issues" in result
     assert "healthy_count" in result
+    assert "analyzed_automations" in result
+    assert "failed_automations" in result
     assert result["last_run"] == "2026-01-30T12:00:00+00:00"
     assert result["suppressed_count"] == 0
 
@@ -784,3 +786,31 @@ def test_format_issues_fix_for_case_mismatch(hass: HomeAssistant) -> None:
     assert result[0]["fix"]["description"] == "Did you mean 'light.living_room'?"
     assert result[0]["fix"]["fix_value"] == "light.living_room"
     assert result[0]["fix"]["confidence"] == 0.9
+
+
+@pytest.mark.asyncio
+async def test_websocket_run_validation_steps_reports_failed_automations(
+    hass: HomeAssistant,
+) -> None:
+    """Test that run_steps response includes validation failure telemetry."""
+    hass.data[DOMAIN] = {"suppression_store": None}
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run_steps"}
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all_with_groups",
+        new_callable=AsyncMock,
+        return_value={
+            "group_issues": {"entity_state": [], "services": [], "templates": []},
+            "group_durations": {"entity_state": 1, "services": 2, "templates": 3},
+            "all_issues": [],
+            "timestamp": "2026-02-09T12:00:00+00:00",
+            "analyzed_automations": 4,
+            "failed_automations": 1,
+        },
+    ):
+        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    assert result["analyzed_automations"] == 4
+    assert result["failed_automations"] == 1

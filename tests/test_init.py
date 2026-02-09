@@ -1664,3 +1664,337 @@ async def test_options_updated_reloads() -> None:
 
     await _async_options_updated(hass, entry)
     hass.config_entries.async_reload.assert_called_once_with("test_123")
+
+
+# --- Phase 30: Fix knowledge base loading on config reload ---
+
+
+@pytest.mark.asyncio
+async def test_setup_calls_load_history_directly() -> None:
+    """Test that async_setup_entry loads knowledge base history immediately.
+
+    This fixes INIT-01: On config reload, EVENT_HOMEASSISTANT_STARTED has
+    already fired, so the event listener never triggers. The knowledge base
+    must load history during setup, not just via the event listener.
+
+    The event listener remains as a fallback for fresh HA starts.
+    """
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {"validate_on_reload": False}
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch("custom_components.autodoctor.StateKnowledgeBase") as mock_kb_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        # Mock knowledge base with async_load_history
+        mock_kb = MagicMock()
+        mock_kb.async_load_history = AsyncMock()
+        mock_kb_cls.return_value = mock_kb
+
+        result = await async_setup_entry(hass, entry)
+        assert result is True
+
+        # The critical assertion: history should be loaded directly during setup
+        # NOT via the event listener (which won't fire on reload)
+        mock_kb.async_load_history.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reload_reloads_knowledge_base_history() -> None:
+    """Test that config reload triggers a fresh knowledge base history load.
+
+    Simulates the reload scenario:
+    1. First setup - history loaded immediately
+    2. Unload
+    3. Second setup - history loaded again immediately
+
+    This verifies the reload path works without EVENT_HOMEASSISTANT_STARTED.
+    """
+    from custom_components.autodoctor import async_setup_entry, async_unload_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+    hass.services.async_remove = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {"validate_on_reload": False}
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch("custom_components.autodoctor.StateKnowledgeBase") as mock_kb_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        # Mock knowledge base with async_load_history
+        mock_kb = MagicMock()
+        mock_kb.async_load_history = AsyncMock()
+        mock_kb_cls.return_value = mock_kb
+
+        # First setup
+        result1 = await async_setup_entry(hass, entry)
+        assert result1 is True
+        assert mock_kb.async_load_history.call_count == 1
+
+        # Simulate unload
+        await async_unload_entry(hass, entry)
+
+        # Reset hass.data for second setup (simulates reload)
+        hass.data = {}
+
+        # Second setup (reload scenario)
+        result2 = await async_setup_entry(hass, entry)
+        assert result2 is True
+
+        # History should have been loaded again during the second setup
+        assert mock_kb.async_load_history.call_count == 2
+
+
+# --- Phase 30: Fix single-automation validation repair deletion bug ---
+
+
+@pytest.mark.asyncio
+async def test_validate_automation_reports_merged_issues(
+    grouped_hass: MagicMock,
+) -> None:
+    """Test that async_validate_automation reports merged issues to prevent repair deletion.
+
+    When a single automation is re-validated, the reporter should receive ALL
+    issues (from the target automation plus all other automations), not just
+    the target automation's issues. Otherwise, reporter._clear_resolved_issues
+    deletes repairs for all other automations.
+
+    This is the fix for INIT-02 defect.
+    """
+    # Set up existing issues from 3 different automations in hass.data
+    existing_issues = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.auto_a",
+            automation_name="Auto A",
+            entity_id="sensor.a1",
+            location="trigger[0]",
+            message="Issue A1",
+        ),
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.auto_a",
+            automation_name="Auto A",
+            entity_id="sensor.a2",
+            location="trigger[1]",
+            message="Issue A2",
+        ),
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.auto_b",
+            automation_name="Auto B",
+            entity_id="sensor.b1",
+            location="trigger[0]",
+            message="Issue B1",
+        ),
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.auto_c",
+            automation_name="Auto C",
+            entity_id="sensor.c1",
+            location="trigger[0]",
+            message="Issue C1",
+        ),
+    ]
+    grouped_hass.data[DOMAIN]["validation_issues"] = existing_issues
+
+    # Mock _async_run_validators to return 1 new issue for auto_b
+    new_auto_b_issue = ValidationIssue(
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+        severity=Severity.ERROR,
+        automation_id="automation.auto_b",
+        automation_name="Auto B",
+        entity_id="sensor.b_new",
+        location="action[0]",
+        message="New issue B",
+    )
+
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=[{"id": "auto_b", "alias": "Auto B"}],
+        ),
+        patch(
+            "custom_components.autodoctor._async_run_validators",
+            new_callable=AsyncMock,
+        ) as mock_run_validators,
+    ):
+        mock_run_validators.return_value = {
+            "all_issues": [new_auto_b_issue],
+            "group_issues": {
+                "entity_state": [new_auto_b_issue],
+                "templates": [],
+                "services": [],
+            },
+            "group_durations": {"entity_state": 0, "templates": 0, "services": 0},
+            "timestamp": "2026-02-06T00:00:00Z",
+        }
+
+        await async_validate_automation(grouped_hass, "automation.auto_b")
+
+    # Critical assertion: reporter.async_report_issues should have been called with
+    # ALL 4 issues (2 from auto_a, 1 new from auto_b, 1 from auto_c)
+    reporter_call_args = grouped_hass.data[DOMAIN][
+        "reporter"
+    ].async_report_issues.call_args
+    reported_issues = reporter_call_args[0][0]
+
+    assert len(reported_issues) == 4, f"Expected 4 issues, got {len(reported_issues)}"
+
+    # Verify the merged set contains issues from all automations
+    auto_a_issues = [
+        i for i in reported_issues if i.automation_id == "automation.auto_a"
+    ]
+    auto_b_issues = [
+        i for i in reported_issues if i.automation_id == "automation.auto_b"
+    ]
+    auto_c_issues = [
+        i for i in reported_issues if i.automation_id == "automation.auto_c"
+    ]
+
+    assert len(auto_a_issues) == 2, "Should preserve 2 auto_a issues"
+    assert len(auto_b_issues) == 1, "Should have 1 new auto_b issue"
+    assert len(auto_c_issues) == 1, "Should preserve 1 auto_c issue"
+
+    # The new auto_b issue should be present
+    assert new_auto_b_issue in reported_issues
+
+
+@pytest.mark.asyncio
+async def test_validate_automation_preserves_other_repairs(
+    grouped_hass: MagicMock,
+) -> None:
+    """Test that validating an automation with no issues doesn't wipe other repairs.
+
+    When an automation is re-validated and has NO issues (empty result), the
+    reporter should still receive issues from all OTHER automations, preserving
+    their repair entries. This is an edge case of the INIT-02 fix.
+    """
+    # Set up existing issues from automations A and C
+    existing_issues = [
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.auto_a",
+            automation_name="Auto A",
+            entity_id="sensor.a1",
+            location="trigger[0]",
+            message="Issue A1",
+        ),
+        ValidationIssue(
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            severity=Severity.ERROR,
+            automation_id="automation.auto_c",
+            automation_name="Auto C",
+            entity_id="sensor.c1",
+            location="trigger[0]",
+            message="Issue C1",
+        ),
+    ]
+    grouped_hass.data[DOMAIN]["validation_issues"] = existing_issues
+
+    # Validate automation B which has NO issues (empty result)
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=[{"id": "auto_b", "alias": "Auto B"}],
+        ),
+        patch(
+            "custom_components.autodoctor._async_run_validators",
+            new_callable=AsyncMock,
+        ) as mock_run_validators,
+    ):
+        mock_run_validators.return_value = {
+            "all_issues": [],  # Empty - no issues for auto_b
+            "group_issues": {"entity_state": [], "templates": [], "services": []},
+            "group_durations": {"entity_state": 0, "templates": 0, "services": 0},
+            "timestamp": "2026-02-06T00:00:00Z",
+        }
+
+        await async_validate_automation(grouped_hass, "automation.auto_b")
+
+    # Reporter should still receive auto_a and auto_c issues
+    reporter_call_args = grouped_hass.data[DOMAIN][
+        "reporter"
+    ].async_report_issues.call_args
+    reported_issues = reporter_call_args[0][0]
+
+    assert len(reported_issues) == 2, (
+        f"Expected 2 issues preserved, got {len(reported_issues)}"
+    )
+
+    # Verify A and C issues are preserved
+    auto_a_issues = [
+        i for i in reported_issues if i.automation_id == "automation.auto_a"
+    ]
+    auto_c_issues = [
+        i for i in reported_issues if i.automation_id == "automation.auto_c"
+    ]
+
+    assert len(auto_a_issues) == 1, "Should preserve auto_a issue"
+    assert len(auto_c_issues) == 1, "Should preserve auto_c issue"
+
+    # Verify hass.data also has the preserved issues
+    assert len(grouped_hass.data[DOMAIN]["validation_issues"]) == 2

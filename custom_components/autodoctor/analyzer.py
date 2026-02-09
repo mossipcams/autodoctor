@@ -677,6 +677,20 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif cond_type in ("and", "or", "not"):
+            nested_conditions = condition.get("conditions", [])
+            if isinstance(nested_conditions, list):
+                for i, nested in enumerate(cast(list[Any], nested_conditions)):
+                    refs.extend(
+                        self._extract_from_condition(
+                            nested,
+                            i,
+                            automation_id,
+                            automation_name,
+                            f"{location_prefix}[{index}].{cond_type}",
+                        )
+                    )
+
         return refs
 
     def _extract_from_template(
@@ -934,11 +948,15 @@ class AutomationAnalyzer:
             return refs  # Shorthand doesn't have additional entity_id
 
         # Check data.entity_id
-        data = action.get("data", {})
+        raw_data = action.get("data", {})
+        data = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
         entity_ids = self._normalize_states(data.get("entity_id"))
 
         # Check target.entity_id (newer syntax)
-        target = action.get("target", {})
+        raw_target = action.get("target", {})
+        target = (
+            cast(dict[str, Any], raw_target) if isinstance(raw_target, dict) else {}
+        )
         entity_ids.extend(self._normalize_states(target.get("entity_id")))
 
         # Determine reference type based on service
