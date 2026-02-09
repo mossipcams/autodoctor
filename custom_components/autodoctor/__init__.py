@@ -534,7 +534,9 @@ async def _async_run_validators(
                     len(refs),
                 )
                 issues = validator.validate_all(refs)
-                _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
+                _LOGGER.debug(
+                    "Automation '%s': found %d issues", auto_name, len(issues)
+                )
                 for issue in issues:
                     gid = issue_type_to_group.get(issue.issue_type, "entity_state")
                     group_issues[gid].append(issue)

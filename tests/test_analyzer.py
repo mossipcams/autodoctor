@@ -1818,7 +1818,9 @@ def test_extract_service_call_target_area_id() -> None:
     automation = {
         "id": "toggle_area",
         "alias": "Toggle Area",
-        "action": [{"service": "homeassistant.turn_off", "target": {"area_id": "kitchen"}}],
+        "action": [
+            {"service": "homeassistant.turn_off", "target": {"area_id": "kitchen"}}
+        ],
     }
 
     analyzer = AutomationAnalyzer()

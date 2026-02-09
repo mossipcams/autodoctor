@@ -1641,7 +1641,9 @@ async def test_run_validators_exception_isolation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_validators_records_service_validation_exception_skip_reason() -> None:
+async def test_run_validators_records_service_validation_exception_skip_reason() -> (
+    None
+):
     """Service validator exceptions should be surfaced in skip-reason telemetry."""
     from custom_components.autodoctor import _async_run_validators
 

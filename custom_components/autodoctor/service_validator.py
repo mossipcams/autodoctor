@@ -432,7 +432,9 @@ class ServiceCallValidator:
         # - timestamp
         # Mixing datetime/timestamp with other modes is ambiguous/misleading.
         if call.service == "input_datetime.set_datetime":
-            present = {k for k in ("date", "time", "datetime", "timestamp") if k in data}
+            present = {
+                k for k in ("date", "time", "datetime", "timestamp") if k in data
+            }
 
             conflicting: set[str] = set()
             if "datetime" in present:
@@ -601,9 +603,8 @@ class ServiceCallValidator:
             if has_command:
                 command_value = data.get("command")
                 empty_command = (
-                    (isinstance(command_value, str) and command_value.strip() == "")
-                    or (isinstance(command_value, list) and len(command_value) == 0)
-                )
+                    isinstance(command_value, str) and command_value.strip() == ""
+                ) or (isinstance(command_value, list) and len(command_value) == 0)
                 if empty_command:
                     issues.append(
                         ValidationIssue(

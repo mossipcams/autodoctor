@@ -1480,7 +1480,9 @@ async def test_invalid_target_entity_id_type_reports_issue(
     )
 
     issues = validator.validate_service_calls([call])
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 1
     assert "entity_id" in type_issues[0].message
     assert "string or list of strings" in type_issues[0].message
@@ -1510,7 +1512,9 @@ async def test_invalid_target_device_id_list_item_type_reports_issue(
     )
 
     issues = validator.validate_service_calls([call])
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 1
     assert "device_id" in type_issues[0].message
     assert "non-string items" in type_issues[0].message
@@ -1540,7 +1544,9 @@ async def test_non_mapping_target_reports_invalid_type_issue(
     )
 
     issues = validator.validate_service_calls([call])
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 1
     assert "target" in type_issues[0].message
     assert "mapping" in type_issues[0].message
@@ -1570,7 +1576,9 @@ async def test_non_template_non_mapping_data_reports_invalid_type_issue(
     )
 
     issues = validator.validate_service_calls([call])
-    type_issues = [i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
     assert len(type_issues) == 1
     assert "data" in type_issues[0].message
     assert "mapping" in type_issues[0].message
