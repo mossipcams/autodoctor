@@ -216,6 +216,35 @@ async def test_validate_all_with_groups_timing(grouped_hass: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_validate_all_with_groups_includes_skip_reason_telemetry(
+    grouped_hass: MagicMock,
+) -> None:
+    """Run stats should include per-group skip reason telemetry."""
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].get_last_run_stats.return_value = {
+        "total_calls": 2,
+        "skipped_calls_by_reason": {"templated_service_name": 1},
+    }
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "test", "alias": "Test"}],
+    ):
+        result = await async_validate_all_with_groups(grouped_hass)
+
+    assert result["skip_reasons"]["services"]["templated_service_name"] == 1
+    assert result["skip_reasons"]["services"]["total_calls"] == 2
+    run_stats = grouped_hass.data[DOMAIN]["validation_run_stats"]
+    assert run_stats["skip_reasons"]["services"]["templated_service_name"] == 1
+
+
+@pytest.mark.asyncio
 async def test_validate_all_with_groups_status_logic(grouped_hass: MagicMock) -> None:
     """Test group status: fail for errors, warning for warnings only, pass for clean.
 
@@ -1605,9 +1634,89 @@ async def test_run_validators_exception_isolation() -> None:
         }
     }
 
-    await _async_run_validators(mock_hass, [{"id": "test", "alias": "Test"}])
+    result = await _async_run_validators(mock_hass, [{"id": "test", "alias": "Test"}])
     mock_jinja.validate_automations.assert_called_once()
     mock_validator.validate_all.assert_called_once()
+    assert result["skip_reasons"]["templates"]["validation_exception"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_validators_records_service_validation_exception_skip_reason() -> None:
+    """Service validator exceptions should be surfaced in skip-reason telemetry."""
+    from custom_components.autodoctor import _async_run_validators
+
+    mock_hass = MagicMock()
+    mock_analyzer = MagicMock()
+    mock_validator = MagicMock()
+    mock_jinja = MagicMock()
+    mock_service = MagicMock()
+
+    mock_jinja.validate_automations.return_value = []
+    mock_service.async_load_descriptions = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_analyzer.extract_state_references.return_value = []
+    mock_validator.validate_all.return_value = []
+
+    mock_hass.data = {
+        DOMAIN: {
+            "analyzer": mock_analyzer,
+            "validator": mock_validator,
+            "jinja_validator": mock_jinja,
+            "service_validator": mock_service,
+        }
+    }
+
+    result = await _async_run_validators(mock_hass, [{"id": "test", "alias": "Test"}])
+    assert result["skip_reasons"]["services"]["validation_exception"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_validators_records_missing_validator_skip_reasons() -> None:
+    """Missing validator families should be reflected in skip-reason telemetry."""
+    from custom_components.autodoctor import _async_run_validators
+
+    mock_hass = MagicMock()
+    mock_analyzer = MagicMock()
+    mock_validator = MagicMock()
+
+    mock_analyzer.extract_state_references.return_value = []
+    mock_validator.validate_all.return_value = []
+
+    mock_hass.data = {
+        DOMAIN: {
+            "analyzer": mock_analyzer,
+            "validator": mock_validator,
+            "jinja_validator": None,
+            "service_validator": None,
+        }
+    }
+
+    result = await _async_run_validators(mock_hass, [{"id": "test", "alias": "Test"}])
+    assert result["skip_reasons"]["templates"]["validator_unavailable"] == 1
+    assert result["skip_reasons"]["services"]["validator_unavailable"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_validators_records_missing_entity_validator_skip_reason() -> None:
+    """Missing analyzer/validator should be tracked as entity_state skip reason."""
+    from custom_components.autodoctor import _async_run_validators
+
+    mock_hass = MagicMock()
+    mock_hass.data = {
+        DOMAIN: {
+            "analyzer": None,
+            "validator": None,
+            "jinja_validator": None,
+            "service_validator": None,
+        }
+    }
+
+    result = await _async_run_validators(
+        mock_hass,
+        [{"id": "test", "alias": "Test"}],
+    )
+    assert result["skip_reasons"]["entity_state"]["validator_unavailable"] == 1
+    assert result["failed_automations"] == 0
+    assert result["analyzed_automations"] == 0
 
 
 @pytest.mark.asyncio

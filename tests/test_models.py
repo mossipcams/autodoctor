@@ -60,6 +60,7 @@ def test_validation_issue_creation() -> None:
     )
     assert issue.severity == Severity.ERROR
     assert issue.suggestion == "not_home"
+    assert issue.confidence == "high"
 
 
 def test_severity_ordering() -> None:
@@ -135,9 +136,26 @@ def test_validation_issue_to_dict() -> None:
     result: dict[str, Any] = issue.to_dict()
     assert result["issue_type"] == "invalid_state"
     assert result["severity"] == "error"
+    assert result["confidence"] == "high"
     assert result["entity_id"] == "person.matt"
     assert result["message"] == "State 'away' is not valid"
     assert result["suggestion"] == "not_home"
+
+
+def test_validation_issue_custom_confidence_to_dict() -> None:
+    """ValidationIssue should serialize custom confidence tiers."""
+    issue = ValidationIssue(
+        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+        severity=Severity.WARNING,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="",
+        location="action[0]",
+        message="Heuristic warning",
+        confidence="medium",
+    )
+    result: dict[str, Any] = issue.to_dict()
+    assert result["confidence"] == "medium"
 
 
 @pytest.mark.skip(reason="OutcomeReport not yet implemented in models.py")

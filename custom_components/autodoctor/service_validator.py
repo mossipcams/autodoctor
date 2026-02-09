@@ -162,6 +162,10 @@ class ServiceCallValidator:
         self.hass = hass
         self._strict_validation = strict_service_validation
         self._service_descriptions: dict[str, dict[str, Any]] | None = None
+        self._last_run_stats: dict[str, Any] = {
+            "total_calls": 0,
+            "skipped_calls_by_reason": {},
+        }
 
     async def async_load_descriptions(self) -> None:
         """Load service descriptions from Home Assistant."""
@@ -197,11 +201,16 @@ class ServiceCallValidator:
         service_calls: list[ServiceCall],
     ) -> list[ValidationIssue]:
         """Validate all service calls and return issues."""
+        self._last_run_stats = {
+            "total_calls": len(service_calls),
+            "skipped_calls_by_reason": {},
+        }
         issues: list[ValidationIssue] = []
 
         for call in service_calls:
             # Skip templated service names
             if call.is_template:
+                self._increment_skip_reason("templated_service_name")
                 continue
 
             # Parse domain.service
@@ -241,10 +250,15 @@ class ServiceCallValidator:
                 )
                 continue
 
+            # Validate payload shapes before field-level checks.
+            issues.extend(self._validate_payload_shapes(call))
+            issues.extend(self._validate_conflicting_targets(call))
+
             # Get field definitions for parameter validation
             fields = self._get_service_fields(domain, service)
             if fields is None:
                 # No descriptions available, skip parameter validation
+                self._increment_skip_reason("missing_service_descriptions")
                 continue
 
             # Validate target entity IDs
@@ -257,8 +271,110 @@ class ServiceCallValidator:
             if self._strict_validation:
                 issues.extend(self._validate_unknown_params(call, fields))
             issues.extend(self._validate_param_types(call, fields))
+            issues.extend(self._validate_service_semantics(call))
 
         return issues
+
+    def _increment_skip_reason(self, reason: str) -> None:
+        """Increment a skip reason counter for telemetry."""
+        skipped = cast(
+            dict[str, int],
+            self._last_run_stats.setdefault("skipped_calls_by_reason", {}),
+        )
+        skipped[reason] = skipped.get(reason, 0) + 1
+
+    def get_last_run_stats(self) -> dict[str, Any]:
+        """Get telemetry for the most recent validate_service_calls run."""
+        skipped = cast(
+            dict[str, int],
+            self._last_run_stats.get("skipped_calls_by_reason", {}),
+        )
+        return {
+            "total_calls": int(self._last_run_stats.get("total_calls", 0)),
+            "skipped_calls_by_reason": dict(skipped),
+        }
+
+    def _validate_payload_shapes(self, call: ServiceCall) -> list[ValidationIssue]:
+        """Validate top-level payload structures for target/data."""
+        issues: list[ValidationIssue] = []
+
+        if call.target is not None and not isinstance(call.target, dict):
+            if not _is_template_value(call.target):
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message="Service target must be a mapping/object",
+                        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                    )
+                )
+
+        if call.data is not None and not isinstance(call.data, dict):
+            # Keep template strings conservative: dynamic payloads cannot be
+            # validated statically.
+            if not _is_template_value(call.data):
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message="Service data must be a mapping/object",
+                        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                    )
+                )
+
+        return issues
+
+    def _validate_conflicting_targets(self, call: ServiceCall) -> list[ValidationIssue]:
+        """Detect conflicting target fields between data and target payloads."""
+        issues: list[ValidationIssue] = []
+        if not isinstance(call.target, dict) or not isinstance(call.data, dict):
+            return issues
+
+        for field_name in ("entity_id", "device_id", "area_id"):
+            data_values = self._extract_target_string_set(call.data.get(field_name))
+            target_values = self._extract_target_string_set(call.target.get(field_name))
+            if not data_values or not target_values:
+                continue
+            if data_values == target_values:
+                continue
+
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    confidence="medium",
+                    automation_id=call.automation_id,
+                    automation_name=call.automation_name,
+                    entity_id="",
+                    location=call.location,
+                    message=(
+                        f"Target field '{field_name}' has conflicting values between "
+                        f"data and target: data={sorted(data_values)}, target={sorted(target_values)}"
+                    ),
+                    issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                )
+            )
+
+        return issues
+
+    def _extract_target_string_set(self, value: Any) -> set[str]:
+        """Extract non-template string values for conflict comparison."""
+        if value is None:
+            return set()
+        if isinstance(value, str):
+            return set() if _is_template_value(value) else {value}
+        if isinstance(value, list):
+            return {
+                v
+                for v in cast(list[Any], value)
+                if isinstance(v, str) and not _is_template_value(v)
+            }
+        return set()
 
     def _validate_required_params(
         self,
@@ -298,6 +414,231 @@ class ServiceCallValidator:
                     issue_type=IssueType.SERVICE_MISSING_REQUIRED_PARAM,
                 )
             )
+
+        return issues
+
+    def _validate_service_semantics(self, call: ServiceCall) -> list[ValidationIssue]:
+        """Validate high-confidence service-specific semantic constraints."""
+        issues: list[ValidationIssue] = []
+        data = call.data
+        if not isinstance(data, dict):
+            return issues
+
+        # input_datetime.set_datetime accepts either:
+        # - date/time pair
+        # - datetime
+        # - timestamp
+        # Mixing datetime/timestamp with other modes is ambiguous/misleading.
+        if call.service == "input_datetime.set_datetime":
+            present = {k for k in ("date", "time", "datetime", "timestamp") if k in data}
+
+            conflicting: set[str] = set()
+            if "datetime" in present:
+                conflicting.update(present.intersection({"date", "time", "timestamp"}))
+                if conflicting:
+                    conflicting.add("datetime")
+            elif "timestamp" in present:
+                conflicting.update(present.intersection({"date", "time"}))
+                if conflicting:
+                    conflicting.add("timestamp")
+
+            if conflicting:
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        confidence="medium",
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            "Service 'input_datetime.set_datetime' has conflicting "
+                            f"parameters: {sorted(conflicting)}"
+                        ),
+                        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                    )
+                )
+
+        # climate.set_temperature supports either a single setpoint
+        # (`temperature`) or range mode (`target_temp_high` + `target_temp_low`).
+        # Mixed mode is ambiguous and usually indicates a misconfiguration.
+        if call.service == "climate.set_temperature":
+            has_temperature = "temperature" in data
+            has_range = "target_temp_high" in data or "target_temp_low" in data
+            if has_temperature and has_range:
+                conflicting = sorted(
+                    {
+                        k
+                        for k in ("temperature", "target_temp_high", "target_temp_low")
+                        if k in data
+                    }
+                )
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        confidence="medium",
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            "Service 'climate.set_temperature' has conflicting "
+                            f"parameters: {conflicting}"
+                        ),
+                        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                    )
+                )
+
+        # media_player.play_media requires media_content_id and
+        # media_content_type to be provided together.
+        if call.service == "media_player.play_media":
+            has_content_id = "media_content_id" in data
+            has_content_type = "media_content_type" in data
+            if has_content_id and not has_content_type:
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        confidence="medium",
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            "Missing required parameter 'media_content_type' "
+                            "for service 'media_player.play_media' when "
+                            "'media_content_id' is provided"
+                        ),
+                        issue_type=IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+                    )
+                )
+            elif has_content_type and not has_content_id:
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        confidence="medium",
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            "Missing required parameter 'media_content_id' "
+                            "for service 'media_player.play_media' when "
+                            "'media_content_type' is provided"
+                        ),
+                        issue_type=IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+                    )
+                )
+            if has_content_id:
+                media_content_id = data.get("media_content_id")
+                if (
+                    isinstance(media_content_id, str)
+                    and not _is_template_value(media_content_id)
+                    and media_content_id.strip() == ""
+                ):
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            confidence="medium",
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id="",
+                            location=call.location,
+                            message=(
+                                "Service 'media_player.play_media' has invalid parameter "
+                                "'media_content_id': value must not be empty"
+                            ),
+                            issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                        )
+                    )
+            if has_content_type:
+                media_content_type = data.get("media_content_type")
+                if (
+                    isinstance(media_content_type, str)
+                    and not _is_template_value(media_content_type)
+                    and media_content_type.strip() == ""
+                ):
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            confidence="medium",
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id="",
+                            location=call.location,
+                            message=(
+                                "Service 'media_player.play_media' has invalid parameter "
+                                "'media_content_type': value must not be empty"
+                            ),
+                            issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                        )
+                    )
+
+        # remote.send_command requires command when auxiliary transport
+        # parameters are provided.
+        if call.service == "remote.send_command":
+            has_command = "command" in data
+            has_aux = any(
+                key in data for key in ("device", "delay_secs", "num_repeats")
+            )
+            if has_aux and not has_command:
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        confidence="medium",
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            "Missing required parameter 'command' for service "
+                            "'remote.send_command' when auxiliary parameters are provided"
+                        ),
+                        issue_type=IssueType.SERVICE_MISSING_REQUIRED_PARAM,
+                    )
+                )
+            if has_command:
+                command_value = data.get("command")
+                empty_command = (
+                    (isinstance(command_value, str) and command_value.strip() == "")
+                    or (isinstance(command_value, list) and len(command_value) == 0)
+                )
+                if empty_command:
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            confidence="medium",
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id="",
+                            location=call.location,
+                            message=(
+                                "Service 'remote.send_command' has invalid parameter "
+                                "'command': value must not be empty"
+                            ),
+                            issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                        )
+                    )
+
+        # tts.speak requires a non-empty message payload.
+        if call.service == "tts.speak":
+            message = data.get("message")
+            if isinstance(message, str):
+                if not _is_template_value(message) and message.strip() == "":
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            confidence="medium",
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id="",
+                            location=call.location,
+                            message=(
+                                "Service 'tts.speak' has invalid parameter "
+                                "'message': value must not be empty"
+                            ),
+                            issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                        )
+                    )
 
         return issues
 
@@ -491,24 +832,51 @@ class ServiceCallValidator:
         self,
         call: ServiceCall,
     ) -> list[ValidationIssue]:
-        """Validate entity IDs in the target dict exist."""
+        """Validate entity/device/area IDs in target or data exist."""
         issues: list[ValidationIssue] = []
-        target = call.target or {}
-        entity_ids = target.get("entity_id")
-        if entity_ids is None:
-            return issues
+        target = call.target if isinstance(call.target, dict) else {}
+        data = call.data if isinstance(call.data, dict) else {}
 
-        # Normalize to list
-        if isinstance(entity_ids, str):
-            entity_ids = [entity_ids]
-        elif not isinstance(entity_ids, list):
-            return issues
+        entity_ids: list[str] = []
+        device_ids: list[str] = []
+        area_ids: list[str] = []
 
-        for entity_id in cast(list[Any], entity_ids):
-            if not isinstance(entity_id, str):
-                continue
+        values, value_issues = self._normalize_target_strings(
+            call, "entity_id", target.get("entity_id")
+        )
+        entity_ids.extend(values)
+        issues.extend(value_issues)
+        values, value_issues = self._normalize_target_strings(
+            call, "entity_id", data.get("entity_id")
+        )
+        entity_ids.extend(values)
+        issues.extend(value_issues)
+
+        values, value_issues = self._normalize_target_strings(
+            call, "device_id", target.get("device_id")
+        )
+        device_ids.extend(values)
+        issues.extend(value_issues)
+        values, value_issues = self._normalize_target_strings(
+            call, "device_id", data.get("device_id")
+        )
+        device_ids.extend(values)
+        issues.extend(value_issues)
+
+        values, value_issues = self._normalize_target_strings(
+            call, "area_id", target.get("area_id")
+        )
+        area_ids.extend(values)
+        issues.extend(value_issues)
+        values, value_issues = self._normalize_target_strings(
+            call, "area_id", data.get("area_id")
+        )
+        area_ids.extend(values)
+        issues.extend(value_issues)
+
+        for entity_id in entity_ids:
             # Skip templated entity IDs
-            if "{{" in entity_id or "{%" in entity_id:
+            if _is_template_value(entity_id):
                 continue
             if self.hass.states.get(entity_id) is None:
                 suggestion = self._suggest_target_entity(entity_id)
@@ -527,7 +895,98 @@ class ServiceCallValidator:
                         suggestion=suggestion,
                     )
                 )
+
+        if device_ids:
+            from homeassistant.helpers import device_registry as dr
+
+            device_reg = dr.async_get(self.hass)
+            for device_id in device_ids:
+                if _is_template_value(device_id):
+                    continue
+                if not device_reg.async_get(device_id):
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id=device_id,
+                            location=call.location,
+                            message=(
+                                f"Device '{device_id}' in service target does not exist"
+                            ),
+                            issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                        )
+                    )
+
+        if area_ids:
+            from homeassistant.helpers import area_registry as ar
+
+            area_reg = ar.async_get(self.hass)
+            for area_id in area_ids:
+                if _is_template_value(area_id):
+                    continue
+                if area_reg.async_get_area(area_id) is None:
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id=area_id,
+                            location=call.location,
+                            message=f"Area '{area_id}' in service target does not exist",
+                            issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                        )
+                    )
+
         return issues
+
+    def _normalize_target_strings(
+        self,
+        call: ServiceCall,
+        field_name: str,
+        value: Any,
+    ) -> tuple[list[str], list[ValidationIssue]]:
+        """Normalize target field values and report invalid types."""
+        issues: list[ValidationIssue] = []
+        if value is None:
+            return [], issues
+
+        if isinstance(value, str):
+            return [value], issues
+
+        if isinstance(value, list):
+            values = cast(list[Any], value)
+            non_strings = [v for v in values if not isinstance(v, str)]
+            if non_strings:
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=call.automation_id,
+                        automation_name=call.automation_name,
+                        entity_id="",
+                        location=call.location,
+                        message=(
+                            f"Target field '{field_name}' has non-string items: {non_strings}"
+                        ),
+                        issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+                    )
+                )
+            return [v for v in values if isinstance(v, str)], issues
+
+        issues.append(
+            ValidationIssue(
+                severity=Severity.WARNING,
+                automation_id=call.automation_id,
+                automation_name=call.automation_name,
+                entity_id="",
+                location=call.location,
+                message=(
+                    f"Target field '{field_name}' must be a string or list of strings"
+                ),
+                issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
+            )
+        )
+        return [], issues
 
     def _suggest_target_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID in target."""

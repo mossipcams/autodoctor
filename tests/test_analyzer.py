@@ -1794,6 +1794,131 @@ def test_extract_service_call_target_entity_id() -> None:
     assert service_refs[0].reference_type == "service_call"
 
 
+def test_extract_service_call_target_device_id() -> None:
+    """Test extraction from service call with target.device_id."""
+    automation = {
+        "id": "toggle_device",
+        "alias": "Toggle Device",
+        "action": [
+            {"service": "homeassistant.toggle", "target": {"device_id": "device_abc"}}
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.entity_id == "device_abc"]
+    assert len(device_refs) == 1
+    assert device_refs[0].location == "action[0].service.device_id"
+    assert device_refs[0].reference_type == "device"
+
+
+def test_extract_service_call_target_area_id() -> None:
+    """Test extraction from service call with target.area_id."""
+    automation = {
+        "id": "toggle_area",
+        "alias": "Toggle Area",
+        "action": [{"service": "homeassistant.turn_off", "target": {"area_id": "kitchen"}}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    area_refs = [r for r in refs if r.entity_id == "kitchen"]
+    assert len(area_refs) == 1
+    assert area_refs[0].location == "action[0].service.area_id"
+    assert area_refs[0].reference_type == "area"
+
+
+def test_extract_service_call_data_device_and_area_ids() -> None:
+    """Test extraction from service call with data.device_id and data.area_id."""
+    automation = {
+        "id": "notify_scope",
+        "alias": "Notify Scope",
+        "action": [
+            {
+                "service": "notify.notify",
+                "data": {"device_id": "device_xyz", "area_id": "living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.entity_id == "device_xyz"]
+    area_refs = [r for r in refs if r.entity_id == "living_room"]
+    assert len(device_refs) == 1
+    assert device_refs[0].reference_type == "device"
+    assert device_refs[0].location == "action[0].service.device_id"
+    assert len(area_refs) == 1
+    assert area_refs[0].reference_type == "area"
+    assert area_refs[0].location == "action[0].service.area_id"
+
+
+def test_extract_service_call_target_device_id_list() -> None:
+    """Test extraction from service call with target.device_id list."""
+    automation = {
+        "id": "toggle_devices",
+        "alias": "Toggle Devices",
+        "action": [
+            {
+                "service": "homeassistant.toggle",
+                "target": {"device_id": ["device_a", "device_b"]},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.reference_type == "device"]
+    assert len(device_refs) == 2
+    assert {r.entity_id for r in device_refs} == {"device_a", "device_b"}
+
+
+def test_extract_service_call_inline_entity_id() -> None:
+    """Test extraction from service call with inline entity_id."""
+    automation = {
+        "id": "inline_entity",
+        "alias": "Inline Entity",
+        "action": [{"service": "light.turn_on", "entity_id": "light.patio"}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    entity_refs = [r for r in refs if r.entity_id == "light.patio"]
+    assert len(entity_refs) == 1
+    assert entity_refs[0].location == "action[0].service.entity_id"
+    assert entity_refs[0].reference_type == "service_call"
+
+
+def test_extract_service_call_inline_device_and_area_ids() -> None:
+    """Test extraction from service call with inline device_id and area_id."""
+    automation = {
+        "id": "inline_scope",
+        "alias": "Inline Scope",
+        "action": [
+            {
+                "service": "homeassistant.toggle",
+                "device_id": "device_inline",
+                "area_id": "office",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.entity_id == "device_inline"]
+    area_refs = [r for r in refs if r.entity_id == "office"]
+    assert len(device_refs) == 1
+    assert device_refs[0].reference_type == "device"
+    assert len(area_refs) == 1
+    assert area_refs[0].reference_type == "area"
+
+
 def test_extract_service_call_with_none_merged_data() -> None:
     """Test that service call extraction handles None merged_data gracefully.
 
