@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.1](https://github.com/mossipcams/autodoctor/compare/v2.18.0...v2.18.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* **readme:** correct typo in binary sensor example ([#72](https://github.com/mossipcams/autodoctor/issues/72)) ([19ddf3b](https://github.com/mossipcams/autodoctor/commit/19ddf3b2c196b0aee8b2bc0decf7b37a7f5e621a))
+
 ## [2.18.0](https://github.com/mossipcams/autodoctor/compare/v2.17.0...v2.18.0) (2026-02-10)
 
 
