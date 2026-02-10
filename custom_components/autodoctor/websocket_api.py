@@ -83,7 +83,11 @@ def _format_issues_with_fixes(
                 desc = f"Did you mean '{issue.suggestion}'?"
                 if issue.valid_states:
                     desc += f" Valid values: {', '.join(issue.valid_states)}"
-                fix = {"description": desc, "confidence": 0.8, "fix_value": issue.suggestion}
+                fix = {
+                    "description": desc,
+                    "confidence": 0.8,
+                    "fix_value": issue.suggestion,
+                }
             elif issue.valid_states:
                 fix = {
                     "description": f"Valid values: {', '.join(issue.valid_states)}",
@@ -345,6 +349,8 @@ async def websocket_run_validation_steps(
                 "healthy_count": _get_healthy_count(hass, all_visible_issues),
                 "last_run": result["timestamp"],
                 "suppressed_count": total_suppressed,
+                "analyzed_automations": result.get("analyzed_automations", 0),
+                "failed_automations": result.get("failed_automations", 0),
             },
         )
     except Exception as err:
@@ -370,6 +376,7 @@ async def websocket_get_validation_steps(
     suppression_store: SuppressionStore | None = data.get("suppression_store")
     last_run = data.get("validation_last_run")
     cached_groups = data.get("validation_groups")
+    run_stats = data.get("validation_run_stats", {})
 
     # Pre-compute entity IDs once for all _format_issues_with_fixes calls
     all_entity_ids = [s.entity_id for s in hass.states.async_all()]
@@ -434,6 +441,8 @@ async def websocket_get_validation_steps(
             "healthy_count": healthy_count,
             "last_run": last_run,
             "suppressed_count": total_suppressed,
+            "analyzed_automations": run_stats.get("analyzed_automations", 0),
+            "failed_automations": run_stats.get("failed_automations", 0),
         },
     )
 

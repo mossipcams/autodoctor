@@ -22,6 +22,9 @@ async def test_service_validator_initialization(hass: HomeAssistant) -> None:
     """Test that ServiceCallValidator can be initialized with HomeAssistant instance."""
     validator = ServiceCallValidator(hass)
     assert validator is not None
+    stats = validator.get_last_run_stats()
+    assert stats["total_calls"] == 0
+    assert stats["skipped_calls_by_reason"] == {}
 
 
 async def test_validate_service_not_found(hass: HomeAssistant) -> None:
@@ -96,6 +99,43 @@ async def test_validate_skips_templated_service(hass: HomeAssistant) -> None:
 
     # Should skip validation for templates
     assert len(issues) == 0
+
+
+async def test_validate_tracks_skip_reasons(hass: HomeAssistant) -> None:
+    """Validator should expose skip-reason telemetry for skipped calls."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    # Keep descriptions unavailable for the non-templated call.
+    validator._service_descriptions = None
+
+    issues = validator.validate_service_calls(
+        [
+            ServiceCall(
+                automation_id="automation.test",
+                automation_name="Test",
+                service="{{ dynamic_service }}",
+                location="action[0]",
+                is_template=True,
+            ),
+            ServiceCall(
+                automation_id="automation.test",
+                automation_name="Test",
+                service="light.turn_on",
+                location="action[1]",
+            ),
+        ]
+    )
+
+    assert issues == []
+    stats = validator.get_last_run_stats()
+    assert stats["total_calls"] == 2
+    assert stats["skipped_calls_by_reason"]["templated_service_name"] == 1
+    assert stats["skipped_calls_by_reason"]["missing_service_descriptions"] == 1
 
 
 async def test_validate_missing_required_param(hass: HomeAssistant) -> None:
@@ -1317,6 +1357,926 @@ async def test_multiple_nonexistent_entities_all_produce_issues(
     assert len(target_issues) == 3
     flagged_entities = {i.entity_id for i in target_issues}
     assert flagged_entities == {"light.fake1", "light.fake2", "light.fake3"}
+
+
+async def test_nonexistent_entity_id_in_data_produces_target_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Entity IDs in data should also be validated as service targets."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data={"entity_id": "light.missing_from_data"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 1
+    assert target_issues[0].entity_id == "light.missing_from_data"
+    assert "Entity" in target_issues[0].message
+
+
+async def test_nonexistent_device_and_area_ids_produce_target_issues(
+    hass: HomeAssistant,
+) -> None:
+    """Missing device_id/area_id in target should produce service target issues."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("homeassistant", "toggle", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "homeassistant": {"toggle": {"fields": {"entity_id": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="homeassistant.toggle",
+        location="action[0]",
+        target={"device_id": "missing_device", "area_id": "missing_area"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 2
+    by_entity = {i.entity_id: i.message for i in target_issues}
+    assert "missing_device" in by_entity
+    assert "missing_area" in by_entity
+    assert "Device" in by_entity["missing_device"]
+    assert "Area" in by_entity["missing_area"]
+
+
+async def test_template_device_and_area_ids_skip_target_validation(
+    hass: HomeAssistant,
+) -> None:
+    """Templated device/area targets should be skipped (not statically knowable)."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("homeassistant", "toggle", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "homeassistant": {"toggle": {"fields": {"entity_id": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="homeassistant.toggle",
+        location="action[0]",
+        target={"device_id": "{{ device_ref }}", "area_id": "{{ area_ref }}"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 0
+
+
+async def test_invalid_target_entity_id_type_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Non-string entity_id target values should produce type issues."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": 123},  # invalid type
+    )
+
+    issues = validator.validate_service_calls([call])
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
+    assert len(type_issues) == 1
+    assert "entity_id" in type_issues[0].message
+    assert "string or list of strings" in type_issues[0].message
+
+
+async def test_invalid_target_device_id_list_item_type_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Non-string device_id list items should produce type issues."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("homeassistant", "toggle", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "homeassistant": {"toggle": {"fields": {"entity_id": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="homeassistant.toggle",
+        location="action[0]",
+        target={"device_id": ["device_ok", 7]},  # invalid item type
+    )
+
+    issues = validator.validate_service_calls([call])
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
+    assert len(type_issues) == 1
+    assert "device_id" in type_issues[0].message
+    assert "non-string items" in type_issues[0].message
+
+
+async def test_non_mapping_target_reports_invalid_type_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Non-mapping target payloads should be reported, not silently skipped."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target="light.kitchen",  # type: ignore[arg-type]
+    )
+
+    issues = validator.validate_service_calls([call])
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
+    assert len(type_issues) == 1
+    assert "target" in type_issues[0].message
+    assert "mapping" in type_issues[0].message
+
+
+async def test_non_template_non_mapping_data_reports_invalid_type_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Non-mapping data payloads should be reported unless templated."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data="plain_string_not_template",  # type: ignore[arg-type]
+    )
+
+    issues = validator.validate_service_calls([call])
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
+    assert len(type_issues) == 1
+    assert "data" in type_issues[0].message
+    assert "mapping" in type_issues[0].message
+
+
+async def test_conflicting_entity_id_between_data_and_target_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Conflicting data/target entity_id values should be flagged."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+    hass.states.async_set("light.kitchen", "on")
+    hass.states.async_set("light.bedroom", "on")
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data={"entity_id": "light.kitchen"},
+        target={"entity_id": "light.bedroom"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    conflict_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting values" in i.message
+    ]
+    assert len(conflict_issues) == 1
+    assert "entity_id" in conflict_issues[0].message
+
+
+async def test_matching_entity_id_between_data_and_target_no_conflict_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Matching data/target entity_id values should not be flagged."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("light", "turn_on", test_service)
+    hass.states.async_set("light.kitchen", "on")
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        data={"entity_id": ["light.kitchen"]},
+        target={"entity_id": "light.kitchen"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    conflict_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting values" in i.message
+    ]
+    assert len(conflict_issues) == 0
+
+
+async def test_conflicting_device_id_between_data_and_target_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Conflicting data/target device_id values should be flagged."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("homeassistant", "toggle", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "homeassistant": {"toggle": {"fields": {"entity_id": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="homeassistant.toggle",
+        location="action[0]",
+        data={"device_id": "device_a"},
+        target={"device_id": "device_b"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    conflict_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting values" in i.message
+    ]
+    assert len(conflict_issues) == 1
+    assert "device_id" in conflict_issues[0].message
+
+
+async def test_input_datetime_conflicting_datetime_and_date_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """input_datetime.set_datetime should flag conflicting time payload modes."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("input_datetime", "set_datetime", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "input_datetime": {
+            "set_datetime": {
+                "fields": {
+                    "date": {"required": False},
+                    "time": {"required": False},
+                    "datetime": {"required": False},
+                    "timestamp": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="input_datetime.set_datetime",
+        location="action[0]",
+        data={"datetime": "2026-02-09 12:00:00", "date": "2026-02-09"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting parameters" in i.message
+    ]
+    assert len(semantic_issues) == 1
+    assert "datetime" in semantic_issues[0].message
+    assert "date" in semantic_issues[0].message
+
+
+async def test_input_datetime_date_and_time_allowed_no_conflict_issue(
+    hass: HomeAssistant,
+) -> None:
+    """input_datetime.set_datetime should allow date+time together."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("input_datetime", "set_datetime", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "input_datetime": {
+            "set_datetime": {
+                "fields": {
+                    "date": {"required": False},
+                    "time": {"required": False},
+                    "datetime": {"required": False},
+                    "timestamp": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="input_datetime.set_datetime",
+        location="action[0]",
+        data={"date": "2026-02-09", "time": "12:00:00"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting parameters" in i.message
+    ]
+    assert len(semantic_issues) == 0
+
+
+async def test_climate_set_temperature_conflicting_single_and_range_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """climate.set_temperature should flag mixed single+range setpoint payloads."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("climate", "set_temperature", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "climate": {
+            "set_temperature": {
+                "fields": {
+                    "temperature": {"required": False},
+                    "target_temp_high": {"required": False},
+                    "target_temp_low": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="climate.set_temperature",
+        location="action[0]",
+        data={"temperature": 21, "target_temp_high": 24, "target_temp_low": 18},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting parameters" in i.message
+    ]
+    assert len(semantic_issues) == 1
+    assert "temperature" in semantic_issues[0].message
+    assert "target_temp_high" in semantic_issues[0].message
+    assert "target_temp_low" in semantic_issues[0].message
+    assert semantic_issues[0].confidence == "medium"
+
+
+async def test_climate_set_temperature_range_only_allowed_no_conflict_issue(
+    hass: HomeAssistant,
+) -> None:
+    """climate.set_temperature should allow range-only setpoint payloads."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("climate", "set_temperature", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "climate": {
+            "set_temperature": {
+                "fields": {
+                    "temperature": {"required": False},
+                    "target_temp_high": {"required": False},
+                    "target_temp_low": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="climate.set_temperature",
+        location="action[0]",
+        data={"target_temp_high": 24, "target_temp_low": 18},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "conflicting parameters" in i.message
+    ]
+    assert len(semantic_issues) == 0
+
+
+async def test_media_player_play_media_missing_type_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """media_player.play_media should require media_content_type with media_content_id."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("media_player", "play_media", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "media_player": {
+            "play_media": {
+                "fields": {
+                    "media_content_id": {"required": False},
+                    "media_content_type": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="media_player.play_media",
+        location="action[0]",
+        data={"media_content_id": "spotify:track:123"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+        and "media_content_type" in i.message
+    ]
+    assert len(semantic_issues) == 1
+
+
+async def test_media_player_play_media_with_id_and_type_no_issue(
+    hass: HomeAssistant,
+) -> None:
+    """media_player.play_media with id+type should not trigger semantic issues."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("media_player", "play_media", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "media_player": {
+            "play_media": {
+                "fields": {
+                    "media_content_id": {"required": False},
+                    "media_content_type": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="media_player.play_media",
+        location="action[0]",
+        data={
+            "media_content_id": "spotify:track:123",
+            "media_content_type": "music",
+        },
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+        and "media_content_type" in i.message
+    ]
+    assert len(semantic_issues) == 0
+
+
+async def test_remote_send_command_aux_params_without_command_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """remote.send_command should require command when aux params are present."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("remote", "send_command", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "remote": {
+            "send_command": {
+                "fields": {
+                    "command": {"required": False},
+                    "device": {"required": False},
+                    "delay_secs": {"required": False},
+                    "num_repeats": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="remote.send_command",
+        location="action[0]",
+        data={"device": "tv", "num_repeats": 2},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+        and "command" in i.message
+        and "remote.send_command" in i.message
+    ]
+    assert len(semantic_issues) == 1
+
+
+async def test_remote_send_command_with_command_no_semantic_issue(
+    hass: HomeAssistant,
+) -> None:
+    """remote.send_command with command should not trigger aux-param rule."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("remote", "send_command", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "remote": {
+            "send_command": {
+                "fields": {
+                    "command": {"required": False},
+                    "device": {"required": False},
+                    "delay_secs": {"required": False},
+                    "num_repeats": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="remote.send_command",
+        location="action[0]",
+        data={"command": "POWER", "device": "tv", "num_repeats": 2},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+        and "remote.send_command" in i.message
+    ]
+    assert len(semantic_issues) == 0
+
+
+async def test_tts_speak_empty_message_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """tts.speak should flag empty message payloads."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("tts", "speak", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "tts": {
+            "speak": {
+                "fields": {
+                    "message": {"required": False},
+                    "cache": {"required": False},
+                    "language": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="tts.speak",
+        location="action[0]",
+        data={"message": ""},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "message" in i.message
+        and "tts.speak" in i.message
+    ]
+    assert len(semantic_issues) == 1
+
+
+async def test_tts_speak_non_empty_message_no_issue(
+    hass: HomeAssistant,
+) -> None:
+    """tts.speak with non-empty message should not trigger semantic issue."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("tts", "speak", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "tts": {
+            "speak": {
+                "fields": {
+                    "message": {"required": False},
+                    "cache": {"required": False},
+                    "language": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="tts.speak",
+        location="action[0]",
+        data={"message": "Garage door is open"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "tts.speak" in i.message
+        and "message" in i.message
+    ]
+    assert len(semantic_issues) == 0
+
+
+async def test_remote_send_command_empty_string_command_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """remote.send_command should flag empty string command values."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("remote", "send_command", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "remote": {
+            "send_command": {
+                "fields": {
+                    "command": {"required": False},
+                    "device": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="remote.send_command",
+        location="action[0]",
+        data={"command": "   "},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "remote.send_command" in i.message
+        and "command" in i.message
+    ]
+    assert len(semantic_issues) == 1
+
+
+async def test_remote_send_command_empty_list_command_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """remote.send_command should flag empty list command values."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("remote", "send_command", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "remote": {
+            "send_command": {
+                "fields": {
+                    "command": {"required": False},
+                    "device": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="remote.send_command",
+        location="action[0]",
+        data={"command": []},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "remote.send_command" in i.message
+        and "command" in i.message
+    ]
+    assert len(semantic_issues) == 1
+
+
+async def test_media_player_play_media_empty_content_id_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """media_player.play_media should flag empty media_content_id values."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("media_player", "play_media", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "media_player": {
+            "play_media": {
+                "fields": {
+                    "media_content_id": {"required": False},
+                    "media_content_type": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="media_player.play_media",
+        location="action[0]",
+        data={"media_content_id": "   ", "media_content_type": "music"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "media_player.play_media" in i.message
+        and "media_content_id" in i.message
+    ]
+    assert len(semantic_issues) == 1
+
+
+async def test_media_player_play_media_empty_content_type_reports_issue(
+    hass: HomeAssistant,
+) -> None:
+    """media_player.play_media should flag empty media_content_type values."""
+
+    async def test_service(call: HAServiceCall) -> None:
+        pass
+
+    hass.services.async_register("media_player", "play_media", test_service)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "media_player": {
+            "play_media": {
+                "fields": {
+                    "media_content_id": {"required": False},
+                    "media_content_type": {"required": False},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="media_player.play_media",
+        location="action[0]",
+        data={"media_content_id": "spotify:track:123", "media_content_type": ""},
+    )
+
+    issues = validator.validate_service_calls([call])
+    semantic_issues = [
+        i
+        for i in issues
+        if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+        and "media_player.play_media" in i.message
+        and "media_content_type" in i.message
+    ]
+    assert len(semantic_issues) == 1
 
 
 async def test_multiple_required_fields_all_checked(hass: HomeAssistant) -> None:

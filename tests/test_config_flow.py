@@ -91,8 +91,7 @@ def test_get_options_flow_returns_handler() -> None:
     users to configure runtime options after initial setup.
     """
     entry = MagicMock()
-    with patch.object(OptionsFlowHandler, "__init__", lambda self, e: None):
-        handler = ConfigFlow.async_get_options_flow(entry)
+    handler = ConfigFlow.async_get_options_flow(entry)
     assert isinstance(handler, OptionsFlowHandler)
 
 
@@ -105,8 +104,7 @@ async def test_options_step_init_shows_form(hass: HomeAssistant) -> None:
     mock_entry = MagicMock()
     mock_entry.options = {}
 
-    with patch.object(OptionsFlowHandler, "__init__", lambda self, e: None):
-        handler = OptionsFlowHandler(mock_entry)
+    handler = OptionsFlowHandler()
     handler.hass = hass
     handler.flow_id = "test_options"
     # Patch the read-only config_entry property to return our mock
@@ -131,8 +129,7 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
     mock_entry = MagicMock()
     mock_entry.options = {}
 
-    with patch.object(OptionsFlowHandler, "__init__", lambda self, e: None):
-        handler = OptionsFlowHandler(mock_entry)
+    handler = OptionsFlowHandler()
     handler.hass = hass
     handler.flow_id = "test_options"
 
@@ -147,3 +144,54 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
     result = await handler.async_step_init(user_input=user_input)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"] == user_input
+
+
+# ===== CFG-01/CFG-02 Fix Tests =====
+
+
+def test_options_flow_factory_no_args() -> None:
+    """Test that async_get_options_flow returns handler without passing config_entry.
+
+    HA 2025.12+ provides config_entry automatically via parent OptionsFlow class.
+    The factory should instantiate OptionsFlowHandler with no arguments.
+    """
+    config_entry = MagicMock()
+    handler = ConfigFlow.async_get_options_flow(config_entry)
+    assert isinstance(handler, OptionsFlowHandler)
+
+
+def test_options_flow_handler_has_no_custom_init() -> None:
+    """Test that OptionsFlowHandler relies on parent class for config_entry.
+
+    HA 2025.12+ provides self.config_entry automatically via the parent
+    OptionsFlow class. We should NOT define a custom __init__ that stores it.
+    """
+    # Verify no custom __init__ is defined (relies on parent)
+    assert "__init__" not in OptionsFlowHandler.__dict__
+
+
+async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
+    """Test that async_step_init can show the options form.
+
+    Verifies that OptionsFlowHandler can access self.config_entry.options
+    in async_step_init when the parent OptionsFlow class provides it,
+    without needing a custom __init__ to store the config_entry.
+    """
+    handler = OptionsFlowHandler()
+
+    # Simulate what HA does: provide config_entry via parent property
+    mock_entry = MagicMock()
+    mock_entry.options = {}
+
+    # Mock the hass object that OptionsFlow needs
+    handler.hass = MagicMock()
+
+    # Patch the read-only config_entry property to return our mock
+    with patch.object(
+        type(handler),
+        "config_entry",
+        new_callable=lambda: property(lambda self: mock_entry),
+    ):
+        result = await handler.async_step_init(user_input=None)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"

@@ -1402,6 +1402,141 @@ def test_extract_device_condition() -> None:
     assert refs[0].location == "condition[0].device_id"
 
 
+def test_extract_and_condition_wrapper() -> None:
+    """Test extraction from and condition wrapper with nested conditions."""
+    automation = {
+        "id": "test_and_wrapper",
+        "alias": "Test And Wrapper",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "and",
+                "conditions": [
+                    {
+                        "condition": "state",
+                        "entity_id": "sensor.temp",
+                        "state": "high",
+                    },
+                    {
+                        "condition": "state",
+                        "entity_id": "binary_sensor.motion",
+                        "state": "on",
+                    },
+                ],
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "sensor.temp"
+    assert refs[0].expected_state == "high"
+    assert refs[1].entity_id == "binary_sensor.motion"
+    assert refs[1].expected_state == "on"
+
+
+def test_extract_or_condition_wrapper() -> None:
+    """Test extraction from or condition wrapper with nested conditions."""
+    automation = {
+        "id": "test_or_wrapper",
+        "alias": "Test Or Wrapper",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "or",
+                "conditions": [
+                    {
+                        "condition": "state",
+                        "entity_id": "sensor.temp",
+                        "state": "low",
+                    },
+                    {
+                        "condition": "state",
+                        "entity_id": "binary_sensor.window",
+                        "state": "off",
+                    },
+                ],
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 2
+    assert refs[0].entity_id == "sensor.temp"
+    assert refs[0].expected_state == "low"
+    assert refs[1].entity_id == "binary_sensor.window"
+    assert refs[1].expected_state == "off"
+
+
+def test_extract_not_condition_wrapper() -> None:
+    """Test extraction from not condition wrapper with nested condition."""
+    automation = {
+        "id": "test_not_wrapper",
+        "alias": "Test Not Wrapper",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "not",
+                "conditions": [
+                    {
+                        "condition": "state",
+                        "entity_id": "binary_sensor.door",
+                        "state": "on",
+                    },
+                ],
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "binary_sensor.door"
+    assert refs[0].expected_state == "on"
+
+
+def test_extract_deeply_nested_condition_wrappers() -> None:
+    """Test extraction from deeply nested condition wrappers (and > or > state)."""
+    automation = {
+        "id": "test_deep_nesting",
+        "alias": "Test Deep Nesting",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "and",
+                "conditions": [
+                    {
+                        "condition": "or",
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "sensor.deeply_nested",
+                                "state": "active",
+                            },
+                        ],
+                    },
+                ],
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "sensor.deeply_nested"
+    assert refs[0].expected_state == "active"
+
+
 def test_extract_numeric_state_trigger_with_attribute() -> None:
     """Test numeric_state trigger now extracts attribute for validation."""
     automation = {
@@ -1659,6 +1794,133 @@ def test_extract_service_call_target_entity_id() -> None:
     assert service_refs[0].reference_type == "service_call"
 
 
+def test_extract_service_call_target_device_id() -> None:
+    """Test extraction from service call with target.device_id."""
+    automation = {
+        "id": "toggle_device",
+        "alias": "Toggle Device",
+        "action": [
+            {"service": "homeassistant.toggle", "target": {"device_id": "device_abc"}}
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.entity_id == "device_abc"]
+    assert len(device_refs) == 1
+    assert device_refs[0].location == "action[0].service.device_id"
+    assert device_refs[0].reference_type == "device"
+
+
+def test_extract_service_call_target_area_id() -> None:
+    """Test extraction from service call with target.area_id."""
+    automation = {
+        "id": "toggle_area",
+        "alias": "Toggle Area",
+        "action": [
+            {"service": "homeassistant.turn_off", "target": {"area_id": "kitchen"}}
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    area_refs = [r for r in refs if r.entity_id == "kitchen"]
+    assert len(area_refs) == 1
+    assert area_refs[0].location == "action[0].service.area_id"
+    assert area_refs[0].reference_type == "area"
+
+
+def test_extract_service_call_data_device_and_area_ids() -> None:
+    """Test extraction from service call with data.device_id and data.area_id."""
+    automation = {
+        "id": "notify_scope",
+        "alias": "Notify Scope",
+        "action": [
+            {
+                "service": "notify.notify",
+                "data": {"device_id": "device_xyz", "area_id": "living_room"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.entity_id == "device_xyz"]
+    area_refs = [r for r in refs if r.entity_id == "living_room"]
+    assert len(device_refs) == 1
+    assert device_refs[0].reference_type == "device"
+    assert device_refs[0].location == "action[0].service.device_id"
+    assert len(area_refs) == 1
+    assert area_refs[0].reference_type == "area"
+    assert area_refs[0].location == "action[0].service.area_id"
+
+
+def test_extract_service_call_target_device_id_list() -> None:
+    """Test extraction from service call with target.device_id list."""
+    automation = {
+        "id": "toggle_devices",
+        "alias": "Toggle Devices",
+        "action": [
+            {
+                "service": "homeassistant.toggle",
+                "target": {"device_id": ["device_a", "device_b"]},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.reference_type == "device"]
+    assert len(device_refs) == 2
+    assert {r.entity_id for r in device_refs} == {"device_a", "device_b"}
+
+
+def test_extract_service_call_inline_entity_id() -> None:
+    """Test extraction from service call with inline entity_id."""
+    automation = {
+        "id": "inline_entity",
+        "alias": "Inline Entity",
+        "action": [{"service": "light.turn_on", "entity_id": "light.patio"}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    entity_refs = [r for r in refs if r.entity_id == "light.patio"]
+    assert len(entity_refs) == 1
+    assert entity_refs[0].location == "action[0].service.entity_id"
+    assert entity_refs[0].reference_type == "service_call"
+
+
+def test_extract_service_call_inline_device_and_area_ids() -> None:
+    """Test extraction from service call with inline device_id and area_id."""
+    automation = {
+        "id": "inline_scope",
+        "alias": "Inline Scope",
+        "action": [
+            {
+                "service": "homeassistant.toggle",
+                "device_id": "device_inline",
+                "area_id": "office",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    device_refs = [r for r in refs if r.entity_id == "device_inline"]
+    area_refs = [r for r in refs if r.entity_id == "office"]
+    assert len(device_refs) == 1
+    assert device_refs[0].reference_type == "device"
+    assert len(area_refs) == 1
+    assert area_refs[0].reference_type == "area"
+
+
 def test_extract_service_call_with_none_merged_data() -> None:
     """Test that service call extraction handles None merged_data gracefully.
 
@@ -1687,6 +1949,53 @@ def test_extract_service_call_with_none_merged_data() -> None:
     assert len(refs) == 1
     assert refs[0].entity_id == "light.bedroom"
     assert refs[0].reference_type == "service_call"
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+
+
+def test_extract_service_call_with_string_data_does_not_crash() -> None:
+    """Test that service call extraction tolerates non-dict data payloads."""
+    automation = {
+        "id": "string_data",
+        "alias": "String Data",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "data": "{{ {'entity_id': 'light.bedroom'} }}",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    calls = analyzer.extract_service_calls(automation)
+
+    # Should not crash and should still extract service call metadata
+    assert isinstance(refs, list)
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+
+
+def test_extract_service_call_with_string_target_does_not_crash() -> None:
+    """Test that service call extraction tolerates non-dict target payloads."""
+    automation = {
+        "id": "string_target",
+        "alias": "String Target",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": "{{ {'entity_id': 'light.bedroom'} }}",
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    calls = analyzer.extract_service_calls(automation)
+
+    assert isinstance(refs, list)
     assert len(calls) == 1
     assert calls[0].service == "light.turn_on"
 

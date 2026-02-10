@@ -677,6 +677,20 @@ class AutomationAnalyzer:
                     )
                 )
 
+        elif cond_type in ("and", "or", "not"):
+            nested_conditions = condition.get("conditions", [])
+            if isinstance(nested_conditions, list):
+                for i, nested in enumerate(cast(list[Any], nested_conditions)):
+                    refs.extend(
+                        self._extract_from_condition(
+                            nested,
+                            i,
+                            automation_id,
+                            automation_name,
+                            f"{location_prefix}[{index}].{cond_type}",
+                        )
+                    )
+
         return refs
 
     def _extract_from_template(
@@ -933,13 +947,29 @@ class AutomationAnalyzer:
             )
             return refs  # Shorthand doesn't have additional entity_id
 
+        # Check inline/data/target entity_id
+        entity_ids = self._normalize_states(action.get("entity_id"))
+
         # Check data.entity_id
-        data = action.get("data", {})
-        entity_ids = self._normalize_states(data.get("entity_id"))
+        raw_data = action.get("data", {})
+        data = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+        entity_ids.extend(self._normalize_states(data.get("entity_id")))
 
         # Check target.entity_id (newer syntax)
-        target = action.get("target", {})
+        raw_target = action.get("target", {})
+        target = (
+            cast(dict[str, Any], raw_target) if isinstance(raw_target, dict) else {}
+        )
         entity_ids.extend(self._normalize_states(target.get("entity_id")))
+
+        # Also check service target device_id/area_id in both data and target.
+        # Some services still accept these in data for legacy syntax.
+        device_ids = self._normalize_entity_ids(action.get("device_id"))
+        device_ids.extend(self._normalize_entity_ids(data.get("device_id")))
+        device_ids.extend(self._normalize_entity_ids(target.get("device_id")))
+        area_ids = self._normalize_entity_ids(action.get("area_id"))
+        area_ids.extend(self._normalize_entity_ids(data.get("area_id")))
+        area_ids.extend(self._normalize_entity_ids(target.get("area_id")))
 
         # Determine reference type based on service
         reference_type = "service_call"
@@ -970,6 +1000,52 @@ class AutomationAnalyzer:
                         expected_attribute=None,
                         location=f"action[{index}].service.entity_id",
                         reference_type=reference_type,
+                    )
+                )
+
+        for device_id in device_ids:
+            if "{{" in device_id:
+                refs.extend(
+                    self._extract_from_template(
+                        device_id,
+                        f"action[{index}].data.device_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+            else:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"action[{index}].service.device_id",
+                        reference_type="device",
+                    )
+                )
+
+        for area_id in area_ids:
+            if "{{" in area_id:
+                refs.extend(
+                    self._extract_from_template(
+                        area_id,
+                        f"action[{index}].data.area_id",
+                        automation_id,
+                        automation_name,
+                    )
+                )
+            else:
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=area_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"action[{index}].service.area_id",
+                        reference_type="area",
                     )
                 )
 

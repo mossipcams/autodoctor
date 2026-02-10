@@ -39,6 +39,7 @@ export class AutodoctorCard extends LitElement {
   @state() private _view: "issues" | "suppressions" = "issues";
   @state() private _toastMessage = "";
   @state() private _toastVisible = false;
+  @state() private _cooldownUntil = 0;
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
@@ -46,7 +47,7 @@ export class AutodoctorCard extends LitElement {
   private _toastTimeout?: ReturnType<typeof setTimeout>;
 
   // Cooldown tracking to prevent rapid button clicks
-  private _lastValidationClick = 0;
+  private _cooldownTimeout?: ReturnType<typeof setTimeout>;
   private static readonly CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
 
   public setConfig(config: AutodoctorCardConfig): void {
@@ -97,16 +98,40 @@ export class AutodoctorCard extends LitElement {
     }
   }
 
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this._cooldownTimeout) {
+      clearTimeout(this._cooldownTimeout);
+      this._cooldownTimeout = undefined;
+    }
+    if (this._toastTimeout) {
+      clearTimeout(this._toastTimeout);
+      this._toastTimeout = undefined;
+    }
+  }
+
+  private _startCooldown(): void {
+    this._cooldownUntil = Date.now() + AutodoctorCard.CLICK_COOLDOWN_MS;
+
+    if (this._cooldownTimeout) {
+      clearTimeout(this._cooldownTimeout);
+    }
+    this._cooldownTimeout = setTimeout(() => {
+      this._cooldownUntil = 0;
+      this._cooldownTimeout = undefined;
+    }, AutodoctorCard.CLICK_COOLDOWN_MS + 10);
+  }
+
   private async _runValidation(): Promise<void> {
     // Prevent concurrent runs and enforce cooldown
     const now = Date.now();
     if (
       this._runningValidation ||
-      now - this._lastValidationClick < AutodoctorCard.CLICK_COOLDOWN_MS
+      this._cooldownUntil > now
     ) {
       return;
     }
-    this._lastValidationClick = now;
+    this._startCooldown();
 
     const requestId = ++this._validationRequestId;
     this._runningValidation = true;
@@ -342,8 +367,7 @@ export class AutodoctorCard extends LitElement {
   private _renderFooter(): TemplateResult {
     // Disable button during any async operation or cooldown period
     const isRunning = this._runningValidation || this._loading;
-    const isDisabled =
-      isRunning || Date.now() - this._lastValidationClick < AutodoctorCard.CLICK_COOLDOWN_MS;
+    const isDisabled = isRunning || this._cooldownUntil > Date.now();
 
     return html`
       <div class="footer">

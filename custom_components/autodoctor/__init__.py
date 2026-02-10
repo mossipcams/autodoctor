@@ -265,6 +265,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],
         "validation_last_run": None,
+        "validation_run_stats": {
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+        },
         "entry": entry,
         "debounce_task": None,
         "unsub_reload_listener": None,
@@ -282,6 +286,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data[DOMAIN].get("card_registered"):
         await _async_register_card(hass)
         hass.data[DOMAIN]["card_registered"] = True
+
+    # Load history immediately (handles reload case where HA_STARTED already fired)
+    await knowledge_base.async_load_history()
+    _LOGGER.info("State knowledge base loaded")
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
@@ -421,7 +429,8 @@ async def _async_run_validators(
     """Run all validators on the given automations.
 
     This is the shared validation core used by all three public entry points.
-    Returns a dict with keys: group_issues, group_durations, all_issues, timestamp.
+    Returns a dict with keys: group_issues, group_durations, all_issues, timestamp,
+    analyzed_automations, failed_automations, skip_reasons.
     """
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
@@ -441,6 +450,12 @@ async def _async_run_validators(
         for it in cast(frozenset[IssueType], gdef["issue_types"]):
             issue_type_to_group[it] = gid
 
+    skip_reasons: dict[str, dict[str, int]] = {
+        "templates": {},
+        "services": {},
+        "entity_state": {},
+    }
+
     # --- Templates group timing ---
     t0 = time.monotonic()
     if jinja_validator:
@@ -455,6 +470,11 @@ async def _async_run_validators(
                 group_issues[gid].append(issue)
         except Exception as err:
             _LOGGER.warning("Jinja validation failed: %s", err)
+            skip_reasons["templates"]["validation_exception"] = (
+                skip_reasons["templates"].get("validation_exception", 0) + 1
+            )
+    else:
+        skip_reasons["templates"]["validator_unavailable"] = 1
     group_durations["templates"] = round((time.monotonic() - t0) * 1000)
 
     # --- Services group timing ---
@@ -475,38 +495,62 @@ async def _async_run_validators(
             for issue in service_issues:
                 gid = issue_type_to_group.get(issue.issue_type, "services")
                 group_issues[gid].append(issue)
+
+            if hasattr(service_validator, "get_last_run_stats"):
+                service_stats = cast(
+                    dict[str, Any], service_validator.get_last_run_stats()
+                )
+                skipped = cast(
+                    dict[str, int], service_stats.get("skipped_calls_by_reason", {})
+                )
+                skip_reasons["services"] = {
+                    "total_calls": int(service_stats.get("total_calls", 0)),
+                    **{k: int(v) for k, v in skipped.items()},
+                }
         except Exception as ex:
             _LOGGER.warning("Service validation failed: %s", ex)
+            skip_reasons["services"]["validation_exception"] = (
+                skip_reasons["services"].get("validation_exception", 0) + 1
+            )
+    else:
+        skip_reasons["services"]["validator_unavailable"] = 1
     group_durations["services"] = round((time.monotonic() - t0) * 1000)
 
     # --- Entity & State group timing ---
     t0 = time.monotonic()
+    entity_validator_available = analyzer is not None and validator is not None
     failed_automations = 0
-    for automation in automations:
-        auto_id = automation.get("id", "unknown")
-        auto_name = automation.get("alias", auto_id)
+    total_automations = len(automations)
+    if entity_validator_available:
+        for automation in automations:
+            auto_id = automation.get("id", "unknown")
+            auto_name = automation.get("alias", auto_id)
 
-        try:
-            refs = analyzer.extract_state_references(automation)
-            _LOGGER.debug(
-                "Automation '%s': extracted %d state references",
-                auto_name,
-                len(refs),
-            )
-            issues = validator.validate_all(refs)
-            _LOGGER.debug("Automation '%s': found %d issues", auto_name, len(issues))
-            for issue in issues:
-                gid = issue_type_to_group.get(issue.issue_type, "entity_state")
-                group_issues[gid].append(issue)
-        except Exception as err:
-            failed_automations += 1
-            _LOGGER.warning(
-                "Failed to validate automation '%s' (%s): %s",
-                auto_name,
-                auto_id,
-                err,
-            )
-            continue
+            try:
+                refs = analyzer.extract_state_references(automation)
+                _LOGGER.debug(
+                    "Automation '%s': extracted %d state references",
+                    auto_name,
+                    len(refs),
+                )
+                issues = validator.validate_all(refs)
+                _LOGGER.debug(
+                    "Automation '%s': found %d issues", auto_name, len(issues)
+                )
+                for issue in issues:
+                    gid = issue_type_to_group.get(issue.issue_type, "entity_state")
+                    group_issues[gid].append(issue)
+            except Exception as err:
+                failed_automations += 1
+                _LOGGER.warning(
+                    "Failed to validate automation '%s' (%s): %s",
+                    auto_name,
+                    auto_id,
+                    err,
+                )
+                continue
+    else:
+        skip_reasons["entity_state"]["validator_unavailable"] = 1
     group_durations["entity_state"] = round((time.monotonic() - t0) * 1000)
 
     if failed_automations > 0:
@@ -533,6 +577,11 @@ async def _async_run_validators(
         "group_durations": group_durations,
         "all_issues": all_issues,
         "timestamp": timestamp,
+        "analyzed_automations": (
+            total_automations - failed_automations if entity_validator_available else 0
+        ),
+        "failed_automations": failed_automations,
+        "skip_reasons": skip_reasons,
     }
 
 
@@ -542,7 +591,8 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
     This is THE primary validation entry point. All other validation functions
     route through _async_run_validators which this function also uses.
 
-    Returns dict with keys: group_issues, group_durations, all_issues, timestamp.
+    Returns dict with keys: group_issues, group_durations, all_issues, timestamp,
+    analyzed_automations, failed_automations.
     """
     data = hass.data.get(DOMAIN, {})
     analyzer = data.get("analyzer")
@@ -555,6 +605,9 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
         "group_durations": dict.fromkeys(VALIDATION_GROUP_ORDER, 0),
         "all_issues": [],
         "timestamp": datetime.now(UTC).isoformat(),
+        "analyzed_automations": 0,
+        "failed_automations": 0,
+        "skip_reasons": {"templates": {}, "services": {}, "entity_state": {}},
     }
 
     if not all([analyzer, validator, reporter]):
@@ -589,6 +642,11 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
                     "duration_ms": result["group_durations"][gid],
                 }
                 for gid in VALIDATION_GROUP_ORDER
+            },
+            "validation_run_stats": {
+                "analyzed_automations": result["analyzed_automations"],
+                "failed_automations": result["failed_automations"],
+                "skip_reasons": result.get("skip_reasons", {}),
             },
         }
     )
@@ -634,20 +692,25 @@ async def async_validate_automation(
 
     result = await _async_run_validators(hass, [automation])
 
-    await reporter.async_report_issues(result["all_issues"])
-
-    # Merge single-automation results into global state so WebSocket API
-    # serves up-to-date data.  Replace issues for the re-validated automation
-    # while keeping issues for all other automations intact.
+    # Merge single-automation results with existing issues for OTHER automations
+    # to prevent reporter from clearing their repair entries. Reporter's
+    # _clear_resolved_issues deletes all repairs NOT in the provided list.
     existing_issues: list[ValidationIssue] = data.get("validation_issues", [])
     other_issues = [i for i in existing_issues if i.automation_id != automation_id]
     merged_issues = other_issues + result["all_issues"]
+
+    await reporter.async_report_issues(merged_issues)
 
     hass.data[DOMAIN].update(
         {
             "issues": merged_issues,
             "validation_issues": merged_issues,
             "validation_last_run": result["timestamp"],
+            "validation_run_stats": {
+                "analyzed_automations": result.get("analyzed_automations", 0),
+                "failed_automations": result.get("failed_automations", 0),
+                "skip_reasons": result.get("skip_reasons", {}),
+            },
         }
     )
 

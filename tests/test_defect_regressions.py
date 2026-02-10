@@ -16,6 +16,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor import async_validate_automation
+from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import (
@@ -222,3 +223,38 @@ async def test_entity_cache_recovers_after_error(hass: HomeAssistant) -> None:
     assert engine._entity_cache is not None
     assert "light" in engine._entity_cache
     assert "light.kitchen" in engine._entity_cache["light"]
+
+
+async def test_service_call_device_and_area_targets_identified_end_to_end(
+    hass: HomeAssistant,
+) -> None:
+    """Service-call device/area targets should produce missing-reference issues.
+
+    Regression coverage for issue-identification expansion: references in
+    action target/data must be extracted and validated, not silently missed.
+    """
+    automation = {
+        "id": "test_scope_targets",
+        "alias": "Scope Targets",
+        "action": [
+            {
+                "service": "homeassistant.toggle",
+                "target": {"device_id": "missing_device", "area_id": "missing_area"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    issues = engine.validate_all(refs)
+
+    missing = [i for i in issues if i.issue_type == IssueType.ENTITY_NOT_FOUND]
+    assert len(missing) == 2
+    messages = {i.entity_id: i.message for i in missing}
+    assert "missing_device" in messages
+    assert "missing_area" in messages
+    assert "Device" in messages["missing_device"]
+    assert "Area" in messages["missing_area"]

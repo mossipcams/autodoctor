@@ -65,6 +65,7 @@ class ValidationIssue:
     location: str
     message: str
     issue_type: IssueType | None = None
+    confidence: str = "high"
     suggestion: str | None = None
     valid_states: list[str] = field(default_factory=lambda: list[str]())
 
@@ -97,6 +98,7 @@ class ValidationIssue:
         return {
             "issue_type": self.issue_type.value if self.issue_type else None,
             "severity": self.severity.name.lower(),
+            "confidence": self.confidence,
             "automation_id": self.automation_id,
             "automation_name": self.automation_name,
             "entity_id": self.entity_id,
