@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.18.3](https://github.com/mossipcams/autodoctor/compare/v2.18.2...v2.18.3) (2026-02-10)
+
+
+### Bug Fixes
+
+* **validation:** address PR [#76](https://github.com/mossipcams/autodoctor/issues/76) review issues ([580b1d4](https://github.com/mossipcams/autodoctor/commit/580b1d40677a5e884e0c3308b21cf455c45c2488))
+* **validation:** correct indentation and add early return for missing registry ([5bcce8f](https://github.com/mossipcams/autodoctor/commit/5bcce8f46b06ea1fed8ad05ca3b2706f2bf7607a))
+* **validation:** scope blueprint none sentinel handling by context ([60f6ce5](https://github.com/mossipcams/autodoctor/commit/60f6ce55beb0b54ad03130f7e3feab360e4cd941))
+* **validation:** TDD validation resilience, blueprint sentinels, and cooldown ([8137008](https://github.com/mossipcams/autodoctor/commit/8137008dd0d926a8d8958382ba6b883bbdf120f0))
+
 ## [2.18.2](https://github.com/mossipcams/autodoctor/compare/v2.18.1...v2.18.2) (2026-02-10)
 
 
