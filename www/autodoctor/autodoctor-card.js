@@ -1669,11 +1669,14 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     }
     async firstUpdated() {
         await this._fetchValidation();
+        this._startAutoRefresh();
     }
-    async _fetchValidation() {
+    async _fetchValidation(showLoading = true) {
         // Increment request ID to track this specific request
         const requestId = ++this._validationRequestId;
-        this._loading = true;
+        if (showLoading) {
+            this._loading = true;
+        }
         try {
             this._error = null;
             const data = await this.hass.callWS({
@@ -1692,9 +1695,21 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
             }
         }
         // Only clear loading if this is still the latest request
-        if (requestId === this._validationRequestId) {
+        if (requestId === this._validationRequestId && showLoading) {
             this._loading = false;
         }
+    }
+    _startAutoRefresh() {
+        if (this._autoRefreshTimer) {
+            return;
+        }
+        this._autoRefreshTimer = setInterval(() => {
+            // Skip while a foreground action is in progress.
+            if (this._runningValidation || this._loading || !this.isConnected) {
+                return;
+            }
+            void this._fetchValidation(false);
+        }, AutodoctorCard_1.AUTO_REFRESH_MS);
     }
     disconnectedCallback() {
         super.disconnectedCallback();
@@ -1705,6 +1720,10 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
         if (this._toastTimeout) {
             clearTimeout(this._toastTimeout);
             this._toastTimeout = undefined;
+        }
+        if (this._autoRefreshTimer) {
+            clearInterval(this._autoRefreshTimer);
+            this._autoRefreshTimer = undefined;
         }
     }
     _startCooldown() {
@@ -2019,6 +2038,7 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     }
 };
 AutodoctorCard.CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
+AutodoctorCard.AUTO_REFRESH_MS = 10000; // 10 second background refresh
 __decorate([
     n({ attribute: false })
 ], AutodoctorCard.prototype, "hass", void 0);

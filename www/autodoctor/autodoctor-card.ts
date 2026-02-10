@@ -45,10 +45,12 @@ export class AutodoctorCard extends LitElement {
   private _validationRequestId = 0;
   private _suppressionInProgress = false;
   private _toastTimeout?: ReturnType<typeof setTimeout>;
+  private _autoRefreshTimer?: ReturnType<typeof setInterval>;
 
   // Cooldown tracking to prevent rapid button clicks
   private _cooldownTimeout?: ReturnType<typeof setTimeout>;
   private static readonly CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
+  private static readonly AUTO_REFRESH_MS = 10000; // 10 second background refresh
 
   public setConfig(config: AutodoctorCardConfig): void {
     this.config = config;
@@ -67,12 +69,15 @@ export class AutodoctorCard extends LitElement {
 
   protected async firstUpdated(): Promise<void> {
     await this._fetchValidation();
+    this._startAutoRefresh();
   }
 
-  private async _fetchValidation(): Promise<void> {
+  private async _fetchValidation(showLoading = true): Promise<void> {
     // Increment request ID to track this specific request
     const requestId = ++this._validationRequestId;
-    this._loading = true;
+    if (showLoading) {
+      this._loading = true;
+    }
 
     try {
       this._error = null;
@@ -93,9 +98,23 @@ export class AutodoctorCard extends LitElement {
     }
 
     // Only clear loading if this is still the latest request
-    if (requestId === this._validationRequestId) {
+    if (requestId === this._validationRequestId && showLoading) {
       this._loading = false;
     }
+  }
+
+  private _startAutoRefresh(): void {
+    if (this._autoRefreshTimer) {
+      return;
+    }
+
+    this._autoRefreshTimer = setInterval(() => {
+      // Skip while a foreground action is in progress.
+      if (this._runningValidation || this._loading || !this.isConnected) {
+        return;
+      }
+      void this._fetchValidation(false);
+    }, AutodoctorCard.AUTO_REFRESH_MS);
   }
 
   override disconnectedCallback(): void {
@@ -107,6 +126,10 @@ export class AutodoctorCard extends LitElement {
     if (this._toastTimeout) {
       clearTimeout(this._toastTimeout);
       this._toastTimeout = undefined;
+    }
+    if (this._autoRefreshTimer) {
+      clearInterval(this._autoRefreshTimer);
+      this._autoRefreshTimer = undefined;
     }
   }
 
