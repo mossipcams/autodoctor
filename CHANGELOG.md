@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.0](https://github.com/mossipcams/autodoctor/compare/v2.17.0...v2.18.0) (2026-02-10)
+
+
+### Features
+
+* **validation:** major issue-identification improvements with TDD ([#68](https://github.com/mossipcams/autodoctor/issues/68)) ([60468bd](https://github.com/mossipcams/autodoctor/commit/60468bddb8e9add83b4d5964224c0ba125df7ef4))
+
 ## [2.17.0](https://github.com/mossipcams/autodoctor/compare/v2.16.0...v2.17.0) (2026-02-06)
 
 
