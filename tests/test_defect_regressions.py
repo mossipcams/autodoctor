@@ -260,10 +260,10 @@ async def test_service_call_device_and_area_targets_identified_end_to_end(
     assert "Area" in messages["missing_area"]
 
 
-async def test_blueprint_none_entity_does_not_create_false_positive(
+async def test_blueprint_none_entity_reports_missing(
     hass: HomeAssistant,
 ) -> None:
-    """Blueprint optional entity placeholders ('none') should be ignored.
+    """Blueprint optional entity placeholders ('none') should be validated.
 
     Reproduces a false positive seen with blueprint-generated automations where
     optional entity inputs are rendered as the string "none".
@@ -291,7 +291,7 @@ async def test_blueprint_none_entity_does_not_create_false_positive(
     issues = engine.validate_all(refs)
 
     missing = [i for i in issues if i.issue_type == IssueType.ENTITY_NOT_FOUND]
-    assert not any(i.entity_id == "none" for i in missing)
+    assert any(i.entity_id == "none" for i in missing)
 
 
 async def test_non_blueprint_none_entity_still_reports_missing(

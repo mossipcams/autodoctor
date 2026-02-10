@@ -734,8 +734,8 @@ def test_extract_handles_null_values(
     assert isinstance(refs, list)
 
 
-def test_extract_state_trigger_entity_id_none_placeholder_ignored() -> None:
-    """State trigger entity_id='none' should not create references."""
+def test_extract_state_trigger_entity_id_none_placeholder_kept() -> None:
+    """State trigger entity_id='none' should create references."""
     automation = {
         "id": "none_state_trigger",
         "alias": "None State Trigger",
@@ -747,7 +747,8 @@ def test_extract_state_trigger_entity_id_none_placeholder_ignored() -> None:
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert refs == []
+    assert len(refs) == 1
+    assert refs[0].entity_id == "none"
 
 
 def test_extract_state_trigger_entity_id_none_non_blueprint_kept() -> None:
@@ -766,8 +767,8 @@ def test_extract_state_trigger_entity_id_none_non_blueprint_kept() -> None:
     assert refs[0].entity_id == "none"
 
 
-def test_extract_state_trigger_entity_id_none_blueprint_ignored() -> None:
-    """Blueprint automations should ignore entity_id='none' placeholder."""
+def test_extract_state_trigger_entity_id_none_blueprint_kept() -> None:
+    """Blueprint automations should keep literal entity_id='none'."""
     automation = {
         "id": "none_state_trigger_blueprint",
         "alias": "None State Trigger Blueprint",
@@ -779,7 +780,8 @@ def test_extract_state_trigger_entity_id_none_blueprint_ignored() -> None:
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert refs == []
+    assert len(refs) == 1
+    assert refs[0].entity_id == "none"
 
 
 def test_malformed_trigger_does_not_crash() -> None:
@@ -1969,8 +1971,8 @@ def test_extract_service_call_inline_device_and_area_ids() -> None:
     assert area_refs[0].reference_type == "area"
 
 
-def test_extract_service_call_target_entity_id_none_placeholder_ignored() -> None:
-    """Blueprint 'none' entity placeholders should not produce references."""
+def test_extract_service_call_target_entity_id_none_placeholder_kept() -> None:
+    """Blueprint 'none' entity placeholder should produce references."""
     automation = {
         "id": "none_entity_target",
         "alias": "None Entity Target",
@@ -1981,11 +1983,11 @@ def test_extract_service_call_target_entity_id_none_placeholder_ignored() -> Non
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert not any(r.entity_id == "none" for r in refs)
+    assert any(r.entity_id == "none" for r in refs)
 
 
-def test_extract_service_call_target_device_area_none_placeholders_ignored() -> None:
-    """Blueprint 'none' placeholders for device/area should be ignored."""
+def test_extract_service_call_target_device_area_none_placeholders_kept() -> None:
+    """Blueprint 'none' placeholders for device/area should produce references."""
     automation = {
         "id": "none_scope_target",
         "alias": "None Scope Target",
@@ -2001,7 +2003,8 @@ def test_extract_service_call_target_device_area_none_placeholders_ignored() -> 
     analyzer = AutomationAnalyzer()
     refs = analyzer.extract_state_references(automation)
 
-    assert not any(r.entity_id == "none" for r in refs)
+    none_refs = [r for r in refs if r.entity_id == "none"]
+    assert len(none_refs) == 2
 
 
 def test_extract_service_call_with_none_merged_data() -> None:
