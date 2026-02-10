@@ -24,6 +24,9 @@ from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
     _format_issues_with_fixes,
     async_setup_websocket_api,
+    websocket_fix_apply,
+    websocket_fix_preview,
+    websocket_fix_undo,
     websocket_get_issues,
     websocket_get_validation,
     websocket_get_validation_steps,
@@ -36,7 +39,7 @@ from custom_components.autodoctor.websocket_api import (
 
 @pytest.mark.asyncio
 async def test_websocket_api_setup(hass: HomeAssistant) -> None:
-    """Test that WebSocket API registers all 10 commands.
+    """Test that WebSocket API registers all commands.
 
     Verifies that async_setup_websocket_api registers all available
     WebSocket commands for the Autodoctor integration.
@@ -45,7 +48,7 @@ async def test_websocket_api_setup(hass: HomeAssistant) -> None:
         "homeassistant.components.websocket_api.async_register_command"
     ) as mock_register:
         await async_setup_websocket_api(hass)
-        assert mock_register.call_count == 10
+        assert mock_register.call_count == 13
 
 
 @pytest.mark.asyncio
@@ -786,6 +789,10 @@ def test_format_issues_fix_for_case_mismatch(hass: HomeAssistant) -> None:
     assert result[0]["fix"]["description"] == "Did you mean 'light.living_room'?"
     assert result[0]["fix"]["fix_value"] == "light.living_room"
     assert result[0]["fix"]["confidence"] == 0.9
+    assert result[0]["fix"]["fix_type"] == "replace_value"
+    assert result[0]["fix"]["current_value"] == "light.Living_Room"
+    assert result[0]["fix"]["suggested_value"] == "light.living_room"
+    assert "Case mismatch" in result[0]["fix"]["reason"]
 
 
 @pytest.mark.asyncio
@@ -814,3 +821,186 @@ async def test_websocket_run_validation_steps_reports_failed_automations(
     result = connection.send_result.call_args[0][1]
     assert result["analyzed_automations"] == 4
     assert result["failed_automations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_preview_returns_proposed_change(
+    hass: HomeAssistant,
+) -> None:
+    """Preview returns a concrete change when location resolves."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "test",
+                "alias": "Test Automation",
+                "trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "light.Living_Room",
+                    }
+                ],
+            }
+        ]
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 42,
+        "type": "autodoctor/fix_preview",
+        "automation_id": "automation.test",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    await websocket_fix_preview.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["applicable"] is True
+    assert result["current_value"] == "light.Living_Room"
+    assert result["suggested_value"] == "light.living_room"
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_apply_updates_automation(
+    hass: HomeAssistant,
+) -> None:
+    """Apply mutates the targeted value and re-validates the automation."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "test",
+                "alias": "Test Automation",
+                "trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "light.Living_Room",
+                    }
+                ],
+            }
+        ]
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 99,
+        "type": "autodoctor/fix_apply",
+        "automation_id": "automation.test",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    with patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+        return_value=[],
+    ) as mock_validate:
+        await websocket_fix_apply.__wrapped__(hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["applied"] is True
+    assert (
+        hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
+        == "light.living_room"
+    )
+    mock_validate.assert_awaited_once_with(hass, "automation.test")
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_apply_rejects_unexpected_current_value(
+    hass: HomeAssistant,
+) -> None:
+    """Apply refuses updates when the current value no longer matches."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "test",
+                "alias": "Test Automation",
+                "trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "light.kitchen",
+                    }
+                ],
+            }
+        ]
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_error = MagicMock()
+    msg: dict[str, Any] = {
+        "id": 100,
+        "type": "autodoctor/fix_apply",
+        "automation_id": "automation.test",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    await websocket_fix_apply.__wrapped__(hass, connection, msg)
+
+    connection.send_error.assert_called_once()
+    assert connection.send_error.call_args[0][1] == "fix_not_applicable"
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_undo_reverts_last_applied_fix(
+    hass: HomeAssistant,
+) -> None:
+    """Undo restores previous value from the last applied fix snapshot."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "test",
+                "trigger": [{"entity_id": "light.living_room"}],
+            }
+        ]
+    }
+    hass.data[DOMAIN] = {
+        "last_applied_fix": {
+            "automation_id": "automation.test",
+            "location": "trigger[0].entity_id",
+            "previous_value": "light.Living_Room",
+            "new_value": "light.living_room",
+        }
+    }
+    connection = MagicMock(spec=ActiveConnection)
+
+    with patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+        return_value=[],
+    ) as mock_validate:
+        await websocket_fix_undo.__wrapped__(
+            hass, connection, {"id": 7, "type": "autodoctor/fix_undo"}
+        )
+
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["undone"] is True
+    assert (
+        hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
+        == "light.Living_Room"
+    )
+    assert hass.data[DOMAIN].get("last_applied_fix") is None
+    mock_validate.assert_awaited_once_with(hass, "automation.test")
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_undo_rejects_when_no_snapshot(
+    hass: HomeAssistant,
+) -> None:
+    """Undo fails when there is no stored fix snapshot."""
+    hass.data[DOMAIN] = {}
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_error = MagicMock()
+
+    await websocket_fix_undo.__wrapped__(
+        hass, connection, {"id": 8, "type": "autodoctor/fix_undo"}
+    )
+
+    connection.send_error.assert_called_once()
+    assert connection.send_error.call_args[0][1] == "fix_undo_unavailable"

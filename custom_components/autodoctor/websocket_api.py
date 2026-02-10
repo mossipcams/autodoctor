@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+import re
+from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
@@ -38,6 +39,9 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_get_validation_steps)
     websocket_api.async_register_command(hass, websocket_list_suppressions)
     websocket_api.async_register_command(hass, websocket_unsuppress)
+    websocket_api.async_register_command(hass, websocket_fix_preview)
+    websocket_api.async_register_command(hass, websocket_fix_apply)
+    websocket_api.async_register_command(hass, websocket_fix_undo)
 
 
 def _format_issues_with_fixes(
@@ -71,12 +75,20 @@ def _format_issues_with_fixes(
                     "description": f"Did you mean '{suggestion}'?",
                     "confidence": 0.8,
                     "fix_value": suggestion,
+                    "fix_type": "replace_value",
+                    "current_value": issue.entity_id,
+                    "suggested_value": suggestion,
+                    "reason": "Entity ID is unknown; nearest known entity matched.",
                 }
         elif issue.issue_type == IssueType.ATTRIBUTE_NOT_FOUND and issue.suggestion:
             fix = {
                 "description": f"Did you mean '{issue.suggestion}'?",
                 "confidence": 0.8,
                 "fix_value": issue.suggestion,
+                "fix_type": "replace_value",
+                "current_value": None,
+                "suggested_value": issue.suggestion,
+                "reason": "Attribute name is unknown; closest known attribute matched.",
             }
         elif issue.issue_type == IssueType.INVALID_ATTRIBUTE_VALUE:
             if issue.suggestion:
@@ -87,18 +99,30 @@ def _format_issues_with_fixes(
                     "description": desc,
                     "confidence": 0.8,
                     "fix_value": issue.suggestion,
+                    "fix_type": "replace_value",
+                    "current_value": None,
+                    "suggested_value": issue.suggestion,
+                    "reason": "Provided value is invalid for this attribute.",
                 }
             elif issue.valid_states:
                 fix = {
                     "description": f"Valid values: {', '.join(issue.valid_states)}",
                     "confidence": 0.6,
                     "fix_value": None,
+                    "fix_type": "reference",
+                    "current_value": None,
+                    "suggested_value": None,
+                    "reason": "No exact replacement found; valid values provided.",
                 }
         elif issue.issue_type == IssueType.CASE_MISMATCH and issue.suggestion:
             fix = {
                 "description": f"Did you mean '{issue.suggestion}'?",
                 "confidence": 0.9,
                 "fix_value": issue.suggestion,
+                "fix_type": "replace_value",
+                "current_value": issue.entity_id,
+                "suggested_value": issue.suggestion,
+                "reason": "Case mismatch detected; entity IDs are case-sensitive.",
             }
 
         automation_id = (
@@ -128,6 +152,133 @@ def _get_healthy_count(hass: HomeAssistant, issues: list[ValidationIssue]) -> in
 
     automations_with_issues = len({i.automation_id for i in issues})
     return max(0, total_automations - automations_with_issues)
+
+
+_LOCATION_SEGMENT_RE = re.compile(r"^([a-zA-Z_]+)(?:\[(\d+)\])?$")
+
+
+def _parse_location_path(location: str) -> list[str | int] | None:
+    """Parse location strings like 'trigger[0].entity_id' into path segments."""
+    segments: list[str | int] = []
+    for part in location.split("."):
+        match = _LOCATION_SEGMENT_RE.match(part)
+        if not match:
+            return None
+        key = match.group(1)
+        idx = match.group(2)
+        segments.append(key)
+        if idx is not None:
+            segments.append(int(idx))
+    return segments
+
+
+def _resolve_parent_and_key(
+    root: Any, path: list[str | int]
+) -> tuple[Any, str | int, Any] | None:
+    """Resolve path to parent container and terminal key/index."""
+    if not path:
+        return None
+
+    node: Any = root
+    for segment in path[:-1]:
+        if isinstance(segment, str):
+            if not isinstance(node, dict) or segment not in node:
+                return None
+            node = cast(dict[str, Any], node)[segment]
+        else:
+            if not isinstance(node, list) or segment < 0 or segment >= len(node):
+                return None
+            node = cast(list[Any], node)[segment]
+
+    terminal = path[-1]
+    if isinstance(terminal, str):
+        if not isinstance(node, dict) or terminal not in node:
+            return None
+        dict_node = cast(dict[str, Any], node)
+        return dict_node, terminal, dict_node[terminal]
+
+    if not isinstance(node, list) or terminal < 0 or terminal >= len(node):
+        return None
+    list_node = cast(list[Any], node)
+    return list_node, terminal, list_node[terminal]
+
+
+def _find_automation_config(
+    hass: HomeAssistant, automation_id: str
+) -> dict[str, Any] | None:
+    """Find mutable automation config dict by automation entity_id."""
+    automation_data = hass.data.get("automation")
+    short_id = automation_id.replace("automation.", "", 1)
+
+    if isinstance(automation_data, dict):
+        automation_dict = cast(dict[str, object], automation_data)
+        raw_configs_obj = automation_dict.get("config", [])
+        if isinstance(raw_configs_obj, list):
+            for config_obj in cast(list[object], raw_configs_obj):
+                if isinstance(config_obj, dict) and config_obj.get("id") == short_id:
+                    return cast(dict[str, Any], config_obj)
+        return None
+
+    entities = getattr(automation_data, "entities", None)
+    if entities is not None:
+        for entity in cast(list[Any], entities):
+            raw_config = getattr(entity, "raw_config", None)
+            if isinstance(raw_config, dict) and raw_config.get("id") == short_id:
+                return cast(dict[str, Any], raw_config)
+    return None
+
+
+def _build_fix_preview(
+    hass: HomeAssistant,
+    automation_id: str,
+    location: str,
+    current_value: str | None,
+    suggested_value: str,
+) -> dict[str, Any]:
+    """Build a guarded fix preview payload."""
+    config = _find_automation_config(hass, automation_id)
+    if config is None:
+        return {
+            "applicable": False,
+            "reason": "Automation config not found or not editable.",
+        }
+
+    path = _parse_location_path(location)
+    if path is None:
+        return {"applicable": False, "reason": "Unsupported location format."}
+
+    resolved = _resolve_parent_and_key(config, path)
+    if resolved is None:
+        return {"applicable": False, "reason": "Location does not resolve in config."}
+
+    _, _, live_value = resolved
+    if not isinstance(live_value, str):
+        return {"applicable": False, "reason": "Target value is not a string."}
+
+    if current_value is not None and live_value != current_value:
+        return {
+            "applicable": False,
+            "reason": "Current value mismatch; automation has changed.",
+            "current_value": live_value,
+            "suggested_value": suggested_value,
+        }
+
+    if live_value == suggested_value:
+        return {
+            "applicable": False,
+            "reason": "Suggested value already applied.",
+            "current_value": live_value,
+            "suggested_value": suggested_value,
+        }
+
+    return {
+        "applicable": True,
+        "automation_id": automation_id,
+        "location": location,
+        "current_value": live_value,
+        "suggested_value": suggested_value,
+        "fix_type": "replace_value",
+    }
 
 
 def _compute_group_status(issues: list[ValidationIssue]) -> str:
@@ -604,4 +755,185 @@ async def websocket_unsuppress(
 
     connection.send_result(
         msg["id"], {"success": True, "suppressed_count": suppression_store.count}
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/fix_preview",
+        vol.Required("automation_id"): str,
+        vol.Required("location"): str,
+        vol.Optional("current_value"): vol.Any(str, None),
+        vol.Required("suggested_value"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_fix_preview(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Preview whether a safe scalar replacement can be applied."""
+    preview = _build_fix_preview(
+        hass,
+        msg["automation_id"],
+        msg["location"],
+        msg.get("current_value"),
+        msg["suggested_value"],
+    )
+    connection.send_result(msg["id"], preview)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/fix_apply",
+        vol.Required("automation_id"): str,
+        vol.Required("location"): str,
+        vol.Optional("current_value"): vol.Any(str, None),
+        vol.Required("suggested_value"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_fix_apply(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Apply a guarded scalar replacement to automation config."""
+    preview = _build_fix_preview(
+        hass,
+        msg["automation_id"],
+        msg["location"],
+        msg.get("current_value"),
+        msg["suggested_value"],
+    )
+    if not preview.get("applicable"):
+        connection.send_error(
+            msg["id"], "fix_not_applicable", preview.get("reason", "")
+        )
+        return
+
+    config = _find_automation_config(hass, msg["automation_id"])
+    path = _parse_location_path(msg["location"])
+    if config is None or path is None:
+        connection.send_error(
+            msg["id"], "fix_not_applicable", "Unable to resolve target"
+        )
+        return
+
+    resolved = _resolve_parent_and_key(config, path)
+    if resolved is None:
+        connection.send_error(
+            msg["id"], "fix_not_applicable", "Unable to resolve target"
+        )
+        return
+
+    container, key, previous_value = resolved
+    container[key] = msg["suggested_value"]
+
+    try:
+        from . import async_validate_automation
+
+        await async_validate_automation(hass, msg["automation_id"])
+    except Exception as err:
+        _LOGGER.warning("Post-fix validation failed: %s", err)
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN]["last_applied_fix"] = {
+        "automation_id": msg["automation_id"],
+        "location": msg["location"],
+        "previous_value": previous_value,
+        "new_value": msg["suggested_value"],
+    }
+
+    connection.send_result(
+        msg["id"],
+        {
+            "applied": True,
+            "automation_id": msg["automation_id"],
+            "location": msg["location"],
+            "previous_value": previous_value,
+            "new_value": msg["suggested_value"],
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/fix_undo",
+    }
+)
+@websocket_api.async_response
+async def websocket_fix_undo(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Undo the most recent successful fix application."""
+    data = hass.data.setdefault(DOMAIN, {})
+    snapshot = data.get("last_applied_fix")
+    if not snapshot:
+        connection.send_error(
+            msg["id"], "fix_undo_unavailable", "No applied fix to undo"
+        )
+        return
+
+    automation_id = snapshot.get("automation_id")
+    location = snapshot.get("location")
+    previous_value = snapshot.get("previous_value")
+    new_value = snapshot.get("new_value")
+
+    if (
+        not isinstance(automation_id, str)
+        or not isinstance(location, str)
+        or not isinstance(previous_value, str)
+        or not isinstance(new_value, str)
+    ):
+        connection.send_error(
+            msg["id"], "fix_undo_unavailable", "Invalid undo snapshot"
+        )
+        return
+
+    config = _find_automation_config(hass, automation_id)
+    path = _parse_location_path(location)
+    if config is None or path is None:
+        connection.send_error(
+            msg["id"], "fix_undo_failed", "Unable to resolve undo target"
+        )
+        return
+
+    resolved = _resolve_parent_and_key(config, path)
+    if resolved is None:
+        connection.send_error(
+            msg["id"], "fix_undo_failed", "Unable to resolve undo target"
+        )
+        return
+
+    container, key, live_value = resolved
+    if live_value != new_value:
+        connection.send_error(
+            msg["id"],
+            "fix_undo_failed",
+            "Undo no longer applicable because value has changed.",
+        )
+        return
+
+    container[key] = previous_value
+
+    try:
+        from . import async_validate_automation
+
+        await async_validate_automation(hass, automation_id)
+    except Exception as err:
+        _LOGGER.warning("Post-undo validation failed: %s", err)
+
+    data["last_applied_fix"] = None
+    connection.send_result(
+        msg["id"],
+        {
+            "undone": True,
+            "automation_id": automation_id,
+            "location": location,
+            "restored_value": previous_value,
+        },
     )

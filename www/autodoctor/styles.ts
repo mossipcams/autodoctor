@@ -307,6 +307,65 @@ export const issueGroupStyles = css`
     line-height: 1.4;
   }
 
+  .fix-replacement {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--autodoc-meta-size);
+  }
+
+  .fix-before,
+  .fix-after {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(127, 127, 127, 0.12);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  .fix-after {
+    background: rgba(46, 139, 87, 0.12);
+    color: var(--autodoc-success);
+  }
+
+  .fix-arrow {
+    color: var(--secondary-text-color);
+  }
+
+  .fix-reason {
+    display: block;
+    width: 100%;
+    font-size: var(--autodoc-meta-size);
+    color: var(--secondary-text-color);
+  }
+
+  .fix-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .copy-fix-btn,
+  .apply-fix-btn {
+    border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+    border-radius: 5px;
+    background: transparent;
+    padding: 2px 8px;
+    font-size: var(--autodoc-meta-size);
+    cursor: pointer;
+    color: var(--secondary-text-color);
+    transition: background var(--autodoc-transition-fast);
+  }
+
+  .copy-fix-btn:hover,
+  .apply-fix-btn:hover {
+    background: rgba(var(--rgb-primary-color, 66, 133, 244), 0.08);
+  }
+
+  .apply-fix-btn {
+    color: var(--primary-color);
+    border-color: rgba(var(--rgb-primary-color, 66, 133, 244), 0.4);
+  }
+
   .confidence-pill {
     display: inline-block;
     font-size: var(--autodoc-meta-size);
@@ -456,6 +515,13 @@ export const issueGroupStyles = css`
 
     .fix-suggestion {
       padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-sm);
+      flex-wrap: wrap;
+    }
+
+    .copy-fix-btn,
+    .apply-fix-btn {
+      min-height: 36px;
+      padding: 6px 10px;
     }
   }
 `;
@@ -657,6 +723,23 @@ export const cardLayoutStyles = css`
     opacity: 0.7;
   }
 
+  .undo-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+    border-radius: 6px;
+    background: transparent;
+    color: var(--secondary-text-color);
+    font-size: var(--autodoc-meta-size);
+    cursor: pointer;
+    transition: background var(--autodoc-transition-fast);
+  }
+
+  .undo-btn:hover {
+    background: rgba(var(--rgb-primary-color, 66, 133, 244), 0.08);
+  }
+
   .run-icon {
     font-size: 0.8rem;
   }
@@ -689,6 +772,11 @@ export const cardLayoutStyles = css`
       padding: var(--autodoc-spacing-sm) var(--autodoc-spacing-lg);
       font-size: var(--autodoc-name-size);
       min-height: 44px;
+    }
+
+    .undo-btn {
+      min-height: 44px;
+      font-size: var(--autodoc-issue-size);
     }
 
     .run-icon {
