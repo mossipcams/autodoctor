@@ -13,7 +13,7 @@ You create an automation, it looks correct, but it never fires. No errors in the
 Hours later you discover:
 - You wrote `away` but the person entity uses `not_home`
 - You typed `Armed_Away` but it's actually `armed_away`
-- You have a typo: `binary_sensor.motoin_sensor`
+- You have a typo: `binary_sensor.motion_sensor`
 - A template has a syntax error: `{{ is_state('sensor.temp' }}`
 
 **Autodoctor catches these issues before they waste your time.**
