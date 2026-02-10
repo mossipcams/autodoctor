@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.2](https://github.com/mossipcams/autodoctor/compare/v2.18.1...v2.18.2) (2026-02-10)
+
+
+### Bug Fixes
+
+* **repairs:** restore repairs flow and add invalid-state suggestions ([#74](https://github.com/mossipcams/autodoctor/issues/74)) ([4985560](https://github.com/mossipcams/autodoctor/commit/4985560c8f878933b997a18c81b387e28050675a))
+
 ## [2.18.1](https://github.com/mossipcams/autodoctor/compare/v2.18.0...v2.18.1) (2026-02-10)
 
 
