@@ -734,6 +734,54 @@ def test_extract_handles_null_values(
     assert isinstance(refs, list)
 
 
+def test_extract_state_trigger_entity_id_none_placeholder_ignored() -> None:
+    """State trigger entity_id='none' should not create references."""
+    automation = {
+        "id": "none_state_trigger",
+        "alias": "None State Trigger",
+        "use_blueprint": {"path": "example/test.yaml", "input": {}},
+        "trigger": [{"platform": "state", "entity_id": "none", "to": "on"}],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert refs == []
+
+
+def test_extract_state_trigger_entity_id_none_non_blueprint_kept() -> None:
+    """Non-blueprint automations should keep literal entity_id='none'."""
+    automation = {
+        "id": "none_state_trigger_non_blueprint",
+        "alias": "None State Trigger Non Blueprint",
+        "trigger": [{"platform": "state", "entity_id": "none", "to": "on"}],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "none"
+
+
+def test_extract_state_trigger_entity_id_none_blueprint_ignored() -> None:
+    """Blueprint automations should ignore entity_id='none' placeholder."""
+    automation = {
+        "id": "none_state_trigger_blueprint",
+        "alias": "None State Trigger Blueprint",
+        "use_blueprint": {"path": "example/test.yaml", "input": {}},
+        "trigger": [{"platform": "state", "entity_id": "none", "to": "on"}],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert refs == []
+
+
 def test_malformed_trigger_does_not_crash() -> None:
     """Test that malformed trigger dict doesn't crash extraction."""
     analyzer = AutomationAnalyzer()
@@ -1921,6 +1969,41 @@ def test_extract_service_call_inline_device_and_area_ids() -> None:
     assert area_refs[0].reference_type == "area"
 
 
+def test_extract_service_call_target_entity_id_none_placeholder_ignored() -> None:
+    """Blueprint 'none' entity placeholders should not produce references."""
+    automation = {
+        "id": "none_entity_target",
+        "alias": "None Entity Target",
+        "use_blueprint": {"path": "example/test.yaml", "input": {}},
+        "action": [{"service": "light.turn_on", "target": {"entity_id": "none"}}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert not any(r.entity_id == "none" for r in refs)
+
+
+def test_extract_service_call_target_device_area_none_placeholders_ignored() -> None:
+    """Blueprint 'none' placeholders for device/area should be ignored."""
+    automation = {
+        "id": "none_scope_target",
+        "alias": "None Scope Target",
+        "use_blueprint": {"path": "example/test.yaml", "input": {}},
+        "action": [
+            {
+                "service": "homeassistant.toggle",
+                "target": {"device_id": "none", "area_id": "none"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert not any(r.entity_id == "none" for r in refs)
+
+
 def test_extract_service_call_with_none_merged_data() -> None:
     """Test that service call extraction handles None merged_data gracefully.
 
@@ -1998,6 +2081,37 @@ def test_extract_service_call_with_string_target_does_not_crash() -> None:
     assert isinstance(refs, list)
     assert len(calls) == 1
     assert calls[0].service == "light.turn_on"
+
+
+def test_extract_service_calls_marks_blueprint_instances() -> None:
+    """Service calls from blueprint automations should be marked as blueprint."""
+    automation = {
+        "id": "blueprint_call",
+        "alias": "Blueprint Call",
+        "use_blueprint": {"path": "example/test.yaml", "input": {}},
+        "action": [{"service": "light.turn_on"}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].is_blueprint_instance is True
+
+
+def test_extract_service_calls_non_blueprint_not_marked() -> None:
+    """Service calls from regular automations should not be marked blueprint."""
+    automation = {
+        "id": "regular_call",
+        "alias": "Regular Call",
+        "action": [{"service": "light.turn_on"}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].is_blueprint_instance is False
 
 
 def test_extract_scene_turn_on() -> None:

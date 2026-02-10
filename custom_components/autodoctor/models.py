@@ -125,6 +125,7 @@ class ServiceCall:
     target: dict[str, Any] | None = None
     data: dict[str, Any] | None = None
     is_template: bool = False
+    is_blueprint_instance: bool = False
     source_line: int | None = None
 
 

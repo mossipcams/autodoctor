@@ -258,3 +258,63 @@ async def test_service_call_device_and_area_targets_identified_end_to_end(
     assert "missing_area" in messages
     assert "Device" in messages["missing_device"]
     assert "Area" in messages["missing_area"]
+
+
+async def test_blueprint_none_entity_does_not_create_false_positive(
+    hass: HomeAssistant,
+) -> None:
+    """Blueprint optional entity placeholders ('none') should be ignored.
+
+    Reproduces a false positive seen with blueprint-generated automations where
+    optional entity inputs are rendered as the string "none".
+    """
+    automation = {
+        "id": "weekday_light_alarm_clock",
+        "alias": "Weekday light alarm clock",
+        "use_blueprint": {
+            "path": "sbyx/wake-up-light-alarm-with-sunrise-effect.yaml",
+            "input": {},
+        },
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "none"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    issues = engine.validate_all(refs)
+
+    missing = [i for i in issues if i.issue_type == IssueType.ENTITY_NOT_FOUND]
+    assert not any(i.entity_id == "none" for i in missing)
+
+
+async def test_non_blueprint_none_entity_still_reports_missing(
+    hass: HomeAssistant,
+) -> None:
+    """Literal entity_id='none' in non-blueprint automation remains validated."""
+    automation = {
+        "id": "manual_none_entity",
+        "alias": "Manual None Entity",
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "none"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    kb = StateKnowledgeBase(hass)
+    engine = ValidationEngine(kb)
+    issues = engine.validate_all(refs)
+
+    missing = [i for i in issues if i.issue_type == IssueType.ENTITY_NOT_FOUND]
+    assert any(i.entity_id == "none" for i in missing)
