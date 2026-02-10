@@ -144,6 +144,11 @@ def _is_template_value(value: Any) -> bool:
     return isinstance(value, str) and ("{{" in value or "{%" in value)
 
 
+def _is_blueprint_none_placeholder(value: Any) -> bool:
+    """Check for blueprint optional target placeholder."""
+    return isinstance(value, str) and value.strip().lower() == "none"
+
+
 class ServiceCallValidator:
     """Validates service calls against the Home Assistant service registry."""
 
@@ -955,6 +960,8 @@ class ServiceCallValidator:
             return [], issues
 
         if isinstance(value, str):
+            if call.is_blueprint_instance and _is_blueprint_none_placeholder(value):
+                return [], issues
             return [value], issues
 
         if isinstance(value, list):
@@ -974,7 +981,15 @@ class ServiceCallValidator:
                         issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
                     )
                 )
-            return [v for v in values if isinstance(v, str)], issues
+            return [
+                v
+                for v in values
+                if isinstance(v, str)
+                and (
+                    not call.is_blueprint_instance
+                    or not _is_blueprint_none_placeholder(v)
+                )
+            ], issues
 
         issues.append(
             ValidationIssue(
