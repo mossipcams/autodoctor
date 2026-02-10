@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .const import DOMAIN
 from .models import Severity, ValidationIssue
@@ -14,28 +14,36 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Import issue registry with fallback
+# Import issue registry with fallback.
+# Some HA builds resolve this reliably only via the direct module path.
+has_issue_registry = False
 try:
-    from homeassistant.helpers import (
-        issue_registry as ir,  # pyright: ignore[reportAssignmentType]
-    )
+    import homeassistant.helpers.issue_registry as _ir_module
 
-    HAS_ISSUE_REGISTRY = True
+    ir = cast(Any, _ir_module)
+    has_issue_registry = True
 except ImportError:
-    HAS_ISSUE_REGISTRY = False  # pyright: ignore[reportConstantRedefinition]
+    try:
+        from homeassistant.helpers import issue_registry as _ir_module
 
-    class ir:
-        class IssueSeverity:
-            ERROR = "error"
-            WARNING = "warning"
+        ir = cast(Any, _ir_module)
+        has_issue_registry = True
+    except ImportError:
 
-        @staticmethod
-        def async_create_issue(*args: Any, **kwargs: Any) -> None:
-            pass
+        class _IssueRegistryFallback:
+            class IssueSeverity:
+                ERROR = "error"
+                WARNING = "warning"
 
-        @staticmethod
-        def async_delete_issue(*args: Any, **kwargs: Any) -> None:
-            pass
+            @staticmethod
+            def async_create_issue(*args: Any, **kwargs: Any) -> None:
+                pass
+
+            @staticmethod
+            def async_delete_issue(*args: Any, **kwargs: Any) -> None:
+                pass
+
+        ir = cast(Any, _IssueRegistryFallback)
 
 
 class IssueReporter:
@@ -47,7 +55,7 @@ class IssueReporter:
         # Use frozenset for thread-safe reads from sensors
         self._active_issues: frozenset[str] = frozenset()
         _LOGGER.debug(
-            "IssueReporter initialized, HAS_ISSUE_REGISTRY=%s", HAS_ISSUE_REGISTRY
+            "IssueReporter initialized, has_issue_registry=%s", has_issue_registry
         )
 
     def _automation_issue_id(self, automation_id: str) -> str:
@@ -73,6 +81,11 @@ class IssueReporter:
     async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
         """Report validation issues grouped by automation."""
         _LOGGER.debug("async_report_issues called with %d issues", len(issues))
+        if not has_issue_registry:
+            _LOGGER.warning(
+                "Issue registry unavailable; cannot create Repairs entries for %d issues",
+                len(issues),
+            )
         if not issues:
             _LOGGER.info("Automation validation complete: no issues found")
             return

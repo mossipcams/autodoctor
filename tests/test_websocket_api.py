@@ -769,6 +769,57 @@ def test_format_issues_fix_for_invalid_attribute_value_valid_states_only(
     assert result[0]["fix"]["fix_value"] is None
 
 
+def test_format_issues_fix_for_invalid_state_with_suggestion(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fix is generated for INVALID_STATE with suggestion."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="person.alice",
+        location="trigger[0].to",
+        message="State 'away' is not valid for person.alice",
+        issue_type=IssueType.INVALID_STATE,
+        suggestion="not_home",
+        valid_states=["home", "not_home"],
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["fix_value"] == "not_home"
+    assert "Did you mean 'not_home'?" in result[0]["fix"]["description"]
+    assert "Valid values: home, not_home" in result[0]["fix"]["description"]
+    assert result[0]["fix"]["fix_type"] == "replace_value"
+
+
+def test_format_issues_fix_for_invalid_state_valid_states_only(
+    hass: HomeAssistant,
+) -> None:
+    """Test that fix is generated for INVALID_STATE with valid_states only."""
+    issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="person.alice",
+        location="condition[0].state",
+        message="State 'present' is not valid for person.alice",
+        issue_type=IssueType.INVALID_STATE,
+        suggestion=None,
+        valid_states=["home", "not_home"],
+    )
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert len(result) == 1
+    assert result[0]["fix"] is not None
+    assert result[0]["fix"]["fix_value"] is None
+    assert result[0]["fix"]["fix_type"] == "reference"
+    assert "Valid values: home, not_home" in result[0]["fix"]["description"]
+
+
 def test_format_issues_fix_for_case_mismatch(hass: HomeAssistant) -> None:
     """Test that fix is generated for CASE_MISMATCH with suggestion."""
     issue = ValidationIssue(
