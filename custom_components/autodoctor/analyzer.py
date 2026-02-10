@@ -1197,15 +1197,15 @@ class AutomationAnalyzer:
 
                     for cond_idx, condition in enumerate(conditions):
                         refs.extend(
-                        self._extract_from_condition(
-                            condition,
-                            cond_idx,
-                            automation_id,
-                            automation_name,
-                            f"action[{idx}].choose[{opt_idx}].conditions",
-                            is_blueprint_instance=is_blueprint_instance,
+                            self._extract_from_condition(
+                                condition,
+                                cond_idx,
+                                automation_id,
+                                automation_name,
+                                f"action[{idx}].choose[{opt_idx}].conditions",
+                                is_blueprint_instance=is_blueprint_instance,
+                            )
                         )
-                    )
 
                     # Recurse into sequence
                     opt_sequence = cast(list[Any], option.get("sequence") or [])

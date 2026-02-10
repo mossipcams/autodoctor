@@ -86,6 +86,7 @@ class IssueReporter:
                 "Issue registry unavailable; cannot create Repairs entries for %d issues",
                 len(issues),
             )
+            return
         if not issues:
             _LOGGER.info("Automation validation complete: no issues found")
             return
