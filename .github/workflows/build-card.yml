@@ -9,12 +9,20 @@ on:
       - "www/autodoctor/package-lock.json"
       - "www/autodoctor/rollup.config.js"
       - "www/autodoctor/tsconfig.json"
+  pull_request:
+    branches: [main]
+    paths:
+      - "www/autodoctor/**/*.ts"
+      - "www/autodoctor/package.json"
+      - "www/autodoctor/package-lock.json"
+      - "www/autodoctor/rollup.config.js"
+      - "www/autodoctor/tsconfig.json"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v6
@@ -33,16 +41,10 @@ jobs:
         working-directory: www/autodoctor
         run: npm run build
 
-      - name: Check for changes
-        id: diff
+      - name: Verify built card is committed
         run: |
-          git diff --quiet custom_components/autodoctor/www/autodoctor-card.js || echo "changed=true" >> "$GITHUB_OUTPUT"
-
-      - name: Commit built card
-        if: steps.diff.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add custom_components/autodoctor/www/autodoctor-card.js
-          git commit -m "chore: rebuild autodoctor-card.js"
-          git push
+          if ! git diff --quiet custom_components/autodoctor/www/autodoctor-card.js; then
+            echo "::error::autodoctor-card.js is out of date. Run 'npm run build' in www/autodoctor and commit custom_components/autodoctor/www/autodoctor-card.js."
+            git --no-pager diff --stat custom_components/autodoctor/www/autodoctor-card.js
+            exit 1
+          fi
