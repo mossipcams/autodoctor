@@ -804,18 +804,24 @@ async def websocket_fix_apply(
         msg["suggested_value"],
     )
     if not preview.get("applicable"):
-        connection.send_error(msg["id"], "fix_not_applicable", preview.get("reason", ""))
+        connection.send_error(
+            msg["id"], "fix_not_applicable", preview.get("reason", "")
+        )
         return
 
     config = _find_automation_config(hass, msg["automation_id"])
     path = _parse_location_path(msg["location"])
     if config is None or path is None:
-        connection.send_error(msg["id"], "fix_not_applicable", "Unable to resolve target")
+        connection.send_error(
+            msg["id"], "fix_not_applicable", "Unable to resolve target"
+        )
         return
 
     resolved = _resolve_parent_and_key(config, path)
     if resolved is None:
-        connection.send_error(msg["id"], "fix_not_applicable", "Unable to resolve target")
+        connection.send_error(
+            msg["id"], "fix_not_applicable", "Unable to resolve target"
+        )
         return
 
     container, key, previous_value = resolved
@@ -863,7 +869,9 @@ async def websocket_fix_undo(
     data = hass.data.setdefault(DOMAIN, {})
     snapshot = data.get("last_applied_fix")
     if not snapshot:
-        connection.send_error(msg["id"], "fix_undo_unavailable", "No applied fix to undo")
+        connection.send_error(
+            msg["id"], "fix_undo_unavailable", "No applied fix to undo"
+        )
         return
 
     automation_id = snapshot.get("automation_id")
@@ -877,18 +885,24 @@ async def websocket_fix_undo(
         or not isinstance(previous_value, str)
         or not isinstance(new_value, str)
     ):
-        connection.send_error(msg["id"], "fix_undo_unavailable", "Invalid undo snapshot")
+        connection.send_error(
+            msg["id"], "fix_undo_unavailable", "Invalid undo snapshot"
+        )
         return
 
     config = _find_automation_config(hass, automation_id)
     path = _parse_location_path(location)
     if config is None or path is None:
-        connection.send_error(msg["id"], "fix_undo_failed", "Unable to resolve undo target")
+        connection.send_error(
+            msg["id"], "fix_undo_failed", "Unable to resolve undo target"
+        )
         return
 
     resolved = _resolve_parent_and_key(config, path)
     if resolved is None:
-        connection.send_error(msg["id"], "fix_undo_failed", "Unable to resolve undo target")
+        connection.send_error(
+            msg["id"], "fix_undo_failed", "Unable to resolve undo target"
+        )
         return
 
     container, key, live_value = resolved

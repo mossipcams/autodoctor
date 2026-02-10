@@ -981,7 +981,10 @@ async def test_websocket_fix_undo_reverts_last_applied_fix(
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
     assert result["undone"] is True
-    assert hass.data["automation"]["config"][0]["trigger"][0]["entity_id"] == "light.Living_Room"
+    assert (
+        hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
+        == "light.Living_Room"
+    )
     assert hass.data[DOMAIN].get("last_applied_fix") is None
     mock_validate.assert_awaited_once_with(hass, "automation.test")
 
