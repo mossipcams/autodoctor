@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
@@ -179,26 +179,28 @@ def _resolve_parent_and_key(
     if not path:
         return None
 
-    node = root
+    node: Any = root
     for segment in path[:-1]:
         if isinstance(segment, str):
             if not isinstance(node, dict) or segment not in node:
                 return None
-            node = node[segment]
+            node = cast(dict[str, Any], node)[segment]
         else:
             if not isinstance(node, list) or segment < 0 or segment >= len(node):
                 return None
-            node = node[segment]
+            node = cast(list[Any], node)[segment]
 
     terminal = path[-1]
     if isinstance(terminal, str):
         if not isinstance(node, dict) or terminal not in node:
             return None
-        return node, terminal, node[terminal]
+        dict_node = cast(dict[str, Any], node)
+        return dict_node, terminal, dict_node[terminal]
 
     if not isinstance(node, list) or terminal < 0 or terminal >= len(node):
         return None
-    return node, terminal, node[terminal]
+    list_node = cast(list[Any], node)
+    return list_node, terminal, list_node[terminal]
 
 
 def _find_automation_config(
@@ -209,18 +211,20 @@ def _find_automation_config(
     short_id = automation_id.replace("automation.", "", 1)
 
     if isinstance(automation_data, dict):
-        configs = automation_data.get("config", [])
-        if isinstance(configs, list):
-            for config in configs:
-                if isinstance(config, dict) and config.get("id") == short_id:
-                    return config
+        automation_dict = cast(dict[str, object], automation_data)
+        raw_configs_obj = automation_dict.get("config", [])
+        if isinstance(raw_configs_obj, list):
+            for config_obj in cast(list[object], raw_configs_obj):
+                if isinstance(config_obj, dict) and config_obj.get("id") == short_id:
+                    return cast(dict[str, Any], config_obj)
         return None
 
-    if hasattr(automation_data, "entities"):
-        for entity in automation_data.entities:
+    entities = getattr(automation_data, "entities", None)
+    if entities is not None:
+        for entity in cast(list[Any], entities):
             raw_config = getattr(entity, "raw_config", None)
             if isinstance(raw_config, dict) and raw_config.get("id") == short_id:
-                return raw_config
+                return cast(dict[str, Any], raw_config)
     return None
 
 
