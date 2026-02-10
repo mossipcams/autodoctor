@@ -56,8 +56,41 @@ describe("AutodoctorCard cooldown", () => {
     expect(runBtn.disabled).toBe(false);
 
     await card._runValidation();
-    expect(callWS).toHaveBeenCalledTimes(2);
+    const runStepCalls = callWS.mock.calls.filter(
+      (call: any[]) => call[0]?.type === "autodoctor/validation/run_steps"
+    );
+    expect(runStepCalls).toHaveLength(2);
 
+    card.remove();
+  });
+});
+
+describe("AutodoctorCard undo fix", () => {
+  it("shows undo button and calls websocket undo action", async () => {
+    const card = new AutodoctorCard() as any;
+    card.config = { type: "custom:autodoctor-card" };
+    const callWS = vi.fn().mockImplementation((msg: { type: string }) => {
+      if (msg.type === "autodoctor/fix_undo") {
+        return Promise.resolve({ undone: true });
+      }
+      return Promise.resolve(makeResponse());
+    });
+    card.hass = { callWS };
+    card._loading = false;
+    card._validationData = makeResponse();
+    card._canUndoLastFix = true;
+
+    document.body.appendChild(card);
+    await card.updateComplete;
+
+    const undoBtn = card.shadowRoot?.querySelector(".undo-btn") as HTMLButtonElement;
+    expect(undoBtn).toBeTruthy();
+    undoBtn.click();
+    await Promise.resolve();
+    await card.updateComplete;
+
+    expect(callWS).toHaveBeenCalledWith({ type: "autodoctor/fix_undo" });
+    expect(card._canUndoLastFix).toBe(false);
     card.remove();
   });
 });

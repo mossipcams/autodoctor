@@ -2,7 +2,13 @@ import { LitElement, html, CSSResultGroup, TemplateResult, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 import { autodocTokens, issueGroupStyles } from "./styles.js";
-import { getSuggestionKey, type AutomationGroup, type IssueWithFix, type ValidationIssue } from "./types.js";
+import {
+  getSuggestionKey,
+  type AutomationGroup,
+  type FixSuggestion,
+  type IssueWithFix,
+  type ValidationIssue,
+} from "./types.js";
 
 /**
  * Renders a single automation group with its issues, fix suggestions,
@@ -65,7 +71,33 @@ export class AutodocIssueGroup extends LitElement {
                 <ha-icon class="fix-icon" icon="mdi:lightbulb-on-outline" style="--mdc-icon-size: 16px; color: var(--primary-color);" aria-hidden="true"></ha-icon>
                 <div class="fix-content">
                   <span class="fix-description">${fix.description}</span>
+                  ${this._renderFixReplacement(fix)}
+                  ${fix.reason ? html`<span class="fix-reason">${fix.reason}</span>` : nothing}
                   ${this._renderConfidencePill(fix.confidence)}
+                </div>
+                <div class="fix-actions">
+                  ${fix.suggested_value || fix.fix_value
+                    ? html`
+                        <button
+                          class="copy-fix-btn"
+                          @click=${() => this._copyFixValue(fix)}
+                          aria-label="Copy suggested value"
+                        >
+                          Copy
+                        </button>
+                      `
+                    : nothing}
+                  ${this._canApplyFix(issue, fix)
+                    ? html`
+                        <button
+                          class="apply-fix-btn"
+                          @click=${() => this._dispatchApply(issue, fix)}
+                          aria-label="Apply suggestion"
+                        >
+                          Apply
+                        </button>
+                      `
+                    : nothing}
                 </div>
                 <button
                   class="dismiss-btn"
@@ -78,6 +110,25 @@ export class AutodocIssueGroup extends LitElement {
             `
           : nothing}
       </div>
+    `;
+  }
+
+  private _renderFixReplacement(fix: FixSuggestion): TemplateResult | typeof nothing {
+    if (
+      fix.fix_type !== "replace_value" ||
+      !fix.current_value ||
+      !(fix.suggested_value || fix.fix_value)
+    ) {
+      return nothing;
+    }
+
+    const suggested = fix.suggested_value || fix.fix_value || "";
+    return html`
+      <span class="fix-replacement">
+        <code class="fix-before">${fix.current_value}</code>
+        <span class="fix-arrow" aria-hidden="true">\u2192</span>
+        <code class="fix-after">${suggested}</code>
+      </span>
     `;
   }
 
@@ -113,6 +164,44 @@ export class AutodocIssueGroup extends LitElement {
       })
     );
   }
+
+  private _canApplyFix(issue: ValidationIssue, fix: FixSuggestion): boolean {
+    return (
+      fix.fix_type === "replace_value" &&
+      !!fix.suggested_value &&
+      !!issue.location &&
+      confidenceAtLeast(fix.confidence, 0.8)
+    );
+  }
+
+  private async _copyFixValue(fix: FixSuggestion): Promise<void> {
+    const value = fix.suggested_value || fix.fix_value;
+    if (!value || !navigator.clipboard?.writeText) {
+      return;
+    }
+    await navigator.clipboard.writeText(value);
+    this.dispatchEvent(
+      new CustomEvent("fix-copied", {
+        detail: { value },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _dispatchApply(issue: ValidationIssue, fix: FixSuggestion): void {
+    this.dispatchEvent(
+      new CustomEvent("apply-fix", {
+        detail: { issue, fix },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+}
+
+function confidenceAtLeast(actual: number, min: number): boolean {
+  return typeof actual === "number" && actual >= min;
 }
 
 declare global {

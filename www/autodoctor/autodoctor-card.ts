@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
 import {
+  type FixSuggestion,
   getSuggestionKey,
   type AutodoctorCardConfig,
   type AutomationGroup,
@@ -40,6 +41,7 @@ export class AutodoctorCard extends LitElement {
   @state() private _toastMessage = "";
   @state() private _toastVisible = false;
   @state() private _cooldownUntil = 0;
+  @state() private _canUndoLastFix = false;
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
@@ -289,6 +291,10 @@ export class AutodoctorCard extends LitElement {
                         this._suppressIssue(e.detail.issue)}
                       @dismiss-suggestion=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
                         this._dismissSuggestion(e.detail.issue)}
+                      @fix-copied=${(e: CustomEvent<{ value: string }>) =>
+                        this._showToast(`Copied: ${e.detail.value}`)}
+                      @apply-fix=${(e: CustomEvent<{ issue: ValidationIssue; fix: FixSuggestion }>) =>
+                        this._applyFix(e.detail.issue, e.detail.fix)}
                     ></autodoc-issue-group>
                   `
                 )
@@ -402,6 +408,13 @@ export class AutodoctorCard extends LitElement {
           <span class="run-icon" aria-hidden="true">${isRunning ? "\u21BB" : "\u25B6"}</span>
           <span class="run-text">${isRunning ? "Running..." : isDisabled ? "Please wait..." : "Run Validation"}</span>
         </button>
+        ${this._canUndoLastFix
+          ? html`
+              <button class="undo-btn" @click=${() => this._undoLastFix()}>
+                Undo last fix
+              </button>
+            `
+          : nothing}
         ${this._validationData?.last_run
           ? html` <span class="last-run"
               >Last run: ${this._formatLastRun(this._validationData.last_run)}</span
@@ -477,6 +490,84 @@ export class AutodoctorCard extends LitElement {
     this._toastTimeout = setTimeout(() => {
       this._toastVisible = false;
     }, 3000);
+  }
+
+  private async _applyFix(issue: ValidationIssue, fix: FixSuggestion): Promise<void> {
+    const suggestedValue = fix.suggested_value || fix.fix_value;
+    if (!suggestedValue) {
+      this._showToast("No replacement value available");
+      return;
+    }
+
+    try {
+      const preview = await this.hass.callWS<{
+        applicable: boolean;
+        reason?: string;
+        current_value?: string;
+      }>({
+        type: "autodoctor/fix_preview",
+        automation_id: issue.automation_id,
+        location: issue.location,
+        current_value: fix.current_value ?? null,
+        suggested_value: suggestedValue,
+      });
+
+      if (!preview.applicable) {
+        this._showToast(preview.reason || "Fix no longer applies");
+        return;
+      }
+
+      const fromValue = preview.current_value || fix.current_value || "(current)";
+      const confirmMessage =
+        `Apply fix?\n\n` +
+        `${fromValue} -> ${suggestedValue}\n` +
+        `Automation: ${issue.automation_name}`;
+
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      const result = await this.hass.callWS<{ applied: boolean }>({
+        type: "autodoctor/fix_apply",
+        automation_id: issue.automation_id,
+        location: issue.location,
+        current_value: preview.current_value ?? null,
+        suggested_value: suggestedValue,
+      });
+
+      if (!result.applied) {
+        this._showToast("Fix was not applied");
+        return;
+      }
+
+      this._canUndoLastFix = true;
+      await this._fetchValidation(false);
+      this._showToast("Fix applied");
+    } catch (err) {
+      console.error("Failed to apply fix:", err);
+      this._showToast("Failed to apply fix");
+    }
+  }
+
+  private async _undoLastFix(): Promise<void> {
+    try {
+      const result = await this.hass.callWS<{ undone: boolean }>({
+        type: "autodoctor/fix_undo",
+      });
+
+      if (!result.undone) {
+        this._showToast("Undo was not applied");
+        return;
+      }
+
+      this._canUndoLastFix = false;
+      await this._fetchValidation(false);
+      this._showToast("Fix undone");
+    } catch (err) {
+      console.error("Failed to undo fix:", err);
+      this._showToast("Unable to undo last fix");
+      this._canUndoLastFix = false;
+    }
   }
 
   static get styles(): CSSResultGroup {

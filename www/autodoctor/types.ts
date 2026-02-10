@@ -14,6 +14,10 @@ export interface FixSuggestion {
   description: string;
   confidence: number;
   fix_value: string | null;
+  fix_type?: "replace_value" | "reference";
+  current_value?: string | null;
+  suggested_value?: string | null;
+  reason?: string;
 }
 
 export interface IssueWithFix {
