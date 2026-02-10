@@ -121,10 +121,6 @@ _ACTION_STRUCTURAL_KEYS = frozenset(
 class AutomationAnalyzer:
     """Parses automation configs and extracts all state references."""
 
-    def _is_blueprint_none_placeholder(self, value: str) -> bool:
-        """Return True when value is blueprint's optional-entity sentinel."""
-        return value.strip().lower() == "none"
-
     def _normalize_states(self, value: Any) -> list[str]:
         """Normalize state value(s) to a list of strings.
 
@@ -150,21 +146,7 @@ class AutomationAnalyzer:
         if value is None:
             return []
         if hasattr(value, "__iter__") and not isinstance(value, str):
-            return [
-                str(v)
-                for v in value
-                if isinstance(v, str)
-                and (
-                    not is_blueprint_instance
-                    or not self._is_blueprint_none_placeholder(v)
-                )
-            ]
-        if (
-            is_blueprint_instance
-            and isinstance(value, str)
-            and self._is_blueprint_none_placeholder(value)
-        ):
-            return []
+            return [str(v) for v in value if isinstance(v, str)]
         return [str(value)]
 
     def extract_state_references(

@@ -1250,10 +1250,10 @@ async def test_template_entity_id_skips_validation(hass: HomeAssistant) -> None:
     assert len(target_issues) == 0
 
 
-async def test_none_placeholder_entity_id_skips_target_validation(
+async def test_none_placeholder_entity_id_is_validated_as_missing(
     hass: HomeAssistant,
 ) -> None:
-    """Blueprint entity_id='none' placeholder should not be flagged missing."""
+    """Blueprint entity_id='none' placeholder should be validated as missing."""
 
     async def test_service(call: HAServiceCall) -> None:
         pass
@@ -1278,7 +1278,8 @@ async def test_none_placeholder_entity_id_skips_target_validation(
     target_issues = [
         i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
     ]
-    assert len(target_issues) == 0
+    assert len(target_issues) == 1
+    assert target_issues[0].entity_id == "none"
 
 
 async def test_none_placeholder_entity_id_non_blueprint_is_validated(
