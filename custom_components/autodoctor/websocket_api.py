@@ -114,6 +114,30 @@ def _format_issues_with_fixes(
                     "suggested_value": None,
                     "reason": "No exact replacement found; valid values provided.",
                 }
+        elif issue.issue_type == IssueType.INVALID_STATE:
+            if issue.suggestion:
+                desc = f"Did you mean '{issue.suggestion}'?"
+                if issue.valid_states:
+                    desc += f" Valid values: {', '.join(issue.valid_states)}"
+                fix = {
+                    "description": desc,
+                    "confidence": 0.8,
+                    "fix_value": issue.suggestion,
+                    "fix_type": "replace_value",
+                    "current_value": None,
+                    "suggested_value": issue.suggestion,
+                    "reason": "Provided state is invalid for this entity.",
+                }
+            elif issue.valid_states:
+                fix = {
+                    "description": f"Valid values: {', '.join(issue.valid_states)}",
+                    "confidence": 0.6,
+                    "fix_value": None,
+                    "fix_type": "reference",
+                    "current_value": None,
+                    "suggested_value": None,
+                    "reason": "No exact replacement found; valid states provided.",
+                }
         elif issue.issue_type == IssueType.CASE_MISMATCH and issue.suggestion:
             fix = {
                 "description": f"Did you mean '{issue.suggestion}'?",
