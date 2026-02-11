@@ -660,6 +660,7 @@ async def _async_run_validators(
                 runtime_stats = cast(
                     dict[str, int], runtime_monitor.get_last_run_stats()
                 )
+                _LOGGER.debug("Runtime health stats: %s", runtime_stats)
                 skip_reasons["runtime_health"] = {
                     k: int(v) for k, v in runtime_stats.items()
                 }

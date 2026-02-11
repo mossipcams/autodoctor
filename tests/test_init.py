@@ -1760,6 +1760,10 @@ async def test_run_validators_logs_runtime_health_enabled(
 
     runtime_monitor = MagicMock()
     runtime_monitor.validate_automations = AsyncMock(return_value=[])
+    runtime_monitor.get_last_run_stats.return_value = {
+        "total_automations": 1,
+        "insufficient_warmup": 1,
+    }
 
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
@@ -1779,6 +1783,8 @@ async def test_run_validators_logs_runtime_health_enabled(
     assert any(
         "Runtime health validation: 0 issues found" in msg for msg in caplog.messages
     )
+    assert any("Runtime health stats:" in msg for msg in caplog.messages)
+    assert any("insufficient_warmup" in msg for msg in caplog.messages)
 
 
 @pytest.mark.asyncio
