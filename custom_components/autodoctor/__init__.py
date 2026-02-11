@@ -642,9 +642,17 @@ async def _async_run_validators(
     t0 = time.monotonic()
     runtime_monitor = data.get("runtime_monitor")
     runtime_enabled = bool(data.get("runtime_health_enabled", False))
+    _LOGGER.debug(
+        "Runtime health: enabled=%s, monitor=%s",
+        runtime_enabled,
+        type(runtime_monitor).__name__ if runtime_monitor else None,
+    )
     if runtime_enabled and runtime_monitor:
         try:
             runtime_issues = await runtime_monitor.validate_automations(automations)
+            _LOGGER.debug(
+                "Runtime health validation: %d issues found", len(runtime_issues)
+            )
             for issue in runtime_issues:
                 gid = issue_type_to_group.get(issue.issue_type, "runtime_health")
                 group_issues[gid].append(issue)
@@ -659,8 +667,10 @@ async def _async_run_validators(
             _LOGGER.warning("Runtime health validation failed: %s", err)
             skip_reasons["runtime_health"]["validation_exception"] = 1
     elif runtime_enabled and not runtime_monitor:
+        _LOGGER.debug("Runtime health: enabled but monitor unavailable")
         skip_reasons["runtime_health"]["monitor_unavailable"] = 1
     else:
+        _LOGGER.debug("Runtime health: disabled")
         skip_reasons["runtime_health"]["disabled"] = 1
     group_durations["runtime_health"] = round((time.monotonic() - t0) * 1000)
 
