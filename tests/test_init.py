@@ -12,6 +12,7 @@ Tests cover:
 """
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1722,6 +1723,103 @@ async def test_run_validators_includes_runtime_health_stage(
 
     assert runtime_issue in result["group_issues"]["runtime_health"]
     assert result["all_issues"][-1].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+
+
+@pytest.mark.asyncio
+async def test_run_validators_logs_runtime_health_disabled(
+    grouped_hass: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Runtime health branch should emit debug log when disabled."""
+    from custom_components.autodoctor import _async_run_validators
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    # runtime_health_enabled not set → defaults to False
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"):
+        await _async_run_validators(
+            grouped_hass, [{"id": "test", "alias": "Test"}]
+        )
+
+    assert any(
+        "Runtime health: enabled=False" in msg for msg in caplog.messages
+    )
+    assert any("Runtime health: disabled" in msg for msg in caplog.messages)
+
+
+@pytest.mark.asyncio
+async def test_run_validators_logs_runtime_health_enabled(
+    grouped_hass: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Runtime health branch should emit debug log when enabled and running."""
+    from custom_components.autodoctor import _async_run_validators
+
+    runtime_monitor = MagicMock()
+    runtime_monitor.validate_automations = AsyncMock(return_value=[])
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["runtime_monitor"] = runtime_monitor
+    grouped_hass.data[DOMAIN]["runtime_health_enabled"] = True
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"):
+        await _async_run_validators(
+            grouped_hass, [{"id": "test", "alias": "Test"}]
+        )
+
+    assert any(
+        "Runtime health: enabled=True" in msg for msg in caplog.messages
+    )
+    assert any(
+        "Runtime health validation: 0 issues found" in msg
+        for msg in caplog.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_validators_logs_runtime_health_monitor_unavailable(
+    grouped_hass: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Runtime health branch should log when enabled but monitor is unavailable."""
+    from custom_components.autodoctor import _async_run_validators
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["runtime_health_enabled"] = True
+    # No runtime_monitor set → None
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"):
+        await _async_run_validators(
+            grouped_hass, [{"id": "test", "alias": "Test"}]
+        )
+
+    assert any(
+        "enabled=True" in msg and "monitor=None" in msg for msg in caplog.messages
+    )
+    assert any(
+        "enabled but monitor unavailable" in msg for msg in caplog.messages
+    )
 
 
 @pytest.mark.asyncio
