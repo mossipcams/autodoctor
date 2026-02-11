@@ -488,7 +488,7 @@ async def websocket_run_validation_steps(
         total_suppressed = 0
 
         for gid in VALIDATION_GROUP_ORDER:
-            raw_issues = result["group_issues"][gid]
+            raw_issues = cast(list[ValidationIssue], result["group_issues"].get(gid, []))
             visible, suppressed_count = _filter_suppressed(
                 raw_issues, suppression_store
             )
@@ -510,7 +510,7 @@ async def websocket_run_validation_steps(
                     ),
                     "issue_count": len(visible),
                     "issues": formatted,
-                    "duration_ms": result["group_durations"][gid],
+                    "duration_ms": int(result["group_durations"].get(gid, 0)),
                 }
             )
 
@@ -578,7 +578,8 @@ async def websocket_get_validation_steps(
     else:
         # Apply suppression filtering at READ time (not from cache)
         for gid in VALIDATION_GROUP_ORDER:
-            raw_issues = cached_groups[gid]["issues"]
+            bucket = cast(dict[str, Any], cached_groups.get(gid, {}))
+            raw_issues = cast(list[ValidationIssue], bucket.get("issues", []))
             visible, suppressed_count = _filter_suppressed(
                 raw_issues, suppression_store
             )
@@ -600,7 +601,7 @@ async def websocket_get_validation_steps(
                     ),
                     "issue_count": len(visible),
                     "issues": formatted,
-                    "duration_ms": cached_groups[gid]["duration_ms"],
+                    "duration_ms": int(bucket.get("duration_ms", 0)),
                 }
             )
 

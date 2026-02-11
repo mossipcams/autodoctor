@@ -181,6 +181,7 @@ async def test_validate_all_with_groups_classification(grouped_hass: MagicMock) 
     # Verify service issue classified into services group
     assert service_issue in result["group_issues"]["services"]
     assert service_issue not in result["group_issues"]["entity_state"]
+    assert result["group_issues"]["runtime_health"] == []
 
     # All issues present in flat list
     assert len(result["all_issues"]) == 3
@@ -1590,6 +1591,56 @@ async def test_async_setup_entry_no_reload_listener() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_setup_entry_runtime_monitor_enabled() -> None:
+    """Runtime monitor should be initialized when runtime health is enabled."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {
+        "validate_on_reload": False,
+        "runtime_health_enabled": True,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch("custom_components.autodoctor.RuntimeHealthMonitor") as mock_runtime_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+    assert "runtime_monitor" in hass.data[DOMAIN]
+    assert hass.data[DOMAIN]["runtime_monitor"] is mock_runtime_cls.return_value
+    assert hass.data[DOMAIN]["runtime_health_enabled"] is True
+
+
+@pytest.mark.asyncio
 async def test_register_card_exceptions() -> None:
     """Test card registration exception handling."""
     from custom_components.autodoctor import _async_register_card
@@ -1638,6 +1689,37 @@ async def test_run_validators_exception_isolation() -> None:
     mock_jinja.validate_automations.assert_called_once()
     mock_validator.validate_all.assert_called_once()
     assert result["skip_reasons"]["templates"]["validation_exception"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_validators_includes_runtime_health_stage(
+    grouped_hass: MagicMock,
+) -> None:
+    """Runtime monitor issues should be routed into runtime_health group."""
+    from custom_components.autodoctor import _async_run_validators
+
+    runtime_issue = _make_issue(
+        IssueType.RUNTIME_AUTOMATION_STALLED,
+        Severity.ERROR,
+    )
+    runtime_monitor = MagicMock()
+    runtime_monitor.validate_automations = AsyncMock(return_value=[runtime_issue])
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["runtime_monitor"] = runtime_monitor
+    grouped_hass.data[DOMAIN]["runtime_health_enabled"] = True
+
+    result = await _async_run_validators(
+        grouped_hass, [{"id": "test", "alias": "Test"}]
+    )
+
+    assert runtime_issue in result["group_issues"]["runtime_health"]
+    assert result["all_issues"][-1].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
 
 
 @pytest.mark.asyncio

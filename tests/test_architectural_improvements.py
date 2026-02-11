@@ -14,8 +14,10 @@ import pytest
 import custom_components.autodoctor.websocket_api as ws_mod
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.const import (
+    CONF_RUNTIME_HEALTH_ENABLED,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
+    DEFAULT_RUNTIME_HEALTH_ENABLED,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     MAX_RECURSION_DEPTH,
@@ -93,6 +95,12 @@ def test_strict_config_keys_exist() -> None:
     assert CONF_STRICT_SERVICE_VALIDATION == "strict_service_validation"
     assert DEFAULT_STRICT_TEMPLATE_VALIDATION is False
     assert DEFAULT_STRICT_SERVICE_VALIDATION is False
+
+
+def test_runtime_health_opt_in_config_defaults() -> None:
+    """Guard: Runtime health monitoring must remain opt-in by default."""
+    assert CONF_RUNTIME_HEALTH_ENABLED == "runtime_health_enabled"
+    assert DEFAULT_RUNTIME_HEALTH_ENABLED is False
 
 
 def test_max_recursion_depth_constant() -> None:

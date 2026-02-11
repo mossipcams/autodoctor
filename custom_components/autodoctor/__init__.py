@@ -25,11 +25,23 @@ from .analyzer import AutomationAnalyzer
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    CONF_RUNTIME_HEALTH_BASELINE_DAYS,
+    CONF_RUNTIME_HEALTH_ENABLED,
+    CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+    CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
+    DEFAULT_RUNTIME_HEALTH_ENABLED,
+    DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+    DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
@@ -46,6 +58,7 @@ from .models import (
     ValidationIssue,
 )
 from .reporter import IssueReporter
+from .runtime_monitor import RuntimeHealthMonitor
 from .service_validator import ServiceCallValidator
 from .suppression_store import SuppressionStore
 from .validator import ValidationEngine
@@ -251,6 +264,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     service_validator = ServiceCallValidator(
         hass, strict_service_validation=strict_service
     )
+    runtime_enabled = options.get(
+        CONF_RUNTIME_HEALTH_ENABLED, DEFAULT_RUNTIME_HEALTH_ENABLED
+    )
+    runtime_monitor = (
+        RuntimeHealthMonitor(
+            hass,
+            baseline_days=options.get(
+                CONF_RUNTIME_HEALTH_BASELINE_DAYS,
+                DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
+            ),
+            warmup_samples=options.get(
+                CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
+                DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
+            ),
+            anomaly_threshold=options.get(
+                CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+                DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+            ),
+            min_expected_events=options.get(
+                CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+                DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+            ),
+            overactive_factor=options.get(
+                CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+                DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+            ),
+        )
+        if runtime_enabled
+        else None
+    )
     reporter = IssueReporter(hass)
 
     hass.data[DOMAIN] = {
@@ -259,6 +302,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "validator": validator,
         "jinja_validator": jinja_validator,
         "service_validator": service_validator,
+        "runtime_monitor": runtime_monitor,
+        "runtime_health_enabled": runtime_enabled,
         "reporter": reporter,
         "suppression_store": suppression_store,
         "learned_states_store": learned_states_store,
@@ -454,6 +499,7 @@ async def _async_run_validators(
         "templates": {},
         "services": {},
         "entity_state": {},
+        "runtime_health": {},
     }
 
     # --- Templates group timing ---
@@ -560,6 +606,32 @@ async def _async_run_validators(
             len(automations),
         )
 
+    # --- Runtime health group timing ---
+    t0 = time.monotonic()
+    runtime_monitor = data.get("runtime_monitor")
+    runtime_enabled = bool(data.get("runtime_health_enabled", False))
+    if runtime_enabled and runtime_monitor:
+        try:
+            runtime_issues = await runtime_monitor.validate_automations(automations)
+            for issue in runtime_issues:
+                gid = issue_type_to_group.get(issue.issue_type, "runtime_health")
+                group_issues[gid].append(issue)
+            if hasattr(runtime_monitor, "get_last_run_stats"):
+                runtime_stats = cast(
+                    dict[str, int], runtime_monitor.get_last_run_stats()
+                )
+                skip_reasons["runtime_health"] = {
+                    k: int(v) for k, v in runtime_stats.items()
+                }
+        except Exception as err:
+            _LOGGER.warning("Runtime health validation failed: %s", err)
+            skip_reasons["runtime_health"]["validation_exception"] = 1
+    elif runtime_enabled and not runtime_monitor:
+        skip_reasons["runtime_health"]["monitor_unavailable"] = 1
+    else:
+        skip_reasons["runtime_health"]["disabled"] = 1
+    group_durations["runtime_health"] = round((time.monotonic() - t0) * 1000)
+
     # Combine all issues in canonical group order for flat list
     all_issues: list[ValidationIssue] = []
     for gid in VALIDATION_GROUP_ORDER:
@@ -607,7 +679,12 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
         "timestamp": datetime.now(UTC).isoformat(),
         "analyzed_automations": 0,
         "failed_automations": 0,
-        "skip_reasons": {"templates": {}, "services": {}, "entity_state": {}},
+        "skip_reasons": {
+            "templates": {},
+            "services": {},
+            "entity_state": {},
+            "runtime_health": {},
+        },
     }
 
     if not all([analyzer, validator, reporter]):

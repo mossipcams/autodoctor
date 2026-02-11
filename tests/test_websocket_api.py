@@ -207,7 +207,7 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
     """Test that websocket_run_validation_steps returns grouped validation results.
 
     Verifies the command executes validation and returns results organized by
-    validation group (entity_state, services, templates) with status, counts,
+    validation group (entity_state, services, templates, runtime_health) with status, counts,
     and duration for each group.
     """
     entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
@@ -248,7 +248,7 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
     result = connection.send_result.call_args[0][1]
 
     # Verify groups structure
-    assert len(result["groups"]) == 3
+    assert len(result["groups"]) == 4
 
     # entity_state group
     g0 = result["groups"][0]
@@ -277,6 +277,12 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
     assert g2["warning_count"] == 1
     assert g2["issue_count"] == 1
     assert g2["duration_ms"] == 85
+
+    # runtime group
+    g3 = result["groups"][3]
+    assert g3["id"] == "runtime_health"
+    assert g3["status"] == "pass"
+    assert g3["duration_ms"] == 0
 
     # Verify flat issues and metadata
     assert "issues" in result
@@ -381,7 +387,7 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
 
-    assert len(result["groups"]) == 3
+    assert len(result["groups"]) == 4
     assert result["groups"][0]["id"] == "entity_state"
     assert result["groups"][0]["status"] == "fail"
     assert result["groups"][0]["error_count"] == 1
@@ -389,6 +395,7 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     assert result["groups"][0]["duration_ms"] == 45
     assert result["groups"][1]["status"] == "pass"
     assert result["groups"][2]["status"] == "pass"
+    assert result["groups"][3]["status"] == "pass"
     assert result["last_run"] == "2026-01-30T12:00:00+00:00"
     assert result["suppressed_count"] == 0
 
@@ -413,7 +420,7 @@ async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant) 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
 
-    assert len(result["groups"]) == 3
+    assert len(result["groups"]) == 4
     for group in result["groups"]:
         assert group["status"] == "pass"
         assert group["error_count"] == 0
@@ -872,6 +879,53 @@ async def test_websocket_run_validation_steps_reports_failed_automations(
     result = connection.send_result.call_args[0][1]
     assert result["analyzed_automations"] == 4
     assert result["failed_automations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_websocket_runtime_health_issue_can_be_suppressed(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime health issues should be filtered by existing suppression logic."""
+    runtime_issue = _make_issue(
+        IssueType.RUNTIME_AUTOMATION_STALLED,
+        Severity.ERROR,
+        entity_id="automation.runtime_test",
+    )
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+    }
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/run_steps"}
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all_with_groups",
+        new_callable=AsyncMock,
+        return_value={
+            "group_issues": {
+                "entity_state": [],
+                "services": [],
+                "templates": [],
+                "runtime_health": [runtime_issue],
+            },
+            "group_durations": {
+                "entity_state": 1,
+                "services": 1,
+                "templates": 1,
+                "runtime_health": 5,
+            },
+            "all_issues": [runtime_issue],
+            "timestamp": "2026-02-11T12:00:00+00:00",
+        },
+    ):
+        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    runtime_group = next(g for g in result["groups"] if g["id"] == "runtime_health")
+    assert runtime_group["issue_count"] == 0
+    assert result["suppressed_count"] == 1
 
 
 @pytest.mark.asyncio
