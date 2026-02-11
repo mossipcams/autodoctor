@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.5](https://github.com/mossipcams/autodoctor/compare/v2.18.4...v2.18.5) (2026-02-11)
+
+
+### Bug Fixes
+
+* **runtime-monitor:** use modern HA recorder schema for event queries ([7a61a89](https://github.com/mossipcams/autodoctor/commit/7a61a89cf71b429f41e3ce4d75b3b4f0822bb3aa))
+
 ## [2.18.4](https://github.com/mossipcams/autodoctor/compare/v2.18.3...v2.18.4) (2026-02-11)
 
 
