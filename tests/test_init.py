@@ -1744,13 +1744,9 @@ async def test_run_validators_logs_runtime_health_disabled(
     # runtime_health_enabled not set → defaults to False
 
     with caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"):
-        await _async_run_validators(
-            grouped_hass, [{"id": "test", "alias": "Test"}]
-        )
+        await _async_run_validators(grouped_hass, [{"id": "test", "alias": "Test"}])
 
-    assert any(
-        "Runtime health: enabled=False" in msg for msg in caplog.messages
-    )
+    assert any("Runtime health: enabled=False" in msg for msg in caplog.messages)
     assert any("Runtime health: disabled" in msg for msg in caplog.messages)
 
 
@@ -1777,16 +1773,11 @@ async def test_run_validators_logs_runtime_health_enabled(
     grouped_hass.data[DOMAIN]["runtime_health_enabled"] = True
 
     with caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"):
-        await _async_run_validators(
-            grouped_hass, [{"id": "test", "alias": "Test"}]
-        )
+        await _async_run_validators(grouped_hass, [{"id": "test", "alias": "Test"}])
 
+    assert any("Runtime health: enabled=True" in msg for msg in caplog.messages)
     assert any(
-        "Runtime health: enabled=True" in msg for msg in caplog.messages
-    )
-    assert any(
-        "Runtime health validation: 0 issues found" in msg
-        for msg in caplog.messages
+        "Runtime health validation: 0 issues found" in msg for msg in caplog.messages
     )
 
 
@@ -1810,16 +1801,12 @@ async def test_run_validators_logs_runtime_health_monitor_unavailable(
     # No runtime_monitor set → None
 
     with caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"):
-        await _async_run_validators(
-            grouped_hass, [{"id": "test", "alias": "Test"}]
-        )
+        await _async_run_validators(grouped_hass, [{"id": "test", "alias": "Test"}])
 
     assert any(
         "enabled=True" in msg and "monitor=None" in msg for msg in caplog.messages
     )
-    assert any(
-        "enabled but monitor unavailable" in msg for msg in caplog.messages
-    )
+    assert any("enabled but monitor unavailable" in msg for msg in caplog.messages)
 
 
 @pytest.mark.asyncio
