@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.19.2](https://github.com/mossipcams/autodoctor/compare/v2.19.1...v2.19.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* **lint:** reformat test_init.py for ruff compliance ([8250f1e](https://github.com/mossipcams/autodoctor/commit/8250f1e7661d4ed0b5fae5c4d5c23979c58fd8db))
+* **runtime:** add debug logging to runtime health validation branch ([4b5090e](https://github.com/mossipcams/autodoctor/commit/4b5090eba29ab4371edc58e0b0d83101279e52aa))
+* **runtime:** add debug logging to runtime health validation branch ([0b4c81c](https://github.com/mossipcams/autodoctor/commit/0b4c81c4f6aa9b754646884948119b3c0a6d2c37))
+
 ## [2.19.1](https://github.com/mossipcams/autodoctor/compare/v2.19.0...v2.19.1) (2026-02-11)
 
 
