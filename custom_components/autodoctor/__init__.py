@@ -364,9 +364,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
-    old_enabled = bool(
-        hass.data.get(DOMAIN, {}).get("runtime_health_enabled", False)
-    )
+    old_enabled = bool(hass.data.get(DOMAIN, {}).get("runtime_health_enabled", False))
     new_enabled = bool(
         entry.options.get(CONF_RUNTIME_HEALTH_ENABLED, DEFAULT_RUNTIME_HEALTH_ENABLED)
     )
