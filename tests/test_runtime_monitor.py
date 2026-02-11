@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -202,3 +204,48 @@ def test_river_detector_learns_incrementally() -> None:
         detector.score_current("auto.test", rows_11)
         # Should only learn the 1 new row, not re-learn the original 9
         assert mock_model.learn_one.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_trigger_history_uses_modern_schema(
+    hass: HomeAssistant,
+) -> None:
+    """Recorder query must JOIN event_types and event_data tables (HA 2023.4+ schema)."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    start = now - timedelta(days=30)
+
+    ts1 = (now - timedelta(days=1)).timestamp()
+    mock_rows = [
+        (json.dumps({"entity_id": "automation.test1"}), ts1),
+    ]
+
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session.execute.return_value = mock_rows
+
+    mock_instance = MagicMock()
+    mock_instance.get_session.return_value = mock_session
+
+    monitor = RuntimeHealthMonitor(hass, detector=_FixedScoreDetector(0.0))
+
+    with patch(
+        "homeassistant.components.recorder.get_instance",
+        return_value=mock_instance,
+    ):
+        hass.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
+        result = await monitor._async_fetch_trigger_history(
+            ["automation.test1"], start, now
+        )
+
+    # Verify the query was executed
+    mock_session.execute.assert_called_once()
+    sql_text = str(mock_session.execute.call_args[0][0])
+
+    # Must use modern schema JOINs, not the legacy event_type/event_data columns
+    assert "event_types" in sql_text, "Query must JOIN event_types table"
+    assert "event_data" in sql_text, "Query must JOIN event_data table"
+    assert "shared_data" in sql_text, "Query must select shared_data, not event_data"
+
+    # Verify results are parsed correctly
+    assert len(result["automation.test1"]) == 1
