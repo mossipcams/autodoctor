@@ -17,7 +17,9 @@ class _FixedScoreDetector:
     def __init__(self, score: float) -> None:
         self._score = score
 
-    def score_current(self, automation_id: str, train_rows: list[dict[str, float]]) -> float:
+    def score_current(
+        self, automation_id: str, train_rows: list[dict[str, float]]
+    ) -> float:
         return self._score
 
 
@@ -64,7 +66,9 @@ def _automation(automation_id: str, name: str = "Test Automation") -> dict[str, 
 
 
 @pytest.mark.asyncio
-async def test_runtime_monitor_skips_when_warmup_insufficient(hass: HomeAssistant) -> None:
+async def test_runtime_monitor_skips_when_warmup_insufficient(
+    hass: HomeAssistant,
+) -> None:
     """No issues should be emitted when there is not enough baseline training data."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     history = {
@@ -90,11 +94,7 @@ async def test_runtime_monitor_skips_when_warmup_insufficient(hass: HomeAssistan
 async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> None:
     """Automation with expected activity but no recent triggers should be flagged."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {
-        "runtime_test": [
-            now - timedelta(days=d, hours=2) for d in range(2, 31)
-        ]
-    }
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
     monitor = _TestRuntimeMonitor(
         hass,
         history=history,
@@ -104,7 +104,9 @@ async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> 
         min_expected_events=0,
     )
 
-    issues = await monitor.validate_automations([_automation("runtime_test", "Kitchen Motion")])
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Kitchen Motion")]
+    )
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
     assert issues[0].automation_id == "automation.runtime_test"
@@ -128,7 +130,9 @@ async def test_runtime_monitor_flags_overactive_automation(hass: HomeAssistant) 
         overactive_factor=3.0,
     )
 
-    issues = await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     assert issues[0].automation_id == "automation.runtime_test"
@@ -152,3 +156,49 @@ async def test_runtime_monitor_skips_when_no_baseline_signal(
     issues = await monitor.validate_automations([_automation("runtime_test")])
     assert issues == []
     assert monitor.get_last_run_stats()["insufficient_baseline"] == 1
+
+
+def test_training_and_current_rows_have_same_features() -> None:
+    """Training rows and current row must have identical feature keys."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline_start = now - timedelta(days=30)
+    day_counts = [1] * 30
+
+    train_rows = RuntimeHealthMonitor._build_training_rows(day_counts, baseline_start)
+    current_row = RuntimeHealthMonitor._build_current_row(
+        [now - timedelta(hours=1)], 1.0, now
+    )
+
+    assert set(train_rows[0].keys()) == set(current_row.keys()), (
+        f"Feature mismatch: training={sorted(train_rows[0].keys())} "
+        f"vs current={sorted(current_row.keys())}"
+    )
+
+
+def test_river_detector_learns_incrementally() -> None:
+    """Detector must persist models and only learn new rows on subsequent calls."""
+    from unittest.mock import MagicMock, patch
+
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+
+    detector = _RiverAnomalyDetector()
+    row = {"count_24h": 1.0, "dow_sin": 0.0, "dow_cos": 1.0}
+    rows_10 = [row] * 9 + [{"count_24h": 5.0, "dow_sin": 0.0, "dow_cos": 1.0}]
+
+    mock_model = MagicMock()
+    mock_model.score_one.return_value = 0.5
+
+    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+
+        # First call: should learn 9 training rows (all except the last)
+        detector.score_current("auto.test", rows_10)
+        assert mock_model.learn_one.call_count == 9
+
+        mock_model.learn_one.reset_mock()
+
+        # Second call with 1 extra training row appended before the current row
+        rows_11 = [*rows_10[:-1], row, rows_10[-1]]
+        detector.score_current("auto.test", rows_11)
+        # Should only learn the 1 new row, not re-learn the original 9
+        assert mock_model.learn_one.call_count == 1

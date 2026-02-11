@@ -488,7 +488,9 @@ async def websocket_run_validation_steps(
         total_suppressed = 0
 
         for gid in VALIDATION_GROUP_ORDER:
-            raw_issues = cast(list[ValidationIssue], result["group_issues"].get(gid, []))
+            raw_issues = cast(
+                list[ValidationIssue], result["group_issues"].get(gid, [])
+            )
             visible, suppressed_count = _filter_suppressed(
                 raw_issues, suppression_store
             )

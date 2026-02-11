@@ -8,7 +8,7 @@ import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from statistics import fmean
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from .models import IssueType, Severity, ValidationIssue
 
@@ -16,47 +16,64 @@ _LOGGER = logging.getLogger(__name__)
 
 try:
     from river import anomaly
-
-    _HAS_RIVER = True
 except ImportError:  # pragma: no cover - environment-dependent
     anomaly = None
-    _HAS_RIVER = False
+
+_HAS_RIVER: bool = anomaly is not None
 
 
 class _Detector(Protocol):
     """Anomaly detector interface for runtime monitoring."""
 
-    def score_current(self, automation_id: str, train_rows: list[dict[str, float]]) -> float:
+    def score_current(
+        self, automation_id: str, train_rows: list[dict[str, float]]
+    ) -> float:
         """Train from history rows and return anomaly score for the current row."""
+        ...
 
 
 class _RiverAnomalyDetector:
-    """River-backed detector implementation."""
+    """River-backed detector with watermark-based incremental learning.
+
+    Persists a model per automation and tracks how many training rows
+    have already been learned, so subsequent calls only learn new rows.
+    If the row count shrinks (e.g. sliding window), the model resets.
+    """
 
     def __init__(self) -> None:
         self._models: dict[str, Any] = {}
+        self._watermarks: dict[str, int] = {}
 
-    def _get_model(self, automation_id: str) -> Any:
-        model = self._models.get(automation_id)
-        if model is None:
-            if not _HAS_RIVER:  # pragma: no cover - guarded by constructor call
-                raise RuntimeError("River is unavailable")
-            model = anomaly.HalfSpaceTrees(n_trees=15, height=8, window_size=256, seed=42)
-            self._models[automation_id] = model
-        return model
-
-    def score_current(self, automation_id: str, train_rows: list[dict[str, float]]) -> float:
+    def score_current(
+        self, automation_id: str, train_rows: list[dict[str, float]]
+    ) -> float:
         if len(train_rows) < 2:
             return 0.0
 
-        model = self._get_model(automation_id)
-        for row in train_rows[:-1]:
-            model.learn_one(row)
+        if not _HAS_RIVER:  # pragma: no cover - guarded by constructor call
+            raise RuntimeError("River is unavailable")
 
-        current_row = train_rows[-1]
-        score = float(model.score_one(current_row))
-        model.learn_one(current_row)
-        return score
+        training = train_rows[:-1]
+        watermark = self._watermarks.get(automation_id, 0)
+
+        # Reset if history shrank (sliding window shifted)
+        if watermark > len(training):
+            watermark = 0
+            self._models.pop(automation_id, None)
+
+        model = self._models.get(automation_id)
+        if model is None:
+            assert anomaly is not None  # guaranteed by _HAS_RIVER check above
+            model = anomaly.HalfSpaceTrees(
+                n_trees=15, height=8, window_size=256, seed=42
+            )
+            self._models[automation_id] = model
+
+        for row in training[watermark:]:
+            model.learn_one(row)
+        self._watermarks[automation_id] = len(training)
+
+        return float(model.score_one(train_rows[-1]))
 
 
 class RuntimeHealthMonitor:
@@ -128,9 +145,13 @@ class RuntimeHealthMonitor:
             automation_name = str(automation.get("alias", automation_id))
             timestamps = sorted(history.get(automation_id, []))
 
-            baseline_events = [t for t in timestamps if baseline_start <= t < recent_start]
+            baseline_events = [
+                t for t in timestamps if baseline_start <= t < recent_start
+            ]
             recent_events = [t for t in timestamps if recent_start <= t <= now]
-            day_counts = self._build_daily_counts(baseline_events, baseline_start, recent_start)
+            day_counts = self._build_daily_counts(
+                baseline_events, baseline_start, recent_start
+            )
             expected = fmean(day_counts) if day_counts else 0.0
             active_days = sum(1 for c in day_counts if c > 0)
 
@@ -167,7 +188,10 @@ class RuntimeHealthMonitor:
                 )
                 continue
 
-            if recent_count > expected * self.overactive_factor and score >= self.anomaly_threshold:
+            if (
+                recent_count > expected * self.overactive_factor
+                and score >= self.anomaly_threshold
+            ):
                 stats["overactive_detected"] += 1
                 issues.append(
                     ValidationIssue(
@@ -215,8 +239,6 @@ class RuntimeHealthMonitor:
                     "count_24h": float(count),
                     "dow_sin": math.sin(2 * math.pi * (day_dt.weekday() / 7.0)),
                     "dow_cos": math.cos(2 * math.pi * (day_dt.weekday() / 7.0)),
-                    "hour_sin": math.sin(2 * math.pi * (day_dt.hour / 24.0)),
-                    "hour_cos": math.cos(2 * math.pi * (day_dt.hour / 24.0)),
                 }
             )
         return rows
@@ -229,16 +251,8 @@ class RuntimeHealthMonitor:
     ) -> dict[str, float]:
         return {
             "count_24h": float(len(recent_events)),
-            "expected_24h": float(expected_daily),
-            "ratio": (
-                float(len(recent_events)) / expected_daily
-                if expected_daily > 0
-                else float(len(recent_events))
-            ),
             "dow_sin": math.sin(2 * math.pi * (now.weekday() / 7.0)),
             "dow_cos": math.cos(2 * math.pi * (now.weekday() / 7.0)),
-            "hour_sin": math.sin(2 * math.pi * (now.hour / 24.0)),
-            "hour_cos": math.cos(2 * math.pi * (now.hour / 24.0)),
         }
 
     async def _async_fetch_trigger_history(
@@ -279,15 +293,16 @@ class RuntimeHealthMonitor:
                     if fired_ts is None:
                         continue
                     try:
-                        payload = (
+                        payload = cast(
+                            dict[str, Any],
                             event_data_raw
                             if isinstance(event_data_raw, dict)
-                            else json.loads(event_data_raw or "{}")
+                            else json.loads(event_data_raw or "{}"),
                         )
                     except (TypeError, json.JSONDecodeError):
                         continue
 
-                    entity_id = payload.get("entity_id")
+                    entity_id: str | None = payload.get("entity_id")
                     if entity_id not in results:
                         continue
                     results[entity_id].append(datetime.fromtimestamp(fired_ts, tz=UTC))
@@ -297,6 +312,7 @@ class RuntimeHealthMonitor:
         try:
             return await self.hass.async_add_executor_job(_query)
         except Exception as err:  # pragma: no cover - integration/runtime differences
-            _LOGGER.debug("Failed to query recorder events for runtime monitor: %s", err)
+            _LOGGER.debug(
+                "Failed to query recorder events for runtime monitor: %s", err
+            )
             return {aid: [] for aid in automation_ids}
-

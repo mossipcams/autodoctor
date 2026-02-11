@@ -1708,7 +1708,9 @@ async def test_run_validators_includes_runtime_health_stage(
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["runtime_monitor"] = runtime_monitor
