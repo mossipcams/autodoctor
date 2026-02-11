@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.19.0](https://github.com/mossipcams/autodoctor/compare/v2.18.5...v2.19.0) (2026-02-11)
+
+
+### Features
+
+* **runtime:** auto-install river on restart + notify on enable ([7e1d560](https://github.com/mossipcams/autodoctor/commit/7e1d560caaa433993e9556b8c1eb4cf3d27a64c5))
+* **runtime:** install river and prompt restart on enable ([708ad25](https://github.com/mossipcams/autodoctor/commit/708ad25562184105c0c44a2163f531413857712a))
+
 ## [2.18.5](https://github.com/mossipcams/autodoctor/compare/v2.18.4...v2.18.5) (2026-02-11)
 
 
