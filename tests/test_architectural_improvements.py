@@ -6,6 +6,7 @@ and ensure key architectural decisions remain in place.
 
 import ast
 import asyncio
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -101,6 +102,15 @@ def test_runtime_health_opt_in_config_defaults() -> None:
     """Guard: Runtime health monitoring must remain opt-in by default."""
     assert CONF_RUNTIME_HEALTH_ENABLED == "runtime_health_enabled"
     assert DEFAULT_RUNTIME_HEALTH_ENABLED is False
+
+
+def test_runtime_health_manifest_declares_river_requirement() -> None:
+    """Guard: Runtime health dependency must be installed by HA from manifest."""
+    with open("custom_components/autodoctor/manifest.json", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    requirements = manifest.get("requirements", [])
+    assert any(req.startswith("river") for req in requirements)
 
 
 def test_max_recursion_depth_constant() -> None:
