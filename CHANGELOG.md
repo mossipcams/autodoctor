@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.18.4](https://github.com/mossipcams/autodoctor/compare/v2.18.3...v2.18.4) (2026-02-11)
+
+
+### Bug Fixes
+
+* **runtime-monitor:** align feature schema, add watermark learning, fix formatting ([cf5ad35](https://github.com/mossipcams/autodoctor/commit/cf5ad35a11927f7f3a2e5ac92388f68b31d5448f))
+* **validation:** rollback blueprint none placeholder filtering ([5c71a1a](https://github.com/mossipcams/autodoctor/commit/5c71a1a3290b1cbc76206751ebd0d49a4b26287a))
+
 ## [2.18.3](https://github.com/mossipcams/autodoctor/compare/v2.18.2...v2.18.3) (2026-02-10)
 
 
