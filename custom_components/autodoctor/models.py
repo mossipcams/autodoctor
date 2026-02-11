@@ -36,6 +36,8 @@ class IssueType(StrEnum):
     SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
     SERVICE_UNKNOWN_PARAM = "service_unknown_param"
     SERVICE_TARGET_NOT_FOUND = "service_target_not_found"
+    RUNTIME_AUTOMATION_STALLED = "runtime_automation_stalled"
+    RUNTIME_AUTOMATION_OVERACTIVE = "runtime_automation_overactive"
 
 
 @dataclass
@@ -130,7 +132,7 @@ class ServiceCall:
 
 
 # Validation group definitions: maps group ID to label and member IssueTypes.
-# All 14 IssueType enum members must appear in exactly one group.
+# All IssueType enum members must appear in exactly one group.
 VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
     "entity_state": {
         "label": "Entity & State",
@@ -167,7 +169,21 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
             }
         ),
     },
+    "runtime_health": {
+        "label": "Runtime Health",
+        "issue_types": frozenset(
+            {
+                IssueType.RUNTIME_AUTOMATION_STALLED,
+                IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            }
+        ),
+    },
 }
 
 # Canonical group ordering for response serialization
-VALIDATION_GROUP_ORDER: list[str] = ["entity_state", "services", "templates"]
+VALIDATION_GROUP_ORDER: list[str] = [
+    "entity_state",
+    "services",
+    "templates",
+    "runtime_health",
+]

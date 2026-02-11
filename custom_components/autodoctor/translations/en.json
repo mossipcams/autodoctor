@@ -18,13 +18,25 @@
           "history_days": "History lookback period (days)",
           "staleness_threshold_days": "Staleness warning threshold (days)",
           "validate_on_reload": "Automatically validate when automations are reloaded",
-          "debounce_seconds": "Debounce delay before validation (seconds)"
+          "debounce_seconds": "Debounce delay before validation (seconds)",
+          "runtime_health_enabled": "Enable runtime health monitoring (ML)",
+          "runtime_health_baseline_days": "Runtime baseline history (days)",
+          "runtime_health_warmup_samples": "Runtime warmup samples",
+          "runtime_health_anomaly_threshold": "Runtime anomaly threshold",
+          "runtime_health_min_expected_events": "Runtime minimum expected events/day",
+          "runtime_health_overactive_factor": "Runtime overactive multiplier"
         },
         "data_description": {
           "history_days": "Number of days of state history to analyze",
           "staleness_threshold_days": "Warn if a referenced state hasn't occurred in this many days",
           "validate_on_reload": "Run validation automatically whenever automations are reloaded",
-          "debounce_seconds": "Wait this many seconds after reload before validating (prevents multiple rapid validations)"
+          "debounce_seconds": "Wait this many seconds after reload before validating (prevents multiple rapid validations)",
+          "runtime_health_enabled": "Track automation trigger behavior over time and detect runtime anomalies",
+          "runtime_health_baseline_days": "Days of recorder history used to build runtime behavior baseline",
+          "runtime_health_warmup_samples": "Minimum active baseline days needed before ML anomaly detection starts",
+          "runtime_health_anomaly_threshold": "Score threshold above which River flags behavior as anomalous",
+          "runtime_health_min_expected_events": "Minimum expected daily trigger count needed to evaluate stalling",
+          "runtime_health_overactive_factor": "Recent 24h trigger count multiplier over baseline used to classify overactive anomalies"
         }
       }
     }

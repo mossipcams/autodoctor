@@ -22,6 +22,7 @@ autodoctor/
 │   ├── knowledge_base.py            # Valid state knowledge
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
+│   ├── runtime_monitor.py           # River-based runtime health monitoring
 │   ├── sensor.py                    # Issue count sensor
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── service_validator.py         # Service call validation
@@ -72,6 +73,7 @@ autodoctor/
 - **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types)
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
+- **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection with River (opt-in)
 
 ### Sensors
 - **`sensor.py`** - Active validation issue count

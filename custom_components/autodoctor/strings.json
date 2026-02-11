@@ -18,7 +18,13 @@
           "history_days": "History lookback (days)",
           "staleness_threshold_days": "Staleness warning threshold (days)",
           "validate_on_reload": "Validate on automation reload",
-          "debounce_seconds": "Debounce delay (seconds)"
+          "debounce_seconds": "Debounce delay (seconds)",
+          "runtime_health_enabled": "Enable runtime health monitoring (ML)",
+          "runtime_health_baseline_days": "Runtime baseline history (days)",
+          "runtime_health_warmup_samples": "Runtime warmup samples",
+          "runtime_health_anomaly_threshold": "Runtime anomaly threshold",
+          "runtime_health_min_expected_events": "Runtime min expected events/day",
+          "runtime_health_overactive_factor": "Runtime overactive factor"
         }
       }
     }
