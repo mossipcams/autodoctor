@@ -276,11 +276,15 @@ class RuntimeHealthMonitor:
                 rows = session.execute(
                     text(
                         """
-                        SELECT event_data, time_fired_ts
-                        FROM events
-                        WHERE event_type = 'automation_triggered'
-                        AND time_fired_ts >= :start_ts
-                        AND time_fired_ts <= :end_ts
+                        SELECT ed.shared_data, e.time_fired_ts
+                        FROM events e
+                        INNER JOIN event_types et
+                            ON e.event_type_id = et.event_type_id
+                        INNER JOIN event_data ed
+                            ON e.data_id = ed.data_id
+                        WHERE et.event_type = 'automation_triggered'
+                        AND e.time_fired_ts >= :start_ts
+                        AND e.time_fired_ts <= :end_ts
                         """
                     ),
                     {
@@ -289,15 +293,15 @@ class RuntimeHealthMonitor:
                     },
                 )
 
-                for event_data_raw, fired_ts in rows:
+                for shared_data_raw, fired_ts in rows:
                     if fired_ts is None:
                         continue
                     try:
                         payload = cast(
                             dict[str, Any],
-                            event_data_raw
-                            if isinstance(event_data_raw, dict)
-                            else json.loads(event_data_raw or "{}"),
+                            shared_data_raw
+                            if isinstance(shared_data_raw, dict)
+                            else json.loads(shared_data_raw or "{}"),
                         )
                     except (TypeError, json.JSONDecodeError):
                         continue
