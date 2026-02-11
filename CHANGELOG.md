@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.19.1](https://github.com/mossipcams/autodoctor/compare/v2.19.0...v2.19.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* **lint:** reformat __init__.py for ruff compliance ([cff4685](https://github.com/mossipcams/autodoctor/commit/cff4685a2c0b149bb6d86d16ace91b1dfd386354))
+* **lint:** reformat __init__.py for ruff compliance ([0157bca](https://github.com/mossipcams/autodoctor/commit/0157bca97a9ec784ae5df1e30eee58fef0e68aa7))
+
 ## [2.19.0](https://github.com/mossipcams/autodoctor/compare/v2.18.5...v2.19.0) (2026-02-11)
 
 
