@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.18.5](https://github.com/mossipcams/autodoctor/compare/v2.18.4...v2.18.5) (2026-02-11)
+
+
+### Bug Fixes
+
+* **runtime-monitor:** use modern HA recorder schema for event queries ([7a61a89](https://github.com/mossipcams/autodoctor/commit/7a61a89cf71b429f41e3ce4d75b3b4f0822bb3aa))
+
+## [2.18.4](https://github.com/mossipcams/autodoctor/compare/v2.18.3...v2.18.4) (2026-02-11)
+
+
+### Bug Fixes
+
+* **runtime-monitor:** align feature schema, add watermark learning, fix formatting ([cf5ad35](https://github.com/mossipcams/autodoctor/commit/cf5ad35a11927f7f3a2e5ac92388f68b31d5448f))
+* **validation:** rollback blueprint none placeholder filtering ([5c71a1a](https://github.com/mossipcams/autodoctor/commit/5c71a1a3290b1cbc76206751ebd0d49a4b26287a))
+
 ## [2.18.3](https://github.com/mossipcams/autodoctor/compare/v2.18.2...v2.18.3) (2026-02-10)
 
 
