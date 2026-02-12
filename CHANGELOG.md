@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.1](https://github.com/mossipcams/autodoctor/compare/v2.21.0...v2.21.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* **runtime:** fix HalfSpaceTrees always scoring 0.0 ([daf9669](https://github.com/mossipcams/autodoctor/commit/daf96693c600eba23e40c80d0ca299884f5dfcd1))
+
 ## [2.21.0](https://github.com/mossipcams/autodoctor/compare/v2.20.0...v2.21.0) (2026-02-12)
 
 
