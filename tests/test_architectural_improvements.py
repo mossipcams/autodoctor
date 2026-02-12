@@ -19,6 +19,8 @@ from custom_components.autodoctor.const import (
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
+    DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+    DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     MAX_RECURSION_DEPTH,
@@ -102,6 +104,12 @@ def test_runtime_health_opt_in_config_defaults() -> None:
     """Guard: Runtime health monitoring must remain opt-in by default."""
     assert CONF_RUNTIME_HEALTH_ENABLED == "runtime_health_enabled"
     assert DEFAULT_RUNTIME_HEALTH_ENABLED is False
+
+
+def test_runtime_health_realistic_defaults() -> None:
+    """Guard: warmup and min-events defaults must be realistic for typical setups."""
+    assert DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES == 3
+    assert DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS == 0
 
 
 def test_runtime_health_manifest_declares_river_requirement() -> None:
