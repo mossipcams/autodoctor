@@ -5,11 +5,13 @@
 
 ### Features
 
+* add periodic validation scans with configurable interval ([5645c21](https://github.com/mossipcams/autodoctor/commit/5645c2108df2c4de263061230bc60eb83dadd51a))
 * **runtime:** add extensive debug logging throughout runtime health monitoring ([282740c](https://github.com/mossipcams/autodoctor/commit/282740c3a7944ff430b673057a9a07496a0d7502))
 
 
 ### Bug Fixes
 
+* **lint:** format test_init.py to pass ruff format check ([1bcd699](https://github.com/mossipcams/autodoctor/commit/1bcd69987c4e920cd180709ee7aa9e903040963f))
 * **runtime:** log runtime health stats after validation ([a434e8d](https://github.com/mossipcams/autodoctor/commit/a434e8d46cc91b1c988528c2f62701378c860b41))
 * **runtime:** log runtime health stats after validation ([394465e](https://github.com/mossipcams/autodoctor/commit/394465ed944ed94ba3ed49ffcaa9c0a6976b2bbb))
 
