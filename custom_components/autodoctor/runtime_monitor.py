@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 try:
     from sklearn.ensemble import (  # pyright: ignore[reportMissingImports]
-        IsolationForest,
+        IsolationForest,  # pyright: ignore[reportUnknownVariableType]
     )
 except ImportError:  # pragma: no cover - environment-dependent
     IsolationForest = None
@@ -52,7 +52,9 @@ class _IsolationForestDetector:
             automation_id,
             len(training),
         )
-        model = IsolationForest(n_estimators=100, contamination=0.1, random_state=42)
+        model = IsolationForest(  # pyright: ignore[reportOptionalCall, reportUnknownVariableType]
+            n_estimators=100, contamination=0.1, random_state=42
+        )
         model.fit(x_train)
         raw = float(model.score_samples(x_current)[0])
         score = max(0.0, min(1.0, -raw))
