@@ -2385,3 +2385,105 @@ async def test_validate_automation_preserves_other_repairs(
 
     # Verify hass.data also has the preserved issues
     assert len(grouped_hass.data[DOMAIN]["validation_issues"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_logs_runtime_config_enabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Setup should log runtime monitor config when enabled."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {
+        "validate_on_reload": False,
+        "runtime_health_enabled": True,
+        "runtime_health_baseline_days": 30,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"),
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch("custom_components.autodoctor.RuntimeHealthMonitor"),
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+    assert "Runtime health monitoring enabled" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_logs_runtime_config_disabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Setup should log when runtime health is disabled."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {
+        "validate_on_reload": False,
+        "runtime_health_enabled": False,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"),
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+    assert "Runtime health monitoring disabled" in caplog.text

@@ -4,7 +4,8 @@
   "description": "Lovelace card for Autodoctor automation health",
   "type": "module",
   "scripts": {
-    "build": "rollup -c && cp autodoctor-card.js ../../custom_components/autodoctor/www/",
+    "build": "rollup -c --forceExit && cp autodoctor-card.js ../../custom_components/autodoctor/www/",
+    "build:minified": "AUTODOCTOR_MINIFY=1 rollup -c --forceExit && cp autodoctor-card.js ../../custom_components/autodoctor/www/",
     "watch": "rollup -c --watch",
     "test": "vitest run",
     "test:watch": "vitest",

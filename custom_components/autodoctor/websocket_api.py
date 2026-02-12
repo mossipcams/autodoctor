@@ -528,6 +528,7 @@ async def websocket_run_validation_steps(
                 "suppressed_count": total_suppressed,
                 "analyzed_automations": result.get("analyzed_automations", 0),
                 "failed_automations": result.get("failed_automations", 0),
+                "skip_reasons": result.get("skip_reasons", {}),
             },
         )
     except Exception as err:
@@ -621,6 +622,7 @@ async def websocket_get_validation_steps(
             "suppressed_count": total_suppressed,
             "analyzed_automations": run_stats.get("analyzed_automations", 0),
             "failed_automations": run_stats.get("failed_automations", 0),
+            "skip_reasons": run_stats.get("skip_reasons", {}),
         },
     )
 

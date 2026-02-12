@@ -94,3 +94,23 @@ describe("AutodoctorCard undo fix", () => {
     card.remove();
   });
 });
+
+describe("AutodoctorCard runtime health telemetry", () => {
+  it("uses analyzed_automations in all-healthy subtitle", async () => {
+    const card = makeCard();
+    card._loading = false;
+    card._validationData = {
+      ...makeResponse(),
+      healthy_count: 47,
+      analyzed_automations: 0,
+      last_run: "2026-02-12T10:00:00+00:00",
+    };
+
+    document.body.appendChild(card);
+    await card.updateComplete;
+
+    const subtitle = card.shadowRoot?.querySelector(".healthy-subtitle");
+    expect(subtitle?.textContent).toContain("0 automations analyzed");
+    card.remove();
+  });
+});
