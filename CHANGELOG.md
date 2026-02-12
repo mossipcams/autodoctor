@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.21.0](https://github.com/mossipcams/autodoctor/compare/v2.20.0...v2.21.0) (2026-02-12)
+
+
+### Features
+
+* **runtime:** periodic scans, identity resolution, and realistic defaults ([44e2f45](https://github.com/mossipcams/autodoctor/commit/44e2f45afa7f8262f0c7f5239206144b4063d0b3))
+
+
+### Bug Fixes
+
+* **runtime:** lower warmup and min-events defaults for realistic setups ([2731351](https://github.com/mossipcams/autodoctor/commit/27313518e6d0dac0c75961d55ffc11c62be1ae32))
+
 ## [2.20.0](https://github.com/mossipcams/autodoctor/compare/v2.19.2...v2.20.0) (2026-02-12)
 
 
