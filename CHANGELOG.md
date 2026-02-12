@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.23.2](https://github.com/mossipcams/autodoctor/compare/v2.23.1...v2.23.2) (2026-02-12)
+
+
+### Bug Fixes
+
+* **websocket:** resolve edit links for yaml automations ([288008f](https://github.com/mossipcams/autodoctor/commit/288008f4ecb09a69afac14755b7cdf4517265b41))
+
 ## [2.23.1](https://github.com/mossipcams/autodoctor/compare/v2.23.0...v2.23.1) (2026-02-12)
 
 
