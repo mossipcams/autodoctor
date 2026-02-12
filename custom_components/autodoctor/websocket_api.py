@@ -135,13 +135,10 @@ def _resolve_automation_edit_config_id(
         entity_id = getattr(entity, "entity_id", None)
         if isinstance(config_id, str) and config_id == short_id:
             return config_id
-        if (
-            isinstance(entity_id, str)
-            and entity_id == automation_entity_id
-            and isinstance(config_id, str)
-            and config_id
-        ):
-            return config_id
+        if isinstance(entity_id, str) and entity_id == automation_entity_id:
+            if isinstance(config_id, str) and config_id:
+                return config_id
+            return short_id
 
     return None
 
