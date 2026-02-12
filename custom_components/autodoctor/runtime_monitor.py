@@ -16,7 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 try:
     from pyod.models.ecod import ECOD
 except ImportError:  # pragma: no cover - environment-dependent
-    ECOD = None
+    ECOD = None  # pyright: ignore[reportConstantRedefinition]
 
 _HAS_ECOD: bool = ECOD is not None
 
