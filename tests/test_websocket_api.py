@@ -23,6 +23,7 @@ from custom_components.autodoctor.models import (
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
     _format_issues_with_fixes,
+    _is_automation_editable,
     async_setup_websocket_api,
     websocket_fix_apply,
     websocket_fix_preview,
@@ -1334,3 +1335,12 @@ async def test_websocket_fix_undo_rejects_when_no_snapshot(
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "fix_undo_unavailable"
+
+
+def test_is_automation_editable_returns_false_when_automation_data_missing(
+    hass: HomeAssistant,
+) -> None:
+    """_is_automation_editable should return False when hass.data has no automation key."""
+    hass.data.pop("automation", None)
+
+    assert _is_automation_editable(hass, "automation.test") is False

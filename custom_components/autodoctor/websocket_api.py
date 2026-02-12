@@ -49,11 +49,12 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
 def _is_automation_editable(hass: HomeAssistant, automation_entity_id: str) -> bool:
     """Return whether an automation can be edited via /config/automation/edit/{id}."""
     automation_data = hass.data.get("automation")
-    short_id = automation_entity_id.replace("automation.", "", 1)
 
     # Dict mode is used in tests and some legacy paths.
     if isinstance(automation_data, dict):
-        configs = automation_data.get("config", [])
+        short_id = automation_entity_id.replace("automation.", "", 1)
+        automation_dict = cast(dict[str, Any], automation_data)
+        configs: list[Any] = automation_dict.get("config", [])
         return any(
             isinstance(config, dict) and config.get("id") == short_id
             for config in configs
