@@ -825,6 +825,8 @@ def test_get_automation_configs_entity_component_mode() -> None:
     assert len(result) == 2
     assert result[0]["id"] == "test1"
     assert result[1]["id"] == "test2"
+    assert result[0]["__entity_id"] == "automation.test1"
+    assert result[1]["__entity_id"] == "automation.test2"
 
 
 def test_get_automation_configs_entity_without_raw_config() -> None:

@@ -11,6 +11,9 @@
     }
   },
   "options": {
+    "error": {
+      "warmup_exceeds_baseline": "Runtime warmup samples cannot exceed runtime baseline days."
+    },
     "step": {
       "init": {
         "title": "Autodoctor Options",

@@ -131,6 +131,18 @@ class RuntimeHealthMonitor:
         """Return telemetry from the most recent run."""
         return dict(self._last_run_stats)
 
+    @staticmethod
+    def _resolve_automation_entity_id(automation: dict[str, Any]) -> str | None:
+        """Resolve canonical automation entity_id for runtime history matching."""
+        explicit = automation.get("entity_id") or automation.get("__entity_id")
+        if isinstance(explicit, str) and explicit.startswith("automation."):
+            return explicit
+
+        raw_id = automation.get("id")
+        if isinstance(raw_id, str) and raw_id:
+            return raw_id if raw_id.startswith("automation.") else f"automation.{raw_id}"
+        return None
+
     async def validate_automations(
         self, automations: list[dict[str, Any]]
     ) -> list[ValidationIssue]:
@@ -153,11 +165,14 @@ class RuntimeHealthMonitor:
         now = self._now_factory()
         recent_start = now - timedelta(hours=24)
         baseline_start = recent_start - timedelta(days=self.baseline_days)
-        automation_ids = [
-            f"automation.{a.get('id')}"
-            for a in automations
-            if isinstance(a.get("id"), str) and a.get("id")
-        ]
+        automation_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for automation in automations:
+            automation_entity_id = self._resolve_automation_entity_id(automation)
+            if not automation_entity_id or automation_entity_id in seen_ids:
+                continue
+            automation_ids.append(automation_entity_id)
+            seen_ids.add(automation_entity_id)
         _LOGGER.debug("Extracted %d valid automation IDs", len(automation_ids))
         if not automation_ids:
             _LOGGER.debug("No valid automation IDs to validate")
@@ -174,13 +189,13 @@ class RuntimeHealthMonitor:
 
         issues: list[ValidationIssue] = []
         for automation in automations:
-            raw_id = automation.get("id")
-            if not isinstance(raw_id, str) or not raw_id:
+            automation_entity_id = self._resolve_automation_entity_id(automation)
+            if not automation_entity_id:
+                stats["missing_identity"] += 1
                 continue
 
-            automation_id = f"automation.{raw_id}"
-            automation_name = str(automation.get("alias", automation_id))
-            timestamps = sorted(history.get(automation_id, []))
+            automation_name = str(automation.get("alias", automation_entity_id))
+            timestamps = sorted(history.get(automation_entity_id, []))
 
             baseline_events = [
                 t for t in timestamps if baseline_start <= t < recent_start
@@ -232,7 +247,7 @@ class RuntimeHealthMonitor:
                 expected,
                 len(recent_events),
             )
-            score = self._detector.score_current(automation_id, train_rows)
+            score = self._detector.score_current(automation_entity_id, train_rows)
             _LOGGER.debug(
                 "Automation '%s': anomaly score=%.3f (threshold=%.2f)",
                 automation_name,
@@ -252,9 +267,9 @@ class RuntimeHealthMonitor:
                 issues.append(
                     ValidationIssue(
                         severity=Severity.ERROR,
-                        automation_id=automation_id,
+                        automation_id=automation_entity_id,
                         automation_name=automation_name,
-                        entity_id=automation_id,
+                        entity_id=automation_entity_id,
                         location="runtime.health",
                         message=(
                             f"Automation appears stalled: 0 triggers in last 24h, "
@@ -281,9 +296,9 @@ class RuntimeHealthMonitor:
                 issues.append(
                     ValidationIssue(
                         severity=Severity.WARNING,
-                        automation_id=automation_id,
+                        automation_id=automation_entity_id,
                         automation_name=automation_name,
-                        entity_id=automation_id,
+                        entity_id=automation_entity_id,
                         location="runtime.health",
                         message=(
                             f"Automation trigger rate is abnormally high: {recent_count} "

@@ -133,7 +133,11 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
             )
             # Automation entities store their config in raw_config attribute
             if hasattr(entity, "raw_config") and entity.raw_config is not None:
-                configs.append(entity.raw_config)
+                config = cast(dict[str, Any], dict(entity.raw_config))
+                entity_id = getattr(entity, "entity_id", None)
+                if isinstance(entity_id, str) and entity_id:
+                    config["__entity_id"] = entity_id
+                configs.append(config)
         _LOGGER.debug(
             "EntityComponent mode: %d entities, %d configs extracted",
             entity_count,
