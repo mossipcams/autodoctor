@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
+import threading
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from statistics import fmean
+from functools import partial
+from pathlib import Path
+from statistics import fmean, median
 from typing import Any, Protocol, cast
 
+from .const import DOMAIN
 from .models import IssueType, Severity, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,13 +25,17 @@ except ImportError:  # pragma: no cover - environment-dependent
     anomaly = None
 
 _HAS_RIVER: bool = anomaly is not None
+_TELEMETRY_RETENTION_DAYS = 90
 
 
 class _Detector(Protocol):
     """Anomaly detector interface for runtime monitoring."""
 
     def score_current(
-        self, automation_id: str, train_rows: list[dict[str, float]]
+        self,
+        automation_id: str,
+        train_rows: list[dict[str, float]],
+        window_size: int | None = None,
     ) -> float:
         """Train from history rows and return anomaly score for the current row."""
         ...
@@ -42,9 +52,13 @@ class _RiverAnomalyDetector:
     def __init__(self) -> None:
         self._models: dict[str, Any] = {}
         self._watermarks: dict[str, int] = {}
+        self._window_sizes: dict[str, int] = {}
 
     def score_current(
-        self, automation_id: str, train_rows: list[dict[str, float]]
+        self,
+        automation_id: str,
+        train_rows: list[dict[str, float]],
+        window_size: int | None = None,
     ) -> float:
         if len(train_rows) < 2:
             return 0.0
@@ -53,6 +67,13 @@ class _RiverAnomalyDetector:
             raise RuntimeError("River is unavailable")
 
         training = train_rows[:-1]
+        previous_window_size = self._window_sizes.get(automation_id)
+        if window_size is not None:
+            desired_window_size = window_size
+        elif previous_window_size is not None:
+            desired_window_size = previous_window_size
+        else:
+            desired_window_size = len(training)
         watermark = self._watermarks.get(automation_id, 0)
 
         # Reset if history shrank (sliding window shifted)
@@ -62,13 +83,29 @@ class _RiverAnomalyDetector:
             self._models.pop(automation_id, None)
 
         model = self._models.get(automation_id)
+        if (
+            model is not None
+            and previous_window_size is not None
+            and previous_window_size != desired_window_size
+        ):
+            _LOGGER.debug(
+                "Resetting model for '%s' (window size changed: %d -> %d)",
+                automation_id,
+                previous_window_size,
+                desired_window_size,
+            )
+            model = None
+            watermark = 0
+            self._models.pop(automation_id, None)
+
         if model is None:
             _LOGGER.debug("Creating HalfSpaceTrees model for '%s'", automation_id)
             assert anomaly is not None  # guaranteed by _HAS_RIVER check above
             model = anomaly.HalfSpaceTrees(
-                n_trees=15, height=8, window_size=len(training), seed=42
+                n_trees=15, height=8, window_size=desired_window_size, seed=42
             )
             self._models[automation_id] = model
+            self._window_sizes[automation_id] = desired_window_size
 
         new_rows = training[watermark:]
         if new_rows:
@@ -96,32 +133,66 @@ class RuntimeHealthMonitor:
         hass: Any,
         *,
         baseline_days: int = 30,
+        hour_ratio_days: int = 30,
         warmup_samples: int = 14,
         anomaly_threshold: float = 0.8,
         min_expected_events: int = 1,
         overactive_factor: float = 3.0,
+        stalled_threshold: float | None = None,
+        overactive_threshold: float | None = None,
+        score_ema_samples: int = 5,
+        dismissed_threshold_multiplier: float = 1.25,
+        cold_start_days: int = 7,
+        startup_recovery_minutes: int = 0,
+        telemetry_db_path: str | None = None,
         detector: _Detector | None = None,
         now_factory: Any = None,
     ) -> None:
         self.hass = hass
         self.baseline_days = baseline_days
+        self.hour_ratio_days = max(1, hour_ratio_days)
         self.warmup_samples = warmup_samples
         self.anomaly_threshold = anomaly_threshold
+        self.stalled_threshold = (
+            stalled_threshold if stalled_threshold is not None else anomaly_threshold
+        )
+        self.overactive_threshold = (
+            overactive_threshold
+            if overactive_threshold is not None
+            else anomaly_threshold
+        )
         self.min_expected_events = min_expected_events
         self.overactive_factor = overactive_factor
+        self.score_ema_samples = max(2, score_ema_samples)
+        self._score_ema_alpha = 2.0 / (self.score_ema_samples + 1.0)
+        self.dismissed_threshold_multiplier = max(1.0, dismissed_threshold_multiplier)
+        self.cold_start_days = max(0, cold_start_days)
+        self.startup_recovery_minutes = max(0, startup_recovery_minutes)
         self._detector = detector or (_RiverAnomalyDetector() if _HAS_RIVER else None)
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
+        self._started_at = self._now_factory()
+        self._score_history: dict[str, list[float]] = {}
+        self._telemetry_table_ensured = False
+        self._telemetry_lock = threading.Lock()
+        default_db_path = None
+        if telemetry_db_path:
+            default_db_path = telemetry_db_path
+        elif hasattr(hass, "config") and hasattr(hass.config, "path"):
+            default_db_path = hass.config.path("autodoctor_runtime_health.sqlite")
+        self._telemetry_db_path = default_db_path
         self._last_run_stats: dict[str, int] = {}
         self._last_query_failed = False
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
+            "hour_ratio_days=%d, "
             "river_available=%s, detector=%s",
             baseline_days,
             warmup_samples,
             anomaly_threshold,
             min_expected_events,
             overactive_factor,
+            self.hour_ratio_days,
             _HAS_RIVER,
             type(self._detector).__name__ if self._detector else None,
         )
@@ -164,6 +235,15 @@ class RuntimeHealthMonitor:
             return []
 
         now = self._now_factory()
+        recovery_cutoff = self._started_at + timedelta(
+            minutes=self.startup_recovery_minutes
+        )
+        if now < recovery_cutoff:
+            stats["startup_recovery"] = len(automations)
+            self._last_run_stats = dict(stats)
+            _LOGGER.debug("Runtime health in startup recovery window, skipping scoring")
+            return []
+
         recent_start = now - timedelta(hours=24)
         baseline_start = recent_start - timedelta(days=self.baseline_days)
         automation_ids: list[str] = []
@@ -189,6 +269,12 @@ class RuntimeHealthMonitor:
             stats["recorder_query_failed"] = 1
 
         issues: list[ValidationIssue] = []
+        all_events_by_automation = history
+        domain_data: dict[str, Any] = (
+            self.hass.data.get(DOMAIN, {}) if hasattr(self.hass, "data") else {}
+        )
+        suppression_store: Any = domain_data.get("suppression_store")
+        bucket_index = self._build_5m_bucket_index(all_events_by_automation)
         for automation in automations:
             automation_entity_id = self._resolve_automation_entity_id(automation)
             if not automation_entity_id:
@@ -226,6 +312,18 @@ class RuntimeHealthMonitor:
                 stats["insufficient_warmup"] += 1
                 continue
 
+            if timestamps and (now - timestamps[0]) < timedelta(
+                days=self.cold_start_days
+            ):
+                _LOGGER.debug(
+                    "Automation '%s': skipped (cold start: %.1f days < %d required)",
+                    automation_name,
+                    (now - timestamps[0]).total_seconds() / 86400,
+                    self.cold_start_days,
+                )
+                stats["cold_start"] += 1
+                continue
+
             if expected < float(self.min_expected_events):
                 _LOGGER.debug(
                     "Automation '%s': skipped (insufficient baseline: "
@@ -237,9 +335,40 @@ class RuntimeHealthMonitor:
                 stats["insufficient_baseline"] += 1
                 continue
 
-            train_rows = self._build_training_rows(day_counts, baseline_start, expected)
-            current_row = self._build_current_row(recent_events, expected, now)
+            median_gap = self._median_gap_minutes(baseline_events)
+            train_rows = self._build_training_rows_from_events(
+                automation_id=automation_entity_id,
+                baseline_events=baseline_events,
+                baseline_start=baseline_start,
+                baseline_end=recent_start,
+                expected_daily=expected,
+                all_events_by_automation=all_events_by_automation,
+                cold_start_days=self.cold_start_days,
+                hour_ratio_days=self.hour_ratio_days,
+                median_gap_override=median_gap,
+                bucket_index=bucket_index,
+            )
+            current_row = self._build_feature_row(
+                automation_id=automation_entity_id,
+                now=now,
+                automation_events=timestamps,
+                baseline_events=baseline_events,
+                expected_daily=expected,
+                all_events_by_automation=all_events_by_automation,
+                hour_ratio_days=self.hour_ratio_days,
+                median_gap_override=median_gap,
+                bucket_index=bucket_index,
+            )
             train_rows.append(current_row)
+            if len(train_rows) < 2:
+                _LOGGER.debug(
+                    "Automation '%s': skipped (insufficient training rows: %d)",
+                    automation_name,
+                    len(train_rows),
+                )
+                stats["insufficient_training_rows"] += 1
+                continue
+            window_size = self._compute_window_size(expected)
             _LOGGER.debug(
                 "Automation '%s': scoring with %d training rows, "
                 "expected %.1f/day, recent %d events",
@@ -248,21 +377,41 @@ class RuntimeHealthMonitor:
                 expected,
                 len(recent_events),
             )
-            score = self._detector.score_current(automation_entity_id, train_rows)
+            score = self._score_current(
+                automation_entity_id, train_rows, window_size=window_size
+            )
+            smoothed_score = self._smoothed_score(automation_entity_id, score)
+            telemetry_ok = await self.hass.async_add_executor_job(
+                partial(
+                    self._log_score_telemetry,
+                    automation_id=automation_entity_id,
+                    score=smoothed_score,
+                    now=now,
+                    features=current_row,
+                )
+            )
+            if not telemetry_ok:
+                stats["telemetry_write_failed"] += 1
             _LOGGER.debug(
-                "Automation '%s': anomaly score=%.3f (threshold=%.2f)",
+                "Automation '%s': anomaly score=%.3f ema=%.3f",
                 automation_name,
                 score,
-                self.anomaly_threshold,
+                smoothed_score,
             )
 
             recent_count = len(recent_events)
-            if recent_count == 0 and score >= self.anomaly_threshold:
+            threshold_multiplier = self._dismissed_multiplier(
+                automation_entity_id, suppression_store=suppression_store
+            )
+            stalled_threshold = self.stalled_threshold * threshold_multiplier
+            overactive_threshold = self.overactive_threshold * threshold_multiplier
+
+            if recent_count == 0 and smoothed_score >= stalled_threshold:
                 _LOGGER.info(
                     "Stalled: '%s' - 0 triggers in 24h, baseline %.1f/day, score %.2f",
                     automation_name,
                     expected,
-                    score,
+                    smoothed_score,
                 )
                 stats["stalled_detected"] += 1
                 issues.append(
@@ -274,7 +423,8 @@ class RuntimeHealthMonitor:
                         location="runtime.health",
                         message=(
                             f"Automation appears stalled: 0 triggers in last 24h, "
-                            f"baseline expected {expected:.1f}/day (anomaly score {score:.2f})"
+                            f"baseline expected {expected:.1f}/day "
+                            f"(anomaly score {smoothed_score:.2f})"
                         ),
                         issue_type=IssueType.RUNTIME_AUTOMATION_STALLED,
                         confidence="medium",
@@ -284,14 +434,14 @@ class RuntimeHealthMonitor:
 
             if (
                 recent_count > expected * self.overactive_factor
-                and score >= self.anomaly_threshold
+                and smoothed_score >= overactive_threshold
             ):
                 _LOGGER.info(
                     "Overactive: '%s' - %d triggers in 24h, baseline %.1f/day, score %.2f",
                     automation_name,
                     recent_count,
                     expected,
-                    score,
+                    smoothed_score,
                 )
                 stats["overactive_detected"] += 1
                 issues.append(
@@ -304,7 +454,7 @@ class RuntimeHealthMonitor:
                         message=(
                             f"Automation trigger rate is abnormally high: {recent_count} "
                             f"triggers in last 24h vs baseline {expected:.1f}/day "
-                            f"(anomaly score {score:.2f})"
+                            f"(anomaly score {smoothed_score:.2f})"
                         ),
                         issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
                         confidence="medium",
@@ -313,6 +463,278 @@ class RuntimeHealthMonitor:
 
         self._last_run_stats = dict(stats)
         return issues
+
+    def _score_current(
+        self,
+        automation_id: str,
+        train_rows: list[dict[str, float]],
+        *,
+        window_size: int,
+    ) -> float:
+        if self._detector is None:  # pragma: no cover - guarded by caller
+            return 0.0
+        try:
+            return self._detector.score_current(
+                automation_id,
+                train_rows,
+                window_size=window_size,
+            )
+        except TypeError as exc:
+            _LOGGER.debug(
+                "Detector for '%s' raised TypeError, falling back without window_size: %s",
+                automation_id,
+                exc,
+            )
+            return self._detector.score_current(automation_id, train_rows)
+
+    def _smoothed_score(self, automation_id: str, score: float) -> float:
+        history = self._score_history.setdefault(automation_id, [])
+        history.append(score)
+        if len(history) > self.score_ema_samples:
+            del history[: -self.score_ema_samples]
+
+        ema = history[0]
+        for value in history[1:]:
+            ema = (self._score_ema_alpha * value) + ((1 - self._score_ema_alpha) * ema)
+        return ema
+
+    def _dismissed_multiplier(
+        self, automation_id: str, *, suppression_store: Any = None
+    ) -> float:
+        if suppression_store is None:
+            data: dict[str, Any] = (
+                self.hass.data.get(DOMAIN, {}) if hasattr(self.hass, "data") else {}
+            )
+            suppression_store = data.get("suppression_store")
+        if suppression_store is None:
+            return 1.0
+
+        prefixes = (
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_STALLED.value}",
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value}",
+        )
+        for prefix in prefixes:
+            if suppression_store.is_suppressed(prefix):
+                return self.dismissed_threshold_multiplier
+        return 1.0
+
+    @staticmethod
+    def _compute_window_size(expected_daily: float) -> int:
+        return max(16, min(1024, int(max(1.0, expected_daily) * 30)))
+
+    def _log_score_telemetry(
+        self,
+        *,
+        automation_id: str,
+        score: float,
+        now: datetime,
+        features: dict[str, float],
+    ) -> bool:
+        if not self._telemetry_db_path:
+            return True
+
+        db_path = Path(self._telemetry_db_path)
+        try:
+            with sqlite3.connect(db_path) as conn:
+                with self._telemetry_lock:
+                    if not self._telemetry_table_ensured:
+                        conn.execute(
+                            """
+                            CREATE TABLE IF NOT EXISTS runtime_health_scores (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                ts TEXT NOT NULL,
+                                automation_id TEXT NOT NULL,
+                                score REAL NOT NULL,
+                                features_json TEXT NOT NULL
+                            )
+                            """
+                        )
+                        self._telemetry_table_ensured = True
+                conn.execute(
+                    """
+                    INSERT INTO runtime_health_scores (ts, automation_id, score, features_json)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        now.isoformat(),
+                        automation_id,
+                        float(score),
+                        json.dumps(features, separators=(",", ":")),
+                    ),
+                )
+                cutoff = (now - timedelta(days=_TELEMETRY_RETENTION_DAYS)).isoformat()
+                conn.execute(
+                    "DELETE FROM runtime_health_scores WHERE ts < ?",
+                    (cutoff,),
+                )
+            return True
+        except Exception as err:
+            _LOGGER.debug("Failed writing runtime score telemetry: %s", err)
+            return False
+
+    @staticmethod
+    def _count_events_in_range(
+        events: Iterable[datetime],
+        start: datetime,
+        end: datetime,
+    ) -> int:
+        return sum(1 for ts in events if start <= ts <= end)
+
+    @staticmethod
+    def _median_gap_minutes(events: list[datetime]) -> float:
+        if len(events) < 2:
+            return 60.0
+        sorted_events = sorted(events)
+        gaps = [
+            (sorted_events[idx] - sorted_events[idx - 1]).total_seconds() / 60.0
+            for idx in range(1, len(sorted_events))
+        ]
+        return max(1.0, float(median(gaps)))
+
+    @staticmethod
+    def _build_5m_bucket_index(
+        all_events_by_automation: dict[str, list[datetime]],
+    ) -> dict[datetime, set[str]]:
+        """Build an index mapping 5-minute bucket starts to automation IDs with events."""
+        index: dict[datetime, set[str]] = defaultdict(set)
+        for automation_id, events in all_events_by_automation.items():
+            for ts in events:
+                bucket_start = ts.replace(
+                    minute=(ts.minute // 5) * 5, second=0, microsecond=0
+                )
+                index[bucket_start].add(automation_id)
+        return dict(index)
+
+    @staticmethod
+    def _count_other_automations_same_5m(
+        automation_id: str,
+        now: datetime,
+        all_events_by_automation: dict[str, list[datetime]],
+    ) -> float:
+        bucket_start = now - timedelta(
+            minutes=now.minute % 5,
+            seconds=now.second,
+            microseconds=now.microsecond,
+        )
+        bucket_end = bucket_start + timedelta(minutes=5)
+        count = 0
+        for other_id, events in all_events_by_automation.items():
+            if other_id == automation_id:
+                continue
+            if any(bucket_start <= ts < bucket_end for ts in events):
+                count += 1
+        return float(count)
+
+    @staticmethod
+    def _build_feature_row(
+        *,
+        automation_id: str,
+        now: datetime,
+        automation_events: list[datetime],
+        baseline_events: list[datetime],
+        expected_daily: float,
+        all_events_by_automation: dict[str, list[datetime]],
+        hour_ratio_days: int = 30,
+        median_gap_override: float | None = None,
+        bucket_index: dict[datetime, set[str]] | None = None,
+    ) -> dict[str, float]:
+        events_up_to_now = [ts for ts in automation_events if ts <= now]
+        rolling_24h_count = float(
+            RuntimeHealthMonitor._count_events_in_range(
+                events_up_to_now, now - timedelta(hours=24), now
+            )
+        )
+        rolling_7d_count = float(
+            RuntimeHealthMonitor._count_events_in_range(
+                events_up_to_now, now - timedelta(days=7), now
+            )
+        )
+
+        baseline_window_days = max(1, hour_ratio_days)
+        baseline_window_start = now - timedelta(days=baseline_window_days)
+        baseline_30d = [
+            ts for ts in baseline_events if baseline_window_start <= ts < now
+        ]
+        current_hour_start = now.replace(minute=0, second=0, microsecond=0)
+        current_hour_count = float(
+            RuntimeHealthMonitor._count_events_in_range(
+                events_up_to_now,
+                current_hour_start,
+                now,
+            )
+        )
+        hour_matches = [ts for ts in baseline_30d if ts.hour == now.hour]
+        hour_avg = float(len(hour_matches)) / float(baseline_window_days)
+        hour_ratio_30d = (
+            current_hour_count / hour_avg if hour_avg > 0 else current_hour_count
+        )
+
+        minutes_since_last = (
+            (now - max(events_up_to_now)).total_seconds() / 60.0
+            if events_up_to_now
+            else 24 * 60.0
+        )
+        median_gap = (
+            median_gap_override
+            if median_gap_override is not None
+            else RuntimeHealthMonitor._median_gap_minutes(baseline_events)
+        )
+        gap_vs_median = minutes_since_last / median_gap if median_gap > 0 else 0.0
+
+        if bucket_index is not None:
+            bucket_key = now.replace(
+                minute=(now.minute // 5) * 5, second=0, microsecond=0
+            )
+            bucket_members = bucket_index.get(bucket_key, set())
+            other_5m = float(sum(1 for aid in bucket_members if aid != automation_id))
+        else:
+            other_5m = RuntimeHealthMonitor._count_other_automations_same_5m(
+                automation_id=automation_id,
+                now=now,
+                all_events_by_automation=all_events_by_automation,
+            )
+
+        return {
+            "rolling_24h_count": rolling_24h_count,
+            "rolling_7d_count": rolling_7d_count,
+            "hour_ratio_30d": hour_ratio_30d,
+            "gap_vs_median": gap_vs_median,
+            "is_weekend": 1.0 if now.weekday() >= 5 else 0.0,
+            "other_automations_5m": other_5m,
+        }
+
+    @staticmethod
+    def _build_training_rows_from_events(
+        *,
+        automation_id: str,
+        baseline_events: list[datetime],
+        baseline_start: datetime,
+        baseline_end: datetime,
+        expected_daily: float,
+        all_events_by_automation: dict[str, list[datetime]],
+        cold_start_days: int,
+        hour_ratio_days: int = 30,
+        median_gap_override: float | None = None,
+        bucket_index: dict[datetime, set[str]] | None = None,
+    ) -> list[dict[str, float]]:
+        rows: list[dict[str, float]] = []
+        current = baseline_start + timedelta(days=max(0, cold_start_days))
+        while current < baseline_end:
+            rows.append(
+                RuntimeHealthMonitor._build_feature_row(
+                    automation_id=automation_id,
+                    now=current,
+                    automation_events=baseline_events,
+                    baseline_events=baseline_events,
+                    expected_daily=expected_daily,
+                    all_events_by_automation=all_events_by_automation,
+                    hour_ratio_days=hour_ratio_days,
+                    median_gap_override=median_gap_override,
+                    bucket_index=bucket_index,
+                )
+            )
+            current += timedelta(days=1)
+        return rows
 
     @staticmethod
     def _build_daily_counts(
@@ -326,36 +748,6 @@ class RuntimeHealthMonitor:
             if 0 <= day_idx < len(counts):
                 counts[day_idx] += 1
         return counts
-
-    @staticmethod
-    def _build_training_rows(
-        day_counts: list[int],
-        baseline_start: datetime,
-        expected_daily: float,
-    ) -> list[dict[str, float]]:
-        rows: list[dict[str, float]] = []
-        for count in day_counts:
-            rows.append(
-                {
-                    "count_24h": float(count),
-                    "ratio": float(count) / expected_daily
-                    if expected_daily > 0
-                    else 0.0,
-                }
-            )
-        return rows
-
-    @staticmethod
-    def _build_current_row(
-        recent_events: list[datetime],
-        expected_daily: float,
-        now: datetime,
-    ) -> dict[str, float]:
-        count = float(len(recent_events))
-        return {
-            "count_24h": count,
-            "ratio": count / expected_daily if expected_daily > 0 else 0.0,
-        }
 
     async def _async_fetch_trigger_history(
         self,

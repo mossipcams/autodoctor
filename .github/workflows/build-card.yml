@@ -38,6 +38,10 @@ jobs:
         working-directory: www/autodoctor
         run: npm ci
 
+      - name: Run frontend tests
+        working-directory: www/autodoctor
+        run: npm test
+
       - name: Build card
         working-directory: www/autodoctor
         run: npm run build

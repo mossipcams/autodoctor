@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,7 +22,10 @@ class _FixedScoreDetector:
         self._score = score
 
     def score_current(
-        self, automation_id: str, train_rows: list[dict[str, float]]
+        self,
+        automation_id: str,
+        train_rows: list[dict[str, float]],
+        window_size: int | None = None,
     ) -> float:
         return self._score
 
@@ -162,6 +166,27 @@ async def test_runtime_monitor_skips_when_no_baseline_signal(
 
 
 @pytest.mark.asyncio
+async def test_runtime_monitor_reports_insufficient_training_rows(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime stats should include explicit training-row skip reason."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 40)]}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=1,
+        min_expected_events=0,
+        baseline_days=7,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_test")])
+    assert issues == []
+    assert monitor.get_last_run_stats()["insufficient_training_rows"] == 1
+
+
+@pytest.mark.asyncio
 async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
     hass: HomeAssistant,
 ) -> None:
@@ -227,14 +252,27 @@ def test_training_and_current_rows_have_same_features() -> None:
     """Training rows and current row must have identical feature keys."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     baseline_start = now - timedelta(days=30)
-    day_counts = [1] * 30
+    baseline_end = now - timedelta(hours=24)
     expected = 1.0
+    events = [now - timedelta(days=d) for d in range(1, 31)]
+    all_events = {"automation.test": events}
 
-    train_rows = RuntimeHealthMonitor._build_training_rows(
-        day_counts, baseline_start, expected
+    train_rows = RuntimeHealthMonitor._build_training_rows_from_events(
+        automation_id="automation.test",
+        baseline_events=events,
+        baseline_start=baseline_start,
+        baseline_end=baseline_end,
+        expected_daily=expected,
+        all_events_by_automation=all_events,
+        cold_start_days=0,
     )
-    current_row = RuntimeHealthMonitor._build_current_row(
-        [now - timedelta(hours=1)], expected, now
+    current_row = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.test",
+        now=now,
+        automation_events=events,
+        baseline_events=events,
+        expected_daily=expected,
+        all_events_by_automation=all_events,
     )
 
     assert set(train_rows[0].keys()) == set(current_row.keys()), (
@@ -643,6 +681,126 @@ def test_river_detector_logs_learning_and_score(
     assert "Scored 'auto.test': 0.420" in caplog.text
 
 
+def test_feature_row_includes_expanded_runtime_features() -> None:
+    """Feature rows should include the expanded runtime feature set."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    events = [now - timedelta(hours=h) for h in [1, 3, 5, 27, 48, 72]]
+    all_events = {
+        "automation.a": events,
+        "automation.b": [now - timedelta(hours=1, minutes=2)],
+    }
+
+    row = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.a",
+        now=now,
+        automation_events=events,
+        baseline_events=events,
+        expected_daily=2.0,
+        all_events_by_automation=all_events,
+    )
+
+    assert set(row.keys()) == {
+        "rolling_24h_count",
+        "rolling_7d_count",
+        "hour_ratio_30d",
+        "gap_vs_median",
+        "is_weekend",
+        "other_automations_5m",
+    }
+
+
+def test_feature_row_hour_ratio_uses_configured_window() -> None:
+    """Hour ratio should be derived from configurable lookback days."""
+    now = datetime(2026, 2, 11, 12, 30, tzinfo=UTC)
+    events = [
+        now - timedelta(minutes=10),  # current hour event
+        now - timedelta(days=8),  # same hour, outside 7d but inside 30d
+        now - timedelta(days=20),  # same hour, outside 7d but inside 30d
+        now - timedelta(days=2, hours=1),  # different hour
+    ]
+    all_events = {"automation.a": events}
+
+    row_30 = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.a",
+        now=now,
+        automation_events=events,
+        baseline_events=events,
+        expected_daily=2.0,
+        all_events_by_automation=all_events,
+        hour_ratio_days=30,
+    )
+    row_7 = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.a",
+        now=now,
+        automation_events=events,
+        baseline_events=events,
+        expected_daily=2.0,
+        all_events_by_automation=all_events,
+        hour_ratio_days=7,
+    )
+
+    assert row_30["hour_ratio_30d"] != row_7["hour_ratio_30d"]
+    assert row_30["hour_ratio_30d"] > row_7["hour_ratio_30d"]
+
+
+def test_feature_row_hour_ratio_uses_current_clock_hour_bucket() -> None:
+    """Hour ratio should not count events from the previous clock hour."""
+    now = datetime(2026, 2, 11, 12, 30, tzinfo=UTC)
+    automation_events = [
+        datetime(2026, 2, 11, 11, 50, tzinfo=UTC),  # trailing 60m, previous hour
+        datetime(2026, 2, 10, 12, 10, tzinfo=UTC),
+        datetime(2026, 2, 9, 12, 5, tzinfo=UTC),
+    ]
+    baseline_events = [
+        datetime(2026, 2, 10, 12, 10, tzinfo=UTC),
+        datetime(2026, 2, 9, 12, 5, tzinfo=UTC),
+        datetime(2026, 2, 8, 12, 15, tzinfo=UTC),
+    ]
+    all_events = {"automation.a": automation_events}
+
+    row = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.a",
+        now=now,
+        automation_events=automation_events,
+        baseline_events=baseline_events,
+        expected_daily=2.0,
+        all_events_by_automation=all_events,
+        hour_ratio_days=30,
+    )
+
+    assert row["hour_ratio_30d"] == 0.0
+
+
+def test_median_gap_minutes_uses_adjacent_trigger_deltas() -> None:
+    """Median gap should use sorted adjacent trigger deltas."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    # Gaps: 10, 20, 30 minutes -> median 20
+    events = [
+        now - timedelta(minutes=60),
+        now - timedelta(minutes=50),
+        now - timedelta(minutes=30),
+        now,
+    ]
+    median_gap = RuntimeHealthMonitor._median_gap_minutes(events)
+    assert median_gap == pytest.approx(20.0)
+
+
+def test_count_other_automations_same_5m_excludes_current_automation() -> None:
+    """Cascade count should include only *other* automations in same 5-minute bucket."""
+    now = datetime(2026, 2, 11, 12, 3, tzinfo=UTC)
+    all_events = {
+        "automation.a": [now - timedelta(minutes=1)],  # same 5m window, ignored
+        "automation.b": [now - timedelta(minutes=2)],  # same 5m window, counted
+        "automation.c": [now - timedelta(minutes=7)],  # different 5m window
+    }
+    count = RuntimeHealthMonitor._count_other_automations_same_5m(
+        automation_id="automation.a",
+        now=now,
+        all_events_by_automation=all_events,
+    )
+    assert count == 1.0
+
+
 @pytest.mark.asyncio
 async def test_validate_automations_logs_stalled_detection(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
@@ -704,3 +862,627 @@ async def test_validate_automations_logs_overactive_detection(
     assert len(issues) == 1
     assert "Overactive: 'Hallway Lights'" in caplog.text
     assert "20 triggers in 24h" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_skips_during_startup_recovery(
+    hass: HomeAssistant,
+) -> None:
+    """Monitor should skip learning/scoring during startup recovery window."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"runtime_test": [now - timedelta(days=2)]},
+        now=now,
+        startup_recovery_minutes=10,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_test")])
+    assert issues == []
+    assert monitor.get_last_run_stats()["startup_recovery"] == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_uses_separate_thresholds(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive should use its own threshold independent from stalled threshold."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
+    history = {"runtime_test": baseline + burst}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        overactive_factor=3.0,
+        stalled_threshold=0.9,
+        overactive_threshold=0.4,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_raises_threshold_when_runtime_issue_previously_suppressed(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressed runtime issues should require a higher threshold before alerting."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+    hass.data["autodoctor"] = {"suppression_store": suppression_store}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.85,
+        warmup_samples=7,
+        min_expected_events=0,
+        stalled_threshold=0.8,
+        dismissed_threshold_multiplier=1.25,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Kitchen Motion")]
+    )
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_logs_scores_to_sqlite(
+    hass: HomeAssistant, tmp_path
+) -> None:
+    """Every scored automation should write telemetry row with score and features."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+    db_path = tmp_path / "runtime_scores.sqlite"
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.72,
+        warmup_samples=7,
+        min_expected_events=0,
+        telemetry_db_path=str(db_path),
+    )
+
+    await monitor.validate_automations([_automation("runtime_test", "Kitchen Motion")])
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT automation_id, score, features_json FROM runtime_health_scores"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row[0] == "automation.runtime_test"
+    assert row[1] == pytest.approx(0.72)
+    assert "rolling_24h_count" in json.loads(row[2])
+
+
+@pytest.mark.asyncio
+async def test_telemetry_write_offloaded_to_executor(
+    hass: HomeAssistant, tmp_path
+) -> None:
+    """Telemetry SQLite writes must run in executor to avoid blocking the event loop."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+    db_path = tmp_path / "runtime_scores.sqlite"
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.72,
+        warmup_samples=7,
+        min_expected_events=0,
+        telemetry_db_path=str(db_path),
+    )
+
+    with patch.object(
+        hass, "async_add_executor_job", wraps=hass.async_add_executor_job
+    ) as spy:
+        await monitor.validate_automations(
+            [_automation("runtime_test", "Kitchen Motion")]
+        )
+        telemetry_calls = [
+            c for c in spy.call_args_list if "_log_score_telemetry" in str(c.args[0])
+        ]
+        assert len(telemetry_calls) > 0, (
+            "Telemetry write must be offloaded via async_add_executor_job"
+        )
+
+
+@pytest.mark.asyncio
+async def test_telemetry_create_table_runs_only_once(
+    hass: HomeAssistant, tmp_path
+) -> None:
+    """CREATE TABLE DDL should execute only once, not on every telemetry write."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {
+        "runtime_a": [now - timedelta(days=d, hours=2) for d in range(2, 31)],
+        "runtime_b": [now - timedelta(days=d, hours=3) for d in range(2, 31)],
+    }
+    db_path = tmp_path / "runtime_scores.sqlite"
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        telemetry_db_path=str(db_path),
+    )
+
+    await monitor.validate_automations(
+        [_automation("runtime_a", "Auto A"), _automation("runtime_b", "Auto B")]
+    )
+
+    assert monitor._telemetry_table_ensured is True
+
+    # Run again — should still be True from first pass, not re-created
+    call_count_before = 0
+    conn = sqlite3.connect(db_path)
+    try:
+        # Count rows to verify both automations wrote telemetry
+        call_count_before = conn.execute(
+            "SELECT COUNT(*) FROM runtime_health_scores"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert call_count_before == 2
+
+    await monitor.validate_automations(
+        [_automation("runtime_a", "Auto A"), _automation("runtime_b", "Auto B")]
+    )
+    assert monitor._telemetry_table_ensured is True
+
+
+def test_fixed_score_detector_accepts_window_size_kwarg() -> None:
+    """Test detector must accept window_size to match the _Detector protocol."""
+    detector = _FixedScoreDetector(0.5)
+    rows = [{"rolling_24h_count": 1.0}] * 3
+    score = detector.score_current("auto.test", rows, window_size=32)
+    assert score == 0.5
+
+
+def test_telemetry_table_ensured_flag_protected_by_lock() -> None:
+    """RuntimeHealthMonitor should have a threading.Lock for telemetry table creation."""
+    import threading
+
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.5),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+    )
+    assert hasattr(monitor, "_telemetry_lock")
+    assert isinstance(monitor._telemetry_lock, type(threading.Lock()))
+
+
+def test_telemetry_table_creation_acquires_lock(tmp_path) -> None:
+    """The _telemetry_table_ensured check/set must be protected by _telemetry_lock."""
+
+    hass = MagicMock()
+    db_path = tmp_path / "runtime_scores.sqlite"
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.5),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        telemetry_db_path=str(db_path),
+    )
+
+    acquired_count = 0
+    original_lock = monitor._telemetry_lock
+
+    class _TrackingLock:
+        def __enter__(self) -> _TrackingLock:
+            nonlocal acquired_count
+            acquired_count += 1
+            original_lock.acquire()
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            original_lock.release()
+
+    monitor._telemetry_lock = _TrackingLock()  # type: ignore[assignment]
+
+    monitor._log_score_telemetry(
+        automation_id="automation.test",
+        score=0.5,
+        now=datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        features={"a": 1.0},
+    )
+    assert acquired_count >= 1, (
+        "_telemetry_lock must be acquired during telemetry write"
+    )
+
+
+def test_telemetry_deletes_rows_older_than_retention_days(tmp_path) -> None:
+    """Telemetry writes should delete rows older than the retention period."""
+    hass = MagicMock()
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    db_path = tmp_path / "runtime_scores.sqlite"
+
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.5),
+        now_factory=lambda: now,
+        telemetry_db_path=str(db_path),
+    )
+
+    # Pre-populate DB with old and recent rows
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runtime_health_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            automation_id TEXT NOT NULL,
+            score REAL NOT NULL,
+            features_json TEXT NOT NULL
+        )
+        """
+    )
+    old_ts = (now - timedelta(days=100)).isoformat()
+    recent_ts = (now - timedelta(days=10)).isoformat()
+    conn.execute(
+        "INSERT INTO runtime_health_scores (ts, automation_id, score, features_json) VALUES (?, ?, ?, ?)",
+        (old_ts, "automation.old", 0.5, "{}"),
+    )
+    conn.execute(
+        "INSERT INTO runtime_health_scores (ts, automation_id, score, features_json) VALUES (?, ?, ?, ?)",
+        (recent_ts, "automation.recent", 0.6, "{}"),
+    )
+    conn.commit()
+    conn.close()
+
+    # Mark table as already ensured since we created it manually
+    monitor._telemetry_table_ensured = True
+
+    # Write a new telemetry row, which should trigger cleanup
+    monitor._log_score_telemetry(
+        automation_id="automation.test",
+        score=0.7,
+        now=now,
+        features={"a": 1.0},
+    )
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT automation_id FROM runtime_health_scores ORDER BY automation_id"
+    ).fetchall()
+    conn.close()
+
+    automation_ids = [r[0] for r in rows]
+    assert "automation.old" not in automation_ids, (
+        "Rows older than 90 days should be deleted"
+    )
+    assert "automation.recent" in automation_ids
+    assert "automation.test" in automation_ids
+
+
+def test_build_feature_row_uses_precomputed_median_gap() -> None:
+    """_build_feature_row should use median_gap_override when provided."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    events = [now - timedelta(hours=1)]
+    all_events: dict[str, list[datetime]] = {"automation.a": events}
+
+    row = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.a",
+        now=now,
+        automation_events=events,
+        baseline_events=events,
+        expected_daily=1.0,
+        all_events_by_automation=all_events,
+        median_gap_override=42.0,
+    )
+
+    # minutes_since_last = 60.0, median_gap_override = 42.0 -> gap_vs_median = 60/42
+    expected_gap_vs_median = 60.0 / 42.0
+    assert row["gap_vs_median"] == pytest.approx(expected_gap_vs_median)
+
+
+def test_build_training_rows_passes_median_gap_override() -> None:
+    """_build_training_rows_from_events should pass median_gap_override to _build_feature_row."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline_start = now - timedelta(days=10)
+    baseline_end = now - timedelta(hours=24)
+    events = [now - timedelta(days=d, hours=2) for d in range(1, 10)]
+    all_events: dict[str, list[datetime]] = {"automation.a": events}
+
+    rows_with_override = RuntimeHealthMonitor._build_training_rows_from_events(
+        automation_id="automation.a",
+        baseline_events=events,
+        baseline_start=baseline_start,
+        baseline_end=baseline_end,
+        expected_daily=1.0,
+        all_events_by_automation=all_events,
+        cold_start_days=0,
+        median_gap_override=42.0,
+    )
+
+    rows_without_override = RuntimeHealthMonitor._build_training_rows_from_events(
+        automation_id="automation.a",
+        baseline_events=events,
+        baseline_start=baseline_start,
+        baseline_end=baseline_end,
+        expected_daily=1.0,
+        all_events_by_automation=all_events,
+        cold_start_days=0,
+    )
+
+    # With override, gap_vs_median values should differ from default computation
+    assert len(rows_with_override) > 0
+    assert len(rows_with_override) == len(rows_without_override)
+    # At least one row should have a different gap_vs_median value
+    diffs = [
+        a["gap_vs_median"] != b["gap_vs_median"]
+        for a, b in zip(rows_with_override, rows_without_override, strict=True)
+    ]
+    assert any(diffs), (
+        "median_gap_override should change gap_vs_median in training rows"
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_precomputes_median_gap(
+    hass: HomeAssistant,
+) -> None:
+    """validate_automations should compute median gap once and pass it through."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.5,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    with patch.object(
+        RuntimeHealthMonitor,
+        "_build_training_rows_from_events",
+        wraps=RuntimeHealthMonitor._build_training_rows_from_events,
+    ) as spy:
+        await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+        assert spy.call_count == 1
+        call_kwargs = spy.call_args[1]
+        assert "median_gap_override" in call_kwargs
+        assert isinstance(call_kwargs["median_gap_override"], float)
+
+
+def test_build_5m_bucket_index_groups_events_correctly() -> None:
+    """_build_5m_bucket_index should bucket events into 5-minute windows."""
+    all_events: dict[str, list[datetime]] = {
+        "automation.a": [
+            datetime(2026, 2, 11, 12, 1, tzinfo=UTC),  # bucket 12:00
+            datetime(2026, 2, 11, 12, 6, tzinfo=UTC),  # bucket 12:05
+        ],
+        "automation.b": [
+            datetime(2026, 2, 11, 12, 2, tzinfo=UTC),  # bucket 12:00
+        ],
+    }
+
+    index = RuntimeHealthMonitor._build_5m_bucket_index(all_events)
+
+    # Bucket key for 12:00-12:05 window
+    bucket_key_1200 = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    bucket_key_1205 = datetime(2026, 2, 11, 12, 5, tzinfo=UTC)
+
+    assert "automation.a" in index[bucket_key_1200]
+    assert "automation.b" in index[bucket_key_1200]
+    assert "automation.a" in index[bucket_key_1205]
+    assert "automation.b" not in index.get(bucket_key_1205, set())
+
+
+def test_build_feature_row_uses_prebucketed_5m_index() -> None:
+    """_build_feature_row should use bucket_index for O(1) lookup when provided."""
+    now = datetime(2026, 2, 11, 12, 3, tzinfo=UTC)
+    events = [now - timedelta(minutes=1)]
+    all_events: dict[str, list[datetime]] = {
+        "automation.a": events,
+        "automation.b": [now - timedelta(minutes=2)],  # same 5m bucket
+        "automation.c": [now - timedelta(minutes=7)],  # different bucket
+    }
+
+    # Build the bucket index
+    bucket_index = RuntimeHealthMonitor._build_5m_bucket_index(all_events)
+
+    row = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.a",
+        now=now,
+        automation_events=events,
+        baseline_events=events,
+        expected_daily=1.0,
+        all_events_by_automation=all_events,
+        bucket_index=bucket_index,
+    )
+
+    # automation.b is in same 5m bucket, automation.c is not -> count should be 1
+    assert row["other_automations_5m"] == 1.0
+
+
+def test_build_training_rows_passes_bucket_index() -> None:
+    """_build_training_rows_from_events should pass bucket_index through to _build_feature_row."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline_start = now - timedelta(days=5)
+    baseline_end = now - timedelta(hours=24)
+    events = [now - timedelta(days=d, hours=2) for d in range(1, 5)]
+    all_events: dict[str, list[datetime]] = {"automation.a": events}
+    bucket_index = RuntimeHealthMonitor._build_5m_bucket_index(all_events)
+
+    with patch.object(
+        RuntimeHealthMonitor,
+        "_build_feature_row",
+        wraps=RuntimeHealthMonitor._build_feature_row,
+    ) as spy:
+        RuntimeHealthMonitor._build_training_rows_from_events(
+            automation_id="automation.a",
+            baseline_events=events,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            expected_daily=1.0,
+            all_events_by_automation=all_events,
+            cold_start_days=0,
+            bucket_index=bucket_index,
+        )
+        assert spy.call_count >= 1
+        for call in spy.call_args_list:
+            assert call[1].get("bucket_index") is bucket_index
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_builds_and_passes_bucket_index(
+    hass: HomeAssistant,
+) -> None:
+    """validate_automations should build bucket index once and pass it through."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.5,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    with patch.object(
+        RuntimeHealthMonitor,
+        "_build_training_rows_from_events",
+        wraps=RuntimeHealthMonitor._build_training_rows_from_events,
+    ) as spy:
+        await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+        assert spy.call_count == 1
+        call_kwargs = spy.call_args[1]
+        assert "bucket_index" in call_kwargs
+        assert isinstance(call_kwargs["bucket_index"], dict)
+
+
+def test_telemetry_retention_days_constant_exists() -> None:
+    """Module should expose a _TELEMETRY_RETENTION_DAYS constant set to 90."""
+    from custom_components.autodoctor.runtime_monitor import _TELEMETRY_RETENTION_DAYS
+
+    assert _TELEMETRY_RETENTION_DAYS == 90
+
+
+def test_dismissed_multiplier_accepts_suppression_store_parameter() -> None:
+    """_dismissed_multiplier should accept an explicit suppression_store parameter."""
+    hass = MagicMock()
+    hass.data = {}  # No store in hass.data
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.5),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        dismissed_threshold_multiplier=1.5,
+    )
+
+    # When passing suppression_store directly, it should be used instead of hass.data lookup
+    result = monitor._dismissed_multiplier(
+        "automation.test", suppression_store=suppression_store
+    )
+    assert result == 1.5
+    suppression_store.is_suppressed.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_passes_suppression_store_to_dismissed_multiplier(
+    hass: HomeAssistant,
+) -> None:
+    """validate_automations should extract store once and pass it to _dismissed_multiplier."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=False)
+    hass.data["autodoctor"] = {"suppression_store": suppression_store}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.95,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    with patch.object(
+        monitor, "_dismissed_multiplier", wraps=monitor._dismissed_multiplier
+    ) as spy:
+        await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+        assert spy.call_count == 1
+        # Verify suppression_store was passed as keyword argument
+        call_kwargs = spy.call_args[1]
+        assert "suppression_store" in call_kwargs
+        assert call_kwargs["suppression_store"] is suppression_store
+
+
+def test_score_current_logs_debug_on_type_error_fallback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """_score_current should log a debug message when falling back due to TypeError."""
+
+    class _NoWindowSizeDetector:
+        def score_current(
+            self,
+            automation_id: str,
+            train_rows: list[dict[str, float]],
+            **kwargs: object,
+        ) -> float:
+            if "window_size" in kwargs:
+                raise TypeError("unexpected keyword argument 'window_size'")
+            return 0.42
+
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_NoWindowSizeDetector(),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+    )
+    rows = [{"a": 1.0}, {"a": 2.0}]
+
+    with caplog.at_level(
+        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
+    ):
+        score = monitor._score_current("auto.test", rows, window_size=32)
+
+    assert score == pytest.approx(0.42)
+    assert "TypeError" in caplog.text
+    assert "auto.test" in caplog.text
+
+
+def test_legacy_row_builders_removed() -> None:
+    """Legacy _build_training_rows and _build_current_row should not exist.
+
+    These were replaced by _build_training_rows_from_events and _build_feature_row.
+    """
+    assert not hasattr(RuntimeHealthMonitor, "_build_training_rows"), (
+        "_build_training_rows is dead code — use _build_training_rows_from_events"
+    )
+    assert not hasattr(RuntimeHealthMonitor, "_build_current_row"), (
+        "_build_current_row is dead code — use _build_feature_row"
+    )

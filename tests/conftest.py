@@ -1,5 +1,6 @@
 """Pytest configuration for Autodoctor tests."""
 
+import sys
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,23 @@ def auto_enable_custom_integrations(enable_custom_integrations: Any) -> None:
     integrations can be loaded during test execution.
     """
     return
+
+
+@pytest.fixture(autouse=True)
+def scrub_editable_path_hook_placeholder() -> None:
+    """Remove editable install path-hook placeholders from sys.path.
+
+    Setuptools editable installs can inject values like
+    ``__editable__.pkg-x.y.z.finder.__path_hook__`` into ``sys.path``.
+    Home Assistant's loader teardown may treat each sys.path entry as a
+    filesystem directory and call ``Path.iterdir()``, which crashes on these
+    placeholders.
+    """
+    sys.path[:] = [
+        p
+        for p in sys.path
+        if not (p.startswith("__editable__.") and p.endswith(".__path_hook__"))
+    ]
 
 
 @pytest.fixture

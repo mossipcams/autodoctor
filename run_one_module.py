@@ -32,8 +32,7 @@ MODULE_MAP = {
 def get_module_mutants(module):
     """Get mutant names for a specific module."""
     result = subprocess.run(
-        [".venv/bin/mutmut", "results"],
-        capture_output=True, text=True
+        [".venv/bin/mutmut", "results"], capture_output=True, text=True
     )
     names = []
     for line in result.stdout.splitlines():
@@ -68,16 +67,25 @@ def main():
     for i, name in enumerate(mutant_names, 1):
         # Apply
         subprocess.run(
-            [".venv/bin/mutmut", "apply", name],
-            capture_output=True, timeout=30
+            [".venv/bin/mutmut", "apply", name], capture_output=True, timeout=30
         )
 
         # Test
         try:
             r = subprocess.run(
-                [".venv/bin/python", "-m", "pytest", "-x", "--assert=plain",
-                 "-q", "--tb=no", "--no-header", tests],
-                capture_output=True, timeout=60
+                [
+                    ".venv/bin/python",
+                    "-m",
+                    "pytest",
+                    "-x",
+                    "--assert=plain",
+                    "-q",
+                    "--tb=no",
+                    "--no-header",
+                    tests,
+                ],
+                capture_output=True,
+                timeout=60,
             )
             if r.returncode == 0:
                 survived += 1
@@ -93,20 +101,28 @@ def main():
         # Progress every 25
         if i % 25 == 0 or i == total:
             pct = survived / i * 100
-            print(f"[{module}] [{i}/{total}] k={killed} s={survived} ({pct:.1f}%)", flush=True)
+            print(
+                f"[{module}] [{i}/{total}] k={killed} s={survived} ({pct:.1f}%)",
+                flush=True,
+            )
 
         # Save incremental every 50
         if i % 50 == 0 or i == total:
-            output_file.write_text(json.dumps({
-                "module": module,
-                "total": total,
-                "processed": i,
-                "killed": killed,
-                "survived": survived,
-                "survival_pct": round(survived / i * 100, 1),
-                "survived_mutants": survived_names,
-                "complete": i == total,
-            }, indent=2))
+            output_file.write_text(
+                json.dumps(
+                    {
+                        "module": module,
+                        "total": total,
+                        "processed": i,
+                        "killed": killed,
+                        "survived": survived,
+                        "survival_pct": round(survived / i * 100, 1),
+                        "survived_mutants": survived_names,
+                        "complete": i == total,
+                    },
+                    indent=2,
+                )
+            )
 
     pct = survived / total * 100 if total else 0
     print(f"[{module}] DONE: {killed}k/{survived}s ({pct:.1f}% survival)", flush=True)

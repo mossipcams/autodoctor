@@ -89,6 +89,10 @@ class IssueReporter:
             return
         if not issues:
             _LOGGER.info("Automation validation complete: no issues found")
+            current_issue_ids: set[str] = set()
+            self._clear_resolved_issues(current_issue_ids)
+            # Atomic assignment - sensors read this set, so assign complete set at once
+            self._active_issues = frozenset()
             return
 
         # Group issues by automation

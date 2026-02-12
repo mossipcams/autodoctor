@@ -31,6 +31,7 @@ from .const import (
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_ENABLED,
+    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
@@ -43,6 +44,7 @@ from .const import (
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
+    DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
@@ -150,6 +152,43 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
 
     _LOGGER.debug("automation_data has no 'entities' attribute")
     return []
+
+
+def _filter_suppressed_issues(
+    issues: list[ValidationIssue],
+    suppression_store: SuppressionStore | None,
+) -> tuple[list[ValidationIssue], int]:
+    """Return visible issues and suppressed count for the given issue list."""
+    if not suppression_store:
+        return list(issues), 0
+
+    visible: list[ValidationIssue] = []
+    suppressed_count = 0
+    for issue in issues:
+        if suppression_store.is_suppressed(issue.get_suppression_key()):
+            suppressed_count += 1
+            continue
+        visible.append(issue)
+    return visible, suppressed_count
+
+
+def _filter_group_issues_for_suppressions(
+    group_issues: dict[str, list[ValidationIssue]],
+    suppression_store: SuppressionStore | None,
+) -> tuple[dict[str, list[ValidationIssue]], int]:
+    """Filter grouped issues and return visible groups with total suppressed count."""
+    visible_group_issues: dict[str, list[ValidationIssue]] = {
+        gid: [] for gid in VALIDATION_GROUP_ORDER
+    }
+    total_suppressed = 0
+    for gid in VALIDATION_GROUP_ORDER:
+        visible, suppressed_count = _filter_suppressed_issues(
+            group_issues.get(gid, []),
+            suppression_store,
+        )
+        visible_group_issues[gid] = visible
+        total_suppressed += suppressed_count
+    return visible_group_issues, total_suppressed
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -304,6 +343,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
                 DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
             ),
+            hour_ratio_days=options.get(
+                CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+                DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+            ),
         )
         if runtime_enabled
         else None
@@ -327,7 +370,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "learned_states_store": learned_states_store,
         "issues": [],  # Keep for backwards compatibility
         "validation_issues": [],
+        "validation_issues_raw": [],
         "validation_last_run": None,
+        "validation_groups": None,
+        "validation_groups_raw": None,
         "validation_run_stats": {
             "analyzed_automations": 0,
             "failed_automations": 0,
@@ -789,16 +835,33 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
 
     result = await _async_run_validators(hass, automations)
 
-    # Report issues
-    await reporter.async_report_issues(result["all_issues"])
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+    visible_group_issues, _ = _filter_group_issues_for_suppressions(
+        cast(dict[str, list[ValidationIssue]], result["group_issues"]),
+        suppression_store,
+    )
+    visible_all_issues: list[ValidationIssue] = []
+    for gid in VALIDATION_GROUP_ORDER:
+        visible_all_issues.extend(visible_group_issues[gid])
+
+    # Report only unsuppressed issues (Repairs + sensor surfaces).
+    await reporter.async_report_issues(visible_all_issues)
 
     # Update all validation state atomically
     hass.data[DOMAIN].update(
         {
-            "issues": result["all_issues"],  # Keep for backwards compatibility
-            "validation_issues": result["all_issues"],
+            "issues": visible_all_issues,  # Keep for backwards compatibility
+            "validation_issues": visible_all_issues,
+            "validation_issues_raw": result["all_issues"],
             "validation_last_run": result["timestamp"],
             "validation_groups": {
+                gid: {
+                    "issues": visible_group_issues[gid],
+                    "duration_ms": result["group_durations"][gid],
+                }
+                for gid in VALIDATION_GROUP_ORDER
+            },
+            "validation_groups_raw": {
                 gid: {
                     "issues": result["group_issues"][gid],
                     "duration_ms": result["group_durations"][gid],
@@ -853,13 +916,27 @@ async def async_validate_automation(
         return []
 
     result = await _async_run_validators(hass, [automation])
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+    visible_current_issues, _ = _filter_suppressed_issues(
+        result["all_issues"],
+        suppression_store,
+    )
 
     # Merge single-automation results with existing issues for OTHER automations
     # to prevent reporter from clearing their repair entries. Reporter's
     # _clear_resolved_issues deletes all repairs NOT in the provided list.
     existing_issues: list[ValidationIssue] = data.get("validation_issues", [])
     other_issues = [i for i in existing_issues if i.automation_id != automation_id]
-    merged_issues = other_issues + result["all_issues"]
+    merged_issues = other_issues + visible_current_issues
+
+    existing_raw_issues: list[ValidationIssue] = data.get(
+        "validation_issues_raw",
+        existing_issues,
+    )
+    other_raw_issues = [
+        i for i in existing_raw_issues if i.automation_id != automation_id
+    ]
+    merged_raw_issues = other_raw_issues + result["all_issues"]
 
     await reporter.async_report_issues(merged_issues)
 
@@ -867,6 +944,7 @@ async def async_validate_automation(
         {
             "issues": merged_issues,
             "validation_issues": merged_issues,
+            "validation_issues_raw": merged_raw_issues,
             "validation_last_run": result["timestamp"],
             "validation_run_stats": {
                 "analyzed_automations": result.get("analyzed_automations", 0),
@@ -876,4 +954,4 @@ async def async_validate_automation(
         }
     )
 
-    return result["all_issues"]
+    return visible_current_issues

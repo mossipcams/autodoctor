@@ -1794,7 +1794,7 @@ AutodocSuppressions = __decorate([
 ], AutodocSuppressions);
 
 var AutodoctorCard_1;
-const CARD_VERSION = "2.19.2";
+const CARD_VERSION = "2.21.1";
 console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
 let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     constructor() {

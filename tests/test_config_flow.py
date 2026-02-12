@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -20,6 +21,7 @@ from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_ENABLED,
+    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
@@ -198,6 +200,55 @@ async def test_options_step_init_rejects_warmup_over_baseline(
     assert result["errors"]["base"] == "warmup_exceeds_baseline"
 
 
+async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
+    hass: HomeAssistant,
+) -> None:
+    """Baseline should be long enough to produce runtime training rows."""
+    mock_entry = MagicMock()
+    mock_entry.options = {}
+
+    handler = OptionsFlowHandler()
+    handler.hass = hass
+    handler.flow_id = "test_options"
+
+    user_input: dict[str, Any] = {
+        CONF_HISTORY_DAYS: 14,
+        CONF_VALIDATE_ON_RELOAD: False,
+        CONF_DEBOUNCE_SECONDS: 10,
+        CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
+        CONF_STRICT_TEMPLATE_VALIDATION: True,
+        CONF_STRICT_SERVICE_VALIDATION: True,
+        CONF_RUNTIME_HEALTH_ENABLED: True,
+        CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
+        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 3,
+        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
+        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
+        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
+    }
+
+    with patch.object(
+        type(handler),
+        "config_entry",
+        new_callable=lambda: property(lambda self: mock_entry),
+    ):
+        result = await handler.async_step_init(user_input=user_input)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+    assert result["errors"]["base"] == "baseline_too_short_for_training"
+
+
+def test_options_schema_runtime_health_hour_ratio_days_range() -> None:
+    """Hour-ratio lookback should be bounded by schema range checks."""
+    schema = OptionsFlowHandler._build_options_schema(defaults={})
+
+    valid = schema({CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 30})
+    assert valid[CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS] == 30
+
+    with pytest.raises(vol.Invalid):
+        schema({CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 0})
+
+
 # ===== CFG-01/CFG-02 Fix Tests =====
 
 
@@ -253,3 +304,4 @@ async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
     assert CONF_RUNTIME_HEALTH_BASELINE_DAYS in schema.schema
     assert CONF_RUNTIME_HEALTH_WARMUP_SAMPLES in schema.schema
     assert CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD in schema.schema
+    assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS in schema.schema

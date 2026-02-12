@@ -16,9 +16,11 @@ import custom_components.autodoctor.websocket_api as ws_mod
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_ENABLED,
+    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
+    DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
@@ -110,6 +112,12 @@ def test_runtime_health_realistic_defaults() -> None:
     """Guard: warmup and min-events defaults must be realistic for typical setups."""
     assert DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES == 3
     assert DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS == 0
+
+
+def test_runtime_health_hour_ratio_default_and_key() -> None:
+    """Guard: hour-ratio lookback option should keep stable key/default."""
+    assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS == "runtime_health_hour_ratio_days"
+    assert DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS == 30
 
 
 def test_runtime_health_manifest_declares_river_requirement() -> None:
