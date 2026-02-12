@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -252,7 +252,7 @@ def test_ecod_detector_fits_training_rows_and_scores_current_row() -> None:
     rows = [row] * 31  # 30 training + 1 current
 
     mock_model = MagicMock()
-    mock_model.decision_function.return_value = [0.5]
+    mock_model.predict_proba.return_value = [[0.5, 0.5]]
 
     with patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod:
         mock_ecod.return_value = mock_model
@@ -260,9 +260,11 @@ def test_ecod_detector_fits_training_rows_and_scores_current_row() -> None:
 
     assert score == 0.5
     fit_arg = mock_model.fit.call_args.args[0]
-    decision_arg = mock_model.decision_function.call_args.args[0]
+    proba_arg = mock_model.predict_proba.call_args.args[0]
     assert len(fit_arg) == 30
-    assert len(decision_arg) == 1
+    assert len(proba_arg) == 1
+    # ECOD must be constructed with explicit contamination for reproducibility
+    assert mock_ecod.call_args == call(contamination=0.1)
 
 
 def test_ecod_detector_refits_on_each_call() -> None:
@@ -274,7 +276,7 @@ def test_ecod_detector_refits_on_each_call() -> None:
     rows_10 = [row] * 9 + [{"count_24h": 5.0, "ratio": 5.0}]
 
     mock_model = MagicMock()
-    mock_model.decision_function.return_value = [0.5]
+    mock_model.predict_proba.return_value = [[0.5, 0.5]]
 
     with patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod:
         mock_ecod.return_value = mock_model
@@ -572,7 +574,7 @@ def test_ecod_detector_logs_model_fit(
     rows = [row] * 3
 
     mock_model = MagicMock()
-    mock_model.decision_function.return_value = [0.5]
+    mock_model.predict_proba.return_value = [[0.5, 0.5]]
 
     with (
         caplog.at_level(
@@ -596,7 +598,7 @@ def test_ecod_detector_handles_window_changes(
     row = {"count_24h": 1.0, "ratio": 1.0}
 
     mock_model = MagicMock()
-    mock_model.decision_function.return_value = [0.5]
+    mock_model.predict_proba.return_value = [[0.5, 0.5]]
 
     with patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod:
         mock_ecod.return_value = mock_model
@@ -625,7 +627,7 @@ def test_ecod_detector_logs_score(
     rows = [row] * 5
 
     mock_model = MagicMock()
-    mock_model.decision_function.return_value = [0.42]
+    mock_model.predict_proba.return_value = [[0.58, 0.42]]
 
     with (
         caplog.at_level(

@@ -47,10 +47,12 @@ class _EcodAnomalyDetector:
         x_train = [[row[name] for name in feature_names] for row in training]
         x_current = [[train_rows[-1][name] for name in feature_names]]
 
-        _LOGGER.debug("Fitting ECOD model for '%s' on %d rows", automation_id, len(training))
-        model = ECOD()
+        _LOGGER.debug(
+            "Fitting ECOD model for '%s' on %d rows", automation_id, len(training)
+        )
+        model = ECOD(contamination=0.1)
         model.fit(x_train)
-        score = float(model.decision_function(x_current)[0])
+        score = float(model.predict_proba(x_current)[0][1])
         _LOGGER.debug("Scored '%s': %.3f", automation_id, score)
         return score
 
