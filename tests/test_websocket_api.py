@@ -107,6 +107,41 @@ async def test_websocket_get_validation(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
+async def test_websocket_get_validation_uses_raw_cache_for_suppressed_count(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressed count should still be computed from raw cached issues."""
+    suppressed_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.hidden",
+        location="trigger[0]",
+        message="Suppressed issue",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+
+    hass.data[DOMAIN] = {
+        "validation_issues": [],
+        "validation_issues_raw": [suppressed_issue],
+        "validation_last_run": "2026-02-12T12:00:00+00:00",
+        "suppression_store": suppression_store,
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_result = MagicMock()
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation"}
+
+    await websocket_get_validation.__wrapped__(hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    assert result["issues"] == []
+    assert result["suppressed_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_websocket_run_validation(hass: HomeAssistant) -> None:
     """Test that websocket_run_validation executes validation and returns results.
 
@@ -498,6 +533,48 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
 
 
 @pytest.mark.asyncio
+async def test_websocket_get_validation_steps_prefers_raw_groups_for_suppression_counts(
+    hass: HomeAssistant,
+) -> None:
+    """Cached steps should use raw group cache when available."""
+    issue1 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
+    )
+    issue2 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
+    )
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(
+        side_effect=lambda key: key == issue1.get_suppression_key()
+    )
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+        "validation_last_run": "2026-01-30T12:00:00+00:00",
+        "validation_groups": {  # filtered cache
+            "entity_state": {"issues": [issue2], "duration_ms": 50},
+            "services": {"issues": [], "duration_ms": 100},
+            "templates": {"issues": [], "duration_ms": 80},
+        },
+        "validation_groups_raw": {  # raw cache keeps full context
+            "entity_state": {"issues": [issue1, issue2], "duration_ms": 50},
+            "services": {"issues": [], "duration_ms": 100},
+            "templates": {"issues": [], "duration_ms": 80},
+        },
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
+
+    await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    g0 = result["groups"][0]
+    assert g0["issue_count"] == 1
+    assert result["suppressed_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_websocket_run_validation_steps_error_handling(
     hass: HomeAssistant,
 ) -> None:
@@ -600,6 +677,34 @@ async def test_websocket_list_suppressions(hass: HomeAssistant) -> None:
     assert item["entity_id"] == "light.a"
     assert item["issue_type"] == "entity_not_found"
     assert item["message"] == "Test issue: entity_not_found"
+
+
+@pytest.mark.asyncio
+async def test_websocket_list_suppressions_uses_raw_issue_cache(
+    hass: HomeAssistant,
+) -> None:
+    """Suppression metadata should resolve from raw issues when filtered cache is empty."""
+    issue1 = _make_issue(
+        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
+    )
+
+    suppression_store = MagicMock()
+    suppression_store.keys = frozenset({issue1.get_suppression_key()})
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+        "validation_issues": [],
+        "validation_issues_raw": [issue1],
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
+
+    await websocket_list_suppressions.__wrapped__(hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    assert len(result["suppressions"]) == 1
+    assert result["suppressions"][0]["message"] == issue1.message
 
 
 @pytest.mark.asyncio

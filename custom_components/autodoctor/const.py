@@ -30,6 +30,7 @@ DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES = 3
 DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD = 0.8
 DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS = 0
 DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR = 3.0
+DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS = 30
 
 # Config keys
 CONF_HISTORY_DAYS = "history_days"
@@ -44,6 +45,7 @@ CONF_RUNTIME_HEALTH_WARMUP_SAMPLES = "runtime_health_warmup_samples"
 CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD = "runtime_health_anomaly_threshold"
 CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS = "runtime_health_min_expected_events"
 CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR = "runtime_health_overactive_factor"
+CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS = "runtime_health_hour_ratio_days"
 
 # Domains with well-defined, stable state sets suitable for state validation.
 STATE_VALIDATION_WHITELIST: frozenset[str] = frozenset(

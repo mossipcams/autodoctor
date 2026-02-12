@@ -298,6 +298,23 @@ async def test_report_issues_no_issues_logs_clean(hass: HomeAssistant) -> None:
     mock_create.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_async_report_issues_empty_clears_existing_repairs(
+    hass: HomeAssistant,
+) -> None:
+    """Empty issue reports should clear previously active repair issues."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset({"automation_test"})
+
+    with patch(
+        "custom_components.autodoctor.reporter.ir.async_delete_issue"
+    ) as mock_delete:
+        await reporter.async_report_issues([])
+
+    mock_delete.assert_called_once_with(hass, "autodoctor", "automation_test")
+    assert reporter._active_issues == frozenset()
+
+
 def test_format_issues_for_repair_includes_suggestion(hass: HomeAssistant) -> None:
     """Test that repair text includes suggestion hint when issue.suggestion is set."""
     reporter = IssueReporter(hass)

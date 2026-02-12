@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { AutodoctorCard } from "./autodoctor-card.ts";
 import type { StepsResponse } from "./types.js";
 
@@ -112,5 +114,24 @@ describe("AutodoctorCard runtime health telemetry", () => {
     const subtitle = card.shadowRoot?.querySelector(".healthy-subtitle");
     expect(subtitle?.textContent).toContain("0 automations analyzed");
     card.remove();
+  });
+});
+
+describe("AutodoctorCard build parity", () => {
+  it("compiled_card_version_matches_package_version", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(process.cwd(), "package.json"), "utf-8"),
+    ) as { version: string };
+    const compiledCard = readFileSync(
+      resolve(
+        process.cwd(),
+        "../../custom_components/autodoctor/www/autodoctor-card.js",
+      ),
+      "utf-8",
+    );
+
+    expect(compiledCard).toContain(
+      `const CARD_VERSION = "${packageJson.version}";`,
+    );
   });
 });

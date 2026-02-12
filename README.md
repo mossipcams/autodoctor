@@ -25,7 +25,8 @@ Hours later you discover:
 - **Service Call Validation** - Validates service calls against the HA service registry
 - **Entity Suggestions** - Suggests fixes for entity ID typos using fuzzy matching
 - **State Learning** - Learns valid states when you dismiss false positives
-- **Issue Suppression** - Dismiss false positives so they don't reappear
+- **Issue Suppression** - Dismiss false positives globally (card, Repairs, sensors)
+- **Runtime Health Monitoring (ML)** - Detects stalled and overactive automations from recorder history
 
 ## Installation
 
@@ -81,6 +82,8 @@ Issues are reported via:
 - **Repairs** - Settings → Repairs shows actionable issues
 - **Log warnings/errors** - For monitoring and debugging
 
+Suppressed issues are removed from all primary issue surfaces (dashboard card, Repairs, and Autodoctor entities). Suppression metadata is still retained for counts/history.
+
 ## Configuration Options
 
 Access via Settings → Devices & Services → Autodoctor → Configure
@@ -92,6 +95,15 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 | Debounce delay (seconds) | 5 | Wait before validating after reload |
 | Strict template validation | No | Warn about unknown Jinja2 filters/tests (disable if using custom components) |
 | Strict service validation | No | Warn about unknown service parameters |
+| Runtime health monitoring (ML) | No | Enable trigger-behavior anomaly detection |
+| Runtime baseline history (days) | 30 | Recorder history window for runtime behavior baseline |
+| Runtime warmup samples | 3 | Minimum active baseline days before anomaly scoring starts |
+| Runtime anomaly threshold | 0.8 | Score threshold for runtime anomaly issue generation |
+| Runtime minimum expected events/day | 0 | Minimum daily baseline activity required for stalling checks |
+| Runtime overactive multiplier | 3.0 | 24h trigger count multiplier over baseline for overactive detection |
+| Runtime hour-ratio lookback (days) | 30 | Lookback window used for same-hour activity ratio features |
+
+Runtime baseline must be larger than the internal cold-start window (7 days) so anomaly training rows can be generated.
 
 ## How It Works
 
@@ -126,6 +138,17 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 | Service doesn't exist | Error | `light.trun_on` (typo) |
 | Missing required param | Error | `light.turn_on` without `entity_id` |
 | Unknown filter/test | Warning | Opt-in via strict template validation |
+
+### Runtime Health Monitoring
+
+When enabled, runtime monitoring analyzes automation trigger history and can report:
+- **Stalled automations** - expected trigger activity has dropped to zero in the last 24h.
+- **Overactive automations** - last 24h trigger rate is abnormally high versus baseline.
+
+Practical guidance:
+- Use baseline windows comfortably above 7 days (for example 21-30 days) for stable scoring.
+- Keep warmup samples less than or equal to baseline days.
+- Tune hour-ratio lookback days if your automations have strong weekly/monthly hour-of-day patterns.
 
 ### What Is NOT Validated
 

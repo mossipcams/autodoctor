@@ -12,7 +12,8 @@
   },
   "options": {
     "error": {
-      "warmup_exceeds_baseline": "Runtime warmup samples cannot exceed runtime baseline days."
+      "warmup_exceeds_baseline": "Runtime warmup samples cannot exceed runtime baseline days.",
+      "baseline_too_short_for_training": "Runtime baseline days must be larger than the internal cold-start window to produce anomaly training rows."
     },
     "step": {
       "init": {
@@ -28,7 +29,8 @@
           "runtime_health_warmup_samples": "Runtime warmup samples",
           "runtime_health_anomaly_threshold": "Runtime anomaly threshold",
           "runtime_health_min_expected_events": "Runtime minimum expected events/day",
-          "runtime_health_overactive_factor": "Runtime overactive multiplier"
+          "runtime_health_overactive_factor": "Runtime overactive multiplier",
+          "runtime_health_hour_ratio_days": "Runtime hour-ratio lookback (days)"
         },
         "data_description": {
           "history_days": "Number of days of state history to analyze",
@@ -41,7 +43,8 @@
           "runtime_health_warmup_samples": "Minimum active baseline days needed before ML anomaly detection starts",
           "runtime_health_anomaly_threshold": "Score threshold above which River flags behavior as anomalous",
           "runtime_health_min_expected_events": "Minimum expected daily trigger count needed to evaluate stalling",
-          "runtime_health_overactive_factor": "Recent 24h trigger count multiplier over baseline used to classify overactive anomalies"
+          "runtime_health_overactive_factor": "Recent 24h trigger count multiplier over baseline used to classify overactive anomalies",
+          "runtime_health_hour_ratio_days": "Days used to compute current-hour activity ratio against historical same-hour behavior"
         }
       }
     }

@@ -40,8 +40,7 @@ MODULE_MAP = {
 def get_all_mutants():
     """Parse mutant names from mutmut results, grouped by module."""
     result = subprocess.run(
-        [".venv/bin/mutmut", "results"],
-        capture_output=True, text=True
+        [".venv/bin/mutmut", "results"], capture_output=True, text=True
     )
     mutants = {}
     for line in result.stdout.splitlines():
@@ -67,16 +66,25 @@ def worker(module, mutant_names, q):
     for i, name in enumerate(mutant_names, 1):
         # Apply mutation
         subprocess.run(
-            [".venv/bin/mutmut", "apply", name],
-            capture_output=True, timeout=30
+            [".venv/bin/mutmut", "apply", name], capture_output=True, timeout=30
         )
 
         # Run tests
         try:
             r = subprocess.run(
-                [".venv/bin/python", "-m", "pytest", "-x", "--assert=plain",
-                 "-q", "--tb=no", "--no-header", tests],
-                capture_output=True, timeout=60
+                [
+                    ".venv/bin/python",
+                    "-m",
+                    "pytest",
+                    "-x",
+                    "--assert=plain",
+                    "-q",
+                    "--tb=no",
+                    "--no-header",
+                    tests,
+                ],
+                capture_output=True,
+                timeout=60,
             )
             if r.returncode == 0:
                 survived += 1
@@ -184,7 +192,9 @@ def main():
     total_pct = (total_s / total_n * 100) if total_n else 0
 
     for module, r in sorted(results.items()):
-        print(f"  {module}: {r['killed']}k/{r['survived']}s ({r['survival_pct']}% survival)")
+        print(
+            f"  {module}: {r['killed']}k/{r['survived']}s ({r['survival_pct']}% survival)"
+        )
     print()
     print(f"  TOTAL: {total_k}k/{total_s}s ({total_pct:.1f}% survival)")
     print(flush=True)

@@ -396,7 +396,10 @@ async def websocket_get_validation(
     """Get validation issues only."""
     data = hass.data.get(DOMAIN, {})
     suppression_store: SuppressionStore | None = data.get("suppression_store")
-    all_issues: list[ValidationIssue] = data.get("validation_issues", [])
+    all_issues: list[ValidationIssue] = data.get(
+        "validation_issues_raw",
+        data.get("validation_issues", []),
+    )
     last_run = data.get("validation_last_run")
 
     visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
@@ -553,7 +556,7 @@ async def websocket_get_validation_steps(
     data = hass.data.get(DOMAIN, {})
     suppression_store: SuppressionStore | None = data.get("suppression_store")
     last_run = data.get("validation_last_run")
-    cached_groups = data.get("validation_groups")
+    cached_groups = data.get("validation_groups_raw", data.get("validation_groups"))
     run_stats = data.get("validation_run_stats", {})
 
     # Pre-compute entity IDs once for all _format_issues_with_fixes calls
@@ -730,7 +733,10 @@ async def websocket_list_suppressions(
         )
         return
 
-    validation_issues: list[ValidationIssue] = data.get("validation_issues", [])
+    validation_issues: list[ValidationIssue] = data.get(
+        "validation_issues_raw",
+        data.get("validation_issues", []),
+    )
 
     # Build lookup dict for O(1) matching
     issue_by_key: dict[str, Any] = {}

@@ -6,6 +6,8 @@ Autodoctor performs **static analysis** of Home Assistant automations to catch c
 
 This document explains what Autodoctor validates, what it doesn't, and why.
 
+Suppressed issues are removed from all primary user-visible surfaces (dashboard card, Repairs, and Autodoctor entities). Autodoctor still keeps suppression metadata for counts and troubleshooting.
+
 ---
 
 ## ✅ Always Validated (High Confidence)
@@ -241,11 +243,27 @@ action:
 
 ---
 
+### 10. Runtime Health Monitoring (Opt-In, Medium Confidence)
+**What:** Detects unusual automation trigger behavior from recorder history.
+
+**Types:**
+- **Stalled** - baseline indicates expected activity, but 24h trigger count is zero.
+- **Overactive** - 24h trigger count is abnormally high versus baseline.
+
+**Why medium confidence:** Runtime behavior depends on occupancy patterns, seasonality, and intentional automation changes.
+
+**Practical guidance:**
+- Use baseline windows above the 7-day cold-start window (21-30 days is a good default).
+- Warmup samples must be less than or equal to baseline days.
+- Hour-ratio lookback days are configurable to match weekly vs monthly behavior patterns.
+
+---
+
 ## ❌ NOT Validated (Too Many False Positives)
 
 These checks were **removed** or made **opt-in only** due to high false positive rates:
 
-### 10. Template Variables (REMOVED)
+### 11. Template Variables (REMOVED)
 **What (previously):** Are template variables defined?
 
 **Why removed:**
@@ -280,7 +298,7 @@ automation:
 
 ---
 
-### 11. Unknown Jinja2 Filters/Tests (OPT-IN)
+### 12. Unknown Jinja2 Filters/Tests (OPT-IN)
 **What:** Are filters and tests in Jinja2/HA built-ins?
 
 **Why opt-in:**

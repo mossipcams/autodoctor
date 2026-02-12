@@ -1784,6 +1784,7 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     entry.options = {
         "validate_on_reload": False,
         "runtime_health_enabled": True,
+        "runtime_health_hour_ratio_days": 14,
     }
     entry.add_update_listener = MagicMock(return_value=None)
     entry.async_on_unload = MagicMock()
@@ -1813,6 +1814,72 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert "runtime_monitor" in hass.data[DOMAIN]
     assert hass.data[DOMAIN]["runtime_monitor"] is mock_runtime_cls.return_value
     assert hass.data[DOMAIN]["runtime_health_enabled"] is True
+    assert mock_runtime_cls.call_args.kwargs["hour_ratio_days"] == 14
+
+
+@pytest.mark.asyncio
+async def test_validate_all_with_groups_filters_suppressed_before_reporting_and_cache(
+    grouped_hass: MagicMock,
+) -> None:
+    """Suppressed issues should not flow into reporter/sensor-facing cached state."""
+    suppressed_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.hidden",
+        location="trigger[0]",
+        message="Suppressed issue",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    visible_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.visible",
+        location="trigger[1]",
+        message="Visible issue",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(
+        side_effect=lambda key: key == suppressed_issue.get_suppression_key()
+    )
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [
+        suppressed_issue,
+        visible_issue,
+    ]
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["suppression_store"] = suppression_store
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "test", "alias": "Test"}],
+    ):
+        await async_validate_all_with_groups(grouped_hass)
+
+    reported = grouped_hass.data[DOMAIN]["reporter"].async_report_issues.call_args[0][0]
+    assert suppressed_issue not in reported
+    assert visible_issue in reported
+
+    assert grouped_hass.data[DOMAIN]["validation_issues"] == [visible_issue]
+    assert grouped_hass.data[DOMAIN]["validation_issues_raw"] == [
+        suppressed_issue,
+        visible_issue,
+    ]
+    assert grouped_hass.data[DOMAIN]["validation_groups"]["entity_state"]["issues"] == [
+        visible_issue
+    ]
+    assert grouped_hass.data[DOMAIN]["validation_groups_raw"]["entity_state"][
+        "issues"
+    ] == [suppressed_issue, visible_issue]
 
 
 @pytest.mark.asyncio
