@@ -228,16 +228,38 @@ def test_training_and_current_rows_have_same_features() -> None:
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     baseline_start = now - timedelta(days=30)
     day_counts = [1] * 30
+    expected = 1.0
 
-    train_rows = RuntimeHealthMonitor._build_training_rows(day_counts, baseline_start)
+    train_rows = RuntimeHealthMonitor._build_training_rows(
+        day_counts, baseline_start, expected
+    )
     current_row = RuntimeHealthMonitor._build_current_row(
-        [now - timedelta(hours=1)], 1.0, now
+        [now - timedelta(hours=1)], expected, now
     )
 
     assert set(train_rows[0].keys()) == set(current_row.keys()), (
         f"Feature mismatch: training={sorted(train_rows[0].keys())} "
         f"vs current={sorted(current_row.keys())}"
     )
+
+
+def test_river_detector_uses_training_length_as_window_size() -> None:
+    """Window size must match training data length, not a hardcoded value."""
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+
+    detector = _RiverAnomalyDetector()
+    row = {"count_24h": 1.0, "ratio": 1.0}
+    rows = [row] * 31  # 30 training + 1 current
+
+    mock_model = MagicMock()
+    mock_model.score_one.return_value = 0.5
+
+    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+        detector.score_current("auto.test", rows)
+
+    call_kwargs = mock_anomaly.HalfSpaceTrees.call_args
+    assert call_kwargs[1]["window_size"] == 30
 
 
 def test_river_detector_learns_incrementally() -> None:
@@ -247,8 +269,8 @@ def test_river_detector_learns_incrementally() -> None:
     from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
     detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "dow_sin": 0.0, "dow_cos": 1.0}
-    rows_10 = [row] * 9 + [{"count_24h": 5.0, "dow_sin": 0.0, "dow_cos": 1.0}]
+    row = {"count_24h": 1.0, "ratio": 1.0}
+    rows_10 = [row] * 9 + [{"count_24h": 5.0, "ratio": 5.0}]
 
     mock_model = MagicMock()
     mock_model.score_one.return_value = 0.5
@@ -547,7 +569,7 @@ def test_river_detector_logs_model_creation(
     from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
     detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "dow_sin": 0.0, "dow_cos": 1.0}
+    row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 3
 
     mock_model = MagicMock()
@@ -572,7 +594,7 @@ def test_river_detector_logs_watermark_reset(
     from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
     detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "dow_sin": 0.0, "dow_cos": 1.0}
+    row = {"count_24h": 1.0, "ratio": 1.0}
 
     mock_model = MagicMock()
     mock_model.score_one.return_value = 0.5
@@ -602,7 +624,7 @@ def test_river_detector_logs_learning_and_score(
     from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
     detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "dow_sin": 0.0, "dow_cos": 1.0}
+    row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 5
 
     mock_model = MagicMock()

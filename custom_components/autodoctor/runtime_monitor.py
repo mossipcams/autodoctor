@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from statistics import fmean
@@ -67,7 +66,7 @@ class _RiverAnomalyDetector:
             _LOGGER.debug("Creating HalfSpaceTrees model for '%s'", automation_id)
             assert anomaly is not None  # guaranteed by _HAS_RIVER check above
             model = anomaly.HalfSpaceTrees(
-                n_trees=15, height=8, window_size=256, seed=42
+                n_trees=15, height=8, window_size=len(training), seed=42
             )
             self._models[automation_id] = model
 
@@ -238,7 +237,7 @@ class RuntimeHealthMonitor:
                 stats["insufficient_baseline"] += 1
                 continue
 
-            train_rows = self._build_training_rows(day_counts, baseline_start)
+            train_rows = self._build_training_rows(day_counts, baseline_start, expected)
             current_row = self._build_current_row(recent_events, expected, now)
             train_rows.append(current_row)
             _LOGGER.debug(
@@ -332,15 +331,16 @@ class RuntimeHealthMonitor:
     def _build_training_rows(
         day_counts: list[int],
         baseline_start: datetime,
+        expected_daily: float,
     ) -> list[dict[str, float]]:
         rows: list[dict[str, float]] = []
-        for idx, count in enumerate(day_counts):
-            day_dt = baseline_start + timedelta(days=idx)
+        for count in day_counts:
             rows.append(
                 {
                     "count_24h": float(count),
-                    "dow_sin": math.sin(2 * math.pi * (day_dt.weekday() / 7.0)),
-                    "dow_cos": math.cos(2 * math.pi * (day_dt.weekday() / 7.0)),
+                    "ratio": float(count) / expected_daily
+                    if expected_daily > 0
+                    else 0.0,
                 }
             )
         return rows
@@ -351,10 +351,10 @@ class RuntimeHealthMonitor:
         expected_daily: float,
         now: datetime,
     ) -> dict[str, float]:
+        count = float(len(recent_events))
         return {
-            "count_24h": float(len(recent_events)),
-            "dow_sin": math.sin(2 * math.pi * (now.weekday() / 7.0)),
-            "dow_cos": math.cos(2 * math.pi * (now.weekday() / 7.0)),
+            "count_24h": count,
+            "ratio": count / expected_daily if expected_daily > 0 else 0.0,
         }
 
     async def _async_fetch_trigger_history(
