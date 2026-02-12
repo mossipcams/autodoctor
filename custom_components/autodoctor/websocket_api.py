@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
+from homeassistant.config import AUTOMATION_CONFIG_PATH
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -42,6 +44,35 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_fix_preview)
     websocket_api.async_register_command(hass, websocket_fix_apply)
     websocket_api.async_register_command(hass, websocket_fix_undo)
+
+
+def _is_automation_editable(hass: HomeAssistant, automation_entity_id: str) -> bool:
+    """Return whether an automation can be edited via /config/automation/edit/{id}."""
+    automation_data = hass.data.get("automation")
+
+    # Dict mode is used in tests and some legacy paths.
+    if isinstance(automation_data, dict):
+        short_id = automation_entity_id.replace("automation.", "", 1)
+        automation_dict = cast(dict[str, Any], automation_data)
+        configs: list[Any] = automation_dict.get("config", [])
+        return any(
+            isinstance(config, dict) and config.get("id") == short_id
+            for config in configs
+        )
+
+    if not automation_data or not hasattr(automation_data, "get_entity"):
+        return False
+
+    entity = automation_data.get_entity(automation_entity_id)
+    if entity is None:
+        return False
+
+    raw_config = getattr(entity, "raw_config", None)
+    config_file = getattr(raw_config, "__config_file__", None)
+    return (
+        isinstance(config_file, str)
+        and Path(config_file).name == AUTOMATION_CONFIG_PATH
+    )
 
 
 def _format_issues_with_fixes(
@@ -149,16 +180,16 @@ def _format_issues_with_fixes(
                 "reason": "Case mismatch detected; entity IDs are case-sensitive.",
             }
 
-        automation_id = (
-            issue.automation_id.replace("automation.", "")
-            if issue.automation_id
-            else ""
-        )
+        edit_url: str | None = None
+        if issue.automation_id and _is_automation_editable(hass, issue.automation_id):
+            config_id = issue.automation_id.replace("automation.", "", 1)
+            edit_url = f"/config/automation/edit/{config_id}"
+
         issues_with_fixes.append(
             {
                 "issue": issue.to_dict(),
                 "fix": fix,
-                "edit_url": f"/config/automation/edit/{automation_id}",
+                "edit_url": edit_url,
             }
         )
     return issues_with_fixes

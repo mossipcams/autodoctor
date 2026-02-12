@@ -112,6 +112,197 @@ def test_clear_resolved_issues_continues_on_delete_error(
     assert len(delete_calls) == 3
 
 
+def test_clear_resolved_issues_queries_registry_for_orphans(
+    hass: HomeAssistant,
+) -> None:
+    """Reporter should delete registry orphans even when memory set is empty."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset()
+
+    mock_registry = type(
+        "MockRegistry",
+        (),
+        {
+            "issues": {
+                ("autodoctor", "orphan_1"): object(),
+                ("autodoctor", "orphan_2"): object(),
+                ("other_domain", "ignore_me"): object(),
+            }
+        },
+    )()
+
+    with (
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_get",
+            return_value=mock_registry,
+        ),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_delete_issue"
+        ) as mock_delete,
+    ):
+        reporter._clear_resolved_issues(set())
+
+    deleted_ids = {call.args[2] for call in mock_delete.call_args_list}
+    assert deleted_ids == {"orphan_1", "orphan_2"}
+
+
+def test_clear_resolved_issues_preserves_current_ids_from_registry(
+    hass: HomeAssistant,
+) -> None:
+    """Reporter should keep current IDs even if they exist in registry."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset()
+
+    mock_registry = type(
+        "MockRegistry",
+        (),
+        {
+            "issues": {
+                ("autodoctor", "keep"): object(),
+                ("autodoctor", "orphan"): object(),
+            }
+        },
+    )()
+
+    with (
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_get",
+            return_value=mock_registry,
+        ),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_delete_issue"
+        ) as mock_delete,
+    ):
+        reporter._clear_resolved_issues({"keep"})
+
+    deleted_ids = [call.args[2] for call in mock_delete.call_args_list]
+    assert deleted_ids == ["orphan"]
+
+
+def test_clear_resolved_issues_fallback_without_issue_registry(
+    hass: HomeAssistant,
+) -> None:
+    """When registry support is unavailable, memory cleanup still works."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset({"mem"})
+
+    with (
+        patch("custom_components.autodoctor.reporter.has_issue_registry", False),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_delete_issue"
+        ) as mock_delete,
+    ):
+        reporter._clear_resolved_issues(set())
+
+    mock_delete.assert_called_once_with(hass, "autodoctor", "mem")
+
+
+def test_clear_resolved_issues_registry_exception_falls_back(
+    hass: HomeAssistant,
+) -> None:
+    """Registry lookup errors should not break memory-based cleanup."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset({"mem"})
+
+    with (
+        patch("custom_components.autodoctor.reporter.has_issue_registry", True),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_get",
+            side_effect=RuntimeError("boom"),
+        ),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_delete_issue"
+        ) as mock_delete,
+    ):
+        reporter._clear_resolved_issues(set())
+
+    mock_delete.assert_called_once_with(hass, "autodoctor", "mem")
+
+
+@pytest.mark.asyncio
+async def test_async_report_issues_cleans_orphans_after_restart(
+    hass: HomeAssistant,
+) -> None:
+    """Reporting after restart should clear stale registry repairs."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset()
+
+    issues = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id="automation.new",
+            automation_name="New",
+            entity_id="light.kitchen",
+            location="trigger[0]",
+            message="Entity not found",
+        )
+    ]
+
+    mock_registry = type(
+        "MockRegistry",
+        (),
+        {
+            "issues": {
+                ("autodoctor", "automation_old"): object(),
+            }
+        },
+    )()
+
+    with (
+        patch("custom_components.autodoctor.reporter.has_issue_registry", True),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_get",
+            return_value=mock_registry,
+        ),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_create_issue"
+        ) as mock_create,
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_delete_issue"
+        ) as mock_delete,
+    ):
+        await reporter.async_report_issues(issues)
+
+    mock_create.assert_called_once()
+    deleted_ids = [call.args[2] for call in mock_delete.call_args_list]
+    assert deleted_ids == ["automation_old"]
+    assert reporter._active_issues == frozenset({"automation_new"})
+
+
+def test_clear_resolved_issues_logs_orphan_count(
+    hass: HomeAssistant,
+) -> None:
+    """Reporter should emit orphan cleanup count for registry-only issues."""
+    reporter = IssueReporter(hass)
+    reporter._active_issues = frozenset()
+
+    mock_registry = type(
+        "MockRegistry",
+        (),
+        {
+            "issues": {
+                ("autodoctor", "orphan_1"): object(),
+                ("autodoctor", "orphan_2"): object(),
+            }
+        },
+    )()
+
+    with (
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_get",
+            return_value=mock_registry,
+        ),
+        patch(
+            "custom_components.autodoctor.reporter.ir.async_delete_issue"
+        ) as mock_delete,
+        patch("custom_components.autodoctor.reporter._LOGGER.info") as mock_info,
+    ):
+        reporter._clear_resolved_issues(set())
+
+    assert mock_delete.call_count == 2
+    mock_info.assert_called_once_with("Cleaning up %d orphaned repair(s)", 2)
+
+
 # --- Quick task 015: Coverage improvements for reporter.py ---
 
 
