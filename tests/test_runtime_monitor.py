@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -243,53 +243,52 @@ def test_training_and_current_rows_have_same_features() -> None:
     )
 
 
-def test_ecod_detector_fits_training_rows_and_scores_current_row() -> None:
-    """ECOD detector should fit on training rows and score only the current row."""
-    from custom_components.autodoctor.runtime_monitor import _EcodAnomalyDetector
+def test_river_detector_uses_training_length_as_window_size() -> None:
+    """Window size must match training data length, not a hardcoded value."""
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
-    detector = _EcodAnomalyDetector()
+    detector = _RiverAnomalyDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 31  # 30 training + 1 current
 
     mock_model = MagicMock()
-    mock_model.predict_proba.return_value = [[0.5, 0.5]]
+    mock_model.score_one.return_value = 0.5
 
-    with patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod:
-        mock_ecod.return_value = mock_model
-        score = detector.score_current("auto.test", rows)
+    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+        detector.score_current("auto.test", rows)
 
-    assert score == 0.5
-    fit_arg = mock_model.fit.call_args.args[0]
-    proba_arg = mock_model.predict_proba.call_args.args[0]
-    assert len(fit_arg) == 30
-    assert len(proba_arg) == 1
-    # ECOD must be constructed with explicit contamination for reproducibility
-    assert mock_ecod.call_args == call(contamination=0.1)
+    call_kwargs = mock_anomaly.HalfSpaceTrees.call_args
+    assert call_kwargs[1]["window_size"] == 30
 
 
-def test_ecod_detector_refits_on_each_call() -> None:
-    """ECOD detector should fit on full training rows each scoring call."""
-    from custom_components.autodoctor.runtime_monitor import _EcodAnomalyDetector
+def test_river_detector_learns_incrementally() -> None:
+    """Detector must persist models and only learn new rows on subsequent calls."""
+    from unittest.mock import MagicMock, patch
 
-    detector = _EcodAnomalyDetector()
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+
+    detector = _RiverAnomalyDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows_10 = [row] * 9 + [{"count_24h": 5.0, "ratio": 5.0}]
 
     mock_model = MagicMock()
-    mock_model.predict_proba.return_value = [[0.5, 0.5]]
+    mock_model.score_one.return_value = 0.5
 
-    with patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod:
-        mock_ecod.return_value = mock_model
+    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+
+        # First call: should learn 9 training rows (all except the last)
         detector.score_current("auto.test", rows_10)
+        assert mock_model.learn_one.call_count == 9
 
+        mock_model.learn_one.reset_mock()
+
+        # Second call with 1 extra training row appended before the current row
         rows_11 = [*rows_10[:-1], row, rows_10[-1]]
         detector.score_current("auto.test", rows_11)
-
-    assert mock_model.fit.call_count == 2
-    first_fit_rows = len(mock_model.fit.call_args_list[0].args[0])
-    second_fit_rows = len(mock_model.fit.call_args_list[1].args[0])
-    assert first_fit_rows == 9
-    assert second_fit_rows == 10
+        # Should only learn the 1 new row, not re-learn the original 9
+        assert mock_model.learn_one.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -375,12 +374,12 @@ async def test_validate_automations_logs_entry(
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_logs_ecod_unavailable(
+async def test_validate_automations_logs_river_unavailable(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Should log when ECOD detector is unavailable."""
+    """Should log when river detector is unavailable."""
     monitor = RuntimeHealthMonitor(hass, detector=None)
-    # Force detector to None to simulate ECOD unavailable
+    # Force detector to None to simulate river unavailable
     monitor._detector = None
 
     with caplog.at_level(
@@ -388,7 +387,7 @@ async def test_validate_automations_logs_ecod_unavailable(
     ):
         await monitor.validate_automations([_automation("a1")])
 
-    assert "ECOD detector unavailable" in caplog.text
+    assert "River detector unavailable" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -563,81 +562,84 @@ async def test_fetch_trigger_history_logs_query(
     assert "Fetched 2 total trigger events" in caplog.text
 
 
-def test_ecod_detector_logs_model_fit(
+def test_river_detector_logs_model_creation(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """ECOD detector should log when fitting a model."""
-    from custom_components.autodoctor.runtime_monitor import _EcodAnomalyDetector
+    """River detector should log when creating a new HalfSpaceTrees model."""
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
-    detector = _EcodAnomalyDetector()
+    detector = _RiverAnomalyDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 3
 
     mock_model = MagicMock()
-    mock_model.predict_proba.return_value = [[0.5, 0.5]]
+    mock_model.score_one.return_value = 0.5
 
     with (
         caplog.at_level(
             logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
         ),
-        patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod,
+        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
     ):
-        mock_ecod.return_value = mock_model
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
         detector.score_current("auto.test", rows)
 
-    assert "Fitting ECOD model for 'auto.test' on 2 rows" in caplog.text
+    assert "Creating HalfSpaceTrees model for 'auto.test'" in caplog.text
 
 
-def test_ecod_detector_handles_window_changes(
+def test_river_detector_logs_watermark_reset(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """ECOD detector should work when history shrinks between calls."""
-    from custom_components.autodoctor.runtime_monitor import _EcodAnomalyDetector
+    """River detector should log when resetting model due to window shift."""
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
-    detector = _EcodAnomalyDetector()
+    detector = _RiverAnomalyDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
 
     mock_model = MagicMock()
-    mock_model.predict_proba.return_value = [[0.5, 0.5]]
+    mock_model.score_one.return_value = 0.5
 
-    with patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod:
-        mock_ecod.return_value = mock_model
+    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+        # First call with 5 rows -> watermark = 4
         detector.score_current("auto.test", [row] * 5)
 
+    # Now call with fewer rows -> triggers watermark reset
     with (
         caplog.at_level(
             logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
         ),
-        patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod,
+        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
     ):
-        mock_ecod.return_value = mock_model
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
         detector.score_current("auto.test", [row] * 3)
 
-    assert "Fitting ECOD model for 'auto.test' on 2 rows" in caplog.text
+    assert "Resetting model for 'auto.test' (window shifted)" in caplog.text
 
 
-def test_ecod_detector_logs_score(
+def test_river_detector_logs_learning_and_score(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """ECOD detector should log score result."""
-    from custom_components.autodoctor.runtime_monitor import _EcodAnomalyDetector
+    """River detector should log learning progress and score result."""
+    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
 
-    detector = _EcodAnomalyDetector()
+    detector = _RiverAnomalyDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 5
 
     mock_model = MagicMock()
-    mock_model.predict_proba.return_value = [[0.58, 0.42]]
+    mock_model.score_one.return_value = 0.42
 
     with (
         caplog.at_level(
             logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
         ),
-        patch("custom_components.autodoctor.runtime_monitor.ECOD") as mock_ecod,
+        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
     ):
-        mock_ecod.return_value = mock_model
+        mock_anomaly.HalfSpaceTrees.return_value = mock_model
         detector.score_current("auto.test", rows)
 
+    assert "Learning 4 new rows for 'auto.test'" in caplog.text
     assert "Scored 'auto.test': 0.420" in caplog.text
 
 

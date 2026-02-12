@@ -389,7 +389,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     )
 
     # Dependency installation occurs on restart from manifest requirements.
-    if new_enabled and not old_enabled and not _is_ecod_available():
+    if new_enabled and not old_enabled and not _is_river_available():
         await hass.services.async_call(
             "persistent_notification",
             "create",
@@ -397,7 +397,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 "title": "Autodoctor Runtime Health",
                 "message": (
                     "Runtime health monitoring was enabled. "
-                    "Home Assistant restart is required to install the 'pyod' dependency."
+                    "Home Assistant restart is required to install the 'river' dependency."
                 ),
                 "notification_id": RUNTIME_HEALTH_RESTART_NOTIFICATION_ID,
             },
@@ -407,10 +407,10 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _is_ecod_available() -> bool:
-    """Return True if the pyod package is importable in this HA environment."""
+def _is_river_available() -> bool:
+    """Return True if the river package is importable in this HA environment."""
     try:
-        return importlib.util.find_spec("pyod") is not None
+        return importlib.util.find_spec("river") is not None
     except Exception:  # pragma: no cover - defensive
         return False
 
