@@ -1133,6 +1133,60 @@ def test_format_issues_with_fixes_resolves_edit_url_when_entity_id_differs_from_
     assert result[0]["edit_url"] == "/config/automation/edit/runtime_id_123"
 
 
+def test_format_issues_with_fixes_generates_edit_url_when_config_file_absent(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should still resolve when raw_config lacks __config_file__ metadata."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test_auto",
+        automation_name="Test Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    entity = MagicMock()
+    entity.raw_config = {"id": "test_auto"}
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=entity)
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/test_auto"
+
+
+def test_format_issues_with_fixes_entities_fallback_without_config_file(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should resolve via entities loop when __config_file__ is absent."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.fallback_auto",
+        automation_name="Fallback Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    entity = MagicMock()
+    entity.entity_id = "automation.fallback_auto"
+    entity.raw_config = {"id": "fallback_auto"}
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=None)
+    automation_component.entities = [entity]
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/fallback_auto"
+
+
 @pytest.mark.asyncio
 async def test_websocket_run_validation_steps_reports_failed_automations(
     hass: HomeAssistant,

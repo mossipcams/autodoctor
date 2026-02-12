@@ -105,14 +105,18 @@ def _resolve_automation_edit_config_id(
         if entity is not None:
             raw_config = getattr(entity, "raw_config", None)
             config_file = _raw_config_get(raw_config, "__config_file__")
-            if (
-                isinstance(config_file, str)
-                and Path(config_file).name == AUTOMATION_CONFIG_PATH
-            ):
+            if isinstance(config_file, str):
+                # Explicit source file — only editable when from automations.yaml
+                if Path(config_file).name != AUTOMATION_CONFIG_PATH:
+                    return None
                 config_id = _raw_config_get(raw_config, "id")
                 if isinstance(config_id, str) and config_id:
                     return config_id
                 return short_id
+            # No __config_file__ metadata — assume editable if config id exists
+            config_id = _raw_config_get(raw_config, "id")
+            if isinstance(config_id, str) and config_id:
+                return config_id
 
     entities = getattr(automation_data, "entities", None)
     if entities is None:
@@ -121,11 +125,10 @@ def _resolve_automation_edit_config_id(
     for entity in cast(list[Any], entities):
         raw_config = getattr(entity, "raw_config", None)
         config_file = _raw_config_get(raw_config, "__config_file__")
-        if not (
-            isinstance(config_file, str)
-            and Path(config_file).name == AUTOMATION_CONFIG_PATH
-        ):
-            continue
+        if isinstance(config_file, str):
+            # Explicit source file — skip non-automations.yaml sources
+            if Path(config_file).name != AUTOMATION_CONFIG_PATH:
+                continue
 
         config_id = _raw_config_get(raw_config, "id")
         entity_id = getattr(entity, "entity_id", None)
