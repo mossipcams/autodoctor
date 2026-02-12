@@ -13,6 +13,6 @@ def test_autodoctor_card_renders_edit_link_conditionally() -> None:
     )
 
     assert re.search(
-        r"group\.edit_url\s*\?\s*b `<a href=\"\$\{group\.edit_url\}\" class=\"edit-link\"",
+        r"group\.edit_url\s*\?\s*b\s*`\s*<a href=\"\$\{group\.edit_url\}\" class=\"edit-link\"",
         source,
     )

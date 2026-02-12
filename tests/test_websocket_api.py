@@ -23,7 +23,7 @@ from custom_components.autodoctor.models import (
 from custom_components.autodoctor.websocket_api import (
     _compute_group_status,
     _format_issues_with_fixes,
-    _is_automation_editable,
+    _resolve_automation_edit_config_id,
     async_setup_websocket_api,
     websocket_fix_apply,
     websocket_fix_preview,
@@ -1073,6 +1073,66 @@ def test_format_issues_with_fixes_dict_mode_keeps_edit_url_when_id_exists(
     assert result[0]["edit_url"] == "/config/automation/edit/test"
 
 
+def test_format_issues_with_fixes_handles_dict_raw_config_metadata(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should be present when raw_config stores __config_file__ as a dict key."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test_auto",
+        automation_name="Test Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    entity = MagicMock()
+    entity.raw_config = {
+        "id": "test_auto",
+        "__config_file__": "/config/automations.yaml",
+    }
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=entity)
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/test_auto"
+
+
+def test_format_issues_with_fixes_resolves_edit_url_when_entity_id_differs_from_id(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should still resolve via raw config id when entity_id slug differs."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.runtime_id_123",
+        automation_name="Runtime Test Auto",
+        entity_id="automation.runtime_test_auto",
+        location="trigger[0]",
+        message="Runtime issue",
+        issue_type=IssueType.RUNTIME_AUTOMATION_STALLED,
+    )
+
+    entity = MagicMock()
+    entity.entity_id = "automation.runtime_test_auto"
+    entity.raw_config = {
+        "id": "runtime_id_123",
+        "__config_file__": "/config/automations.yaml",
+    }
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=None)
+    automation_component.entities = [entity]
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/runtime_id_123"
+
+
 @pytest.mark.asyncio
 async def test_websocket_run_validation_steps_reports_failed_automations(
     hass: HomeAssistant,
@@ -1337,10 +1397,10 @@ async def test_websocket_fix_undo_rejects_when_no_snapshot(
     assert connection.send_error.call_args[0][1] == "fix_undo_unavailable"
 
 
-def test_is_automation_editable_returns_false_when_automation_data_missing(
+def test_resolve_automation_edit_config_id_returns_none_when_automation_data_missing(
     hass: HomeAssistant,
 ) -> None:
-    """_is_automation_editable should return False when hass.data has no automation key."""
+    """_resolve_automation_edit_config_id should return None when hass.data has no automation key."""
     hass.data.pop("automation", None)
 
-    assert _is_automation_editable(hass, "automation.test") is False
+    assert _resolve_automation_edit_config_id(hass, "automation.test") is None

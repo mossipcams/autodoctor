@@ -38,10 +38,14 @@ export class AutodocIssueGroup extends LitElement {
         <div class="automation-issues">
           ${group.issues.map((item) => this._renderIssue(item))}
         </div>
-        <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
-          <span class="edit-text">Edit automation</span>
-          <span class="edit-arrow" aria-hidden="true">\u2192</span>
-        </a>
+        ${group.edit_url
+          ? html`
+              <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
+                <span class="edit-text">Edit automation</span>
+                <span class="edit-arrow" aria-hidden="true">\u2192</span>
+              </a>
+            `
+          : nothing}
       </div>
     `;
   }

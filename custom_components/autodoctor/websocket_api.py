@@ -46,33 +46,100 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_fix_undo)
 
 
-def _is_automation_editable(hass: HomeAssistant, automation_entity_id: str) -> bool:
-    """Return whether an automation can be edited via /config/automation/edit/{id}."""
+def _raw_config_get(raw_config: Any, key: str) -> Any:
+    """Read values from raw_config that may be mapping-like or attribute-based."""
+    if raw_config is None:
+        return None
+
+    if isinstance(raw_config, dict):
+        raw_config_dict = cast(dict[str, Any], raw_config)
+        return raw_config_dict.get(key)
+
+    getter = getattr(raw_config, "get", None)
+    if callable(getter):
+        try:
+            return getter(key)
+        except Exception:
+            pass
+
+    return getattr(raw_config, key, None)
+
+
+def _resolve_automation_edit_config_id(
+    hass: HomeAssistant, automation_entity_id: str
+) -> str | None:
+    """Resolve automation config id for HA editor route, or None when not editable."""
     automation_data = hass.data.get("automation")
+    short_id = automation_entity_id.replace("automation.", "", 1)
 
     # Dict mode is used in tests and some legacy paths.
     if isinstance(automation_data, dict):
-        short_id = automation_entity_id.replace("automation.", "", 1)
         automation_dict = cast(dict[str, Any], automation_data)
         configs: list[Any] = automation_dict.get("config", [])
-        return any(
-            isinstance(config, dict) and config.get("id") == short_id
-            for config in configs
-        )
+        for config in configs:
+            if not isinstance(config, dict):
+                continue
+            config_dict = cast(dict[str, Any], config)
+            config_id_raw = config_dict.get("id")
+            config_id = config_id_raw if isinstance(config_id_raw, str) else None
+            if isinstance(config_id, str) and config_id == short_id:
+                return config_id
+            config_entity_id_raw = config_dict.get("__entity_id")
+            config_entity_id = (
+                config_entity_id_raw if isinstance(config_entity_id_raw, str) else None
+            )
+            if (
+                isinstance(config_entity_id, str)
+                and config_entity_id == automation_entity_id
+                and isinstance(config_id, str)
+                and config_id
+            ):
+                return config_id
+        return None
 
-    if not automation_data or not hasattr(automation_data, "get_entity"):
-        return False
+    if not automation_data:
+        return None
 
-    entity = automation_data.get_entity(automation_entity_id)
-    if entity is None:
-        return False
+    if hasattr(automation_data, "get_entity"):
+        entity = automation_data.get_entity(automation_entity_id)
+        if entity is not None:
+            raw_config = getattr(entity, "raw_config", None)
+            config_file = _raw_config_get(raw_config, "__config_file__")
+            if (
+                isinstance(config_file, str)
+                and Path(config_file).name == AUTOMATION_CONFIG_PATH
+            ):
+                config_id = _raw_config_get(raw_config, "id")
+                if isinstance(config_id, str) and config_id:
+                    return config_id
+                return short_id
 
-    raw_config = getattr(entity, "raw_config", None)
-    config_file = getattr(raw_config, "__config_file__", None)
-    return (
-        isinstance(config_file, str)
-        and Path(config_file).name == AUTOMATION_CONFIG_PATH
-    )
+    entities = getattr(automation_data, "entities", None)
+    if entities is None:
+        return None
+
+    for entity in cast(list[Any], entities):
+        raw_config = getattr(entity, "raw_config", None)
+        config_file = _raw_config_get(raw_config, "__config_file__")
+        if not (
+            isinstance(config_file, str)
+            and Path(config_file).name == AUTOMATION_CONFIG_PATH
+        ):
+            continue
+
+        config_id = _raw_config_get(raw_config, "id")
+        entity_id = getattr(entity, "entity_id", None)
+        if isinstance(config_id, str) and config_id == short_id:
+            return config_id
+        if (
+            isinstance(entity_id, str)
+            and entity_id == automation_entity_id
+            and isinstance(config_id, str)
+            and config_id
+        ):
+            return config_id
+
+    return None
 
 
 def _format_issues_with_fixes(
@@ -181,9 +248,10 @@ def _format_issues_with_fixes(
             }
 
         edit_url: str | None = None
-        if issue.automation_id and _is_automation_editable(hass, issue.automation_id):
-            config_id = issue.automation_id.replace("automation.", "", 1)
-            edit_url = f"/config/automation/edit/{config_id}"
+        if issue.automation_id:
+            config_id = _resolve_automation_edit_config_id(hass, issue.automation_id)
+            if config_id is not None:
+                edit_url = f"/config/automation/edit/{config_id}"
 
         issues_with_fixes.append(
             {
