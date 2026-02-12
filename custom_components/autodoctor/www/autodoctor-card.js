@@ -1142,10 +1142,12 @@ let AutodocIssueGroup = class AutodocIssueGroup extends i {
         <div class="automation-issues">
           ${group.issues.map((item) => this._renderIssue(item))}
         </div>
-        <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
-          <span class="edit-text">Edit automation</span>
-          <span class="edit-arrow" aria-hidden="true">\u2192</span>
-        </a>
+        ${group.edit_url
+            ? b `<a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
+              <span class="edit-text">Edit automation</span>
+              <span class="edit-arrow" aria-hidden="true">\u2192</span>
+            </a>`
+            : A}
       </div>
     `;
     }

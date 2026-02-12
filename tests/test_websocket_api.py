@@ -968,6 +968,110 @@ def test_format_issues_fix_for_case_mismatch(hass: HomeAssistant) -> None:
     assert "Case mismatch" in result[0]["fix"]["reason"]
 
 
+def test_format_issues_with_fixes_includes_edit_url_for_automations_yaml_source(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should be present for automations defined in automations.yaml."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test_auto",
+        automation_name="Test Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    raw_config = type(
+        "RawConfig", (), {"__config_file__": "/config/automations.yaml"}
+    )()
+    entity = MagicMock()
+    entity.raw_config = raw_config
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=entity)
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/test_auto"
+
+
+def test_format_issues_with_fixes_omits_edit_url_for_package_source(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should be omitted for package-based automations."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test_auto",
+        automation_name="Test Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    raw_config = type(
+        "RawConfig", (), {"__config_file__": "/config/packages/lighting.yaml"}
+    )()
+    entity = MagicMock()
+    entity.raw_config = raw_config
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=entity)
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] is None
+
+
+def test_format_issues_with_fixes_omits_edit_url_when_entity_not_found(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should be omitted when automation entity cannot be resolved."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.missing",
+        automation_name="Missing Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=None)
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] is None
+
+
+def test_format_issues_with_fixes_dict_mode_keeps_edit_url_when_id_exists(
+    hass: HomeAssistant,
+) -> None:
+    """Dict-mode automation data should still expose edit link when id exists."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    hass.data["automation"] = {
+        "config": [{"id": "test", "alias": "Test Auto"}],
+    }
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/test"
+
+
 @pytest.mark.asyncio
 async def test_websocket_run_validation_steps_reports_failed_automations(
     hass: HomeAssistant,

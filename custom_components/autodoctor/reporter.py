@@ -164,7 +164,30 @@ class IssueReporter:
 
     def _clear_resolved_issues(self, current_ids: set[str]) -> None:
         """Clear issues that have been resolved."""
-        resolved = self._active_issues - current_ids
+        registry_ids: set[str] = set()
+
+        if has_issue_registry and hasattr(ir, "async_get"):
+            try:
+                registry = ir.async_get(self.hass)
+                registry_issues = getattr(registry, "issues", {})
+                registry_ids = {
+                    issue_id
+                    for (domain, issue_id) in registry_issues
+                    if domain == DOMAIN
+                }
+            except Exception as err:
+                _LOGGER.debug(
+                    "Could not query issue registry, using memory set: %s", err
+                )
+
+        active_ids = set(self._active_issues)
+        all_known_ids = active_ids | registry_ids
+        resolved = all_known_ids - current_ids
+
+        orphan_count = len(resolved - active_ids)
+        if orphan_count > 0:
+            _LOGGER.info("Cleaning up %d orphaned repair(s)", orphan_count)
+
         for issue_id in resolved:
             try:
                 # Note: ir.async_delete_issue is synchronous despite the name
