@@ -1161,9 +1161,7 @@ async def test_setup_periodic_scan_listener_runs_validate_all() -> None:
     captured: dict[str, object] = {}
     unsub = MagicMock()
 
-    def _fake_track(
-        _hass: MagicMock, action: object, interval: timedelta
-    ) -> MagicMock:
+    def _fake_track(_hass: MagicMock, action: object, interval: timedelta) -> MagicMock:
         captured["action"] = action
         captured["interval"] = interval
         return unsub
