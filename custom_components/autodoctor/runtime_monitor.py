@@ -58,22 +58,35 @@ class _RiverAnomalyDetector:
 
         # Reset if history shrank (sliding window shifted)
         if watermark > len(training):
+            _LOGGER.debug("Resetting model for '%s' (window shifted)", automation_id)
             watermark = 0
             self._models.pop(automation_id, None)
 
         model = self._models.get(automation_id)
         if model is None:
+            _LOGGER.debug("Creating HalfSpaceTrees model for '%s'", automation_id)
             assert anomaly is not None  # guaranteed by _HAS_RIVER check above
             model = anomaly.HalfSpaceTrees(
                 n_trees=15, height=8, window_size=256, seed=42
             )
             self._models[automation_id] = model
 
-        for row in training[watermark:]:
+        new_rows = training[watermark:]
+        if new_rows:
+            _LOGGER.debug(
+                "Learning %d new rows for '%s' (watermark %d -> %d)",
+                len(new_rows),
+                automation_id,
+                watermark,
+                len(training),
+            )
+        for row in new_rows:
             model.learn_one(row)
         self._watermarks[automation_id] = len(training)
 
-        return float(model.score_one(train_rows[-1]))
+        score = float(model.score_one(train_rows[-1]))
+        _LOGGER.debug("Scored '%s': %.3f", automation_id, score)
+        return score
 
 
 class RuntimeHealthMonitor:
@@ -100,6 +113,18 @@ class RuntimeHealthMonitor:
         self._detector = detector or (_RiverAnomalyDetector() if _HAS_RIVER else None)
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._last_run_stats: dict[str, int] = {}
+        _LOGGER.debug(
+            "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
+            "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
+            "river_available=%s, detector=%s",
+            baseline_days,
+            warmup_samples,
+            anomaly_threshold,
+            min_expected_events,
+            overactive_factor,
+            _HAS_RIVER,
+            type(self._detector).__name__ if self._detector else None,
+        )
 
     def get_last_run_stats(self) -> dict[str, int]:
         """Return telemetry from the most recent run."""
@@ -109,10 +134,17 @@ class RuntimeHealthMonitor:
         self, automations: list[dict[str, Any]]
     ) -> list[ValidationIssue]:
         """Validate runtime trigger behavior for automations."""
+        _LOGGER.debug(
+            "Runtime health validation starting: %d automations", len(automations)
+        )
         stats: dict[str, int] = defaultdict(int)
         stats["total_automations"] = len(automations)
 
         if self._detector is None:
+            _LOGGER.debug(
+                "River detector unavailable, skipping %d automations",
+                len(automations),
+            )
             stats["river_unavailable"] = len(automations)
             self._last_run_stats = dict(stats)
             return []
@@ -125,7 +157,9 @@ class RuntimeHealthMonitor:
             for a in automations
             if isinstance(a.get("id"), str) and a.get("id")
         ]
+        _LOGGER.debug("Extracted %d valid automation IDs", len(automation_ids))
         if not automation_ids:
+            _LOGGER.debug("No valid automation IDs to validate")
             self._last_run_stats = dict(stats)
             return []
 
@@ -154,22 +188,63 @@ class RuntimeHealthMonitor:
             )
             expected = fmean(day_counts) if day_counts else 0.0
             active_days = sum(1 for c in day_counts if c > 0)
+            _LOGGER.debug(
+                "Automation '%s': %d baseline events, %d recent events, %d active days",
+                automation_name,
+                len(baseline_events),
+                len(recent_events),
+                active_days,
+            )
 
             if active_days < self.warmup_samples:
+                _LOGGER.debug(
+                    "Automation '%s': skipped (insufficient warmup: "
+                    "%d active days < %d required)",
+                    automation_name,
+                    active_days,
+                    self.warmup_samples,
+                )
                 stats["insufficient_warmup"] += 1
                 continue
 
             if expected < float(self.min_expected_events):
+                _LOGGER.debug(
+                    "Automation '%s': skipped (insufficient baseline: "
+                    "%.1f events/day < %d required)",
+                    automation_name,
+                    expected,
+                    self.min_expected_events,
+                )
                 stats["insufficient_baseline"] += 1
                 continue
 
             train_rows = self._build_training_rows(day_counts, baseline_start)
             current_row = self._build_current_row(recent_events, expected, now)
             train_rows.append(current_row)
+            _LOGGER.debug(
+                "Automation '%s': scoring with %d training rows, "
+                "expected %.1f/day, recent %d events",
+                automation_name,
+                len(train_rows) - 1,
+                expected,
+                len(recent_events),
+            )
             score = self._detector.score_current(automation_id, train_rows)
+            _LOGGER.debug(
+                "Automation '%s': anomaly score=%.3f (threshold=%.2f)",
+                automation_name,
+                score,
+                self.anomaly_threshold,
+            )
 
             recent_count = len(recent_events)
             if recent_count == 0 and score >= self.anomaly_threshold:
+                _LOGGER.info(
+                    "Stalled: '%s' - 0 triggers in 24h, baseline %.1f/day, score %.2f",
+                    automation_name,
+                    expected,
+                    score,
+                )
                 stats["stalled_detected"] += 1
                 issues.append(
                     ValidationIssue(
@@ -192,6 +267,13 @@ class RuntimeHealthMonitor:
                 recent_count > expected * self.overactive_factor
                 and score >= self.anomaly_threshold
             ):
+                _LOGGER.info(
+                    "Overactive: '%s' - %d triggers in 24h, baseline %.1f/day, score %.2f",
+                    automation_name,
+                    recent_count,
+                    expected,
+                    score,
+                )
                 stats["overactive_detected"] += 1
                 issues.append(
                     ValidationIssue(
@@ -313,8 +395,22 @@ class RuntimeHealthMonitor:
 
             return results
 
+        days_span = (end - start).days
+        _LOGGER.debug(
+            "Querying recorder for %d automation IDs over %d days",
+            len(automation_ids),
+            days_span,
+        )
         try:
-            return await self.hass.async_add_executor_job(_query)
+            result = await self.hass.async_add_executor_job(_query)
+            total_events = sum(len(ts_list) for ts_list in result.values())
+            automations_with_events = sum(1 for ts_list in result.values() if ts_list)
+            _LOGGER.debug(
+                "Fetched %d total trigger events for %d automations",
+                total_events,
+                automations_with_events,
+            )
+            return result
         except Exception as err:  # pragma: no cover - integration/runtime differences
             _LOGGER.debug(
                 "Failed to query recorder events for runtime monitor: %s", err

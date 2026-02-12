@@ -297,6 +297,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if runtime_enabled
         else None
     )
+    if runtime_enabled:
+        _LOGGER.debug("Runtime health monitoring enabled")
+    else:
+        _LOGGER.debug("Runtime health monitoring disabled")
     reporter = IssueReporter(hass)
 
     hass.data[DOMAIN] = {
