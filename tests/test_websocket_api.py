@@ -1159,6 +1159,32 @@ def test_format_issues_with_fixes_generates_edit_url_when_config_file_absent(
     assert result[0]["edit_url"] == "/config/automation/edit/test_auto"
 
 
+def test_format_issues_with_fixes_falls_back_to_short_id_without_metadata_or_id(
+    hass: HomeAssistant,
+) -> None:
+    """Edit link should fall back to short id when raw_config lacks metadata and id."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test_auto",
+        automation_name="Test Auto",
+        entity_id="light.kitchen",
+        location="trigger[0]",
+        message="Entity not found",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    entity = MagicMock()
+    entity.raw_config = {}
+
+    automation_component = MagicMock()
+    automation_component.get_entity = MagicMock(return_value=entity)
+    hass.data["automation"] = automation_component
+
+    result = _format_issues_with_fixes(hass, [issue])
+
+    assert result[0]["edit_url"] == "/config/automation/edit/test_auto"
+
+
 def test_format_issues_with_fixes_entities_fallback_without_config_file(
     hass: HomeAssistant,
 ) -> None:

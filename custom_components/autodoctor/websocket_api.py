@@ -117,6 +117,7 @@ def _resolve_automation_edit_config_id(
             config_id = _raw_config_get(raw_config, "id")
             if isinstance(config_id, str) and config_id:
                 return config_id
+            return short_id
 
     entities = getattr(automation_data, "entities", None)
     if entities is None:
