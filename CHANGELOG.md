@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.22.0](https://github.com/mossipcams/autodoctor/compare/v2.21.1...v2.22.0) (2026-02-12)
+
+
+### Features
+
+* **runtime:** replace river detector with pyod ECOD ([779fa25](https://github.com/mossipcams/autodoctor/commit/779fa25f584b9950edc6a4bf81dc54edb00e660e))
+
+
+### Bug Fixes
+
+* **runtime:** silence pyright reportConstantRedefinition for ECOD import ([f57b396](https://github.com/mossipcams/autodoctor/commit/f57b396e06c2db1fa61cb152f7d853a2d1112555))
+* **runtime:** use predict_proba for normalized [0,1] anomaly scores ([dffba56](https://github.com/mossipcams/autodoctor/commit/dffba568498a7fd447192078040573c66dd89892))
+
 ## [2.21.1](https://github.com/mossipcams/autodoctor/compare/v2.21.0...v2.21.1) (2026-02-12)
 
 
