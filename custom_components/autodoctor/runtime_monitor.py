@@ -14,11 +14,11 @@ from .models import IssueType, Severity, ValidationIssue
 _LOGGER = logging.getLogger(__name__)
 
 try:
-    from sklearn.ensemble import (
-        IsolationForest,  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
+    from sklearn.ensemble import (  # pyright: ignore[reportMissingImports]
+        IsolationForest,
     )
 except ImportError:  # pragma: no cover - environment-dependent
-    IsolationForest = None  # pyright: ignore[reportConstantRedefinition]
+    IsolationForest = None
 
 _HAS_SKLEARN: bool = IsolationForest is not None
 
@@ -52,9 +52,9 @@ class _IsolationForestDetector:
             automation_id,
             len(training),
         )
-        model = IsolationForest(n_estimators=100, contamination=0.1, random_state=42)  # pyright: ignore[reportOptionalCall, reportUnknownVariableType]
-        model.fit(x_train)  # pyright: ignore[reportUnknownMemberType]
-        raw = float(model.score_samples(x_current)[0])  # pyright: ignore[reportUnknownMemberType]
+        model = IsolationForest(n_estimators=100, contamination=0.1, random_state=42)
+        model.fit(x_train)
+        raw = float(model.score_samples(x_current)[0])
         score = max(0.0, min(1.0, -raw))
         _LOGGER.debug("Scored '%s': %.3f (raw=%.3f)", automation_id, score, raw)
         return score
