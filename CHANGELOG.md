@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.20.0](https://github.com/mossipcams/autodoctor/compare/v2.19.2...v2.20.0) (2026-02-12)
+
+
+### Features
+
+* **runtime:** add extensive debug logging throughout runtime health monitoring ([282740c](https://github.com/mossipcams/autodoctor/commit/282740c3a7944ff430b673057a9a07496a0d7502))
+
+
+### Bug Fixes
+
+* **runtime:** log runtime health stats after validation ([a434e8d](https://github.com/mossipcams/autodoctor/commit/a434e8d46cc91b1c988528c2f62701378c860b41))
+* **runtime:** log runtime health stats after validation ([394465e](https://github.com/mossipcams/autodoctor/commit/394465ed944ed94ba3ed49ffcaa9c0a6976b2bbb))
+
 ## [2.19.2](https://github.com/mossipcams/autodoctor/compare/v2.19.1...v2.19.2) (2026-02-11)
 
 
