@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -73,7 +74,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow."""
 
     @staticmethod
-    def _build_options_schema(defaults: dict[str, Any]) -> vol.Schema:
+    def _build_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
         """Build options schema using provided defaults."""
         return vol.Schema(
             {

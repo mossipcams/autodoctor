@@ -202,7 +202,9 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
 ) -> None:
     """Automations without config id should still run when entity_id is available."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {"automation.no_id": [now - timedelta(days=d, hours=2) for d in range(1, 31)]}
+    history = {
+        "automation.no_id": [now - timedelta(days=d, hours=2) for d in range(1, 31)]
+    }
     monitor = _TestRuntimeMonitor(
         hass,
         history=history,

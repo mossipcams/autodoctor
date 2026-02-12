@@ -140,7 +140,9 @@ class RuntimeHealthMonitor:
 
         raw_id = automation.get("id")
         if isinstance(raw_id, str) and raw_id:
-            return raw_id if raw_id.startswith("automation.") else f"automation.{raw_id}"
+            return (
+                raw_id if raw_id.startswith("automation.") else f"automation.{raw_id}"
+            )
         return None
 
     async def validate_automations(

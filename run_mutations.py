@@ -9,8 +9,6 @@ Results saved incrementally to /tmp/mutation_results.json.
 import json
 import multiprocessing
 import subprocess
-import sys
-import time
 from pathlib import Path
 
 # Force spawn start method to avoid fork issues on Python 3.14/macOS
