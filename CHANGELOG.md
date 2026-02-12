@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.22.0](https://github.com/mossipcams/autodoctor/compare/v2.21.1...v2.22.0) (2026-02-12)
+
+
+### Features
+
+* **runtime:** replace river detector with pyod ECOD ([779fa25](https://github.com/mossipcams/autodoctor/commit/779fa25f584b9950edc6a4bf81dc54edb00e660e))
+* **runtime:** replace River with sklearn IsolationForest ([99e93f7](https://github.com/mossipcams/autodoctor/commit/99e93f7b6d8bbc4eeba305d65a2e10fa3daaefea))
+* **runtime:** replace River with sklearn IsolationForest ([37c4a0f](https://github.com/mossipcams/autodoctor/commit/37c4a0f8e73518c5220a04dec1b0c1bb3336e9a0))
+* **runtime:** runtime health River v2 with performance and reliability fixes ([83b0803](https://github.com/mossipcams/autodoctor/commit/83b0803b168fc4dc13d72ba998a447bce187bf20))
+
+
+### Bug Fixes
+
+* **runtime:** add pyright ignore comments for optional sklearn import ([b6e15eb](https://github.com/mossipcams/autodoctor/commit/b6e15ebec1a7caa2a24cf7af0b04c5adc87ac257))
+* **runtime:** add remaining pyright ignores for unresolved sklearn ([840e14f](https://github.com/mossipcams/autodoctor/commit/840e14fd63a6cdabdf4023af9fafe9323ea8c5be))
+* **runtime:** fix pyright ignore placement for sklearn import ([f728b72](https://github.com/mossipcams/autodoctor/commit/f728b727a8af8dcb3338d6e196dd834308a1f9d3))
+* **runtime:** silence pyright reportConstantRedefinition for ECOD import ([f57b396](https://github.com/mossipcams/autodoctor/commit/f57b396e06c2db1fa61cb152f7d853a2d1112555))
+* **runtime:** use predict_proba for normalized [0,1] anomaly scores ([dffba56](https://github.com/mossipcams/autodoctor/commit/dffba568498a7fd447192078040573c66dd89892))
+
 ## [2.21.1](https://github.com/mossipcams/autodoctor/compare/v2.21.0...v2.21.1) (2026-02-12)
 
 
