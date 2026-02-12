@@ -363,6 +363,15 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     hass.data[DOMAIN] = {
         "suppression_store": None,
         "validation_last_run": "2026-01-30T12:00:00+00:00",
+        "validation_run_stats": {
+            "analyzed_automations": 4,
+            "failed_automations": 1,
+            "skip_reasons": {
+                "runtime_health": {
+                    "insufficient_warmup": 2,
+                }
+            },
+        },
         "validation_groups": {
             "entity_state": {
                 "issues": [entity_issue],
@@ -398,6 +407,7 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     assert result["groups"][3]["status"] == "pass"
     assert result["last_run"] == "2026-01-30T12:00:00+00:00"
     assert result["suppressed_count"] == 0
+    assert result["skip_reasons"]["runtime_health"]["insufficient_warmup"] == 2
 
 
 @pytest.mark.asyncio
@@ -872,6 +882,11 @@ async def test_websocket_run_validation_steps_reports_failed_automations(
             "timestamp": "2026-02-09T12:00:00+00:00",
             "analyzed_automations": 4,
             "failed_automations": 1,
+            "skip_reasons": {
+                "runtime_health": {
+                    "insufficient_baseline": 4,
+                }
+            },
         },
     ):
         await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
@@ -879,6 +894,7 @@ async def test_websocket_run_validation_steps_reports_failed_automations(
     result = connection.send_result.call_args[0][1]
     assert result["analyzed_automations"] == 4
     assert result["failed_automations"] == 1
+    assert result["skip_reasons"]["runtime_health"]["insufficient_baseline"] == 4
 
 
 @pytest.mark.asyncio

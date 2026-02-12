@@ -299,7 +299,10 @@ export class AutodoctorCard extends LitElement {
                   `
                 )
               : hasRun
-                ? this._renderAllHealthy(counts.healthy)
+                ? this._renderAllHealthy(
+                    counts.healthy,
+                    data.analyzed_automations ?? counts.healthy
+                  )
                 : this._renderFirstRun()}
         </div>
         ${this._renderFooter()}
@@ -356,14 +359,17 @@ export class AutodoctorCard extends LitElement {
     `;
   }
 
-  private _renderAllHealthy(healthyCount: number): TemplateResult {
+  private _renderAllHealthy(
+    healthyCount: number,
+    analyzedCount: number
+  ): TemplateResult {
     return html`
       <div class="all-healthy">
         <div class="healthy-icon" aria-hidden="true">\u2713</div>
         <div class="healthy-message">
           <span class="healthy-title">All systems healthy</span>
           <span class="healthy-subtitle"
-            >${healthyCount} automation${healthyCount !== 1 ? "s" : ""} checked</span
+            >${analyzedCount} automation${analyzedCount !== 1 ? "s" : ""} analyzed</span
           >
         </div>
       </div>

@@ -113,6 +113,7 @@ class RuntimeHealthMonitor:
         self._detector = detector or (_RiverAnomalyDetector() if _HAS_RIVER else None)
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._last_run_stats: dict[str, int] = {}
+        self._last_query_failed = False
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
@@ -168,6 +169,8 @@ class RuntimeHealthMonitor:
             baseline_start,
             now,
         )
+        if self._last_query_failed:
+            stats["recorder_query_failed"] = 1
 
         issues: list[ValidationIssue] = []
         for automation in automations:
@@ -344,6 +347,7 @@ class RuntimeHealthMonitor:
         end: datetime,
     ) -> dict[str, list[datetime]]:
         """Fetch automation trigger timestamps from recorder events table."""
+        self._last_query_failed = False
         try:
             from homeassistant.components.recorder import get_instance
             from sqlalchemy import text
@@ -412,6 +416,7 @@ class RuntimeHealthMonitor:
             )
             return result
         except Exception as err:  # pragma: no cover - integration/runtime differences
+            self._last_query_failed = True
             _LOGGER.debug(
                 "Failed to query recorder events for runtime monitor: %s", err
             )

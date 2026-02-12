@@ -1,42 +1,86 @@
-function t(t,e,s,i){var o,a=arguments.length,r=a<3?e:null===i?i=Object.getOwnPropertyDescriptor(e,s):i;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)r=Reflect.decorate(t,e,s,i);else for(var n=t.length-1;n>=0;n--)(o=t[n])&&(r=(a<3?o(r):a>3?o(e,s,r):o(e,s))||r);return a>3&&r&&Object.defineProperty(e,s,r),r}"function"==typeof SuppressedError&&SuppressedError;
+/******************************************************************************
+Copyright (c) Microsoft Corporation.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+***************************************************************************** */
+/* global Reflect, Promise, SuppressedError, Symbol, Iterator */
+
+
+function __decorate(decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+}
+
+typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+};
+
 /**
  * @license
  * Copyright 2019 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const e=globalThis,s=e.ShadowRoot&&(void 0===e.ShadyCSS||e.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,i=Symbol(),o=new WeakMap;let a=class{constructor(t,e,s){if(this._$cssResult$=!0,s!==i)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e}get styleSheet(){let t=this.o;const e=this.t;if(s&&void 0===t){const s=void 0!==e&&1===e.length;s&&(t=o.get(e)),void 0===t&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),s&&o.set(e,t))}return t}toString(){return this.cssText}};const r=(t,...e)=>{const s=1===t.length?t[0]:e.reduce((e,s,i)=>e+(t=>{if(!0===t._$cssResult$)return t.cssText;if("number"==typeof t)return t;throw Error("Value passed to 'css' function must be a 'css' function result: "+t+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(s)+t[i+1],t[0]);return new a(s,t,i)},n=s?t=>t:t=>t instanceof CSSStyleSheet?(t=>{let e="";for(const s of t.cssRules)e+=s.cssText;return(t=>new a("string"==typeof t?t:t+"",void 0,i))(e)})(t):t,{is:d,defineProperty:c,getOwnPropertyDescriptor:l,getOwnPropertyNames:p,getOwnPropertySymbols:u,getPrototypeOf:h}=Object,g=globalThis,m=g.trustedTypes,f=m?m.emptyScript:"",v=g.reactiveElementPolyfillSupport,_=(t,e)=>t,b={toAttribute(t,e){switch(e){case Boolean:t=t?f:null;break;case Object:case Array:t=null==t?t:JSON.stringify(t)}return t},fromAttribute(t,e){let s=t;switch(e){case Boolean:s=null!==t;break;case Number:s=null===t?null:Number(t);break;case Object:case Array:try{s=JSON.parse(t)}catch(t){s=null}}return s}},y=(t,e)=>!d(t,e),x={attribute:!0,type:String,converter:b,reflect:!1,useDefault:!1,hasChanged:y};
+const t$2=globalThis,e$2=t$2.ShadowRoot&&(void 0===t$2.ShadyCSS||t$2.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,s$2=Symbol(),o$4=new WeakMap;let n$3 = class n{constructor(t,e,o){if(this._$cssResult$=true,o!==s$2)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e;}get styleSheet(){let t=this.o;const s=this.t;if(e$2&&void 0===t){const e=void 0!==s&&1===s.length;e&&(t=o$4.get(s)),void 0===t&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),e&&o$4.set(s,t));}return t}toString(){return this.cssText}};const r$4=t=>new n$3("string"==typeof t?t:t+"",void 0,s$2),i$3=(t,...e)=>{const o=1===t.length?t[0]:e.reduce((e,s,o)=>e+(t=>{if(true===t._$cssResult$)return t.cssText;if("number"==typeof t)return t;throw Error("Value passed to 'css' function must be a 'css' function result: "+t+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(s)+t[o+1],t[0]);return new n$3(o,t,s$2)},S$1=(s,o)=>{if(e$2)s.adoptedStyleSheets=o.map(t=>t instanceof CSSStyleSheet?t:t.styleSheet);else for(const e of o){const o=document.createElement("style"),n=t$2.litNonce;void 0!==n&&o.setAttribute("nonce",n),o.textContent=e.cssText,s.appendChild(o);}},c$2=e$2?t=>t:t=>t instanceof CSSStyleSheet?(t=>{let e="";for(const s of t.cssRules)e+=s.cssText;return r$4(e)})(t):t;
+
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */Symbol.metadata??=Symbol("metadata"),g.litPropertyMetadata??=new WeakMap;let $=class extends HTMLElement{static addInitializer(t){this._$Ei(),(this.l??=[]).push(t)}static get observedAttributes(){return this.finalize(),this._$Eh&&[...this._$Eh.keys()]}static createProperty(t,e=x){if(e.state&&(e.attribute=!1),this._$Ei(),this.prototype.hasOwnProperty(t)&&((e=Object.create(e)).wrapped=!0),this.elementProperties.set(t,e),!e.noAccessor){const s=Symbol(),i=this.getPropertyDescriptor(t,s,e);void 0!==i&&c(this.prototype,t,i)}}static getPropertyDescriptor(t,e,s){const{get:i,set:o}=l(this.prototype,t)??{get(){return this[e]},set(t){this[e]=t}};return{get:i,set(e){const a=i?.call(this);o?.call(this,e),this.requestUpdate(t,a,s)},configurable:!0,enumerable:!0}}static getPropertyOptions(t){return this.elementProperties.get(t)??x}static _$Ei(){if(this.hasOwnProperty(_("elementProperties")))return;const t=h(this);t.finalize(),void 0!==t.l&&(this.l=[...t.l]),this.elementProperties=new Map(t.elementProperties)}static finalize(){if(this.hasOwnProperty(_("finalized")))return;if(this.finalized=!0,this._$Ei(),this.hasOwnProperty(_("properties"))){const t=this.properties,e=[...p(t),...u(t)];for(const s of e)this.createProperty(s,t[s])}const t=this[Symbol.metadata];if(null!==t){const e=litPropertyMetadata.get(t);if(void 0!==e)for(const[t,s]of e)this.elementProperties.set(t,s)}this._$Eh=new Map;for(const[t,e]of this.elementProperties){const s=this._$Eu(t,e);void 0!==s&&this._$Eh.set(s,t)}this.elementStyles=this.finalizeStyles(this.styles)}static finalizeStyles(t){const e=[];if(Array.isArray(t)){const s=new Set(t.flat(1/0).reverse());for(const t of s)e.unshift(n(t))}else void 0!==t&&e.push(n(t));return e}static _$Eu(t,e){const s=e.attribute;return!1===s?void 0:"string"==typeof s?s:"string"==typeof t?t.toLowerCase():void 0}constructor(){super(),this._$Ep=void 0,this.isUpdatePending=!1,this.hasUpdated=!1,this._$Em=null,this._$Ev()}_$Ev(){this._$ES=new Promise(t=>this.enableUpdating=t),this._$AL=new Map,this._$E_(),this.requestUpdate(),this.constructor.l?.forEach(t=>t(this))}addController(t){(this._$EO??=new Set).add(t),void 0!==this.renderRoot&&this.isConnected&&t.hostConnected?.()}removeController(t){this._$EO?.delete(t)}_$E_(){const t=new Map,e=this.constructor.elementProperties;for(const s of e.keys())this.hasOwnProperty(s)&&(t.set(s,this[s]),delete this[s]);t.size>0&&(this._$Ep=t)}createRenderRoot(){const t=this.shadowRoot??this.attachShadow(this.constructor.shadowRootOptions);return((t,i)=>{if(s)t.adoptedStyleSheets=i.map(t=>t instanceof CSSStyleSheet?t:t.styleSheet);else for(const s of i){const i=document.createElement("style"),o=e.litNonce;void 0!==o&&i.setAttribute("nonce",o),i.textContent=s.cssText,t.appendChild(i)}})(t,this.constructor.elementStyles),t}connectedCallback(){this.renderRoot??=this.createRenderRoot(),this.enableUpdating(!0),this._$EO?.forEach(t=>t.hostConnected?.())}enableUpdating(t){}disconnectedCallback(){this._$EO?.forEach(t=>t.hostDisconnected?.())}attributeChangedCallback(t,e,s){this._$AK(t,s)}_$ET(t,e){const s=this.constructor.elementProperties.get(t),i=this.constructor._$Eu(t,s);if(void 0!==i&&!0===s.reflect){const o=(void 0!==s.converter?.toAttribute?s.converter:b).toAttribute(e,s.type);this._$Em=t,null==o?this.removeAttribute(i):this.setAttribute(i,o),this._$Em=null}}_$AK(t,e){const s=this.constructor,i=s._$Eh.get(t);if(void 0!==i&&this._$Em!==i){const t=s.getPropertyOptions(i),o="function"==typeof t.converter?{fromAttribute:t.converter}:void 0!==t.converter?.fromAttribute?t.converter:b;this._$Em=i;const a=o.fromAttribute(e,t.type);this[i]=a??this._$Ej?.get(i)??a,this._$Em=null}}requestUpdate(t,e,s,i=!1,o){if(void 0!==t){const a=this.constructor;if(!1===i&&(o=this[t]),s??=a.getPropertyOptions(t),!((s.hasChanged??y)(o,e)||s.useDefault&&s.reflect&&o===this._$Ej?.get(t)&&!this.hasAttribute(a._$Eu(t,s))))return;this.C(t,e,s)}!1===this.isUpdatePending&&(this._$ES=this._$EP())}C(t,e,{useDefault:s,reflect:i,wrapped:o},a){s&&!(this._$Ej??=new Map).has(t)&&(this._$Ej.set(t,a??e??this[t]),!0!==o||void 0!==a)||(this._$AL.has(t)||(this.hasUpdated||s||(e=void 0),this._$AL.set(t,e)),!0===i&&this._$Em!==t&&(this._$Eq??=new Set).add(t))}async _$EP(){this.isUpdatePending=!0;try{await this._$ES}catch(t){Promise.reject(t)}const t=this.scheduleUpdate();return null!=t&&await t,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){if(!this.isUpdatePending)return;if(!this.hasUpdated){if(this.renderRoot??=this.createRenderRoot(),this._$Ep){for(const[t,e]of this._$Ep)this[t]=e;this._$Ep=void 0}const t=this.constructor.elementProperties;if(t.size>0)for(const[e,s]of t){const{wrapped:t}=s,i=this[e];!0!==t||this._$AL.has(e)||void 0===i||this.C(e,void 0,s,i)}}let t=!1;const e=this._$AL;try{t=this.shouldUpdate(e),t?(this.willUpdate(e),this._$EO?.forEach(t=>t.hostUpdate?.()),this.update(e)):this._$EM()}catch(e){throw t=!1,this._$EM(),e}t&&this._$AE(e)}willUpdate(t){}_$AE(t){this._$EO?.forEach(t=>t.hostUpdated?.()),this.hasUpdated||(this.hasUpdated=!0,this.firstUpdated(t)),this.updated(t)}_$EM(){this._$AL=new Map,this.isUpdatePending=!1}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$ES}shouldUpdate(t){return!0}update(t){this._$Eq&&=this._$Eq.forEach(t=>this._$ET(t,this[t])),this._$EM()}updated(t){}firstUpdated(t){}};$.elementStyles=[],$.shadowRootOptions={mode:"open"},$[_("elementProperties")]=new Map,$[_("finalized")]=new Map,v?.({ReactiveElement:$}),(g.reactiveElementVersions??=[]).push("2.1.2");
-/**
- * @license
- * Copyright 2017 Google LLC
- * SPDX-License-Identifier: BSD-3-Clause
- */
-const w=globalThis,A=t=>t,S=w.trustedTypes,k=S?S.createPolicy("lit-html",{createHTML:t=>t}):void 0,C="$lit$",E=`lit$${Math.random().toFixed(9).slice(2)}$`,z="?"+E,T=`<${z}>`,R=document,U=()=>R.createComment(""),P=t=>null===t||"object"!=typeof t&&"function"!=typeof t,O=Array.isArray,M="[ \t\n\f\r]",I=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,H=/-->/g,D=/>/g,F=RegExp(`>|${M}(?:([^\\s"'>=/]+)(${M}*=${M}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),N=/'/g,L=/"/g,j=/^(?:script|style|textarea|title)$/i,V=(t=>(e,...s)=>({_$litType$:t,strings:e,values:s}))(1),W=Symbol.for("lit-noChange"),q=Symbol.for("lit-nothing"),B=new WeakMap,K=R.createTreeWalker(R,129);function J(t,e){if(!O(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==k?k.createHTML(e):e}const Y=(t,e)=>{const s=t.length-1,i=[];let o,a=2===e?"<svg>":3===e?"<math>":"",r=I;for(let e=0;e<s;e++){const s=t[e];let n,d,c=-1,l=0;for(;l<s.length&&(r.lastIndex=l,d=r.exec(s),null!==d);)l=r.lastIndex,r===I?"!--"===d[1]?r=H:void 0!==d[1]?r=D:void 0!==d[2]?(j.test(d[2])&&(o=RegExp("</"+d[2],"g")),r=F):void 0!==d[3]&&(r=F):r===F?">"===d[0]?(r=o??I,c=-1):void 0===d[1]?c=-2:(c=r.lastIndex-d[2].length,n=d[1],r=void 0===d[3]?F:'"'===d[3]?L:N):r===L||r===N?r=F:r===H||r===D?r=I:(r=F,o=void 0);const p=r===F&&t[e+1].startsWith("/>")?" ":"";a+=r===I?s+T:c>=0?(i.push(n),s.slice(0,c)+C+s.slice(c)+E+p):s+E+(-2===c?e:p)}return[J(t,a+(t[s]||"<?>")+(2===e?"</svg>":3===e?"</math>":"")),i]};class G{constructor({strings:t,_$litType$:e},s){let i;this.parts=[];let o=0,a=0;const r=t.length-1,n=this.parts,[d,c]=Y(t,e);if(this.el=G.createElement(d,s),K.currentNode=this.el.content,2===e||3===e){const t=this.el.content.firstChild;t.replaceWith(...t.childNodes)}for(;null!==(i=K.nextNode())&&n.length<r;){if(1===i.nodeType){if(i.hasAttributes())for(const t of i.getAttributeNames())if(t.endsWith(C)){const e=c[a++],s=i.getAttribute(t).split(E),r=/([.?@])?(.*)/.exec(e);n.push({type:1,index:o,name:r[2],strings:s,ctor:"."===r[1]?et:"?"===r[1]?st:"@"===r[1]?it:tt}),i.removeAttribute(t)}else t.startsWith(E)&&(n.push({type:6,index:o}),i.removeAttribute(t));if(j.test(i.tagName)){const t=i.textContent.split(E),e=t.length-1;if(e>0){i.textContent=S?S.emptyScript:"";for(let s=0;s<e;s++)i.append(t[s],U()),K.nextNode(),n.push({type:2,index:++o});i.append(t[e],U())}}}else if(8===i.nodeType)if(i.data===z)n.push({type:2,index:o});else{let t=-1;for(;-1!==(t=i.data.indexOf(E,t+1));)n.push({type:7,index:o}),t+=E.length-1}o++}}static createElement(t,e){const s=R.createElement("template");return s.innerHTML=t,s}}function X(t,e,s=t,i){if(e===W)return e;let o=void 0!==i?s._$Co?.[i]:s._$Cl;const a=P(e)?void 0:e._$litDirective$;return o?.constructor!==a&&(o?._$AO?.(!1),void 0===a?o=void 0:(o=new a(t),o._$AT(t,s,i)),void 0!==i?(s._$Co??=[])[i]=o:s._$Cl=o),void 0!==o&&(e=X(t,o._$AS(t,e.values),o,i)),e}class Z{constructor(t,e){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=e}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){const{el:{content:e},parts:s}=this._$AD,i=(t?.creationScope??R).importNode(e,!0);K.currentNode=i;let o=K.nextNode(),a=0,r=0,n=s[0];for(;void 0!==n;){if(a===n.index){let e;2===n.type?e=new Q(o,o.nextSibling,this,t):1===n.type?e=new n.ctor(o,n.name,n.strings,this,t):6===n.type&&(e=new ot(o,this,t)),this._$AV.push(e),n=s[++r]}a!==n?.index&&(o=K.nextNode(),a++)}return K.currentNode=R,i}p(t){let e=0;for(const s of this._$AV)void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,e),e+=s.strings.length-2):s._$AI(t[e])),e++}}class Q{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,e,s,i){this.type=2,this._$AH=q,this._$AN=void 0,this._$AA=t,this._$AB=e,this._$AM=s,this.options=i,this._$Cv=i?.isConnected??!0}get parentNode(){let t=this._$AA.parentNode;const e=this._$AM;return void 0!==e&&11===t?.nodeType&&(t=e.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,e=this){t=X(this,t,e),P(t)?t===q||null==t||""===t?(this._$AH!==q&&this._$AR(),this._$AH=q):t!==this._$AH&&t!==W&&this._(t):void 0!==t._$litType$?this.$(t):void 0!==t.nodeType?this.T(t):(t=>O(t)||"function"==typeof t?.[Symbol.iterator])(t)?this.k(t):this._(t)}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t))}_(t){this._$AH!==q&&P(this._$AH)?this._$AA.nextSibling.data=t:this.T(R.createTextNode(t)),this._$AH=t}$(t){const{values:e,_$litType$:s}=t,i="number"==typeof s?this._$AC(t):(void 0===s.el&&(s.el=G.createElement(J(s.h,s.h[0]),this.options)),s);if(this._$AH?._$AD===i)this._$AH.p(e);else{const t=new Z(i,this),s=t.u(this.options);t.p(e),this.T(s),this._$AH=t}}_$AC(t){let e=B.get(t.strings);return void 0===e&&B.set(t.strings,e=new G(t)),e}k(t){O(this._$AH)||(this._$AH=[],this._$AR());const e=this._$AH;let s,i=0;for(const o of t)i===e.length?e.push(s=new Q(this.O(U()),this.O(U()),this,this.options)):s=e[i],s._$AI(o),i++;i<e.length&&(this._$AR(s&&s._$AB.nextSibling,i),e.length=i)}_$AR(t=this._$AA.nextSibling,e){for(this._$AP?.(!1,!0,e);t!==this._$AB;){const e=A(t).nextSibling;A(t).remove(),t=e}}setConnected(t){void 0===this._$AM&&(this._$Cv=t,this._$AP?.(t))}}class tt{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,e,s,i,o){this.type=1,this._$AH=q,this._$AN=void 0,this.element=t,this.name=e,this._$AM=i,this.options=o,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=q}_$AI(t,e=this,s,i){const o=this.strings;let a=!1;if(void 0===o)t=X(this,t,e,0),a=!P(t)||t!==this._$AH&&t!==W,a&&(this._$AH=t);else{const i=t;let r,n;for(t=o[0],r=0;r<o.length-1;r++)n=X(this,i[s+r],e,r),n===W&&(n=this._$AH[r]),a||=!P(n)||n!==this._$AH[r],n===q?t=q:t!==q&&(t+=(n??"")+o[r+1]),this._$AH[r]=n}a&&!i&&this.j(t)}j(t){t===q?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"")}}class et extends tt{constructor(){super(...arguments),this.type=3}j(t){this.element[this.name]=t===q?void 0:t}}class st extends tt{constructor(){super(...arguments),this.type=4}j(t){this.element.toggleAttribute(this.name,!!t&&t!==q)}}class it extends tt{constructor(t,e,s,i,o){super(t,e,s,i,o),this.type=5}_$AI(t,e=this){if((t=X(this,t,e,0)??q)===W)return;const s=this._$AH,i=t===q&&s!==q||t.capture!==s.capture||t.once!==s.once||t.passive!==s.passive,o=t!==q&&(s===q||i);i&&this.element.removeEventListener(this.name,this,s),o&&this.element.addEventListener(this.name,this,t),this._$AH=t}handleEvent(t){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t)}}class ot{constructor(t,e,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=e,this.options=s}get _$AU(){return this._$AM._$AU}_$AI(t){X(this,t)}}const at=w.litHtmlPolyfillSupport;at?.(G,Q),(w.litHtmlVersions??=[]).push("3.3.2");const rt=globalThis;
-/**
- * @license
- * Copyright 2017 Google LLC
- * SPDX-License-Identifier: BSD-3-Clause
- */class nt extends ${constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){const t=super.createRenderRoot();return this.renderOptions.renderBefore??=t.firstChild,t}update(t){const e=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=((t,e,s)=>{const i=s?.renderBefore??e;let o=i._$litPart$;if(void 0===o){const t=s?.renderBefore??null;i._$litPart$=o=new Q(e.insertBefore(U(),t),t,void 0,s??{})}return o._$AI(t),o})(e,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return W}}nt._$litElement$=!0,nt.finalized=!0,rt.litElementHydrateSupport?.({LitElement:nt});const dt=rt.litElementPolyfillSupport;dt?.({LitElement:nt}),(rt.litElementVersions??=[]).push("4.2.2");
+ */const{is:i$2,defineProperty:e$1,getOwnPropertyDescriptor:h$1,getOwnPropertyNames:r$3,getOwnPropertySymbols:o$3,getPrototypeOf:n$2}=Object,a$1=globalThis,c$1=a$1.trustedTypes,l$1=c$1?c$1.emptyScript:"",p$1=a$1.reactiveElementPolyfillSupport,d$1=(t,s)=>t,u$1={toAttribute(t,s){switch(s){case Boolean:t=t?l$1:null;break;case Object:case Array:t=null==t?t:JSON.stringify(t);}return t},fromAttribute(t,s){let i=t;switch(s){case Boolean:i=null!==t;break;case Number:i=null===t?null:Number(t);break;case Object:case Array:try{i=JSON.parse(t);}catch(t){i=null;}}return i}},f$1=(t,s)=>!i$2(t,s),b$1={attribute:true,type:String,converter:u$1,reflect:false,useDefault:false,hasChanged:f$1};Symbol.metadata??=Symbol("metadata"),a$1.litPropertyMetadata??=new WeakMap;let y$1 = class y extends HTMLElement{static addInitializer(t){this._$Ei(),(this.l??=[]).push(t);}static get observedAttributes(){return this.finalize(),this._$Eh&&[...this._$Eh.keys()]}static createProperty(t,s=b$1){if(s.state&&(s.attribute=false),this._$Ei(),this.prototype.hasOwnProperty(t)&&((s=Object.create(s)).wrapped=true),this.elementProperties.set(t,s),!s.noAccessor){const i=Symbol(),h=this.getPropertyDescriptor(t,i,s);void 0!==h&&e$1(this.prototype,t,h);}}static getPropertyDescriptor(t,s,i){const{get:e,set:r}=h$1(this.prototype,t)??{get(){return this[s]},set(t){this[s]=t;}};return {get:e,set(s){const h=e?.call(this);r?.call(this,s),this.requestUpdate(t,h,i);},configurable:true,enumerable:true}}static getPropertyOptions(t){return this.elementProperties.get(t)??b$1}static _$Ei(){if(this.hasOwnProperty(d$1("elementProperties")))return;const t=n$2(this);t.finalize(),void 0!==t.l&&(this.l=[...t.l]),this.elementProperties=new Map(t.elementProperties);}static finalize(){if(this.hasOwnProperty(d$1("finalized")))return;if(this.finalized=true,this._$Ei(),this.hasOwnProperty(d$1("properties"))){const t=this.properties,s=[...r$3(t),...o$3(t)];for(const i of s)this.createProperty(i,t[i]);}const t=this[Symbol.metadata];if(null!==t){const s=litPropertyMetadata.get(t);if(void 0!==s)for(const[t,i]of s)this.elementProperties.set(t,i);}this._$Eh=new Map;for(const[t,s]of this.elementProperties){const i=this._$Eu(t,s);void 0!==i&&this._$Eh.set(i,t);}this.elementStyles=this.finalizeStyles(this.styles);}static finalizeStyles(s){const i=[];if(Array.isArray(s)){const e=new Set(s.flat(1/0).reverse());for(const s of e)i.unshift(c$2(s));}else void 0!==s&&i.push(c$2(s));return i}static _$Eu(t,s){const i=s.attribute;return  false===i?void 0:"string"==typeof i?i:"string"==typeof t?t.toLowerCase():void 0}constructor(){super(),this._$Ep=void 0,this.isUpdatePending=false,this.hasUpdated=false,this._$Em=null,this._$Ev();}_$Ev(){this._$ES=new Promise(t=>this.enableUpdating=t),this._$AL=new Map,this._$E_(),this.requestUpdate(),this.constructor.l?.forEach(t=>t(this));}addController(t){(this._$EO??=new Set).add(t),void 0!==this.renderRoot&&this.isConnected&&t.hostConnected?.();}removeController(t){this._$EO?.delete(t);}_$E_(){const t=new Map,s=this.constructor.elementProperties;for(const i of s.keys())this.hasOwnProperty(i)&&(t.set(i,this[i]),delete this[i]);t.size>0&&(this._$Ep=t);}createRenderRoot(){const t=this.shadowRoot??this.attachShadow(this.constructor.shadowRootOptions);return S$1(t,this.constructor.elementStyles),t}connectedCallback(){this.renderRoot??=this.createRenderRoot(),this.enableUpdating(true),this._$EO?.forEach(t=>t.hostConnected?.());}enableUpdating(t){}disconnectedCallback(){this._$EO?.forEach(t=>t.hostDisconnected?.());}attributeChangedCallback(t,s,i){this._$AK(t,i);}_$ET(t,s){const i=this.constructor.elementProperties.get(t),e=this.constructor._$Eu(t,i);if(void 0!==e&&true===i.reflect){const h=(void 0!==i.converter?.toAttribute?i.converter:u$1).toAttribute(s,i.type);this._$Em=t,null==h?this.removeAttribute(e):this.setAttribute(e,h),this._$Em=null;}}_$AK(t,s){const i=this.constructor,e=i._$Eh.get(t);if(void 0!==e&&this._$Em!==e){const t=i.getPropertyOptions(e),h="function"==typeof t.converter?{fromAttribute:t.converter}:void 0!==t.converter?.fromAttribute?t.converter:u$1;this._$Em=e;const r=h.fromAttribute(s,t.type);this[e]=r??this._$Ej?.get(e)??r,this._$Em=null;}}requestUpdate(t,s,i,e=false,h){if(void 0!==t){const r=this.constructor;if(false===e&&(h=this[t]),i??=r.getPropertyOptions(t),!((i.hasChanged??f$1)(h,s)||i.useDefault&&i.reflect&&h===this._$Ej?.get(t)&&!this.hasAttribute(r._$Eu(t,i))))return;this.C(t,s,i);} false===this.isUpdatePending&&(this._$ES=this._$EP());}C(t,s,{useDefault:i,reflect:e,wrapped:h},r){i&&!(this._$Ej??=new Map).has(t)&&(this._$Ej.set(t,r??s??this[t]),true!==h||void 0!==r)||(this._$AL.has(t)||(this.hasUpdated||i||(s=void 0),this._$AL.set(t,s)),true===e&&this._$Em!==t&&(this._$Eq??=new Set).add(t));}async _$EP(){this.isUpdatePending=true;try{await this._$ES;}catch(t){Promise.reject(t);}const t=this.scheduleUpdate();return null!=t&&await t,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){if(!this.isUpdatePending)return;if(!this.hasUpdated){if(this.renderRoot??=this.createRenderRoot(),this._$Ep){for(const[t,s]of this._$Ep)this[t]=s;this._$Ep=void 0;}const t=this.constructor.elementProperties;if(t.size>0)for(const[s,i]of t){const{wrapped:t}=i,e=this[s];true!==t||this._$AL.has(s)||void 0===e||this.C(s,void 0,i,e);}}let t=false;const s=this._$AL;try{t=this.shouldUpdate(s),t?(this.willUpdate(s),this._$EO?.forEach(t=>t.hostUpdate?.()),this.update(s)):this._$EM();}catch(s){throw t=false,this._$EM(),s}t&&this._$AE(s);}willUpdate(t){}_$AE(t){this._$EO?.forEach(t=>t.hostUpdated?.()),this.hasUpdated||(this.hasUpdated=true,this.firstUpdated(t)),this.updated(t);}_$EM(){this._$AL=new Map,this.isUpdatePending=false;}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$ES}shouldUpdate(t){return  true}update(t){this._$Eq&&=this._$Eq.forEach(t=>this._$ET(t,this[t])),this._$EM();}updated(t){}firstUpdated(t){}};y$1.elementStyles=[],y$1.shadowRootOptions={mode:"open"},y$1[d$1("elementProperties")]=new Map,y$1[d$1("finalized")]=new Map,p$1?.({ReactiveElement:y$1}),(a$1.reactiveElementVersions??=[]).push("2.1.2");
+
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}):customElements.define(t,e)},lt={attribute:!0,type:String,converter:b,reflect:!1,hasChanged:y},pt=(t=lt,e,s)=>{const{kind:i,metadata:o}=s;let a=globalThis.litPropertyMetadata.get(o);if(void 0===a&&globalThis.litPropertyMetadata.set(o,a=new Map),"setter"===i&&((t=Object.create(t)).wrapped=!0),a.set(s.name,t),"accessor"===i){const{name:i}=s;return{set(s){const o=e.get.call(this);e.set.call(this,s),this.requestUpdate(i,o,t,!0,s)},init(e){return void 0!==e&&this.C(i,void 0,t,e),e}}}if("setter"===i){const{name:i}=s;return function(s){const o=this[i];e.call(this,s),this.requestUpdate(i,o,t,!0,s)}}throw Error("Unsupported decorator location: "+i)};
+const t$1=globalThis,i$1=t=>t,s$1=t$1.trustedTypes,e=s$1?s$1.createPolicy("lit-html",{createHTML:t=>t}):void 0,h="$lit$",o$2=`lit$${Math.random().toFixed(9).slice(2)}$`,n$1="?"+o$2,r$2=`<${n$1}>`,l=document,c=()=>l.createComment(""),a=t=>null===t||"object"!=typeof t&&"function"!=typeof t,u=Array.isArray,d=t=>u(t)||"function"==typeof t?.[Symbol.iterator],f="[ \t\n\f\r]",v=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,_=/-->/g,m=/>/g,p=RegExp(`>|${f}(?:([^\\s"'>=/]+)(${f}*=${f}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),g=/'/g,$=/"/g,y=/^(?:script|style|textarea|title)$/i,x=t=>(i,...s)=>({_$litType$:t,strings:i,values:s}),b=x(1),E=Symbol.for("lit-noChange"),A=Symbol.for("lit-nothing"),C=new WeakMap,P=l.createTreeWalker(l,129);function V(t,i){if(!u(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==e?e.createHTML(i):i}const N=(t,i)=>{const s=t.length-1,e=[];let n,l=2===i?"<svg>":3===i?"<math>":"",c=v;for(let i=0;i<s;i++){const s=t[i];let a,u,d=-1,f=0;for(;f<s.length&&(c.lastIndex=f,u=c.exec(s),null!==u);)f=c.lastIndex,c===v?"!--"===u[1]?c=_:void 0!==u[1]?c=m:void 0!==u[2]?(y.test(u[2])&&(n=RegExp("</"+u[2],"g")),c=p):void 0!==u[3]&&(c=p):c===p?">"===u[0]?(c=n??v,d=-1):void 0===u[1]?d=-2:(d=c.lastIndex-u[2].length,a=u[1],c=void 0===u[3]?p:'"'===u[3]?$:g):c===$||c===g?c=p:c===_||c===m?c=v:(c=p,n=void 0);const x=c===p&&t[i+1].startsWith("/>")?" ":"";l+=c===v?s+r$2:d>=0?(e.push(a),s.slice(0,d)+h+s.slice(d)+o$2+x):s+o$2+(-2===d?i:x);}return [V(t,l+(t[s]||"<?>")+(2===i?"</svg>":3===i?"</math>":"")),e]};class S{constructor({strings:t,_$litType$:i},e){let r;this.parts=[];let l=0,a=0;const u=t.length-1,d=this.parts,[f,v]=N(t,i);if(this.el=S.createElement(f,e),P.currentNode=this.el.content,2===i||3===i){const t=this.el.content.firstChild;t.replaceWith(...t.childNodes);}for(;null!==(r=P.nextNode())&&d.length<u;){if(1===r.nodeType){if(r.hasAttributes())for(const t of r.getAttributeNames())if(t.endsWith(h)){const i=v[a++],s=r.getAttribute(t).split(o$2),e=/([.?@])?(.*)/.exec(i);d.push({type:1,index:l,name:e[2],strings:s,ctor:"."===e[1]?I:"?"===e[1]?L:"@"===e[1]?z:H}),r.removeAttribute(t);}else t.startsWith(o$2)&&(d.push({type:6,index:l}),r.removeAttribute(t));if(y.test(r.tagName)){const t=r.textContent.split(o$2),i=t.length-1;if(i>0){r.textContent=s$1?s$1.emptyScript:"";for(let s=0;s<i;s++)r.append(t[s],c()),P.nextNode(),d.push({type:2,index:++l});r.append(t[i],c());}}}else if(8===r.nodeType)if(r.data===n$1)d.push({type:2,index:l});else {let t=-1;for(;-1!==(t=r.data.indexOf(o$2,t+1));)d.push({type:7,index:l}),t+=o$2.length-1;}l++;}}static createElement(t,i){const s=l.createElement("template");return s.innerHTML=t,s}}function M(t,i,s=t,e){if(i===E)return i;let h=void 0!==e?s._$Co?.[e]:s._$Cl;const o=a(i)?void 0:i._$litDirective$;return h?.constructor!==o&&(h?._$AO?.(false),void 0===o?h=void 0:(h=new o(t),h._$AT(t,s,e)),void 0!==e?(s._$Co??=[])[e]=h:s._$Cl=h),void 0!==h&&(i=M(t,h._$AS(t,i.values),h,e)),i}class R{constructor(t,i){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=i;}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){const{el:{content:i},parts:s}=this._$AD,e=(t?.creationScope??l).importNode(i,true);P.currentNode=e;let h=P.nextNode(),o=0,n=0,r=s[0];for(;void 0!==r;){if(o===r.index){let i;2===r.type?i=new k(h,h.nextSibling,this,t):1===r.type?i=new r.ctor(h,r.name,r.strings,this,t):6===r.type&&(i=new Z(h,this,t)),this._$AV.push(i),r=s[++n];}o!==r?.index&&(h=P.nextNode(),o++);}return P.currentNode=l,e}p(t){let i=0;for(const s of this._$AV) void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,i),i+=s.strings.length-2):s._$AI(t[i])),i++;}}class k{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,i,s,e){this.type=2,this._$AH=A,this._$AN=void 0,this._$AA=t,this._$AB=i,this._$AM=s,this.options=e,this._$Cv=e?.isConnected??true;}get parentNode(){let t=this._$AA.parentNode;const i=this._$AM;return void 0!==i&&11===t?.nodeType&&(t=i.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,i=this){t=M(this,t,i),a(t)?t===A||null==t||""===t?(this._$AH!==A&&this._$AR(),this._$AH=A):t!==this._$AH&&t!==E&&this._(t):void 0!==t._$litType$?this.$(t):void 0!==t.nodeType?this.T(t):d(t)?this.k(t):this._(t);}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t));}_(t){this._$AH!==A&&a(this._$AH)?this._$AA.nextSibling.data=t:this.T(l.createTextNode(t)),this._$AH=t;}$(t){const{values:i,_$litType$:s}=t,e="number"==typeof s?this._$AC(t):(void 0===s.el&&(s.el=S.createElement(V(s.h,s.h[0]),this.options)),s);if(this._$AH?._$AD===e)this._$AH.p(i);else {const t=new R(e,this),s=t.u(this.options);t.p(i),this.T(s),this._$AH=t;}}_$AC(t){let i=C.get(t.strings);return void 0===i&&C.set(t.strings,i=new S(t)),i}k(t){u(this._$AH)||(this._$AH=[],this._$AR());const i=this._$AH;let s,e=0;for(const h of t)e===i.length?i.push(s=new k(this.O(c()),this.O(c()),this,this.options)):s=i[e],s._$AI(h),e++;e<i.length&&(this._$AR(s&&s._$AB.nextSibling,e),i.length=e);}_$AR(t=this._$AA.nextSibling,s){for(this._$AP?.(false,true,s);t!==this._$AB;){const s=i$1(t).nextSibling;i$1(t).remove(),t=s;}}setConnected(t){ void 0===this._$AM&&(this._$Cv=t,this._$AP?.(t));}}class H{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,i,s,e,h){this.type=1,this._$AH=A,this._$AN=void 0,this.element=t,this.name=i,this._$AM=e,this.options=h,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=A;}_$AI(t,i=this,s,e){const h=this.strings;let o=false;if(void 0===h)t=M(this,t,i,0),o=!a(t)||t!==this._$AH&&t!==E,o&&(this._$AH=t);else {const e=t;let n,r;for(t=h[0],n=0;n<h.length-1;n++)r=M(this,e[s+n],i,n),r===E&&(r=this._$AH[n]),o||=!a(r)||r!==this._$AH[n],r===A?t=A:t!==A&&(t+=(r??"")+h[n+1]),this._$AH[n]=r;}o&&!e&&this.j(t);}j(t){t===A?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"");}}class I extends H{constructor(){super(...arguments),this.type=3;}j(t){this.element[this.name]=t===A?void 0:t;}}class L extends H{constructor(){super(...arguments),this.type=4;}j(t){this.element.toggleAttribute(this.name,!!t&&t!==A);}}class z extends H{constructor(t,i,s,e,h){super(t,i,s,e,h),this.type=5;}_$AI(t,i=this){if((t=M(this,t,i,0)??A)===E)return;const s=this._$AH,e=t===A&&s!==A||t.capture!==s.capture||t.once!==s.once||t.passive!==s.passive,h=t!==A&&(s===A||e);e&&this.element.removeEventListener(this.name,this,s),h&&this.element.addEventListener(this.name,this,t),this._$AH=t;}handleEvent(t){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t);}}class Z{constructor(t,i,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=i,this.options=s;}get _$AU(){return this._$AM._$AU}_$AI(t){M(this,t);}}const B=t$1.litHtmlPolyfillSupport;B?.(S,k),(t$1.litHtmlVersions??=[]).push("3.3.2");const D=(t,i,s)=>{const e=s?.renderBefore??i;let h=e._$litPart$;if(void 0===h){const t=s?.renderBefore??null;e._$litPart$=h=new k(i.insertBefore(c(),t),t,void 0,s??{});}return h._$AI(t),h};
+
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */function ut(t){return(e,s)=>"object"==typeof s?pt(t,e,s):((t,e,s)=>{const i=e.hasOwnProperty(s);return e.constructor.createProperty(s,t),i?Object.getOwnPropertyDescriptor(e,s):void 0})(t,e,s)}
+ */const s=globalThis;class i extends y$1{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0;}createRenderRoot(){const t=super.createRenderRoot();return this.renderOptions.renderBefore??=t.firstChild,t}update(t){const r=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=D(r,this.renderRoot,this.renderOptions);}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(true);}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(false);}render(){return E}}i._$litElement$=true,i["finalized"]=true,s.litElementHydrateSupport?.({LitElement:i});const o$1=s.litElementPolyfillSupport;o$1?.({LitElement:i});(s.litElementVersions??=[]).push("4.2.2");
+
 /**
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */function ht(t){return ut({...t,state:!0,attribute:!1})}function gt(t){return`${t.automation_id}:${t.entity_id}:${t.message}`}const mt=r`
+ */
+const t=t=>(e,o)=>{ void 0!==o?o.addInitializer(()=>{customElements.define(t,e);}):customElements.define(t,e);};
+
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ * SPDX-License-Identifier: BSD-3-Clause
+ */const o={attribute:true,type:String,converter:u$1,reflect:false,hasChanged:f$1},r$1=(t=o,e,r)=>{const{kind:n,metadata:i}=r;let s=globalThis.litPropertyMetadata.get(i);if(void 0===s&&globalThis.litPropertyMetadata.set(i,s=new Map),"setter"===n&&((t=Object.create(t)).wrapped=true),s.set(r.name,t),"accessor"===n){const{name:o}=r;return {set(r){const n=e.get.call(this);e.set.call(this,r),this.requestUpdate(o,n,t,true,r);},init(e){return void 0!==e&&this.C(o,void 0,t,e),e}}}if("setter"===n){const{name:o}=r;return function(r){const n=this[o];e.call(this,r),this.requestUpdate(o,n,t,true,r);}}throw Error("Unsupported decorator location: "+n)};function n(t){return (e,o)=>"object"==typeof o?r$1(t,e,o):((t,e,o)=>{const r=e.hasOwnProperty(o);return e.constructor.createProperty(o,t),r?Object.getOwnPropertyDescriptor(e,o):void 0})(t,e,o)}
+
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ * SPDX-License-Identifier: BSD-3-Clause
+ */function r(r){return n({...r,state:true,attribute:false})}
+
+function getSuggestionKey(issue) {
+    return `${issue.automation_id}:${issue.entity_id}:${issue.message}`;
+}
+
+/**
+ * Design tokens and host styles shared by all autodoctor components.
+ * Every component should include this in its styles array.
+ */
+const autodocTokens = i$3 `
   :host {
     /* Typography */
     --autodoc-title-size: 1.1rem;
@@ -83,7 +127,11 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
       --autodoc-meta-size: 0.9rem;
     }
   }
-`,ft=r`
+`;
+/**
+ * Badge row styles: error/warning/healthy/suppressed pills with counts.
+ */
+const badgeStyles = i$3 `
   /* Badges row (in content area) */
   .badges-row {
     display: flex;
@@ -154,7 +202,12 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
     }
   }
 
-`,vt=r`
+`;
+/**
+ * Issue group styles: automation group container, issues, fix suggestions,
+ * confidence pills, suppress/dismiss buttons, edit links.
+ */
+const issueGroupStyles = i$3 `
   /* Automation groups */
   .automation-group {
     background: rgba(127, 127, 127, 0.06);
@@ -545,7 +598,12 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
       padding: 6px 10px;
     }
   }
-`,_t=r`
+`;
+/**
+ * Card layout styles: ha-card shell, header, tabs, content area,
+ * loading/error/empty/healthy states, footer with run button.
+ */
+const cardLayoutStyles = i$3 `
   ha-card {
     overflow: hidden;
     width: 100%;
@@ -829,7 +887,13 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
     transform: translateX(-50%) translateY(0);
   }
 
-`,bt=r`
+`;
+/**
+ * Pipeline styles: validation group panels with neutral/active/result states,
+ * JS-driven stagger transitions, summary rollup bar, and
+ * three-state (pass/warning/fail) visual treatment.
+ */
+const pipelineStyles = i$3 `
   .pipeline {
     display: flex;
     flex-direction: column;
@@ -978,144 +1042,568 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
       animation: none;
     }
   }
-`;let yt=class extends nt{constructor(){super(...arguments),this.dismissedKeys=new Set}render(){const t=this.group;return V`
-      <div class="automation-group ${t.has_error?"has-error":"has-warning"}">
+`;
+
+/**
+ * Render the badge row for the validation tab.
+ * Shows error, warning, healthy, and suppressed counts.
+ *
+ * When in suppressions view, clicking any issue badge navigates back to issues.
+ * The suppressed badge toggles between views.
+ *
+ * @param counts - Issue/status counts to display
+ * @param onNavigate - Optional callback for navigation (e.g. to suppressions view)
+ * @param activeView - Current active view ("issues" or "suppressions")
+ */
+function renderBadges(counts, onNavigate, activeView) {
+    const inSuppressions = activeView === "suppressions";
+    const goToIssues = inSuppressions ? () => onNavigate?.("issues") : A;
+    const navStyle = inSuppressions ? "cursor: pointer;" : "";
+    return b `
+    <div class="badges-row">
+      ${counts.errors > 0
+        ? b `<span
+            class="badge badge-error"
+            title="${counts.errors} error${counts.errors !== 1 ? "s" : ""}"
+            style=${navStyle}
+            @click=${goToIssues}
+          >
+            <span class="badge-icon" aria-hidden="true">\u2715</span>
+            <span class="badge-count">${counts.errors}</span>
+          </span>`
+        : A}
+      ${counts.warnings > 0
+        ? b `<span
+            class="badge badge-warning"
+            title="${counts.warnings} warning${counts.warnings !== 1 ? "s" : ""}"
+            style=${navStyle}
+            @click=${goToIssues}
+          >
+            <span class="badge-icon" aria-hidden="true">!</span>
+            <span class="badge-count">${counts.warnings}</span>
+          </span>`
+        : A}
+      ${counts.healthy > 0
+        ? b `<span
+            class="badge badge-healthy"
+            title="${counts.healthy} healthy"
+            style=${navStyle}
+            @click=${goToIssues}
+          >
+            <span class="badge-icon" aria-hidden="true">\u2713</span>
+            <span class="badge-count">${counts.healthy}</span>
+          </span>`
+        : A}
+      ${counts.suppressed > 0
+        ? b `<span
+            class="badge badge-suppressed ${inSuppressions ? "badge-active" : ""}"
+            title="${counts.suppressed} suppressed"
+            role="button"
+            tabindex="0"
+            @click=${() => onNavigate?.(inSuppressions ? "issues" : "suppressions")}
+            @keydown=${(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onNavigate?.(inSuppressions ? "issues" : "suppressions");
+            }
+        }}
+            style="cursor: pointer;"
+          >
+            <span class="badge-icon" aria-hidden="true">\u2298</span>
+            <span class="badge-count">${counts.suppressed}</span>
+          </span>`
+        : A}
+    </div>
+  `;
+}
+
+/**
+ * Renders a single automation group with its issues, fix suggestions,
+ * confidence pills, and action buttons (suppress/dismiss).
+ *
+ * Data flows DOWN via properties; actions flow UP via CustomEvents.
+ */
+let AutodocIssueGroup = class AutodocIssueGroup extends i {
+    constructor() {
+        super(...arguments);
+        this.dismissedKeys = new Set();
+    }
+    render() {
+        const group = this.group;
+        return b `
+      <div class="automation-group ${group.has_error ? "has-error" : "has-warning"}">
         <div class="automation-header">
           <span class="automation-severity-icon" aria-hidden="true"
-            >${t.has_error?"✕":"!"}</span
+            >${group.has_error ? "\u2715" : "!"}</span
           >
-          <span class="automation-name" title="${t.automation_name}">${t.automation_name}</span>
-          <span class="automation-badge">${t.issues.length}</span>
+          <span class="automation-name" title="${group.automation_name}">${group.automation_name}</span>
+          <span class="automation-badge">${group.issues.length}</span>
         </div>
         <div class="automation-issues">
-          ${t.issues.map(t=>this._renderIssue(t))}
+          ${group.issues.map((item) => this._renderIssue(item))}
         </div>
-        <a href="${t.edit_url}" class="edit-link" aria-label="Edit ${t.automation_name}">
+        <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
           <span class="edit-text">Edit automation</span>
           <span class="edit-arrow" aria-hidden="true">\u2192</span>
         </a>
       </div>
-    `}_renderIssue(t){const{issue:e,fix:s}=t,i="error"===e.severity,o=this.dismissedKeys.has(gt(e));return V`
-      <div class="issue ${i?"error":"warning"}">
+    `;
+    }
+    _renderIssue(item) {
+        const { issue, fix } = item;
+        const isError = issue.severity === "error";
+        const isDismissed = this.dismissedKeys.has(getSuggestionKey(issue));
+        return b `
+      <div class="issue ${isError ? "error" : "warning"}">
         <div class="issue-header">
-          <span class="issue-icon" aria-hidden="true">${i?"✕":"!"}</span>
-          <span class="issue-message">${e.message}</span>
+          <span class="issue-icon" aria-hidden="true">${isError ? "\u2715" : "!"}</span>
+          <span class="issue-message">${issue.message}</span>
           <button
             class="suppress-btn"
-            @click=${()=>this._dispatchSuppress(e)}
+            @click=${() => this._dispatchSuppress(issue)}
             aria-label="Suppress this issue"
             title="Don't show this issue again"
           >
             <span aria-hidden="true">\u2298</span><span class="suppress-label">Suppress</span>
           </button>
         </div>
-        ${s&&!o?V`
+        ${fix && !isDismissed
+            ? b `
               <div class="fix-suggestion">
                 <ha-icon class="fix-icon" icon="mdi:lightbulb-on-outline" style="--mdc-icon-size: 16px; color: var(--primary-color);" aria-hidden="true"></ha-icon>
                 <div class="fix-content">
-                  <span class="fix-description">${s.description}</span>
-                  ${this._renderFixReplacement(s)}
-                  ${s.reason?V`<span class="fix-reason">${s.reason}</span>`:q}
-                  ${this._renderConfidencePill(s.confidence)}
+                  <span class="fix-description">${fix.description}</span>
+                  ${this._renderFixReplacement(fix)}
+                  ${fix.reason ? b `<span class="fix-reason">${fix.reason}</span>` : A}
+                  ${this._renderConfidencePill(fix.confidence)}
                 </div>
                 <div class="fix-actions">
-                  ${s.suggested_value||s.fix_value?V`
+                  ${fix.suggested_value || fix.fix_value
+                ? b `
                         <button
                           class="copy-fix-btn"
-                          @click=${()=>this._copyFixValue(s)}
+                          @click=${() => this._copyFixValue(fix)}
                           aria-label="Copy suggested value"
                         >
                           Copy
                         </button>
-                      `:q}
-                  ${this._canApplyFix(e,s)?V`
+                      `
+                : A}
+                  ${this._canApplyFix(issue, fix)
+                ? b `
                         <button
                           class="apply-fix-btn"
-                          @click=${()=>this._dispatchApply(e,s)}
+                          @click=${() => this._dispatchApply(issue, fix)}
                           aria-label="Apply suggestion"
                         >
                           Apply
                         </button>
-                      `:q}
+                      `
+                : A}
                 </div>
                 <button
                   class="dismiss-btn"
-                  @click=${()=>this._dispatchDismiss(e)}
+                  @click=${() => this._dispatchDismiss(issue)}
                   aria-label="Dismiss suggestion"
                 >
                   <span aria-hidden="true">\u2715</span><span class="dismiss-label">Dismiss</span>
                 </button>
               </div>
-            `:q}
+            `
+            : A}
       </div>
-    `}_renderFixReplacement(t){if("replace_value"!==t.fix_type||!t.current_value||!t.suggested_value&&!t.fix_value)return q;const e=t.suggested_value||t.fix_value||"";return V`
+    `;
+    }
+    _renderFixReplacement(fix) {
+        if (fix.fix_type !== "replace_value" ||
+            !fix.current_value ||
+            !(fix.suggested_value || fix.fix_value)) {
+            return A;
+        }
+        const suggested = fix.suggested_value || fix.fix_value || "";
+        return b `
       <span class="fix-replacement">
-        <code class="fix-before">${t.current_value}</code>
+        <code class="fix-before">${fix.current_value}</code>
         <span class="fix-arrow" aria-hidden="true">\u2192</span>
-        <code class="fix-after">${e}</code>
+        <code class="fix-after">${suggested}</code>
       </span>
-    `}_renderConfidencePill(t){if(t<=.6)return q;const e=t>.9;return V`
-      <span class="confidence-pill ${e?"high":"medium"}">
-        ${e?"High":"Medium"} confidence
+    `;
+    }
+    _renderConfidencePill(confidence) {
+        if (confidence <= 0.6) {
+            return A;
+        }
+        const isHigh = confidence > 0.9;
+        return b `
+      <span class="confidence-pill ${isHigh ? "high" : "medium"}">
+        ${isHigh ? "High" : "Medium"} confidence
       </span>
-    `}_dispatchSuppress(t){this.dispatchEvent(new CustomEvent("suppress-issue",{detail:{issue:t},bubbles:!0,composed:!0}))}_dispatchDismiss(t){this.dispatchEvent(new CustomEvent("dismiss-suggestion",{detail:{issue:t},bubbles:!0,composed:!0}))}_canApplyFix(t,e){return"replace_value"===e.fix_type&&!!e.suggested_value&&!!t.location&&(s=e.confidence,i=.8,"number"==typeof s&&s>=i);var s,i}async _copyFixValue(t){const e=t.suggested_value||t.fix_value;e&&navigator.clipboard?.writeText&&(await navigator.clipboard.writeText(e),this.dispatchEvent(new CustomEvent("fix-copied",{detail:{value:e},bubbles:!0,composed:!0})))}_dispatchApply(t,e){this.dispatchEvent(new CustomEvent("apply-fix",{detail:{issue:t,fix:e},bubbles:!0,composed:!0}))}};yt.styles=[mt,vt],t([ut({attribute:!1})],yt.prototype,"group",void 0),t([ut({attribute:!1})],yt.prototype,"dismissedKeys",void 0),yt=t([ct("autodoc-issue-group")],yt);let xt=class extends nt{constructor(){super(...arguments),this.groups=[],this.running=!1,this._displayStates=[],this._showSummary=!1,this._staggerRunId=0}disconnectedCallback(){super.disconnectedCallback(),this._staggerRunId++}updated(t){if(super.updated(t),t.has("running")){const e=t.get("running");this.running?(this._displayStates=this.groups.map(()=>"neutral"),this._showSummary=!1):!0===e&&!this.running&&this.groups.length>0&&this._startStagger()}}async _startStagger(){const t=++this._staggerRunId;if(this._prefersReducedMotion())return this._displayStates=this.groups.map(t=>t.status),void(this._showSummary=!0);this._displayStates=this.groups.map(()=>"neutral"),this._showSummary=!1;for(let e=0;e<this.groups.length;e++){if(this._staggerRunId!==t)return;if(this._displayStates=[...this._displayStates],this._displayStates[e]="active",this.requestUpdate(),await this._delay(300),this._staggerRunId!==t)return;this._displayStates=[...this._displayStates],this._displayStates[e]=this.groups[e].status,e===this.groups.length-1&&(this._showSummary=!0),this.requestUpdate(),e<this.groups.length-1&&await this._delay(100)}}_delay(t){return new Promise(e=>setTimeout(e,t))}_prefersReducedMotion(){return window.matchMedia("(prefers-reduced-motion: reduce)").matches}render(){return V`
+    `;
+    }
+    _dispatchSuppress(issue) {
+        this.dispatchEvent(new CustomEvent("suppress-issue", {
+            detail: { issue },
+            bubbles: true,
+            composed: true,
+        }));
+    }
+    _dispatchDismiss(issue) {
+        this.dispatchEvent(new CustomEvent("dismiss-suggestion", {
+            detail: { issue },
+            bubbles: true,
+            composed: true,
+        }));
+    }
+    _canApplyFix(issue, fix) {
+        return (fix.fix_type === "replace_value" &&
+            !!fix.suggested_value &&
+            !!issue.location &&
+            confidenceAtLeast(fix.confidence, 0.8));
+    }
+    async _copyFixValue(fix) {
+        const value = fix.suggested_value || fix.fix_value;
+        if (!value || !navigator.clipboard?.writeText) {
+            return;
+        }
+        await navigator.clipboard.writeText(value);
+        this.dispatchEvent(new CustomEvent("fix-copied", {
+            detail: { value },
+            bubbles: true,
+            composed: true,
+        }));
+    }
+    _dispatchApply(issue, fix) {
+        this.dispatchEvent(new CustomEvent("apply-fix", {
+            detail: { issue, fix },
+            bubbles: true,
+            composed: true,
+        }));
+    }
+};
+AutodocIssueGroup.styles = [autodocTokens, issueGroupStyles];
+__decorate([
+    n({ attribute: false })
+], AutodocIssueGroup.prototype, "group", void 0);
+__decorate([
+    n({ attribute: false })
+], AutodocIssueGroup.prototype, "dismissedKeys", void 0);
+AutodocIssueGroup = __decorate([
+    t("autodoc-issue-group")
+], AutodocIssueGroup);
+function confidenceAtLeast(actual, min) {
+    return typeof actual === "number" && actual >= min;
+}
+
+/** How long the accent highlight stays on each group (ms). */
+const ACTIVE_DURATION_MS = 300;
+/** Gap between one group resolving and the next group highlighting (ms). */
+const INTER_GROUP_DELAY_MS = 100;
+let AutodocPipeline = class AutodocPipeline extends i {
+    constructor() {
+        super(...arguments);
+        this.groups = [];
+        this.running = false;
+        /** Per-group display state: "neutral", "active", "pass", "warning", or "fail". */
+        this._displayStates = [];
+        /** Controls summary rollup visibility. */
+        this._showSummary = false;
+        /** Monotonically increasing ID for abort guard. */
+        this._staggerRunId = 0;
+    }
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        // Cancel any pending stagger by invalidating the current run ID
+        this._staggerRunId++;
+    }
+    updated(changedProps) {
+        super.updated(changedProps);
+        if (changedProps.has("running")) {
+            const prevRunning = changedProps.get("running");
+            if (this.running) {
+                // Validation just started: reset to neutral, hide summary
+                this._displayStates = this.groups.map(() => "neutral");
+                this._showSummary = false;
+            }
+            else if (prevRunning === true && !this.running && this.groups.length > 0) {
+                // Validation just finished: start stagger sequence
+                this._startStagger();
+            }
+        }
+    }
+    async _startStagger() {
+        const runId = ++this._staggerRunId;
+        // Reduced motion: skip animation entirely, show all results at once
+        if (this._prefersReducedMotion()) {
+            this._displayStates = this.groups.map((g) => g.status);
+            this._showSummary = true;
+            return;
+        }
+        // Initialize all groups to neutral
+        this._displayStates = this.groups.map(() => "neutral");
+        this._showSummary = false;
+        for (let i = 0; i < this.groups.length; i++) {
+            // Abort guard: another stagger started or component disconnected
+            if (this._staggerRunId !== runId)
+                return;
+            // Highlight current group
+            this._displayStates = [...this._displayStates];
+            this._displayStates[i] = "active";
+            this.requestUpdate();
+            await this._delay(ACTIVE_DURATION_MS);
+            // Abort guard after delay
+            if (this._staggerRunId !== runId)
+                return;
+            // Resolve current group to its final status
+            this._displayStates = [...this._displayStates];
+            this._displayStates[i] = this.groups[i].status;
+            // Show summary simultaneously with last group resolving
+            if (i === this.groups.length - 1) {
+                this._showSummary = true;
+            }
+            this.requestUpdate();
+            // Inter-group delay (skip after last group)
+            if (i < this.groups.length - 1) {
+                await this._delay(INTER_GROUP_DELAY_MS);
+            }
+        }
+    }
+    _delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+    _prefersReducedMotion() {
+        return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+    render() {
+        return b `
       <div class="pipeline" role="region" aria-label="Validation pipeline">
-        ${this.groups.map((t,e)=>this._renderGroup(t,e))}
-        ${this._showSummary?this._renderSummary():q}
+        ${this.groups.map((group, i) => this._renderGroup(group, i))}
+        ${this._showSummary
+            ? this._renderSummary()
+            : A}
       </div>
-    `}_renderGroup(t,e){const s=this._displayStates[e]??t.status,i="neutral"!==s&&"active"!==s;return V`
-      <div class="pipeline-group ${s}">
+    `;
+    }
+    _renderGroup(group, index) {
+        const displayState = this._displayStates[index] ?? group.status;
+        const isResult = displayState !== "neutral" && displayState !== "active";
+        return b `
+      <div class="pipeline-group ${displayState}">
         <div class="group-header">
           <div class="group-status-icon" aria-hidden="true">
-            ${"active"===s?V`<span class="active-dot"></span>`:i?this._statusIcon(s):q}
+            ${displayState === "active"
+            ? b `<span class="active-dot"></span>`
+            : isResult
+                ? this._statusIcon(displayState)
+                : A}
           </div>
-          <span class="group-label">${t.label}</span>
-          ${i?this._renderCounts(t):q}
+          <span class="group-label">${group.label}</span>
+          ${isResult ? this._renderCounts(group) : A}
         </div>
       </div>
-    `}_statusIcon(t){return V`<span>${{pass:"✓",warning:"!",fail:"✕"}[t]||"?"}</span>`}_renderCounts(t){if(0===t.issue_count)return V`<span class="group-count pass-text">No issues</span>`;const e=[];return t.error_count>0&&e.push(`${t.error_count} error${1!==t.error_count?"s":""}`),t.warning_count>0&&e.push(`${t.warning_count} warning${1!==t.warning_count?"s":""}`),V`<span class="group-count ${t.status}-text">${e.join(", ")}</span>`}_getOverallStatus(){return this.groups.some(t=>"fail"===t.status)?"fail":this.groups.some(t=>"warning"===t.status)?"warning":"pass"}_renderSummary(){const t=this._getOverallStatus(),e=this.groups.reduce((t,e)=>t+e.error_count,0),s=this.groups.reduce((t,e)=>t+e.warning_count,0),i={pass:"All checks passed",warning:`${s} warning${1!==s?"s":""} found`,fail:`${e} error${1!==e?"s":""}${s>0?`, ${s} warning${1!==s?"s":""}`:""} found`};return V`
+    `;
+    }
+    _statusIcon(status) {
+        const icons = {
+            pass: "\u2713",
+            warning: "!",
+            fail: "\u2715",
+        };
+        return b `<span>${icons[status] || "?"}</span>`;
+    }
+    _renderCounts(group) {
+        if (group.issue_count === 0) {
+            return b `<span class="group-count pass-text">No issues</span>`;
+        }
+        const parts = [];
+        if (group.error_count > 0) {
+            parts.push(`${group.error_count} error${group.error_count !== 1 ? "s" : ""}`);
+        }
+        if (group.warning_count > 0) {
+            parts.push(`${group.warning_count} warning${group.warning_count !== 1 ? "s" : ""}`);
+        }
+        return b `<span class="group-count ${group.status}-text">${parts.join(", ")}</span>`;
+    }
+    _getOverallStatus() {
+        if (this.groups.some((g) => g.status === "fail"))
+            return "fail";
+        if (this.groups.some((g) => g.status === "warning"))
+            return "warning";
+        return "pass";
+    }
+    _renderSummary() {
+        const status = this._getOverallStatus();
+        const totalErrors = this.groups.reduce((sum, g) => sum + g.error_count, 0);
+        const totalWarnings = this.groups.reduce((sum, g) => sum + g.warning_count, 0);
+        const messages = {
+            pass: "All checks passed",
+            warning: `${totalWarnings} warning${totalWarnings !== 1 ? "s" : ""} found`,
+            fail: `${totalErrors} error${totalErrors !== 1 ? "s" : ""}${totalWarnings > 0 ? `, ${totalWarnings} warning${totalWarnings !== 1 ? "s" : ""}` : ""} found`,
+        };
+        return b `
       <div
-        class="pipeline-summary ${t}"
+        class="pipeline-summary ${status}"
         role="status"
       >
-        <span class="summary-icon" aria-hidden="true">${this._statusIcon(t)}</span>
-        <span class="summary-text">${i[t]}</span>
+        <span class="summary-icon" aria-hidden="true">${this._statusIcon(status)}</span>
+        <span class="summary-text">${messages[status]}</span>
       </div>
-    `}};xt.styles=[mt,bt],t([ut({attribute:!1})],xt.prototype,"groups",void 0),t([ut({type:Boolean})],xt.prototype,"running",void 0),t([ht()],xt.prototype,"_displayStates",void 0),t([ht()],xt.prototype,"_showSummary",void 0),xt=t([ct("autodoc-pipeline")],xt);let $t=class extends nt{constructor(){super(...arguments),this._suppressions=[],this._loading=!0,this._error=null,this._confirmingClearAll=!1}connectedCallback(){super.connectedCallback(),this._fetchSuppressions()}async _fetchSuppressions(){this._loading=!0,this._error=null;try{const t=await this.hass.callWS({type:"autodoctor/list_suppressions"});this._suppressions=t.suppressions}catch(t){console.error("Failed to fetch suppressions:",t),this._error="Failed to load suppressions"}this._loading=!1}async _unsuppress(t){try{await this.hass.callWS({type:"autodoctor/unsuppress",key:t}),this._suppressions=this._suppressions.filter(e=>e.key!==t),this.dispatchEvent(new CustomEvent("suppressions-changed",{detail:{action:"restore"},bubbles:!0,composed:!0}))}catch(t){console.error("Failed to unsuppress:",t)}}async _clearAll(){try{await this.hass.callWS({type:"autodoctor/clear_suppressions"}),this._suppressions=[],this.dispatchEvent(new CustomEvent("suppressions-changed",{detail:{action:"clear-all"},bubbles:!0,composed:!0}))}catch(t){console.error("Failed to clear suppressions:",t)}}_confirmClearAll(){this._confirmTimeout&&(clearTimeout(this._confirmTimeout),this._confirmTimeout=void 0),this._confirmingClearAll=!1,this._clearAll()}_startConfirmClearAll(){this._confirmingClearAll=!0,this._confirmTimeout&&clearTimeout(this._confirmTimeout),this._confirmTimeout=setTimeout(()=>{this._confirmingClearAll=!1},5e3)}_cancelConfirmClearAll(){this._confirmTimeout&&(clearTimeout(this._confirmTimeout),this._confirmTimeout=void 0),this._confirmingClearAll=!1}render(){return this._loading?V`<div class="loading">Loading suppressions...</div>`:this._error?V`<div class="error">${this._error}</div>`:0===this._suppressions.length?V`<div class="empty">No suppressed issues</div>`:V`
+    `;
+    }
+};
+AutodocPipeline.styles = [autodocTokens, pipelineStyles];
+__decorate([
+    n({ attribute: false })
+], AutodocPipeline.prototype, "groups", void 0);
+__decorate([
+    n({ type: Boolean })
+], AutodocPipeline.prototype, "running", void 0);
+__decorate([
+    r()
+], AutodocPipeline.prototype, "_displayStates", void 0);
+__decorate([
+    r()
+], AutodocPipeline.prototype, "_showSummary", void 0);
+AutodocPipeline = __decorate([
+    t("autodoc-pipeline")
+], AutodocPipeline);
+
+let AutodocSuppressions = class AutodocSuppressions extends i {
+    constructor() {
+        super(...arguments);
+        this._suppressions = [];
+        this._loading = true;
+        this._error = null;
+        this._confirmingClearAll = false;
+    }
+    connectedCallback() {
+        super.connectedCallback();
+        this._fetchSuppressions();
+    }
+    async _fetchSuppressions() {
+        this._loading = true;
+        this._error = null;
+        try {
+            const resp = await this.hass.callWS({
+                type: "autodoctor/list_suppressions",
+            });
+            this._suppressions = resp.suppressions;
+        }
+        catch (err) {
+            console.error("Failed to fetch suppressions:", err);
+            this._error = "Failed to load suppressions";
+        }
+        this._loading = false;
+    }
+    async _unsuppress(key) {
+        try {
+            await this.hass.callWS({
+                type: "autodoctor/unsuppress",
+                key,
+            });
+            this._suppressions = this._suppressions.filter((s) => s.key !== key);
+            this.dispatchEvent(new CustomEvent("suppressions-changed", {
+                detail: { action: "restore" },
+                bubbles: true,
+                composed: true,
+            }));
+        }
+        catch (err) {
+            console.error("Failed to unsuppress:", err);
+        }
+    }
+    async _clearAll() {
+        try {
+            await this.hass.callWS({ type: "autodoctor/clear_suppressions" });
+            this._suppressions = [];
+            this.dispatchEvent(new CustomEvent("suppressions-changed", {
+                detail: { action: "clear-all" },
+                bubbles: true,
+                composed: true,
+            }));
+        }
+        catch (err) {
+            console.error("Failed to clear suppressions:", err);
+        }
+    }
+    _confirmClearAll() {
+        if (this._confirmTimeout) {
+            clearTimeout(this._confirmTimeout);
+            this._confirmTimeout = undefined;
+        }
+        this._confirmingClearAll = false;
+        this._clearAll();
+    }
+    _startConfirmClearAll() {
+        this._confirmingClearAll = true;
+        if (this._confirmTimeout) {
+            clearTimeout(this._confirmTimeout);
+        }
+        this._confirmTimeout = setTimeout(() => {
+            this._confirmingClearAll = false;
+        }, 5000);
+    }
+    _cancelConfirmClearAll() {
+        if (this._confirmTimeout) {
+            clearTimeout(this._confirmTimeout);
+            this._confirmTimeout = undefined;
+        }
+        this._confirmingClearAll = false;
+    }
+    render() {
+        if (this._loading) {
+            return b `<div class="loading">Loading suppressions...</div>`;
+        }
+        if (this._error) {
+            return b `<div class="error">${this._error}</div>`;
+        }
+        if (this._suppressions.length === 0) {
+            return b `<div class="empty">No suppressed issues</div>`;
+        }
+        return b `
       <div class="suppressions-list">
         <div class="suppressions-header">
           <span class="suppressions-title"
             >${this._suppressions.length} suppressed
-            issue${1!==this._suppressions.length?"s":""}</span
+            issue${this._suppressions.length !== 1 ? "s" : ""}</span
           >
-          ${this._confirmingClearAll?V`<span class="confirm-prompt">
+          ${this._confirmingClearAll
+            ? b `<span class="confirm-prompt">
                 <span class="confirm-text">Are you sure?</span>
-                <button class="confirm-yes-btn" @click=${()=>this._confirmClearAll()}>Yes</button>
-                <button class="confirm-cancel-btn" @click=${()=>this._cancelConfirmClearAll()}>Cancel</button>
-              </span>`:V`<button class="clear-all-btn" @click=${()=>this._startConfirmClearAll()}>Clear all</button>`}
+                <button class="confirm-yes-btn" @click=${() => this._confirmClearAll()}>Yes</button>
+                <button class="confirm-cancel-btn" @click=${() => this._cancelConfirmClearAll()}>Cancel</button>
+              </span>`
+            : b `<button class="clear-all-btn" @click=${() => this._startConfirmClearAll()}>Clear all</button>`}
         </div>
-        ${this._suppressions.map(t=>this._renderSuppression(t))}
+        ${this._suppressions.map((s) => this._renderSuppression(s))}
       </div>
-    `}_renderSuppression(t){return V`
+    `;
+    }
+    _renderSuppression(entry) {
+        return b `
       <div class="suppression-item">
         <div class="suppression-info">
-          <span class="suppression-automation" title="${t.automation_name||t.automation_id}"
-            >${t.automation_name||t.automation_id}</span
+          <span class="suppression-automation" title="${entry.automation_name || entry.automation_id}"
+            >${entry.automation_name || entry.automation_id}</span
           >
-          <span class="suppression-detail" title="${t.entity_id}${t.message?` — ${t.message}`:""}"
-            >${t.entity_id}${t.message?` — ${t.message}`:""}</span
+          <span class="suppression-detail" title="${entry.entity_id}${entry.message ? ` \u2014 ${entry.message}` : ""}"
+            >${entry.entity_id}${entry.message ? ` \u2014 ${entry.message}` : ""}</span
           >
         </div>
         <button
           class="restore-btn"
-          @click=${()=>this._unsuppress(t.key)}
+          @click=${() => this._unsuppress(entry.key)}
           title="Restore this issue"
           aria-label="Restore suppressed issue"
         >
           <ha-icon icon="mdi:eye-outline" style="--mdc-icon-size: 18px;"></ha-icon>
         </button>
       </div>
-    `}static get styles(){return[mt,r`
+    `;
+    }
+    static get styles() {
+        return [
+            autodocTokens,
+            i$3 `
         :host {
           display: block;
         }
@@ -1282,154 +1770,621 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
             padding: var(--autodoc-spacing-md);
           }
         }
-      `]}};var wt;t([ut({attribute:!1})],$t.prototype,"hass",void 0),t([ht()],$t.prototype,"_suppressions",void 0),t([ht()],$t.prototype,"_loading",void 0),t([ht()],$t.prototype,"_error",void 0),t([ht()],$t.prototype,"_confirmingClearAll",void 0),$t=t([ct("autodoc-suppressions")],$t);console.info("%c AUTODOCTOR-CARD %c 2.18.0 ","color: white; background: #3498db; font-weight: bold;","color: #3498db; background: white; font-weight: bold;");let At=wt=class extends nt{constructor(){super(...arguments),this._loading=!0,this._error=null,this._validationData=null,this._runningValidation=!1,this._dismissedSuggestions=new Set,this._view="issues",this._toastMessage="",this._toastVisible=!1,this._cooldownUntil=0,this._canUndoLastFix=!1,this._validationRequestId=0,this._suppressionInProgress=!1}setConfig(t){this.config=t}static getStubConfig(){return{type:"custom:autodoctor-card"}}static async getConfigElement(){return await Promise.resolve().then(function(){return kt}),document.createElement("autodoctor-card-editor")}async firstUpdated(){await this._fetchValidation(),this._startAutoRefresh()}async _fetchValidation(t=!0){const e=++this._validationRequestId;t&&(this._loading=!0);try{this._error=null;const t=await this.hass.callWS({type:"autodoctor/validation/steps"});e===this._validationRequestId&&(this._validationData=t)}catch(t){e===this._validationRequestId&&(console.error("Failed to fetch validation data:",t),this._error="Failed to load validation data")}e===this._validationRequestId&&t&&(this._loading=!1)}_startAutoRefresh(){this._autoRefreshTimer||(this._autoRefreshTimer=setInterval(()=>{this._runningValidation||this._loading||!this.isConnected||this._fetchValidation(!1)},wt.AUTO_REFRESH_MS))}disconnectedCallback(){super.disconnectedCallback(),this._cooldownTimeout&&(clearTimeout(this._cooldownTimeout),this._cooldownTimeout=void 0),this._toastTimeout&&(clearTimeout(this._toastTimeout),this._toastTimeout=void 0),this._autoRefreshTimer&&(clearInterval(this._autoRefreshTimer),this._autoRefreshTimer=void 0)}_startCooldown(){this._cooldownUntil=Date.now()+wt.CLICK_COOLDOWN_MS,this._cooldownTimeout&&clearTimeout(this._cooldownTimeout),this._cooldownTimeout=setTimeout(()=>{this._cooldownUntil=0,this._cooldownTimeout=void 0},wt.CLICK_COOLDOWN_MS+10)}async _runValidation(){const t=Date.now();if(this._runningValidation||this._cooldownUntil>t)return;this._startCooldown();const e=++this._validationRequestId;this._runningValidation=!0;try{const t=await this.hass.callWS({type:"autodoctor/validation/run_steps"});e===this._validationRequestId&&(this._validationData=t)}catch(t){e===this._validationRequestId&&console.error("Failed to run validation:",t)}e===this._validationRequestId&&(this._runningValidation=!1)}_groupIssuesByAutomation(t){const e=new Map;for(const s of t){const{issue:t,edit_url:i}=s,o=t.automation_id;e.has(o)||e.set(o,{automation_id:t.automation_id,automation_name:t.automation_name,issues:[],edit_url:i,has_error:!1,error_count:0,warning_count:0});const a=e.get(o);a.issues.push(s),"error"===t.severity?(a.has_error=!0,a.error_count++):a.warning_count++}return Array.from(e.values())}_getCounts(t){if(!t)return{errors:0,warnings:0,healthy:0,suppressed:0};let e=0,s=0;for(const i of t.issues)"error"===i.issue.severity?e++:s++;return{errors:e,warnings:s,healthy:t.healthy_count,suppressed:t.suppressed_count||0}}render(){const t=this.config.title||"Autodoctor";if(this._loading)return this._renderLoading(t);if(this._error)return this._renderError(t);const e=this._validationData;if(!e)return this._renderEmpty(t);const s=this._groupIssuesByAutomation(e.issues),i=this._getCounts(e),o=e.issues.length>0,a=!!e.last_run;return V`
+      `,
+        ];
+    }
+};
+__decorate([
+    n({ attribute: false })
+], AutodocSuppressions.prototype, "hass", void 0);
+__decorate([
+    r()
+], AutodocSuppressions.prototype, "_suppressions", void 0);
+__decorate([
+    r()
+], AutodocSuppressions.prototype, "_loading", void 0);
+__decorate([
+    r()
+], AutodocSuppressions.prototype, "_error", void 0);
+__decorate([
+    r()
+], AutodocSuppressions.prototype, "_confirmingClearAll", void 0);
+AutodocSuppressions = __decorate([
+    t("autodoc-suppressions")
+], AutodocSuppressions);
+
+var AutodoctorCard_1;
+const CARD_VERSION = "2.19.2";
+console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
+let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
+    constructor() {
+        super(...arguments);
+        this._loading = true;
+        this._error = null;
+        this._validationData = null;
+        this._runningValidation = false;
+        this._dismissedSuggestions = new Set();
+        this._view = "issues";
+        this._toastMessage = "";
+        this._toastVisible = false;
+        this._cooldownUntil = 0;
+        this._canUndoLastFix = false;
+        // Request tracking to prevent race conditions
+        this._validationRequestId = 0;
+        this._suppressionInProgress = false;
+    }
+    setConfig(config) {
+        this.config = config;
+    }
+    static getStubConfig() {
+        return {
+            type: "custom:autodoctor-card",
+        };
+    }
+    static async getConfigElement() {
+        await Promise.resolve().then(function () { return autodoctorCardEditor; });
+        return document.createElement("autodoctor-card-editor");
+    }
+    async firstUpdated() {
+        await this._fetchValidation();
+        this._startAutoRefresh();
+    }
+    async _fetchValidation(showLoading = true) {
+        // Increment request ID to track this specific request
+        const requestId = ++this._validationRequestId;
+        if (showLoading) {
+            this._loading = true;
+        }
+        try {
+            this._error = null;
+            const data = await this.hass.callWS({
+                type: "autodoctor/validation/steps",
+            });
+            // Only update state if this is still the latest request
+            if (requestId === this._validationRequestId) {
+                this._validationData = data;
+            }
+        }
+        catch (err) {
+            // Only set error if this is still the latest request
+            if (requestId === this._validationRequestId) {
+                console.error("Failed to fetch validation data:", err);
+                this._error = "Failed to load validation data";
+            }
+        }
+        // Only clear loading if this is still the latest request
+        if (requestId === this._validationRequestId && showLoading) {
+            this._loading = false;
+        }
+    }
+    _startAutoRefresh() {
+        if (this._autoRefreshTimer) {
+            return;
+        }
+        this._autoRefreshTimer = setInterval(() => {
+            // Skip while a foreground action is in progress.
+            if (this._runningValidation || this._loading || !this.isConnected) {
+                return;
+            }
+            void this._fetchValidation(false);
+        }, AutodoctorCard_1.AUTO_REFRESH_MS);
+    }
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._cooldownTimeout) {
+            clearTimeout(this._cooldownTimeout);
+            this._cooldownTimeout = undefined;
+        }
+        if (this._toastTimeout) {
+            clearTimeout(this._toastTimeout);
+            this._toastTimeout = undefined;
+        }
+        if (this._autoRefreshTimer) {
+            clearInterval(this._autoRefreshTimer);
+            this._autoRefreshTimer = undefined;
+        }
+    }
+    _startCooldown() {
+        this._cooldownUntil = Date.now() + AutodoctorCard_1.CLICK_COOLDOWN_MS;
+        if (this._cooldownTimeout) {
+            clearTimeout(this._cooldownTimeout);
+        }
+        this._cooldownTimeout = setTimeout(() => {
+            this._cooldownUntil = 0;
+            this._cooldownTimeout = undefined;
+        }, AutodoctorCard_1.CLICK_COOLDOWN_MS + 10);
+    }
+    async _runValidation() {
+        // Prevent concurrent runs and enforce cooldown
+        const now = Date.now();
+        if (this._runningValidation ||
+            this._cooldownUntil > now) {
+            return;
+        }
+        this._startCooldown();
+        const requestId = ++this._validationRequestId;
+        this._runningValidation = true;
+        try {
+            const data = await this.hass.callWS({
+                type: "autodoctor/validation/run_steps",
+            });
+            // Only update state if this is still the latest request
+            if (requestId === this._validationRequestId) {
+                this._validationData = data;
+            }
+        }
+        catch (err) {
+            if (requestId === this._validationRequestId) {
+                console.error("Failed to run validation:", err);
+            }
+        }
+        // Only clear running flag if this is still the latest request
+        if (requestId === this._validationRequestId) {
+            this._runningValidation = false;
+        }
+    }
+    _groupIssuesByAutomation(issues) {
+        const groups = new Map();
+        for (const item of issues) {
+            const { issue, edit_url } = item;
+            const key = issue.automation_id;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    automation_id: issue.automation_id,
+                    automation_name: issue.automation_name,
+                    issues: [],
+                    edit_url,
+                    has_error: false,
+                    error_count: 0,
+                    warning_count: 0,
+                });
+            }
+            const group = groups.get(key);
+            group.issues.push(item);
+            if (issue.severity === "error") {
+                group.has_error = true;
+                group.error_count++;
+            }
+            else {
+                group.warning_count++;
+            }
+        }
+        return Array.from(groups.values());
+    }
+    _getCounts(data) {
+        if (!data) {
+            return { errors: 0, warnings: 0, healthy: 0, suppressed: 0 };
+        }
+        let errors = 0;
+        let warnings = 0;
+        for (const item of data.issues) {
+            if (item.issue.severity === "error") {
+                errors++;
+            }
+            else {
+                warnings++;
+            }
+        }
+        return {
+            errors,
+            warnings,
+            healthy: data.healthy_count,
+            suppressed: data.suppressed_count || 0,
+        };
+    }
+    render() {
+        const title = this.config.title || "Autodoctor";
+        if (this._loading) {
+            return this._renderLoading(title);
+        }
+        if (this._error) {
+            return this._renderError(title);
+        }
+        const data = this._validationData;
+        if (!data) {
+            return this._renderEmpty(title);
+        }
+        const groups = this._groupIssuesByAutomation(data.issues);
+        const counts = this._getCounts(data);
+        const hasIssues = data.issues.length > 0;
+        const hasRun = !!data.last_run;
+        return b `
       <ha-card>
-        ${this._renderHeader(t)}
+        ${this._renderHeader(title)}
         <div class="card-content">
-          ${this._renderBadges(i)}
-          ${a?V`<autodoc-pipeline
-                .groups=${e.groups||[]}
+          ${this._renderBadges(counts)}
+          ${hasRun
+            ? b `<autodoc-pipeline
+                .groups=${data.groups || []}
                 ?running=${this._runningValidation}
-              ></autodoc-pipeline>`:q}
-          ${"suppressions"===this._view?V`<autodoc-suppressions
+              ></autodoc-pipeline>`
+            : A}
+          ${this._view === "suppressions"
+            ? b `<autodoc-suppressions
                 .hass=${this.hass}
-                @suppressions-changed=${t=>this._onSuppressionsChanged(t.detail?.action)}
-              ></autodoc-suppressions>`:o?s.map(t=>V`
+                @suppressions-changed=${(e) => this._onSuppressionsChanged(e.detail?.action)}
+              ></autodoc-suppressions>`
+            : hasIssues
+                ? groups.map((group) => b `
                     <autodoc-issue-group
-                      .group=${t}
+                      .group=${group}
                       .dismissedKeys=${this._dismissedSuggestions}
-                      @suppress-issue=${t=>this._suppressIssue(t.detail.issue)}
-                      @dismiss-suggestion=${t=>this._dismissSuggestion(t.detail.issue)}
-                      @fix-copied=${t=>this._showToast(`Copied: ${t.detail.value}`)}
-                      @apply-fix=${t=>this._applyFix(t.detail.issue,t.detail.fix)}
+                      @suppress-issue=${(e) => this._suppressIssue(e.detail.issue)}
+                      @dismiss-suggestion=${(e) => this._dismissSuggestion(e.detail.issue)}
+                      @fix-copied=${(e) => this._showToast(`Copied: ${e.detail.value}`)}
+                      @apply-fix=${(e) => this._applyFix(e.detail.issue, e.detail.fix)}
                     ></autodoc-issue-group>
-                  `):a?this._renderAllHealthy(i.healthy):this._renderFirstRun()}
+                  `)
+                : hasRun
+                    ? this._renderAllHealthy(counts.healthy, data.analyzed_automations ?? counts.healthy)
+                    : this._renderFirstRun()}
         </div>
         ${this._renderFooter()}
-        <div class="toast ${this._toastVisible?"show":""}">${this._toastMessage}</div>
+        <div class="toast ${this._toastVisible ? 'show' : ''}">${this._toastMessage}</div>
       </ha-card>
-    `}_renderLoading(t){return V`
+    `;
+    }
+    _renderLoading(title) {
+        return b `
       <ha-card>
         <div class="header">
-          <h2 class="title">${t}</h2>
+          <h2 class="title">${title}</h2>
         </div>
         <div class="card-content loading-state">
           <div class="spinner" aria-label="Loading"></div>
           <span class="loading-text">Checking automations...</span>
         </div>
       </ha-card>
-    `}_renderError(t){return V`
+    `;
+    }
+    _renderError(title) {
+        return b `
       <ha-card>
         <div class="header">
-          <h2 class="title">${t}</h2>
+          <h2 class="title">${title}</h2>
         </div>
         <div class="card-content error-state">
           <div class="error-icon" aria-hidden="true">\u26A0</div>
           <span class="error-text">${this._error}</span>
-          <button class="retry-btn" @click=${()=>this._fetchValidation()}>Try again</button>
+          <button class="retry-btn" @click=${() => this._fetchValidation()}>Try again</button>
         </div>
       </ha-card>
-    `}_renderEmpty(t){return V`
+    `;
+    }
+    _renderEmpty(title) {
+        return b `
       <ha-card>
-        ${this._renderHeader(t)}
+        ${this._renderHeader(title)}
         <div class="card-content empty-state">
           <span class="empty-text">No data available</span>
         </div>
       </ha-card>
-    `}_renderHeader(t){return V`
+    `;
+    }
+    _renderHeader(title) {
+        return b `
       <div class="header">
-        <h2 class="title">${t}</h2>
+        <h2 class="title">${title}</h2>
       </div>
-    `}_renderAllHealthy(t){return V`
+    `;
+    }
+    _renderAllHealthy(healthyCount, analyzedCount) {
+        return b `
       <div class="all-healthy">
         <div class="healthy-icon" aria-hidden="true">\u2713</div>
         <div class="healthy-message">
           <span class="healthy-title">All systems healthy</span>
           <span class="healthy-subtitle"
-            >${t} automation${1!==t?"s":""} checked</span
+            >${analyzedCount} automation${analyzedCount !== 1 ? "s" : ""} analyzed</span
           >
         </div>
       </div>
-    `}_renderFirstRun(){return V`
+    `;
+    }
+    _renderFirstRun() {
+        return b `
       <div class="empty-state">
         <span class="empty-text">Click "Run Validation" to scan your automations</span>
       </div>
-    `}_renderBadges(t){return function(t,e,s){const i="suppressions"===s,o=i?()=>e?.("issues"):q,a=i?"cursor: pointer;":"";return V`
-    <div class="badges-row">
-      ${t.errors>0?V`<span
-            class="badge badge-error"
-            title="${t.errors} error${1!==t.errors?"s":""}"
-            style=${a}
-            @click=${o}
-          >
-            <span class="badge-icon" aria-hidden="true">\u2715</span>
-            <span class="badge-count">${t.errors}</span>
-          </span>`:q}
-      ${t.warnings>0?V`<span
-            class="badge badge-warning"
-            title="${t.warnings} warning${1!==t.warnings?"s":""}"
-            style=${a}
-            @click=${o}
-          >
-            <span class="badge-icon" aria-hidden="true">!</span>
-            <span class="badge-count">${t.warnings}</span>
-          </span>`:q}
-      ${t.healthy>0?V`<span
-            class="badge badge-healthy"
-            title="${t.healthy} healthy"
-            style=${a}
-            @click=${o}
-          >
-            <span class="badge-icon" aria-hidden="true">\u2713</span>
-            <span class="badge-count">${t.healthy}</span>
-          </span>`:q}
-      ${t.suppressed>0?V`<span
-            class="badge badge-suppressed ${i?"badge-active":""}"
-            title="${t.suppressed} suppressed"
-            role="button"
-            tabindex="0"
-            @click=${()=>e?.(i?"issues":"suppressions")}
-            @keydown=${t=>{"Enter"!==t.key&&" "!==t.key||(t.preventDefault(),e?.(i?"issues":"suppressions"))}}
-            style="cursor: pointer;"
-          >
-            <span class="badge-icon" aria-hidden="true">\u2298</span>
-            <span class="badge-count">${t.suppressed}</span>
-          </span>`:q}
-    </div>
-  `}(t,t=>{this._view=t},this._view)}_renderFooter(){const t=this._runningValidation||this._loading,e=t||this._cooldownUntil>Date.now();return V`
+    `;
+    }
+    _renderBadges(counts) {
+        return renderBadges(counts, (view) => {
+            this._view = view;
+        }, this._view);
+    }
+    _renderFooter() {
+        // Disable button during any async operation or cooldown period
+        const isRunning = this._runningValidation || this._loading;
+        const isDisabled = isRunning || this._cooldownUntil > Date.now();
+        return b `
       <div class="footer">
         <button
-          class="run-btn ${t?"running":""}"
-          @click=${()=>this._runValidation()}
-          ?disabled=${e}
+          class="run-btn ${isRunning ? "running" : ""}"
+          @click=${() => this._runValidation()}
+          ?disabled=${isDisabled}
         >
-          <span class="run-icon" aria-hidden="true">${t?"↻":"▶"}</span>
-          <span class="run-text">${t?"Running...":e?"Please wait...":"Run Validation"}</span>
+          <span class="run-icon" aria-hidden="true">${isRunning ? "\u21BB" : "\u25B6"}</span>
+          <span class="run-text">${isRunning ? "Running..." : isDisabled ? "Please wait..." : "Run Validation"}</span>
         </button>
-        ${this._canUndoLastFix?V`
-              <button class="undo-btn" @click=${()=>this._undoLastFix()}>
+        ${this._canUndoLastFix
+            ? b `
+              <button class="undo-btn" @click=${() => this._undoLastFix()}>
                 Undo last fix
               </button>
-            `:q}
-        ${this._validationData?.last_run?V` <span class="last-run"
+            `
+            : A}
+        ${this._validationData?.last_run
+            ? b ` <span class="last-run"
               >Last run: ${this._formatLastRun(this._validationData.last_run)}</span
-            >`:q}
+            >`
+            : A}
       </div>
-    `}_formatLastRun(t){const e=new Date(t),s=(new Date).getTime()-e.getTime(),i=Math.floor(s/6e4);if(i<1)return"just now";if(i<60)return`${i}m ago`;const o=Math.floor(i/60);if(o<24)return`${o}h ago`;return`${Math.floor(o/24)}d ago`}_dismissSuggestion(t){const e=gt(t);this._dismissedSuggestions=new Set([...this._dismissedSuggestions,e])}async _suppressIssue(t){if(!this._suppressionInProgress){this._suppressionInProgress=!0;try{await this.hass.callWS({type:"autodoctor/suppress",automation_id:t.automation_id,entity_id:t.entity_id,issue_type:t.issue_type||"unknown"}),await this._fetchValidation(),this._showToast("Issue suppressed")}catch(t){console.error("Failed to suppress issue:",t)}finally{this._suppressionInProgress=!1}}}async _onSuppressionsChanged(t){await this._fetchValidation(),0===(this._validationData?.suppressed_count||0)&&(this._view="issues"),"restore"===t?this._showToast("Issue restored"):"clear-all"===t?this._showToast("All suppressions cleared"):this._showToast("Suppressions updated")}_showToast(t){this._toastMessage=t,this._toastVisible=!0,this._toastTimeout&&clearTimeout(this._toastTimeout),this._toastTimeout=setTimeout(()=>{this._toastVisible=!1},3e3)}async _applyFix(t,e){const s=e.suggested_value||e.fix_value;if(s)try{const i=await this.hass.callWS({type:"autodoctor/fix_preview",automation_id:t.automation_id,location:t.location,current_value:e.current_value??null,suggested_value:s});if(!i.applicable)return void this._showToast(i.reason||"Fix no longer applies");const o=`Apply fix?\n\n${i.current_value||e.current_value||"(current)"} -> ${s}\nAutomation: ${t.automation_name}`;if(!window.confirm(o))return;if(!(await this.hass.callWS({type:"autodoctor/fix_apply",automation_id:t.automation_id,location:t.location,current_value:i.current_value??null,suggested_value:s})).applied)return void this._showToast("Fix was not applied");this._canUndoLastFix=!0,await this._fetchValidation(!1),this._showToast("Fix applied")}catch(t){console.error("Failed to apply fix:",t),this._showToast("Failed to apply fix")}else this._showToast("No replacement value available")}async _undoLastFix(){try{if(!(await this.hass.callWS({type:"autodoctor/fix_undo"})).undone)return void this._showToast("Undo was not applied");this._canUndoLastFix=!1,await this._fetchValidation(!1),this._showToast("Fix undone")}catch(t){console.error("Failed to undo fix:",t),this._showToast("Unable to undo last fix"),this._canUndoLastFix=!1}}static get styles(){return[mt,ft,_t]}getCardSize(){return 3}getGridOptions(){return{columns:12,min_columns:4,rows:"auto"}}};At.CLICK_COOLDOWN_MS=2e3,At.AUTO_REFRESH_MS=1e4,t([ut({attribute:!1})],At.prototype,"hass",void 0),t([ut({attribute:!1})],At.prototype,"config",void 0),t([ht()],At.prototype,"_loading",void 0),t([ht()],At.prototype,"_error",void 0),t([ht()],At.prototype,"_validationData",void 0),t([ht()],At.prototype,"_runningValidation",void 0),t([ht()],At.prototype,"_dismissedSuggestions",void 0),t([ht()],At.prototype,"_view",void 0),t([ht()],At.prototype,"_toastMessage",void 0),t([ht()],At.prototype,"_toastVisible",void 0),t([ht()],At.prototype,"_cooldownUntil",void 0),t([ht()],At.prototype,"_canUndoLastFix",void 0),At=wt=t([ct("autodoctor-card")],At),window.customCards=window.customCards||[],window.customCards.push({type:"autodoctor-card",name:"Autodoctor Card",description:"Shows automation health and validation issues",preview:!1,documentationURL:"https://github.com/mossipcams/autodoctor"});let St=class extends nt{setConfig(t){this._config=t}_valueChanged(t){if(!this._config||!this.hass)return;const e=t.target,s={...this._config,[e.id]:e.value||void 0};Object.keys(s).forEach(t=>{void 0===s[t]&&delete s[t]});const i=new CustomEvent("config-changed",{detail:{config:s},bubbles:!0,composed:!0});this.dispatchEvent(i)}render(){return this.hass&&this._config?V`
+    `;
+    }
+    _formatLastRun(isoString) {
+        const date = new Date(isoString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        if (diffMins < 1)
+            return "just now";
+        if (diffMins < 60)
+            return `${diffMins}m ago`;
+        const diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24)
+            return `${diffHours}h ago`;
+        const diffDays = Math.floor(diffHours / 24);
+        return `${diffDays}d ago`;
+    }
+    _dismissSuggestion(issue) {
+        const key = getSuggestionKey(issue);
+        this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
+    }
+    async _suppressIssue(issue) {
+        // Prevent concurrent suppression operations
+        if (this._suppressionInProgress) {
+            return;
+        }
+        this._suppressionInProgress = true;
+        try {
+            await this.hass.callWS({
+                type: "autodoctor/suppress",
+                automation_id: issue.automation_id,
+                entity_id: issue.entity_id,
+                issue_type: issue.issue_type || "unknown",
+            });
+            await this._fetchValidation();
+            this._showToast("Issue suppressed");
+        }
+        catch (err) {
+            console.error("Failed to suppress issue:", err);
+        }
+        finally {
+            this._suppressionInProgress = false;
+        }
+    }
+    async _onSuppressionsChanged(action) {
+        await this._fetchValidation();
+        // If no more suppressions, go back to issues view
+        if ((this._validationData?.suppressed_count || 0) === 0) {
+            this._view = "issues";
+        }
+        if (action === "restore") {
+            this._showToast("Issue restored");
+        }
+        else if (action === "clear-all") {
+            this._showToast("All suppressions cleared");
+        }
+        else {
+            this._showToast("Suppressions updated");
+        }
+    }
+    _showToast(message) {
+        this._toastMessage = message;
+        this._toastVisible = true;
+        if (this._toastTimeout) {
+            clearTimeout(this._toastTimeout);
+        }
+        this._toastTimeout = setTimeout(() => {
+            this._toastVisible = false;
+        }, 3000);
+    }
+    async _applyFix(issue, fix) {
+        const suggestedValue = fix.suggested_value || fix.fix_value;
+        if (!suggestedValue) {
+            this._showToast("No replacement value available");
+            return;
+        }
+        try {
+            const preview = await this.hass.callWS({
+                type: "autodoctor/fix_preview",
+                automation_id: issue.automation_id,
+                location: issue.location,
+                current_value: fix.current_value ?? null,
+                suggested_value: suggestedValue,
+            });
+            if (!preview.applicable) {
+                this._showToast(preview.reason || "Fix no longer applies");
+                return;
+            }
+            const fromValue = preview.current_value || fix.current_value || "(current)";
+            const confirmMessage = `Apply fix?\n\n` +
+                `${fromValue} -> ${suggestedValue}\n` +
+                `Automation: ${issue.automation_name}`;
+            if (!window.confirm(confirmMessage)) {
+                return;
+            }
+            const result = await this.hass.callWS({
+                type: "autodoctor/fix_apply",
+                automation_id: issue.automation_id,
+                location: issue.location,
+                current_value: preview.current_value ?? null,
+                suggested_value: suggestedValue,
+            });
+            if (!result.applied) {
+                this._showToast("Fix was not applied");
+                return;
+            }
+            this._canUndoLastFix = true;
+            await this._fetchValidation(false);
+            this._showToast("Fix applied");
+        }
+        catch (err) {
+            console.error("Failed to apply fix:", err);
+            this._showToast("Failed to apply fix");
+        }
+    }
+    async _undoLastFix() {
+        try {
+            const result = await this.hass.callWS({
+                type: "autodoctor/fix_undo",
+            });
+            if (!result.undone) {
+                this._showToast("Undo was not applied");
+                return;
+            }
+            this._canUndoLastFix = false;
+            await this._fetchValidation(false);
+            this._showToast("Fix undone");
+        }
+        catch (err) {
+            console.error("Failed to undo fix:", err);
+            this._showToast("Unable to undo last fix");
+            this._canUndoLastFix = false;
+        }
+    }
+    static get styles() {
+        return [autodocTokens, badgeStyles, cardLayoutStyles];
+    }
+    getCardSize() {
+        return 3;
+    }
+    getGridOptions() {
+        return {
+            columns: 12,
+            min_columns: 4,
+            rows: "auto",
+        };
+    }
+};
+AutodoctorCard.CLICK_COOLDOWN_MS = 2000; // 2 second minimum between clicks
+AutodoctorCard.AUTO_REFRESH_MS = 10000; // 10 second background refresh
+__decorate([
+    n({ attribute: false })
+], AutodoctorCard.prototype, "hass", void 0);
+__decorate([
+    n({ attribute: false })
+], AutodoctorCard.prototype, "config", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_loading", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_error", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_validationData", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_runningValidation", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_dismissedSuggestions", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_view", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_toastMessage", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_toastVisible", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_cooldownUntil", void 0);
+__decorate([
+    r()
+], AutodoctorCard.prototype, "_canUndoLastFix", void 0);
+AutodoctorCard = AutodoctorCard_1 = __decorate([
+    t("autodoctor-card")
+], AutodoctorCard);
+// Register card with HA
+window.customCards = window.customCards || [];
+window.customCards.push({
+    type: "autodoctor-card",
+    name: "Autodoctor Card",
+    description: "Shows automation health and validation issues",
+    preview: false,
+    documentationURL: "https://github.com/mossipcams/autodoctor",
+});
+
+let AutodoctorCardEditor = class AutodoctorCardEditor extends i {
+    setConfig(config) {
+        this._config = config;
+    }
+    _valueChanged(ev) {
+        if (!this._config || !this.hass) {
+            return;
+        }
+        const target = ev.target;
+        const newConfig = {
+            ...this._config,
+            [target.id]: target.value || undefined,
+        };
+        // Remove undefined values
+        Object.keys(newConfig).forEach((key) => {
+            if (newConfig[key] === undefined) {
+                delete newConfig[key];
+            }
+        });
+        const event = new CustomEvent("config-changed", {
+            detail: { config: newConfig },
+            bubbles: true,
+            composed: true,
+        });
+        this.dispatchEvent(event);
+    }
+    render() {
+        if (!this.hass || !this._config) {
+            return b ``;
+        }
+        return b `
       <div class="card-config">
         <ha-textfield
           id="title"
           label="Title (optional)"
-          .value=${this._config.title||""}
+          .value=${this._config.title || ""}
           @change=${this._valueChanged}
           placeholder="Automation Health"
         ></ha-textfield>
       </div>
-    `:V``}static get styles(){return r`
+    `;
+    }
+    static get styles() {
+        return i$3 `
       .card-config {
         padding: 16px;
       }
       ha-textfield {
         display: block;
       }
-    `}};t([ut({attribute:!1})],St.prototype,"hass",void 0),t([ht()],St.prototype,"_config",void 0),St=t([ct("autodoctor-card-editor")],St);var kt=Object.freeze({__proto__:null,get AutodoctorCardEditor(){return St}});export{At as AutodoctorCard};
+    `;
+    }
+};
+__decorate([
+    n({ attribute: false })
+], AutodoctorCardEditor.prototype, "hass", void 0);
+__decorate([
+    r()
+], AutodoctorCardEditor.prototype, "_config", void 0);
+AutodoctorCardEditor = __decorate([
+    t("autodoctor-card-editor")
+], AutodoctorCardEditor);
+
+var autodoctorCardEditor = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    get AutodoctorCardEditor () { return AutodoctorCardEditor; }
+});
+
+export { AutodoctorCard };

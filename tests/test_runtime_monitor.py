@@ -307,6 +307,25 @@ async def test_validate_automations_logs_river_unavailable(
 
 
 @pytest.mark.asyncio
+async def test_validate_automations_records_recorder_query_failure_stat(
+    hass: HomeAssistant,
+) -> None:
+    """Recorder fetch failures should be reflected in run stats."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: now,
+    )
+    hass.async_add_executor_job = AsyncMock(side_effect=RuntimeError("db unavailable"))
+
+    await monitor.validate_automations([_automation("runtime_test", "Runtime Test")])
+
+    stats = monitor.get_last_run_stats()
+    assert stats["recorder_query_failed"] == 1
+
+
+@pytest.mark.asyncio
 async def test_validate_automations_logs_no_valid_ids(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:

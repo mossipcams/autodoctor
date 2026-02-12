@@ -60,6 +60,7 @@ export interface StepsResponse {
   suppressed_count: number;
   analyzed_automations?: number;
   failed_automations?: number;
+  skip_reasons?: Record<string, Record<string, number>>;
 }
 
 export interface SuppressionEntry {
