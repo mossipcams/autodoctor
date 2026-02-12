@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.23.3](https://github.com/mossipcams/autodoctor/compare/v2.23.2...v2.23.3) (2026-02-12)
+
+
+### Bug Fixes
+
+* **websocket:** align entities-loop edit link fallback with get_entity path ([0ee3702](https://github.com/mossipcams/autodoctor/commit/0ee37023417ab1c5c03cf185017e9d93d8e55381))
+* **websocket:** fallback edit link to short id without metadata ([8b0df9f](https://github.com/mossipcams/autodoctor/commit/8b0df9fba7651e3c47ca0f1083e3b83968821ab4))
+* **websocket:** generate edit links when __config_file__ metadata is absent ([e3789b6](https://github.com/mossipcams/autodoctor/commit/e3789b67a5441dbc8ac5f276291a116e89e9beec))
+
 ## [2.23.2](https://github.com/mossipcams/autodoctor/compare/v2.23.1...v2.23.2) (2026-02-12)
 
 
