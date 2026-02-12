@@ -13,6 +13,7 @@ Tests cover:
 
 import asyncio
 import logging
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,7 +23,10 @@ from custom_components.autodoctor import (
     async_validate_all_with_groups,
     async_validate_automation,
 )
-from custom_components.autodoctor.const import DOMAIN
+from custom_components.autodoctor.const import (
+    DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
+    DOMAIN,
+)
 from custom_components.autodoctor.models import (
     VALIDATION_GROUP_ORDER,
     IssueType,
@@ -1088,6 +1092,31 @@ async def test_unload_entry_calls_unsub_listeners() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unload_entry_calls_unsub_periodic_scan_listener() -> None:
+    """Unload should unsubscribe periodic scan listener."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    unsub_periodic = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+            "unsub_periodic_scan_listener": unsub_periodic,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    unsub_periodic.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_unload_entry_removes_services() -> None:
     """Test that unload removes all three registered services.
 
@@ -1121,6 +1150,43 @@ async def test_unload_entry_removes_services() -> None:
     assert (DOMAIN, "validate_automation") in calls
     assert (DOMAIN, "refresh_knowledge_base") in calls
     assert hass.services.async_remove.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_setup_periodic_scan_listener_runs_validate_all() -> None:
+    """Periodic callback should invoke async_validate_all at configured interval."""
+    from custom_components.autodoctor import _setup_periodic_scan_listener
+
+    hass = MagicMock()
+    captured: dict[str, object] = {}
+    unsub = MagicMock()
+
+    def _fake_track(
+        _hass: MagicMock, action: object, interval: timedelta
+    ) -> MagicMock:
+        captured["action"] = action
+        captured["interval"] = interval
+        return unsub
+
+    with (
+        patch(
+            "custom_components.autodoctor.async_track_time_interval",
+            side_effect=_fake_track,
+        ) as mock_track_interval,
+        patch(
+            "custom_components.autodoctor.async_validate_all", new_callable=AsyncMock
+        ) as mock_validate_all,
+        patch("custom_components.autodoctor._LOGGER") as mock_logger,
+    ):
+        result_unsub = _setup_periodic_scan_listener(hass, 6)
+        callback = captured["action"]
+        await callback(datetime.now(UTC))  # type: ignore[misc]
+
+    assert result_unsub is unsub
+    assert captured["interval"] == timedelta(hours=6)
+    mock_track_interval.assert_called_once()
+    mock_validate_all.assert_awaited_once_with(hass)
+    mock_logger.debug.assert_called_once_with("Running periodic validation scan")
 
 
 # --- _async_run_validators tests (mutation hardening) ---
@@ -1591,6 +1657,114 @@ async def test_async_setup_entry_no_reload_listener() -> None:
 
         await async_setup_entry(hass, entry)
         assert hass.data[DOMAIN]["unsub_reload_listener"] is None
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_registers_periodic_scan_listener_default_interval() -> (
+    None
+):
+    """Periodic listener should be registered using default interval."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {"validate_on_reload": False}
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    periodic_unsub = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch(
+            "custom_components.autodoctor._setup_periodic_scan_listener",
+            return_value=periodic_unsub,
+        ) as mock_setup_periodic,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+    mock_setup_periodic.assert_called_once_with(
+        hass, DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS
+    )
+    assert hass.data[DOMAIN]["unsub_periodic_scan_listener"] is periodic_unsub
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_registers_periodic_scan_listener_custom_interval() -> (
+    None
+):
+    """Periodic listener should honor configured scan interval."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {"validate_on_reload": False, "periodic_scan_interval_hours": 6}
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    periodic_unsub = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch(
+            "custom_components.autodoctor._setup_periodic_scan_listener",
+            return_value=periodic_unsub,
+        ) as mock_setup_periodic,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+    mock_setup_periodic.assert_called_once_with(hass, 6)
+    assert hass.data[DOMAIN]["unsub_periodic_scan_listener"] is periodic_unsub
 
 
 @pytest.mark.asyncio

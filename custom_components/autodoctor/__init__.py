@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,12 +20,14 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
 from .analyzer import AutomationAnalyzer
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_ENABLED,
@@ -37,6 +39,7 @@ from .const import (
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
@@ -242,6 +245,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD
     )
     debounce_seconds = options.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
+    periodic_scan_interval_hours = options.get(
+        CONF_PERIODIC_SCAN_INTERVAL_HOURS,
+        DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
+    )
 
     # Initialize stores first (they need to be loaded before use)
     suppression_store = SuppressionStore(hass)
@@ -328,11 +335,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entry": entry,
         "debounce_task": None,
         "unsub_reload_listener": None,
+        "unsub_periodic_scan_listener": None,
     }
 
     if validate_on_reload:
         unsub = _setup_reload_listener(hass, debounce_seconds)
         hass.data[DOMAIN]["unsub_reload_listener"] = unsub
+
+    periodic_unsub = _setup_periodic_scan_listener(hass, periodic_scan_interval_hours)
+    hass.data[DOMAIN]["unsub_periodic_scan_listener"] = periodic_unsub
 
     await _async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -420,6 +431,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if unsub_reload is not None:
             unsub_reload()
 
+        unsub_periodic = data.get("unsub_periodic_scan_listener")
+        if unsub_periodic is not None:
+            unsub_periodic()
+
         unsub_entity_reg = data.get("unsub_entity_registry_listener")
         if unsub_entity_reg is not None:
             unsub_entity_reg()
@@ -476,6 +491,25 @@ def _setup_reload_listener(
         data["debounce_task"] = new_task
 
     return hass.bus.async_listen("automation_reloaded", _handle_automation_reload)
+
+
+def _setup_periodic_scan_listener(
+    hass: HomeAssistant, interval_hours: int
+) -> Callable[[], None]:
+    """Set up listener for periodic full validation scans."""
+
+    async def _handle_periodic_scan(_: datetime) -> None:
+        _LOGGER.debug("Running periodic validation scan")
+        try:
+            await async_validate_all(hass)
+        except Exception as err:
+            _LOGGER.warning("Periodic validation scan failed: %s", err)
+
+    return async_track_time_interval(
+        hass,
+        _handle_periodic_scan,
+        timedelta(hours=interval_hours),
+    )
 
 
 async def _async_setup_services(hass: HomeAssistant) -> None:

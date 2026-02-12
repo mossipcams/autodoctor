@@ -13,6 +13,7 @@ from homeassistant.core import callback
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_ENABLED,
@@ -24,6 +25,7 @@ from .const import (
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
@@ -94,6 +96,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                vol.Optional(
+                    CONF_PERIODIC_SCAN_INTERVAL_HOURS,
+                    default=defaults.get(
+                        CONF_PERIODIC_SCAN_INTERVAL_HOURS,
+                        DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
                 vol.Optional(
                     CONF_STRICT_TEMPLATE_VALIDATION,
                     default=defaults.get(
