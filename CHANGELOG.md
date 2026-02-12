@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.23.1](https://github.com/mossipcams/autodoctor/compare/v2.23.0...v2.23.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* **repairs:** clean orphaned issues and gate edit links ([6f898cd](https://github.com/mossipcams/autodoctor/commit/6f898cd827c28200ef85d54349b0a888f1da3c5b))
+* **websocket:** scope short_id to dict branch and add missing editable test ([e8dcd47](https://github.com/mossipcams/autodoctor/commit/e8dcd472163dfb9dff6c9a22f1475eb0655eddc8))
+
 ## [2.23.0](https://github.com/mossipcams/autodoctor/compare/v2.22.0...v2.23.0) (2026-02-12)
 
 
