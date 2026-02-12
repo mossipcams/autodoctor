@@ -1143,10 +1143,12 @@ let AutodocIssueGroup = class AutodocIssueGroup extends i {
           ${group.issues.map((item) => this._renderIssue(item))}
         </div>
         ${group.edit_url
-            ? b `<a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
-              <span class="edit-text">Edit automation</span>
-              <span class="edit-arrow" aria-hidden="true">\u2192</span>
-            </a>`
+            ? b `
+              <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
+                <span class="edit-text">Edit automation</span>
+                <span class="edit-arrow" aria-hidden="true">\u2192</span>
+              </a>
+            `
             : A}
       </div>
     `;
@@ -1796,7 +1798,7 @@ AutodocSuppressions = __decorate([
 ], AutodocSuppressions);
 
 var AutodoctorCard_1;
-const CARD_VERSION = "2.21.1";
+const CARD_VERSION = "2.23.1";
 console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
 let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     constructor() {

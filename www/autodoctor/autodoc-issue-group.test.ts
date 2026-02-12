@@ -38,6 +38,13 @@ function makeGroup(): AutomationGroup {
   };
 }
 
+function makeGroupWithoutEditUrl(): AutomationGroup {
+  return {
+    ...makeGroup(),
+    edit_url: null,
+  };
+}
+
 describe("AutodocIssueGroup", () => {
   const originalClipboard = navigator.clipboard;
   const writeText = vi.fn();
@@ -81,6 +88,17 @@ describe("AutodocIssueGroup", () => {
     btn.click();
 
     expect(writeText).toHaveBeenCalledWith("light.living_room");
+    el.remove();
+  });
+
+  it("does not render edit link when edit_url is missing", async () => {
+    const el = new AutodocIssueGroup();
+    el.group = makeGroupWithoutEditUrl();
+    document.body.appendChild(el);
+    await el.updateComplete;
+
+    const link = el.shadowRoot?.querySelector(".edit-link");
+    expect(link).toBeNull();
     el.remove();
   });
 });

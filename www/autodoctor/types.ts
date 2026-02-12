@@ -23,7 +23,7 @@ export interface FixSuggestion {
 export interface IssueWithFix {
   issue: ValidationIssue;
   fix: FixSuggestion | null;
-  edit_url: string;
+  edit_url: string | null;
 }
 
 export interface AutodoctorCardConfig {
@@ -35,7 +35,7 @@ export interface AutomationGroup {
   automation_id: string;
   automation_name: string;
   issues: IssueWithFix[];
-  edit_url: string;
+  edit_url: string | null;
   has_error: boolean;
   error_count: number;
   warning_count: number;
