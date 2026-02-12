@@ -243,52 +243,58 @@ def test_training_and_current_rows_have_same_features() -> None:
     )
 
 
-def test_river_detector_uses_training_length_as_window_size() -> None:
-    """Window size must match training data length, not a hardcoded value."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+def test_isolation_forest_detector_fits_training_and_scores_current() -> None:
+    """IsolationForest detector should fit on training rows and score the current row."""
+    from custom_components.autodoctor.runtime_monitor import (
+        _IsolationForestDetector,
+    )
 
-    detector = _RiverAnomalyDetector()
+    detector = _IsolationForestDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 31  # 30 training + 1 current
 
     mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
+    mock_model.score_samples.return_value = [-0.3]
 
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
+    with patch(
+        "custom_components.autodoctor.runtime_monitor.IsolationForest"
+    ) as mock_cls:
+        mock_cls.return_value = mock_model
+        score = detector.score_current("auto.test", rows)
 
-    call_kwargs = mock_anomaly.HalfSpaceTrees.call_args
-    assert call_kwargs[1]["window_size"] == 30
+    # score_samples returns negative values; detector normalizes to [0, 1]
+    assert 0.0 <= score <= 1.0
+    fit_arg = mock_model.fit.call_args.args[0]
+    score_arg = mock_model.score_samples.call_args.args[0]
+    assert len(fit_arg) == 30
+    assert len(score_arg) == 1
 
 
-def test_river_detector_learns_incrementally() -> None:
-    """Detector must persist models and only learn new rows on subsequent calls."""
-    from unittest.mock import MagicMock, patch
+def test_isolation_forest_detector_refits_each_call() -> None:
+    """IsolationForest detector should refit on full training rows each call."""
+    from custom_components.autodoctor.runtime_monitor import (
+        _IsolationForestDetector,
+    )
 
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
+    detector = _IsolationForestDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows_10 = [row] * 9 + [{"count_24h": 5.0, "ratio": 5.0}]
 
     mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
+    mock_model.score_samples.return_value = [-0.3]
 
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-
-        # First call: should learn 9 training rows (all except the last)
+    with patch(
+        "custom_components.autodoctor.runtime_monitor.IsolationForest"
+    ) as mock_cls:
+        mock_cls.return_value = mock_model
         detector.score_current("auto.test", rows_10)
-        assert mock_model.learn_one.call_count == 9
 
-        mock_model.learn_one.reset_mock()
-
-        # Second call with 1 extra training row appended before the current row
         rows_11 = [*rows_10[:-1], row, rows_10[-1]]
         detector.score_current("auto.test", rows_11)
-        # Should only learn the 1 new row, not re-learn the original 9
-        assert mock_model.learn_one.call_count == 1
+
+    assert mock_model.fit.call_count == 2
+    assert len(mock_model.fit.call_args_list[0].args[0]) == 9
+    assert len(mock_model.fit.call_args_list[1].args[0]) == 10
 
 
 @pytest.mark.asyncio
@@ -374,12 +380,12 @@ async def test_validate_automations_logs_entry(
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_logs_river_unavailable(
+async def test_validate_automations_logs_sklearn_unavailable(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Should log when river detector is unavailable."""
+    """Should log when sklearn detector is unavailable."""
     monitor = RuntimeHealthMonitor(hass, detector=None)
-    # Force detector to None to simulate river unavailable
+    # Force detector to None to simulate sklearn unavailable
     monitor._detector = None
 
     with caplog.at_level(
@@ -387,7 +393,7 @@ async def test_validate_automations_logs_river_unavailable(
     ):
         await monitor.validate_automations([_automation("a1")])
 
-    assert "River detector unavailable" in caplog.text
+    assert "Detector unavailable" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -562,84 +568,95 @@ async def test_fetch_trigger_history_logs_query(
     assert "Fetched 2 total trigger events" in caplog.text
 
 
-def test_river_detector_logs_model_creation(
+def test_isolation_forest_detector_logs_fit(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """River detector should log when creating a new HalfSpaceTrees model."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+    """IsolationForest detector should log when fitting a model."""
+    from custom_components.autodoctor.runtime_monitor import (
+        _IsolationForestDetector,
+    )
 
-    detector = _RiverAnomalyDetector()
+    detector = _IsolationForestDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 3
 
     mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
+    mock_model.score_samples.return_value = [-0.3]
 
     with (
         caplog.at_level(
             logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
         ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
+        patch(
+            "custom_components.autodoctor.runtime_monitor.IsolationForest"
+        ) as mock_cls,
     ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+        mock_cls.return_value = mock_model
         detector.score_current("auto.test", rows)
 
-    assert "Creating HalfSpaceTrees model for 'auto.test'" in caplog.text
+    assert "Fitting IsolationForest for 'auto.test' on 2 rows" in caplog.text
 
 
-def test_river_detector_logs_watermark_reset(
+def test_isolation_forest_detector_handles_window_changes(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """River detector should log when resetting model due to window shift."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+    """IsolationForest detector should work when history shrinks between calls."""
+    from custom_components.autodoctor.runtime_monitor import (
+        _IsolationForestDetector,
+    )
 
-    detector = _RiverAnomalyDetector()
+    detector = _IsolationForestDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
 
     mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
+    mock_model.score_samples.return_value = [-0.3]
 
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        # First call with 5 rows -> watermark = 4
+    with patch(
+        "custom_components.autodoctor.runtime_monitor.IsolationForest"
+    ) as mock_cls:
+        mock_cls.return_value = mock_model
         detector.score_current("auto.test", [row] * 5)
 
-    # Now call with fewer rows -> triggers watermark reset
     with (
         caplog.at_level(
             logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
         ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
+        patch(
+            "custom_components.autodoctor.runtime_monitor.IsolationForest"
+        ) as mock_cls,
     ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+        mock_cls.return_value = mock_model
         detector.score_current("auto.test", [row] * 3)
 
-    assert "Resetting model for 'auto.test' (window shifted)" in caplog.text
+    assert "Fitting IsolationForest for 'auto.test' on 2 rows" in caplog.text
 
 
-def test_river_detector_logs_learning_and_score(
+def test_isolation_forest_detector_logs_score(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """River detector should log learning progress and score result."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+    """IsolationForest detector should log score result."""
+    from custom_components.autodoctor.runtime_monitor import (
+        _IsolationForestDetector,
+    )
 
-    detector = _RiverAnomalyDetector()
+    detector = _IsolationForestDetector()
     row = {"count_24h": 1.0, "ratio": 1.0}
     rows = [row] * 5
 
     mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.42
+    mock_model.score_samples.return_value = [-0.42]
 
     with (
         caplog.at_level(
             logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
         ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
+        patch(
+            "custom_components.autodoctor.runtime_monitor.IsolationForest"
+        ) as mock_cls,
     ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
+        mock_cls.return_value = mock_model
         detector.score_current("auto.test", rows)
 
-    assert "Learning 4 new rows for 'auto.test'" in caplog.text
     assert "Scored 'auto.test': 0.420" in caplog.text
 
 

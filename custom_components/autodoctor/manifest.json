@@ -15,8 +15,6 @@
   ],
   "documentation": "https://github.com/mossipcams/autodoctor",
   "iot_class": "local_polling",
-  "requirements": [
-    "river>=0.22.0,<0.23.0"
-  ],
+  "requirements": [],
   "version": "2.21.1"
 }
