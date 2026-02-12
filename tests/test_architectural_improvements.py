@@ -112,15 +112,13 @@ def test_runtime_health_realistic_defaults() -> None:
     assert DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS == 0
 
 
-def test_runtime_health_manifest_has_no_heavy_ml_requirements() -> None:
-    """Guard: manifest must not require heavy ML libs (river, pyod, numba)."""
+def test_runtime_health_manifest_declares_river_requirement() -> None:
+    """Guard: Runtime health dependency must be installed by HA from manifest."""
     with open("custom_components/autodoctor/manifest.json", encoding="utf-8") as f:
         manifest = json.load(f)
 
     requirements = manifest.get("requirements", [])
-    for req in requirements:
-        assert not req.startswith("river"), "river pulls heavy deps"
-        assert not req.startswith("pyod"), "pyod pulls numba/llvmlite"
+    assert any(req.startswith("river") for req in requirements)
 
 
 def test_max_recursion_depth_constant() -> None:
