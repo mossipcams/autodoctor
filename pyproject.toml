@@ -8,7 +8,7 @@ version = "1.1.0"
 description = "Home Assistant integration that validates automations to detect state-related issues"
 requires-python = ">=3.12"
 dependencies = [
-    "pyod>=2.0.0",
+    "river>=0.21.0",
 ]
 
 [tool.setuptools.packages.find]

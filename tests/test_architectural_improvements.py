@@ -112,13 +112,13 @@ def test_runtime_health_realistic_defaults() -> None:
     assert DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS == 0
 
 
-def test_runtime_health_manifest_declares_pyod_requirement() -> None:
+def test_runtime_health_manifest_declares_river_requirement() -> None:
     """Guard: Runtime health dependency must be installed by HA from manifest."""
     with open("custom_components/autodoctor/manifest.json", encoding="utf-8") as f:
         manifest = json.load(f)
 
     requirements = manifest.get("requirements", [])
-    assert any(req.startswith("pyod") for req in requirements)
+    assert any(req.startswith("river") for req in requirements)
 
 
 def test_max_recursion_depth_constant() -> None:
