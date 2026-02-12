@@ -161,6 +161,68 @@ async def test_runtime_monitor_skips_when_no_baseline_signal(
     assert monitor.get_last_run_stats()["insufficient_baseline"] == 1
 
 
+@pytest.mark.asyncio
+async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
+    hass: HomeAssistant,
+) -> None:
+    """History lookup should use automation entity_id when config id differs."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {
+        "automation.kitchen_motion": [
+            now - timedelta(days=d, hours=2) for d in range(1, 31)
+        ]
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.95,
+        warmup_samples=7,
+        anomaly_threshold=0.8,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [
+            {
+                "id": "01HTYV52MPM2Q2PY6EW3S9AFRF",
+                "alias": "Kitchen Motion",
+                "entity_id": "automation.kitchen_motion",
+            }
+        ]
+    )
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    assert issues[0].automation_id == "automation.kitchen_motion"
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_present(
+    hass: HomeAssistant,
+) -> None:
+    """Automations without config id should still run when entity_id is available."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {
+        "automation.no_id": [now - timedelta(days=d, hours=2) for d in range(1, 31)]
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.95,
+        warmup_samples=7,
+        anomaly_threshold=0.8,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [{"alias": "No ID Automation", "entity_id": "automation.no_id"}]
+    )
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    assert issues[0].automation_id == "automation.no_id"
+
+
 def test_training_and_current_rows_have_same_features() -> None:
     """Training rows and current row must have identical feature keys."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)

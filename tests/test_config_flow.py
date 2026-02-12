@@ -16,6 +16,7 @@ from custom_components.autodoctor.config_flow import ConfigFlow, OptionsFlowHand
 from custom_components.autodoctor.const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
+    CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_ENABLED,
@@ -143,6 +144,7 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
         CONF_HISTORY_DAYS: 14,
         CONF_VALIDATE_ON_RELOAD: False,
         CONF_DEBOUNCE_SECONDS: 10,
+        CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
         CONF_STRICT_TEMPLATE_VALIDATION: True,
         CONF_STRICT_SERVICE_VALIDATION: True,
         CONF_RUNTIME_HEALTH_ENABLED: True,
@@ -156,6 +158,44 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
     result = await handler.async_step_init(user_input=user_input)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"] == user_input
+
+
+async def test_options_step_init_rejects_warmup_over_baseline(
+    hass: HomeAssistant,
+) -> None:
+    """Warmup samples cannot exceed baseline days."""
+    mock_entry = MagicMock()
+    mock_entry.options = {}
+
+    handler = OptionsFlowHandler()
+    handler.hass = hass
+    handler.flow_id = "test_options"
+
+    user_input: dict[str, Any] = {
+        CONF_HISTORY_DAYS: 14,
+        CONF_VALIDATE_ON_RELOAD: False,
+        CONF_DEBOUNCE_SECONDS: 10,
+        CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
+        CONF_STRICT_TEMPLATE_VALIDATION: True,
+        CONF_STRICT_SERVICE_VALIDATION: True,
+        CONF_RUNTIME_HEALTH_ENABLED: True,
+        CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
+        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
+        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
+        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
+        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
+    }
+
+    with patch.object(
+        type(handler),
+        "config_entry",
+        new_callable=lambda: property(lambda self: mock_entry),
+    ):
+        result = await handler.async_step_init(user_input=user_input)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+    assert result["errors"]["base"] == "warmup_exceeds_baseline"
 
 
 # ===== CFG-01/CFG-02 Fix Tests =====
@@ -208,6 +248,7 @@ async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "init"
     schema = result["data_schema"]
+    assert CONF_PERIODIC_SCAN_INTERVAL_HOURS in schema.schema
     assert CONF_RUNTIME_HEALTH_ENABLED in schema.schema
     assert CONF_RUNTIME_HEALTH_BASELINE_DAYS in schema.schema
     assert CONF_RUNTIME_HEALTH_WARMUP_SAMPLES in schema.schema

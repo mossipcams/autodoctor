@@ -11,6 +11,9 @@
     }
   },
   "options": {
+    "error": {
+      "warmup_exceeds_baseline": "Runtime warmup samples cannot exceed runtime baseline days."
+    },
     "step": {
       "init": {
         "title": "Autodoctor Options",
@@ -19,6 +22,7 @@
           "staleness_threshold_days": "Staleness warning threshold (days)",
           "validate_on_reload": "Automatically validate when automations are reloaded",
           "debounce_seconds": "Debounce delay before validation (seconds)",
+          "periodic_scan_interval_hours": "Periodic scan interval (hours)",
           "runtime_health_enabled": "Enable runtime health monitoring (ML)",
           "runtime_health_baseline_days": "Runtime baseline history (days)",
           "runtime_health_warmup_samples": "Runtime warmup samples",
@@ -31,6 +35,7 @@
           "staleness_threshold_days": "Warn if a referenced state hasn't occurred in this many days",
           "validate_on_reload": "Run validation automatically whenever automations are reloaded",
           "debounce_seconds": "Wait this many seconds after reload before validating (prevents multiple rapid validations)",
+          "periodic_scan_interval_hours": "Run a background validation scan every N hours and publish issues to Repairs",
           "runtime_health_enabled": "Track automation trigger behavior over time and detect runtime anomalies",
           "runtime_health_baseline_days": "Days of recorder history used to build runtime behavior baseline",
           "runtime_health_warmup_samples": "Minimum active baseline days needed before ML anomaly detection starts",
