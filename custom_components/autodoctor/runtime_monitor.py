@@ -14,11 +14,11 @@ from .models import IssueType, Severity, ValidationIssue
 _LOGGER = logging.getLogger(__name__)
 
 try:
-    from river import anomaly
+    from pyod.models.ecod import ECOD
 except ImportError:  # pragma: no cover - environment-dependent
-    anomaly = None
+    ECOD = None
 
-_HAS_RIVER: bool = anomaly is not None
+_HAS_ECOD: bool = ECOD is not None
 
 
 class _Detector(Protocol):
@@ -31,59 +31,26 @@ class _Detector(Protocol):
         ...
 
 
-class _RiverAnomalyDetector:
-    """River-backed detector with watermark-based incremental learning.
-
-    Persists a model per automation and tracks how many training rows
-    have already been learned, so subsequent calls only learn new rows.
-    If the row count shrinks (e.g. sliding window), the model resets.
-    """
-
-    def __init__(self) -> None:
-        self._models: dict[str, Any] = {}
-        self._watermarks: dict[str, int] = {}
+class _EcodAnomalyDetector:
+    """ECOD-backed detector that fits baseline rows and scores the current row."""
 
     def score_current(
         self, automation_id: str, train_rows: list[dict[str, float]]
     ) -> float:
         if len(train_rows) < 2:
             return 0.0
-
-        if not _HAS_RIVER:  # pragma: no cover - guarded by constructor call
-            raise RuntimeError("River is unavailable")
+        if ECOD is None:  # pragma: no cover - guarded by constructor call
+            raise RuntimeError("ECOD is unavailable")
 
         training = train_rows[:-1]
-        watermark = self._watermarks.get(automation_id, 0)
+        feature_names = list(training[0].keys())
+        x_train = [[row[name] for name in feature_names] for row in training]
+        x_current = [[train_rows[-1][name] for name in feature_names]]
 
-        # Reset if history shrank (sliding window shifted)
-        if watermark > len(training):
-            _LOGGER.debug("Resetting model for '%s' (window shifted)", automation_id)
-            watermark = 0
-            self._models.pop(automation_id, None)
-
-        model = self._models.get(automation_id)
-        if model is None:
-            _LOGGER.debug("Creating HalfSpaceTrees model for '%s'", automation_id)
-            assert anomaly is not None  # guaranteed by _HAS_RIVER check above
-            model = anomaly.HalfSpaceTrees(
-                n_trees=15, height=8, window_size=len(training), seed=42
-            )
-            self._models[automation_id] = model
-
-        new_rows = training[watermark:]
-        if new_rows:
-            _LOGGER.debug(
-                "Learning %d new rows for '%s' (watermark %d -> %d)",
-                len(new_rows),
-                automation_id,
-                watermark,
-                len(training),
-            )
-        for row in new_rows:
-            model.learn_one(row)
-        self._watermarks[automation_id] = len(training)
-
-        score = float(model.score_one(train_rows[-1]))
+        _LOGGER.debug("Fitting ECOD model for '%s' on %d rows", automation_id, len(training))
+        model = ECOD()
+        model.fit(x_train)
+        score = float(model.decision_function(x_current)[0])
         _LOGGER.debug("Scored '%s': %.3f", automation_id, score)
         return score
 
@@ -109,20 +76,20 @@ class RuntimeHealthMonitor:
         self.anomaly_threshold = anomaly_threshold
         self.min_expected_events = min_expected_events
         self.overactive_factor = overactive_factor
-        self._detector = detector or (_RiverAnomalyDetector() if _HAS_RIVER else None)
+        self._detector = detector or (_EcodAnomalyDetector() if _HAS_ECOD else None)
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._last_run_stats: dict[str, int] = {}
         self._last_query_failed = False
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
-            "river_available=%s, detector=%s",
+            "ecod_available=%s, detector=%s",
             baseline_days,
             warmup_samples,
             anomaly_threshold,
             min_expected_events,
             overactive_factor,
-            _HAS_RIVER,
+            _HAS_ECOD,
             type(self._detector).__name__ if self._detector else None,
         )
 
@@ -156,10 +123,10 @@ class RuntimeHealthMonitor:
 
         if self._detector is None:
             _LOGGER.debug(
-                "River detector unavailable, skipping %d automations",
+                "ECOD detector unavailable, skipping %d automations",
                 len(automations),
             )
-            stats["river_unavailable"] = len(automations)
+            stats["ecod_unavailable"] = len(automations)
             self._last_run_stats = dict(stats)
             return []
 
