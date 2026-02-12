@@ -1,5 +1,68 @@
 # Changelog
 
+## [2.23.0](https://github.com/mossipcams/autodoctor/compare/v2.22.0...v2.23.0) (2026-02-12)
+
+
+### Features
+
+* add enum sensor state validation ([#58](https://github.com/mossipcams/autodoctor/issues/58)) ([6d23bf5](https://github.com/mossipcams/autodoctor/commit/6d23bf5f0a8114900058c0723ff5e06bb71906d3))
+* add periodic validation scans with configurable interval ([5645c21](https://github.com/mossipcams/autodoctor/commit/5645c2108df2c4de263061230bc60eb83dadd51a))
+* foundation and core validation engine ([d76dd64](https://github.com/mossipcams/autodoctor/commit/d76dd64c65cfb6b87efd32b3327e844646c0f1e4))
+* home assistant integration ([4531cde](https://github.com/mossipcams/autodoctor/commit/4531cde8abe7a7aaadb17388debe0f38a8fd6827))
+* jinja template validation ([5f5e03c](https://github.com/mossipcams/autodoctor/commit/5f5e03ccd81acbfceac33bc6acd78837cc4549f2))
+* Property-based testing, validation expansion, and defect fixes ([#65](https://github.com/mossipcams/autodoctor/issues/65)) ([7311413](https://github.com/mossipcams/autodoctor/commit/73114136f295c28f660a5f275a599b12cf3eeb92))
+* **quick-011:** targeted single-automation validation on save ([2f1645b](https://github.com/mossipcams/autodoctor/commit/2f1645bcf46eb05da25dfbfede5b9bf6cb2f3346))
+* **runtime:** add extensive debug logging throughout runtime health monitoring ([282740c](https://github.com/mossipcams/autodoctor/commit/282740c3a7944ff430b673057a9a07496a0d7502))
+* **runtime:** auto-install river on restart + notify on enable ([7e1d560](https://github.com/mossipcams/autodoctor/commit/7e1d560caaa433993e9556b8c1eb4cf3d27a64c5))
+* **runtime:** install river and prompt restart on enable ([708ad25](https://github.com/mossipcams/autodoctor/commit/708ad25562184105c0c44a2163f531413857712a))
+* **runtime:** periodic scans, identity resolution, and realistic defaults ([44e2f45](https://github.com/mossipcams/autodoctor/commit/44e2f45afa7f8262f0c7f5239206144b4063d0b3))
+* **runtime:** replace river detector with pyod ECOD ([779fa25](https://github.com/mossipcams/autodoctor/commit/779fa25f584b9950edc6a4bf81dc54edb00e660e))
+* **runtime:** replace River with sklearn IsolationForest ([99e93f7](https://github.com/mossipcams/autodoctor/commit/99e93f7b6d8bbc4eeba305d65a2e10fa3daaefea))
+* **runtime:** replace River with sklearn IsolationForest ([37c4a0f](https://github.com/mossipcams/autodoctor/commit/37c4a0f8e73518c5220a04dec1b0c1bb3336e9a0))
+* **runtime:** runtime health River v2 with performance and reliability fixes ([83b0803](https://github.com/mossipcams/autodoctor/commit/83b0803b168fc4dc13d72ba998a447bce187bf20))
+* **validation:** major issue-identification improvements with TDD ([#68](https://github.com/mossipcams/autodoctor/issues/68)) ([60468bd](https://github.com/mossipcams/autodoctor/commit/60468bddb8e9add83b4d5964224c0ba125df7ef4))
+* websocket api and frontend card ([a973a2d](https://github.com/mossipcams/autodoctor/commit/a973a2d2ea73294ad645b3636ea0f7d2e4c40650))
+
+
+### Bug Fixes
+
+* **lint:** format test_init.py to pass ruff format check ([1bcd699](https://github.com/mossipcams/autodoctor/commit/1bcd69987c4e920cd180709ee7aa9e903040963f))
+* **lint:** reformat __init__.py for ruff compliance ([cff4685](https://github.com/mossipcams/autodoctor/commit/cff4685a2c0b149bb6d86d16ace91b1dfd386354))
+* **lint:** reformat __init__.py for ruff compliance ([0157bca](https://github.com/mossipcams/autodoctor/commit/0157bca97a9ec784ae5df1e30eee58fef0e68aa7))
+* **lint:** reformat test_init.py for ruff compliance ([8250f1e](https://github.com/mossipcams/autodoctor/commit/8250f1e7661d4ed0b5fae5c4d5c23979c58fd8db))
+* **readme:** correct typo in binary sensor example ([#72](https://github.com/mossipcams/autodoctor/issues/72)) ([19ddf3b](https://github.com/mossipcams/autodoctor/commit/19ddf3b2c196b0aee8b2bc0decf7b37a7f5e621a))
+* **repairs:** restore repairs flow and add invalid-state suggestions ([21d844b](https://github.com/mossipcams/autodoctor/commit/21d844bb2bcd91d479a7092a82cc3589f8f995b5))
+* **repairs:** restore repairs flow and add invalid-state suggestions ([#74](https://github.com/mossipcams/autodoctor/issues/74)) ([4985560](https://github.com/mossipcams/autodoctor/commit/4985560c8f878933b997a18c81b387e28050675a))
+* **runtime-monitor:** align feature schema, add watermark learning, fix formatting ([cf5ad35](https://github.com/mossipcams/autodoctor/commit/cf5ad35a11927f7f3a2e5ac92388f68b31d5448f))
+* **runtime-monitor:** use modern HA recorder schema for event queries ([7a61a89](https://github.com/mossipcams/autodoctor/commit/7a61a89cf71b429f41e3ce4d75b3b4f0822bb3aa))
+* **runtime:** add debug logging to runtime health validation branch ([4b5090e](https://github.com/mossipcams/autodoctor/commit/4b5090eba29ab4371edc58e0b0d83101279e52aa))
+* **runtime:** add debug logging to runtime health validation branch ([0b4c81c](https://github.com/mossipcams/autodoctor/commit/0b4c81c4f6aa9b754646884948119b3c0a6d2c37))
+* **runtime:** add pyright ignore comments for optional sklearn import ([b6e15eb](https://github.com/mossipcams/autodoctor/commit/b6e15ebec1a7caa2a24cf7af0b04c5adc87ac257))
+* **runtime:** add remaining pyright ignores for unresolved sklearn ([840e14f](https://github.com/mossipcams/autodoctor/commit/840e14fd63a6cdabdf4023af9fafe9323ea8c5be))
+* **runtime:** fix HalfSpaceTrees always scoring 0.0 ([daf9669](https://github.com/mossipcams/autodoctor/commit/daf96693c600eba23e40c80d0ca299884f5dfcd1))
+* **runtime:** fix pyright ignore placement for sklearn import ([f728b72](https://github.com/mossipcams/autodoctor/commit/f728b727a8af8dcb3338d6e196dd834308a1f9d3))
+* **runtime:** log runtime health stats after validation ([a434e8d](https://github.com/mossipcams/autodoctor/commit/a434e8d46cc91b1c988528c2f62701378c860b41))
+* **runtime:** log runtime health stats after validation ([394465e](https://github.com/mossipcams/autodoctor/commit/394465ed944ed94ba3ed49ffcaa9c0a6976b2bbb))
+* **runtime:** lower warmup and min-events defaults for realistic setups ([2731351](https://github.com/mossipcams/autodoctor/commit/27313518e6d0dac0c75961d55ffc11c62be1ae32))
+* **runtime:** silence pyright reportConstantRedefinition for ECOD import ([f57b396](https://github.com/mossipcams/autodoctor/commit/f57b396e06c2db1fa61cb152f7d853a2d1112555))
+* **runtime:** use predict_proba for normalized [0,1] anomaly scores ([dffba56](https://github.com/mossipcams/autodoctor/commit/dffba568498a7fd447192078040573c66dd89892))
+* **validation:** address PR [#76](https://github.com/mossipcams/autodoctor/issues/76) review issues ([580b1d4](https://github.com/mossipcams/autodoctor/commit/580b1d40677a5e884e0c3308b21cf455c45c2488))
+* **validation:** correct indentation and add early return for missing registry ([5bcce8f](https://github.com/mossipcams/autodoctor/commit/5bcce8f46b06ea1fed8ad05ca3b2706f2bf7607a))
+* **validation:** rollback blueprint none placeholder filtering ([5c71a1a](https://github.com/mossipcams/autodoctor/commit/5c71a1a3290b1cbc76206751ebd0d49a4b26287a))
+* **validation:** scope blueprint none sentinel handling by context ([60f6ce5](https://github.com/mossipcams/autodoctor/commit/60f6ce55beb0b54ad03130f7e3feab360e4cd941))
+* **validation:** TDD validation resilience, blueprint sentinels, and cooldown ([8137008](https://github.com/mossipcams/autodoctor/commit/8137008dd0d926a8d8958382ba6b883bbdf120f0))
+
+
+### Code Refactoring
+
+* mvp architecture and validation pipeline ([91063b1](https://github.com/mossipcams/autodoctor/commit/91063b190bfe49619efef8ff4ba3166cbd00bd5d))
+
+
+### Documentation
+
+* update README for v2.14.0 accuracy ([0bf6c66](https://github.com/mossipcams/autodoctor/commit/0bf6c66309482673f286d760c8e13e06a5d67f40))
+* update README, scope audit, and checklist for v2.14.0 descoping ([09ad504](https://github.com/mossipcams/autodoctor/commit/09ad504ef4476975abf6a121c658b6b6d5839313))
+
 ## [2.22.0](https://github.com/mossipcams/autodoctor/compare/v2.21.1...v2.22.0) (2026-02-12)
 
 
