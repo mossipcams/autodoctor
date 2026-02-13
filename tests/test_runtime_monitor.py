@@ -38,7 +38,7 @@ class _TestRuntimeMonitor(RuntimeHealthMonitor):
         hass: HomeAssistant,
         history: dict[str, list[datetime]],
         now: datetime,
-        score: float = 0.95,
+        score: float = 2.0,
         **kwargs: object,
     ) -> None:
         super().__init__(
@@ -107,7 +107,7 @@ async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> 
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -132,7 +132,7 @@ async def test_runtime_monitor_flags_overactive_automation(hass: HomeAssistant) 
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
         overactive_factor=3.0,
     )
@@ -201,9 +201,9 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -234,9 +234,9 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -281,52 +281,50 @@ def test_training_and_current_rows_have_same_features() -> None:
     )
 
 
-def test_river_detector_uses_training_length_as_window_size() -> None:
-    """Window size must match training data length, not a hardcoded value."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+def test_gamma_poisson_detector_scores_tail_events_higher_than_normal() -> None:
+    """Gamma-Poisson detector should assign higher scores to tail events."""
+    from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
 
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows = [row] * 31  # 30 training + 1 current
+    detector = _GammaPoissonDetector()
 
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
+    def _row(count_24h: float) -> dict[str, float]:
+        return {
+            "rolling_24h_count": count_24h,
+            "rolling_7d_count": count_24h * 6.0,
+            "hour_ratio_30d": 1.0,
+            "gap_vs_median": 1.0,
+            "is_weekend": 0.0,
+            "other_automations_5m": 0.0,
+        }
 
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
+    training = [_row(9.0 + float(i % 3)) for i in range(23)]
+    score_normal = detector.score_current("automation.normal", [*training, _row(10.0)])
+    score_stalled = detector.score_current("automation.stalled", [*training, _row(0.0)])
+    score_overactive = detector.score_current(
+        "automation.overactive", [*training, _row(35.0)]
+    )
 
-    call_kwargs = mock_anomaly.HalfSpaceTrees.call_args
-    assert call_kwargs[1]["window_size"] == 30
+    assert score_normal >= 0.0
+    assert score_stalled > score_normal
+    assert score_overactive > score_normal
 
 
-def test_river_detector_learns_incrementally() -> None:
-    """Detector must persist models and only learn new rows on subsequent calls."""
-    from unittest.mock import MagicMock, patch
+def test_runtime_monitor_defaults_to_gamma_poisson_detector(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime monitor should default to Gamma-Poisson detector."""
+    from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
 
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
+    monitor = RuntimeHealthMonitor(hass)
+    assert isinstance(monitor._detector, _GammaPoissonDetector)
 
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows_10 = [row] * 9 + [{"count_24h": 5.0, "ratio": 5.0}]
 
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-
-        # First call: should learn 9 training rows (all except the last)
-        detector.score_current("auto.test", rows_10)
-        assert mock_model.learn_one.call_count == 9
-
-        mock_model.learn_one.reset_mock()
-
-        # Second call with 1 extra training row appended before the current row
-        rows_11 = [*rows_10[:-1], row, rows_10[-1]]
-        detector.score_current("auto.test", rows_11)
-        # Should only learn the 1 new row, not re-learn the original 9
-        assert mock_model.learn_one.call_count == 1
+def test_runtime_monitor_default_anomaly_threshold_matches_log10_scale(
+    hass: HomeAssistant,
+) -> None:
+    """Default anomaly_threshold must be 1.3 (-log10 p≈0.05) for Gamma-Poisson."""
+    monitor = RuntimeHealthMonitor(hass)
+    assert monitor.anomaly_threshold == 1.3
 
 
 @pytest.mark.asyncio
@@ -385,14 +383,14 @@ def test_constructor_logs_config_params(
             hass,
             baseline_days=30,
             warmup_samples=14,
-            anomaly_threshold=0.8,
+            anomaly_threshold=1.3,
             min_expected_events=1,
             overactive_factor=3.0,
         )
 
     assert "baseline_days=30" in caplog.text
     assert "warmup_samples=14" in caplog.text
-    assert "anomaly_threshold=0.8" in caplog.text
+    assert "anomaly_threshold=1.3" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -409,23 +407,6 @@ async def test_validate_automations_logs_entry(
         await monitor.validate_automations([_automation("a1"), _automation("a2")])
 
     assert "Runtime health validation starting: 2 automations" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_logs_river_unavailable(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Should log when river detector is unavailable."""
-    monitor = RuntimeHealthMonitor(hass, detector=None)
-    # Force detector to None to simulate river unavailable
-    monitor._detector = None
-
-    with caplog.at_level(
-        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-    ):
-        await monitor.validate_automations([_automation("a1")])
-
-    assert "River detector unavailable" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -600,87 +581,6 @@ async def test_fetch_trigger_history_logs_query(
     assert "Fetched 2 total trigger events" in caplog.text
 
 
-def test_river_detector_logs_model_creation(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """River detector should log when creating a new HalfSpaceTrees model."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows = [row] * 3
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with (
-        caplog.at_level(
-            logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-        ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
-    ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
-
-    assert "Creating HalfSpaceTrees model for 'auto.test'" in caplog.text
-
-
-def test_river_detector_logs_watermark_reset(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """River detector should log when resetting model due to window shift."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        # First call with 5 rows -> watermark = 4
-        detector.score_current("auto.test", [row] * 5)
-
-    # Now call with fewer rows -> triggers watermark reset
-    with (
-        caplog.at_level(
-            logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-        ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
-    ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", [row] * 3)
-
-    assert "Resetting model for 'auto.test' (window shifted)" in caplog.text
-
-
-def test_river_detector_logs_learning_and_score(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """River detector should log learning progress and score result."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows = [row] * 5
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.42
-
-    with (
-        caplog.at_level(
-            logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-        ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
-    ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
-
-    assert "Learning 4 new rows for 'auto.test'" in caplog.text
-    assert "Scored 'auto.test': 0.420" in caplog.text
-
-
 def test_feature_row_includes_expanded_runtime_features() -> None:
     """Feature rows should include the expanded runtime feature set."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
@@ -813,9 +713,9 @@ async def test_validate_automations_logs_stalled_detection(
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -845,9 +745,9 @@ async def test_validate_automations_logs_overactive_detection(
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
         overactive_factor=3.0,
     )
@@ -896,12 +796,12 @@ async def test_runtime_monitor_uses_separate_thresholds(
         hass,
         history=history,
         now=now,
-        score=0.5,
+        score=1.5,
         warmup_samples=7,
         min_expected_events=0,
         overactive_factor=3.0,
-        stalled_threshold=0.9,
-        overactive_threshold=0.4,
+        stalled_threshold=2.0,
+        overactive_threshold=1.0,
     )
 
     issues = await monitor.validate_automations(
@@ -927,10 +827,10 @@ async def test_runtime_monitor_raises_threshold_when_runtime_issue_previously_su
         hass,
         history=history,
         now=now,
-        score=0.85,
+        score=1.5,
         warmup_samples=7,
         min_expected_events=0,
-        stalled_threshold=0.8,
+        stalled_threshold=1.3,
         dismissed_threshold_multiplier=1.25,
     )
 
@@ -1425,7 +1325,7 @@ async def test_validate_automations_passes_suppression_store_to_dismissed_multip
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
         min_expected_events=0,
     )

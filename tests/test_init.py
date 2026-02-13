@@ -2194,10 +2194,8 @@ async def test_options_updated_reloads() -> None:
 
 
 @pytest.mark.asyncio
-async def test_options_updated_notifies_when_runtime_health_enabled_and_river_missing() -> (
-    None
-):
-    """Enabling runtime health should prompt restart if river is unavailable."""
+async def test_options_updated_no_notification_when_runtime_health_enabled() -> None:
+    """Enabling runtime health should not trigger notifications."""
     from custom_components.autodoctor import _async_options_updated
 
     hass = MagicMock()
@@ -2211,13 +2209,9 @@ async def test_options_updated_notifies_when_runtime_health_enabled_and_river_mi
     entry.entry_id = "test_123"
     entry.options = {"runtime_health_enabled": True}
 
-    with patch("custom_components.autodoctor._is_river_available", return_value=False):
-        await _async_options_updated(hass, entry)
+    await _async_options_updated(hass, entry)
 
-    hass.services.async_call.assert_called_once()
-    args = hass.services.async_call.call_args.args
-    assert args[0] == "persistent_notification"
-    assert args[1] == "create"
+    hass.services.async_call.assert_not_called()
     hass.config_entries.async_reload.assert_called_once_with("test_123")
 
 
@@ -2239,8 +2233,7 @@ async def test_options_updated_no_notification_when_runtime_health_already_enabl
     entry.entry_id = "test_123"
     entry.options = {"runtime_health_enabled": True}
 
-    with patch("custom_components.autodoctor._is_river_available", return_value=False):
-        await _async_options_updated(hass, entry)
+    await _async_options_updated(hass, entry)
 
     hass.services.async_call.assert_not_called()
     hass.config_entries.async_reload.assert_called_once_with("test_123")
@@ -2264,16 +2257,15 @@ async def test_options_updated_no_notification_when_runtime_health_stays_disable
     entry.entry_id = "test_123"
     entry.options = {"runtime_health_enabled": False}
 
-    with patch("custom_components.autodoctor._is_river_available", return_value=False):
-        await _async_options_updated(hass, entry)
+    await _async_options_updated(hass, entry)
 
     hass.services.async_call.assert_not_called()
     hass.config_entries.async_reload.assert_called_once_with("test_123")
 
 
 @pytest.mark.asyncio
-async def test_options_updated_no_notification_when_river_available() -> None:
-    """No notification when river is already available."""
+async def test_options_updated_no_notification_when_runtime_health_toggled() -> None:
+    """No notification when runtime health is toggled on."""
     from custom_components.autodoctor import _async_options_updated
 
     hass = MagicMock()
@@ -2287,8 +2279,7 @@ async def test_options_updated_no_notification_when_river_available() -> None:
     entry.entry_id = "test_123"
     entry.options = {"runtime_health_enabled": True}
 
-    with patch("custom_components.autodoctor._is_river_available", return_value=True):
-        await _async_options_updated(hass, entry)
+    await _async_options_updated(hass, entry)
 
     hass.services.async_call.assert_not_called()
     hass.config_entries.async_reload.assert_called_once_with("test_123")
