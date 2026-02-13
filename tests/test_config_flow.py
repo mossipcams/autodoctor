@@ -19,11 +19,17 @@ from custom_components.autodoctor.const import (
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
+    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
     CONF_RUNTIME_HEALTH_ENABLED,
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+    CONF_RUNTIME_HEALTH_SENSITIVITY,
+    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
@@ -319,3 +325,49 @@ async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
     assert CONF_RUNTIME_HEALTH_WARMUP_SAMPLES in schema.schema
     assert CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD in schema.schema
     assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS in schema.schema
+
+
+def test_options_schema_includes_three_model_runtime_fields() -> None:
+    """Three-model runtime monitor options should be exposed in options schema."""
+    schema = OptionsFlowHandler._build_options_schema(defaults={})
+
+    assert CONF_RUNTIME_HEALTH_SENSITIVITY in schema.schema
+    assert CONF_RUNTIME_HEALTH_BURST_MULTIPLIER in schema.schema
+    assert CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY in schema.schema
+    assert CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW in schema.schema
+    assert CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES in schema.schema
+    assert CONF_RUNTIME_HEALTH_AUTO_ADAPT in schema.schema
+
+
+async def test_options_flow_saves_three_model_runtime_fields(
+    hass: HomeAssistant,
+) -> None:
+    """Options flow should persist three-model runtime monitor tuning fields."""
+    handler = OptionsFlowHandler()
+    handler.hass = hass
+    handler.flow_id = "test_options"
+
+    user_input: dict[str, Any] = {
+        CONF_HISTORY_DAYS: 14,
+        CONF_VALIDATE_ON_RELOAD: False,
+        CONF_DEBOUNCE_SECONDS: 5,
+        CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
+        CONF_RUNTIME_HEALTH_ENABLED: True,
+        CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
+        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 7,
+        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 1.3,
+        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 0,
+        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
+        CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 30,
+        CONF_RUNTIME_HEALTH_SENSITIVITY: "medium",
+        CONF_RUNTIME_HEALTH_BURST_MULTIPLIER: 4.0,
+        CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY: 10,
+        CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW: 5,
+        CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES: 5,
+        CONF_RUNTIME_HEALTH_AUTO_ADAPT: True,
+    }
+
+    result = await handler.async_step_init(user_input=user_input)
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_RUNTIME_HEALTH_SENSITIVITY] == "medium"
+    assert result["data"][CONF_RUNTIME_HEALTH_BURST_MULTIPLIER] == 4.0

@@ -277,6 +277,9 @@ def test_service_call_template_detection() -> None:
         ("SERVICE_UNKNOWN_PARAM", "service_unknown_param"),
         ("RUNTIME_AUTOMATION_STALLED", "runtime_automation_stalled"),
         ("RUNTIME_AUTOMATION_OVERACTIVE", "runtime_automation_overactive"),
+        ("RUNTIME_AUTOMATION_COUNT_ANOMALY", "runtime_automation_count_anomaly"),
+        ("RUNTIME_AUTOMATION_GAP", "runtime_automation_gap"),
+        ("RUNTIME_AUTOMATION_BURST", "runtime_automation_burst"),
     ],
     ids=[
         "service-not-found",
@@ -285,6 +288,9 @@ def test_service_call_template_detection() -> None:
         "unknown-param",
         "runtime-automation-stalled",
         "runtime-automation-overactive",
+        "runtime-automation-count-anomaly",
+        "runtime-automation-gap",
+        "runtime-automation-burst",
     ],
 )
 def test_service_issue_types_exist(issue_type_name: str, expected_value: str) -> None:
@@ -333,12 +339,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 16 members.
+    """Guard: Verify IssueType has exactly 19 members.
 
     This guards against accidental reintroduction of removed types.
-    Count: 6 entity_state + 5 services + 3 templates + 2 runtime = 16 total.
+    Count: 6 entity_state + 5 services + 3 templates + 5 runtime = 19 total.
     """
-    assert len(IssueType) == 16, f"Expected 16 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 19, f"Expected 19 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:
@@ -401,5 +407,8 @@ def test_runtime_group_contains_runtime_issue_types() -> None:
         {
             IssueType.RUNTIME_AUTOMATION_STALLED,
             IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY,
+            IssueType.RUNTIME_AUTOMATION_GAP,
+            IssueType.RUNTIME_AUTOMATION_BURST,
         }
     )
