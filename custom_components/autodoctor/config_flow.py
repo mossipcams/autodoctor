@@ -15,11 +15,17 @@ from .const import (
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
+    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
     CONF_RUNTIME_HEALTH_ENABLED,
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+    CONF_RUNTIME_HEALTH_SENSITIVITY,
+    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
@@ -28,11 +34,17 @@ from .const import (
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
+    DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
     DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+    DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+    DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
+    DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
@@ -170,6 +182,48 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
+                vol.Optional(
+                    CONF_RUNTIME_HEALTH_SENSITIVITY,
+                    default=defaults.get(
+                        CONF_RUNTIME_HEALTH_SENSITIVITY,
+                        DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
+                    ),
+                ): vol.In(["low", "medium", "high"]),
+                vol.Optional(
+                    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
+                    default=defaults.get(
+                        CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
+                        DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
+                    ),
+                ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=100.0)),
+                vol.Optional(
+                    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
+                    default=defaults.get(
+                        CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
+                        DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
+                vol.Optional(
+                    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
+                    default=defaults.get(
+                        CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
+                        DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
+                vol.Optional(
+                    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+                    default=defaults.get(
+                        CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+                        DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
+                vol.Optional(
+                    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
+                    default=defaults.get(
+                        CONF_RUNTIME_HEALTH_AUTO_ADAPT,
+                        DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
+                    ),
+                ): bool,
             }
         )
 

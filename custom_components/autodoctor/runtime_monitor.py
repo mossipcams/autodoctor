@@ -9,6 +9,7 @@ import sqlite3
 import threading
 from collections import defaultdict
 from collections.abc import Iterable
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
@@ -17,9 +18,15 @@ from typing import Any, Protocol, cast
 
 from .const import DOMAIN
 from .models import IssueType, Severity, ValidationIssue
+from .runtime_health_state_store import RuntimeHealthStateStore
 
 _LOGGER = logging.getLogger(__name__)
 _TELEMETRY_RETENTION_DAYS = 90
+_BUCKET_NIGHT_START_HOUR = 22
+_BUCKET_MORNING_START_HOUR = 5
+_BUCKET_AFTERNOON_START_HOUR = 12
+_BUCKET_EVENING_START_HOUR = 17
+_DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES = 15
 
 
 class _Detector(Protocol):
@@ -143,6 +150,13 @@ class RuntimeHealthMonitor:
         startup_recovery_minutes: int = 0,
         telemetry_db_path: str | None = None,
         detector: _Detector | None = None,
+        runtime_state_store: RuntimeHealthStateStore | None = None,
+        sensitivity: str = "medium",
+        burst_multiplier: float = 4.0,
+        max_alerts_per_day: int = 10,
+        global_alert_cap_per_day: int | None = None,
+        smoothing_window: int = 5,
+        auto_adapt: bool = True,
         now_factory: Any = None,
     ) -> None:
         self.hass = hass
@@ -165,6 +179,16 @@ class RuntimeHealthMonitor:
         self.dismissed_threshold_multiplier = max(1.0, dismissed_threshold_multiplier)
         self.cold_start_days = max(0, cold_start_days)
         self.startup_recovery_minutes = max(0, startup_recovery_minutes)
+        self.sensitivity = sensitivity
+        self.burst_multiplier = max(1.0, float(burst_multiplier))
+        self.max_alerts_per_day = max(1, int(max_alerts_per_day))
+        self.global_alert_cap_per_day = (
+            max(1, int(global_alert_cap_per_day))
+            if global_alert_cap_per_day is not None
+            else max(10, self.max_alerts_per_day * 10)
+        )
+        self.smoothing_window = max(1, int(smoothing_window))
+        self.auto_adapt = bool(auto_adapt)
         self._detector: _Detector = detector or _GammaPoissonDetector()
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
@@ -179,6 +203,14 @@ class RuntimeHealthMonitor:
         self._telemetry_db_path = default_db_path
         self._last_run_stats: dict[str, int] = {}
         self._last_query_failed = False
+        self._live_trigger_events: dict[str, list[datetime]] = defaultdict(list)
+        self._runtime_state_store = runtime_state_store or RuntimeHealthStateStore(hass)
+        self._runtime_state = self._runtime_state_store.load()
+        self._active_runtime_alerts: dict[str, ValidationIssue] = {}
+        self._last_runtime_state_flush = self._now_factory()
+        self._runtime_state_flush_interval = timedelta(
+            minutes=_DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES
+        )
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
@@ -195,6 +227,646 @@ class RuntimeHealthMonitor:
     def get_last_run_stats(self) -> dict[str, int]:
         """Return telemetry from the most recent run."""
         return dict(self._last_run_stats)
+
+    def get_runtime_state(self) -> dict[str, Any]:
+        """Return a snapshot of persisted runtime model state."""
+        return deepcopy(self._runtime_state)
+
+    def get_active_runtime_alerts(self) -> list[ValidationIssue]:
+        """Return currently tracked runtime alerts."""
+        return list(self._active_runtime_alerts.values())
+
+    def flush_runtime_state(self) -> None:
+        """Force a runtime state persistence flush."""
+        self._persist_runtime_state()
+
+    @staticmethod
+    def classify_time_bucket(timestamp: datetime) -> str:
+        """Map timestamp into weekday/weekend x daypart bucket."""
+        day_type = "weekend" if timestamp.weekday() >= 5 else "weekday"
+        hour = timestamp.hour
+        if _BUCKET_MORNING_START_HOUR <= hour < _BUCKET_AFTERNOON_START_HOUR:
+            daypart = "morning"
+        elif _BUCKET_AFTERNOON_START_HOUR <= hour < _BUCKET_EVENING_START_HOUR:
+            daypart = "afternoon"
+        elif _BUCKET_EVENING_START_HOUR <= hour < _BUCKET_NIGHT_START_HOUR:
+            daypart = "evening"
+        else:
+            daypart = "night"
+        return f"{day_type}_{daypart}"
+
+    def ingest_trigger_event(
+        self,
+        automation_entity_id: str,
+        *,
+        occurred_at: datetime | None = None,
+        suppression_store: Any = None,
+    ) -> list[ValidationIssue]:
+        """Ingest a live automation_triggered event for runtime model updates."""
+        if not automation_entity_id or not automation_entity_id.startswith(
+            "automation."
+        ):
+            return []
+        if self._is_runtime_suppressed(automation_entity_id, suppression_store):
+            return []
+        event_time = occurred_at or self._now_factory()
+        self._live_trigger_events[automation_entity_id].append(event_time)
+        automation_state = self._ensure_automation_state(automation_entity_id)
+
+        count_bucket_name, count_bucket = self._update_count_model(
+            automation_state, event_time
+        )
+        self._update_gap_model(automation_state, event_time)
+        issues = self._detect_burst_anomaly(
+            automation_entity_id=automation_entity_id,
+            automation_state=automation_state,
+            now=event_time,
+        )
+        issues.extend(
+            self._detect_count_anomaly(
+                automation_entity_id=automation_entity_id,
+                automation_state=automation_state,
+                bucket_name=count_bucket_name,
+                bucket_state=count_bucket,
+                now=event_time,
+            )
+        )
+        self._maybe_auto_adapt(
+            automation_entity_id=automation_entity_id,
+            automation_state=automation_state,
+            bucket_name=count_bucket_name,
+        )
+        self._maybe_flush_runtime_state(event_time)
+        return issues
+
+    def check_gap_anomalies(
+        self, *, now: datetime | None = None
+    ) -> list[ValidationIssue]:
+        """Evaluate learned gap thresholds and return newly emitted gap issues."""
+        check_time = now or self._now_factory()
+        issues: list[ValidationIssue] = []
+        automations = self._runtime_state.get("automations", {})
+        if not isinstance(automations, dict):
+            return []
+        automations_dict = cast(dict[str, Any], automations)
+
+        for automation_id, automation_state_raw in automations_dict.items():
+            if not isinstance(automation_state_raw, dict):
+                continue
+            automation_state = cast(dict[str, Any], automation_state_raw)
+            gap_model_raw = automation_state.get("gap_model", {})
+            if not isinstance(gap_model_raw, dict):
+                continue
+            gap_model = cast(dict[str, Any], gap_model_raw)
+
+            last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
+            p99_minutes = self._coerce_float(gap_model.get("p99_minutes"), 0.0)
+            if last_trigger is None or p99_minutes <= 0:
+                continue
+
+            elapsed_minutes = max(
+                0.0, (check_time - last_trigger).total_seconds() / 60.0
+            )
+            if elapsed_minutes <= p99_minutes:
+                continue
+
+            if not self._allow_alert(automation_id, now=check_time):
+                continue
+
+            issue = ValidationIssue(
+                severity=Severity.ERROR,
+                automation_id=automation_id,
+                automation_name=automation_id,
+                entity_id=automation_id,
+                location="runtime.health.gap",
+                message=(
+                    f"Runtime gap anomaly: observed gap {elapsed_minutes:.1f}m exceeds "
+                    f"learned p99 {p99_minutes:.1f}m"
+                ),
+                issue_type=IssueType.RUNTIME_AUTOMATION_GAP,
+                confidence="medium",
+            )
+            self._register_runtime_alert(issue)
+            issues.append(issue)
+
+        if issues:
+            self._persist_runtime_state()
+        else:
+            self._maybe_flush_runtime_state(check_time)
+        return issues
+
+    def run_weekly_maintenance(self, *, now: datetime | None = None) -> None:
+        """Promote over-dispersed buckets to NB scoring mode."""
+        maintenance_time = now or self._now_factory()
+        automations = self._runtime_state.get("automations", {})
+        if not isinstance(automations, dict):
+            return
+        automations_dict = cast(dict[str, Any], automations)
+        for automation_state_raw in automations_dict.values():
+            if not isinstance(automation_state_raw, dict):
+                continue
+            automation_state = cast(dict[str, Any], automation_state_raw)
+            count_model_raw = automation_state.get("count_model", {})
+            if not isinstance(count_model_raw, dict):
+                continue
+            count_model = cast(dict[str, Any], count_model_raw)
+            buckets_raw = count_model.get("buckets", {})
+            if not isinstance(buckets_raw, dict):
+                continue
+            buckets_dict = cast(dict[str, Any], buckets_raw)
+            for bucket_state in buckets_dict.values():
+                if not isinstance(bucket_state, dict):
+                    continue
+                vmr = self._coerce_float(bucket_state.get("vmr"), 1.0)
+                bucket_state["use_negative_binomial"] = vmr > 1.5
+        self._runtime_state["last_weekly_maintenance"] = maintenance_time.isoformat()
+        self._persist_runtime_state()
+
+    @staticmethod
+    def _empty_automation_state() -> dict[str, Any]:
+        """Return default in-memory state for an automation runtime model."""
+        return {
+            "count_model": {
+                "buckets": {},
+                "negative_binomial_buckets": [],
+                "anomaly_streak": 0,
+            },
+            "gap_model": {
+                "intervals_minutes": [],
+                "last_trigger": None,
+                "lambda_per_minute": 0.0,
+                "p99_minutes": 0.0,
+            },
+            "burst_model": {
+                "recent_triggers": [],
+                "baseline_rate_5m": 0.0,
+            },
+            "rate_limit": {
+                "date": "",
+                "count": 0,
+                "last_alert": None,
+            },
+            "adaptation": {
+                "threshold_multiplier": 1.0,
+                "dismissed_count": 0,
+            },
+        }
+
+    def _ensure_automation_state(self, automation_entity_id: str) -> dict[str, Any]:
+        automations = self._runtime_state.setdefault("automations", {})
+        if not isinstance(automations, dict):
+            automations = {}
+            self._runtime_state["automations"] = automations
+        automations_dict = cast(dict[str, Any], automations)
+        state_raw = automations_dict.get(automation_entity_id)
+        if not isinstance(state_raw, dict):
+            state: dict[str, Any] = self._empty_automation_state()
+            automations_dict[automation_entity_id] = state
+            return state
+        state = cast(dict[str, Any], state_raw)
+
+        defaults = self._empty_automation_state()
+        for key, default_value in defaults.items():
+            if key not in state or (
+                isinstance(default_value, dict) and not isinstance(state[key], dict)
+            ):
+                state[key] = deepcopy(default_value)
+        return state
+
+    @staticmethod
+    def _ensure_count_bucket_state(
+        count_model: dict[str, Any],
+        bucket_name: str,
+    ) -> dict[str, Any]:
+        buckets = count_model.setdefault("buckets", {})
+        if not isinstance(buckets, dict):
+            buckets = {}
+            count_model["buckets"] = buckets
+        buckets_dict = cast(dict[str, Any], buckets)
+        bucket_state_raw = buckets_dict.get(bucket_name)
+        if isinstance(bucket_state_raw, dict):
+            return cast(dict[str, Any], bucket_state_raw)
+        bucket_state: dict[str, Any] = {
+            "counts": [],
+            "current_day": "",
+            "current_count": 0,
+            "alpha": 1.0,
+            "beta": 1.0,
+            "mean": 0.0,
+            "variance": 0.0,
+            "vmr": 1.0,
+            "use_negative_binomial": False,
+        }
+        buckets_dict[bucket_name] = bucket_state
+        return bucket_state
+
+    def _update_count_model(
+        self,
+        automation_state: dict[str, Any],
+        event_time: datetime,
+    ) -> tuple[str, dict[str, Any]]:
+        count_model = automation_state.setdefault("count_model", {})
+        if not isinstance(count_model, dict):
+            count_model = {}
+            automation_state["count_model"] = count_model
+        bucket_name = self.classify_time_bucket(event_time)
+        bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
+
+        event_day = event_time.date().isoformat()
+        current_day = str(bucket_state.get("current_day", ""))
+        if current_day and current_day != event_day:
+            counts = bucket_state.get("counts")
+            if not isinstance(counts, list):
+                counts = []
+                bucket_state["counts"] = counts
+            counts.append(int(bucket_state.get("current_count", 0)))
+            if len(counts) > 180:
+                del counts[:-180]
+            bucket_state["current_count"] = 0
+
+        if not current_day or current_day != event_day:
+            bucket_state["current_day"] = event_day
+            bucket_state["current_count"] = 0
+
+        bucket_state["current_count"] = int(bucket_state.get("current_count", 0)) + 1
+        self._refresh_count_bucket_stats(bucket_state)
+        return bucket_name, bucket_state
+
+    @staticmethod
+    def _refresh_count_bucket_stats(bucket_state: dict[str, Any]) -> None:
+        counts_raw = bucket_state.get("counts")
+        counts_values = (
+            cast(list[Any], counts_raw) if isinstance(counts_raw, list) else []
+        )
+        counts = [max(0, int(value)) for value in counts_values]
+        total = float(sum(counts))
+        n = len(counts)
+        bucket_state["alpha"] = 1.0 + total
+        bucket_state["beta"] = 1.0 + float(n)
+
+        if n == 0:
+            current_count = max(0.0, float(bucket_state.get("current_count", 0.0)))
+            bucket_state["mean"] = current_count
+            bucket_state["variance"] = max(1.0, current_count)
+            bucket_state["vmr"] = 1.0
+            return
+
+        mean = total / float(n)
+        if n > 1:
+            variance = sum((value - mean) ** 2 for value in counts) / float(n - 1)
+        else:
+            variance = max(1.0, mean)
+        vmr = variance / mean if mean > 0 else 1.0
+        bucket_state["mean"] = float(mean)
+        bucket_state["variance"] = float(max(0.0, variance))
+        bucket_state["vmr"] = float(max(0.0, vmr))
+
+    def _update_gap_model(
+        self,
+        automation_state: dict[str, Any],
+        event_time: datetime,
+    ) -> None:
+        gap_model = automation_state.setdefault("gap_model", {})
+        if not isinstance(gap_model, dict):
+            gap_model = {}
+            automation_state["gap_model"] = gap_model
+        intervals_raw = cast(Any, gap_model.get("intervals_minutes"))
+        if isinstance(intervals_raw, list):
+            intervals_list = cast(list[float], intervals_raw)
+        else:
+            intervals_list = []
+            gap_model["intervals_minutes"] = intervals_list
+
+        last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
+        if last_trigger is not None and event_time > last_trigger:
+            interval = max(0.0, (event_time - last_trigger).total_seconds() / 60.0)
+            intervals_list.append(interval)
+            if len(intervals_list) > 240:
+                del intervals_list[:-240]
+            mean_gap = fmean(intervals_list) if intervals_list else 0.0
+            lambda_per_minute = (1.0 / mean_gap) if mean_gap > 0 else 0.0
+            gap_model["lambda_per_minute"] = lambda_per_minute
+            gap_model["p99_minutes"] = (
+                (-math.log(0.01) / lambda_per_minute) if lambda_per_minute > 0 else 0.0
+            )
+
+        gap_model["last_trigger"] = event_time.isoformat()
+
+    def _detect_count_anomaly(
+        self,
+        *,
+        automation_entity_id: str,
+        automation_state: dict[str, Any],
+        bucket_name: str,
+        bucket_state: dict[str, Any],
+        now: datetime,
+    ) -> list[ValidationIssue]:
+        counts = bucket_state.get("counts")
+        if not isinstance(counts, list) or len(counts) < 7:
+            return []
+
+        lower, upper = self._expected_count_range(bucket_state)
+        observed = int(bucket_state.get("current_count", 0))
+        if lower <= observed <= upper:
+            count_model = automation_state.get("count_model", {})
+            if isinstance(count_model, dict):
+                count_model["anomaly_streak"] = 0
+            return []
+
+        if not self._allow_alert(automation_entity_id, now=now):
+            return []
+
+        issue = ValidationIssue(
+            severity=Severity.WARNING,
+            automation_id=automation_entity_id,
+            automation_name=automation_entity_id,
+            entity_id=automation_entity_id,
+            location="runtime.health.count",
+            message=(
+                f"Runtime count anomaly in {bucket_name}: observed {observed}, expected "
+                f"range {lower}-{upper} for current window"
+            ),
+            issue_type=IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY,
+            confidence="medium",
+        )
+        self._register_runtime_alert(issue)
+        count_model = automation_state.get("count_model", {})
+        if isinstance(count_model, dict):
+            count_model["anomaly_streak"] = (
+                int(count_model.get("anomaly_streak", 0)) + 1
+            )
+        self._persist_runtime_state()
+        return [issue]
+
+    def _detect_burst_anomaly(
+        self,
+        *,
+        automation_entity_id: str,
+        automation_state: dict[str, Any],
+        now: datetime,
+    ) -> list[ValidationIssue]:
+        burst_model = automation_state.setdefault("burst_model", {})
+        if not isinstance(burst_model, dict):
+            burst_model = {}
+            automation_state["burst_model"] = burst_model
+        recent_raw = cast(Any, burst_model.get("recent_triggers"))
+        recent_values = (
+            cast(list[Any], recent_raw) if isinstance(recent_raw, list) else []
+        )
+        recent_triggers = [self._coerce_datetime(value) for value in recent_values]
+        recent = [
+            ts
+            for ts in recent_triggers
+            if ts is not None and ts >= (now - timedelta(hours=1))
+        ]
+        recent.append(now)
+        recent.sort()
+
+        current_5m_count = sum(1 for ts in recent if ts >= (now - timedelta(minutes=5)))
+        baseline_segment_count = sum(
+            1
+            for ts in recent
+            if (now - timedelta(hours=1)) <= ts < (now - timedelta(minutes=5))
+        )
+        baseline_from_history = (
+            baseline_segment_count / 11.0 if baseline_segment_count else 0.0
+        )
+        previous_baseline = self._coerce_float(burst_model.get("baseline_rate_5m"), 0.0)
+        baseline_rate = (
+            previous_baseline
+            if previous_baseline > 0
+            else max(1.0, baseline_from_history if baseline_from_history > 0 else 1.0)
+        )
+        threshold = max(2.0, baseline_rate * self.burst_multiplier)
+
+        burst_model["recent_triggers"] = [ts.isoformat() for ts in recent]
+        if baseline_from_history > 0:
+            burst_model["baseline_rate_5m"] = (0.8 * baseline_rate) + (
+                0.2 * baseline_from_history
+            )
+        else:
+            burst_model["baseline_rate_5m"] = baseline_rate
+
+        if len(recent) < 6 or float(current_5m_count) < threshold:
+            return []
+        if not self._allow_alert(automation_entity_id, now=now):
+            return []
+
+        issue = ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id=automation_entity_id,
+            automation_name=automation_entity_id,
+            entity_id=automation_entity_id,
+            location="runtime.health.burst",
+            message=(
+                f"Runtime burst detected in 5m window: observed {current_5m_count} "
+                f"triggers vs baseline {baseline_rate:.2f}/5m"
+            ),
+            issue_type=IssueType.RUNTIME_AUTOMATION_BURST,
+            confidence="medium",
+        )
+        self._register_runtime_alert(issue)
+        self._persist_runtime_state()
+        return [issue]
+
+    def _expected_count_range(self, bucket_state: dict[str, Any]) -> tuple[int, int]:
+        sensitivity_to_coverage = {
+            "low": 0.99,
+            "medium": 0.95,
+            "high": 0.90,
+        }
+        coverage = sensitivity_to_coverage.get(self.sensitivity, 0.95)
+        tail = (1.0 - coverage) / 2.0
+
+        use_nb = bool(bucket_state.get("use_negative_binomial", False))
+        if use_nb:
+            mean = max(0.0, self._coerce_float(bucket_state.get("mean"), 0.0))
+            variance = max(0.0, self._coerce_float(bucket_state.get("variance"), 0.0))
+            if mean > 0 and variance > mean:
+                r = (mean * mean) / max(1e-6, variance - mean)
+                p = r / (r + mean)
+            else:
+                # Near-Poisson fallback.
+                r = max(1e-6, mean if mean > 0 else 1.0)
+                p = r / (r + max(1.0, mean))
+        else:
+            r = max(1e-6, self._coerce_float(bucket_state.get("alpha"), 1.0))
+            beta = max(1e-6, self._coerce_float(bucket_state.get("beta"), 1.0))
+            p = beta / (beta + 1.0)
+
+        lower = self._nb_quantile(tail, r=r, p=p)
+        upper = self._nb_quantile(1.0 - tail, r=r, p=p)
+        return max(0, lower), max(0, upper)
+
+    def _nb_quantile(self, quantile: float, *, r: float, p: float) -> int:
+        q = min(1.0, max(0.0, quantile))
+        if q <= 0.0:
+            return 0
+        if q >= 1.0:
+            return 10_000
+        cumulative = 0.0
+        for count in range(10_001):
+            cumulative += self._negative_binomial_pmf(count, r, p)
+            if cumulative >= q:
+                return count
+        return 10_000
+
+    @staticmethod
+    def _negative_binomial_pmf(count: int, r: float, p: float) -> float:
+        if count < 0:
+            return 0.0
+        log_prob = (
+            math.lgamma(count + r)
+            - math.lgamma(count + 1)
+            - math.lgamma(r)
+            + (r * math.log(p))
+            + (count * math.log(1.0 - p))
+        )
+        return math.exp(log_prob)
+
+    def _register_runtime_alert(self, issue: ValidationIssue) -> None:
+        self._active_runtime_alerts[issue.get_suppression_key()] = issue
+
+    def _allow_alert(self, automation_id: str, *, now: datetime) -> bool:
+        alerts = self._runtime_state.setdefault("alerts", {})
+        if not isinstance(alerts, dict):
+            alerts = {}
+            self._runtime_state["alerts"] = alerts
+        day = now.date().isoformat()
+        if alerts.get("date") != day:
+            alerts["date"] = day
+            alerts["global_count"] = 0
+
+        automation_state = self._ensure_automation_state(automation_id)
+        rate_limit = automation_state.setdefault("rate_limit", {})
+        if not isinstance(rate_limit, dict):
+            rate_limit = {}
+            automation_state["rate_limit"] = rate_limit
+        if rate_limit.get("date") != day:
+            rate_limit["date"] = day
+            rate_limit["count"] = 0
+
+        automation_count = int(rate_limit.get("count", 0))
+        global_count = int(alerts.get("global_count", 0))
+        if automation_count >= self.max_alerts_per_day:
+            return False
+        if global_count >= self.global_alert_cap_per_day:
+            return False
+
+        rate_limit["count"] = automation_count + 1
+        rate_limit["last_alert"] = now.isoformat()
+        alerts["global_count"] = global_count + 1
+        return True
+
+    def _is_runtime_suppressed(
+        self,
+        automation_id: str,
+        suppression_store: Any | None,
+    ) -> bool:
+        if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
+            return False
+        prefixes = (
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_STALLED.value}",
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value}",
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY.value}",
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_GAP.value}",
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_BURST.value}",
+        )
+        for prefix in prefixes:
+            try:
+                if bool(suppression_store.is_suppressed(prefix)):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def record_issue_dismissed(self, automation_id: str) -> None:
+        """Increase dismissal-aware threshold multiplier for an automation."""
+        automation_state = self._ensure_automation_state(automation_id)
+        adaptation = automation_state.setdefault("adaptation", {})
+        if not isinstance(adaptation, dict):
+            adaptation = {}
+            automation_state["adaptation"] = adaptation
+        adaptation["dismissed_count"] = int(adaptation.get("dismissed_count", 0)) + 1
+        current_multiplier = self._coerce_float(
+            adaptation.get("threshold_multiplier"),
+            1.0,
+        )
+        adaptation["threshold_multiplier"] = max(
+            1.0, current_multiplier * self.dismissed_threshold_multiplier
+        )
+        self._persist_runtime_state()
+
+    def _maybe_auto_adapt(
+        self,
+        *,
+        automation_entity_id: str,
+        automation_state: dict[str, Any],
+        bucket_name: str,
+    ) -> None:
+        if not self.auto_adapt:
+            return
+        count_model = automation_state.get("count_model", {})
+        if not isinstance(count_model, dict):
+            return
+        count_model_dict = cast(dict[str, Any], count_model)
+        streak = int(count_model_dict.get("anomaly_streak", 0))
+        if streak < self.smoothing_window:
+            return
+
+        buckets = count_model_dict.get("buckets", {})
+        if not isinstance(buckets, dict):
+            return
+        buckets_dict = cast(dict[str, Any], buckets)
+        bucket_state = buckets_dict.get(bucket_name)
+        if not isinstance(bucket_state, dict):
+            return
+        bucket_state["counts"] = []
+        bucket_state["current_count"] = 0
+        bucket_state["alpha"] = 1.0
+        bucket_state["beta"] = 1.0
+        bucket_state["mean"] = 0.0
+        bucket_state["variance"] = 0.0
+        bucket_state["vmr"] = 1.0
+        bucket_state["use_negative_binomial"] = False
+        count_model_dict["anomaly_streak"] = 0
+        _LOGGER.debug(
+            "Auto-adapt reset runtime count baseline for '%s' bucket '%s'",
+            automation_entity_id,
+            bucket_name,
+        )
+        self._persist_runtime_state()
+
+    def _persist_runtime_state(self) -> None:
+        self._runtime_state_store.save(self._runtime_state)
+        self._last_runtime_state_flush = self._now_factory()
+
+    def _maybe_flush_runtime_state(self, now: datetime) -> None:
+        if (now - self._last_runtime_state_flush) < self._runtime_state_flush_interval:
+            return
+        self._runtime_state_store.save(self._runtime_state)
+        self._last_runtime_state_flush = now
+
+    @staticmethod
+    def _coerce_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                return None
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=UTC)
+            return parsed
+        return None
+
+    @staticmethod
+    def _coerce_float(value: Any, fallback: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
 
     @staticmethod
     def _resolve_automation_entity_id(automation: dict[str, Any]) -> str | None:
@@ -485,22 +1157,27 @@ class RuntimeHealthMonitor:
     def _dismissed_multiplier(
         self, automation_id: str, *, suppression_store: Any = None
     ) -> float:
+        automation_state = self._ensure_automation_state(automation_id)
+        adaptation = automation_state.get("adaptation", {})
+        learned_multiplier = 1.0
+        if isinstance(adaptation, dict):
+            learned_multiplier = max(
+                1.0,
+                self._coerce_float(adaptation.get("threshold_multiplier"), 1.0),
+            )
+
         if suppression_store is None:
-            data: dict[str, Any] = (
-                self.hass.data.get(DOMAIN, {}) if hasattr(self.hass, "data") else {}
+            hass_data = getattr(self.hass, "data", {})
+            data = (
+                cast(dict[str, Any], hass_data) if isinstance(hass_data, dict) else {}
             )
             suppression_store = data.get("suppression_store")
-        if suppression_store is None:
-            return 1.0
+        if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
+            return learned_multiplier
 
-        prefixes = (
-            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_STALLED.value}",
-            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value}",
-        )
-        for prefix in prefixes:
-            if suppression_store.is_suppressed(prefix):
-                return self.dismissed_threshold_multiplier
-        return 1.0
+        if self._is_runtime_suppressed(automation_id, suppression_store):
+            return max(learned_multiplier, self.dismissed_threshold_multiplier)
+        return learned_multiplier
 
     @staticmethod
     def _compute_window_size(expected_daily: float) -> int:

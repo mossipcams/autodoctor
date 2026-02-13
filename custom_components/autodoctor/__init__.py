@@ -28,11 +28,17 @@ from .const import (
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
+    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
     CONF_RUNTIME_HEALTH_ENABLED,
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+    CONF_RUNTIME_HEALTH_SENSITIVITY,
+    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
@@ -41,11 +47,17 @@ from .const import (
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
+    DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
+    DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
     DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+    DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
+    DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+    DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
+    DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
@@ -344,6 +356,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
                 DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
             ),
+            sensitivity=options.get(
+                CONF_RUNTIME_HEALTH_SENSITIVITY,
+                DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
+            ),
+            burst_multiplier=options.get(
+                CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
+                DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
+            ),
+            max_alerts_per_day=options.get(
+                CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
+                DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
+            ),
+            smoothing_window=options.get(
+                CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
+                DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
+            ),
+            startup_recovery_minutes=options.get(
+                CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+                DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+            ),
+            auto_adapt=options.get(
+                CONF_RUNTIME_HEALTH_AUTO_ADAPT,
+                DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
+            ),
         )
         if runtime_enabled
         else None
@@ -379,6 +415,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "debounce_task": None,
         "unsub_reload_listener": None,
         "unsub_periodic_scan_listener": None,
+        "unsub_runtime_trigger_listener": None,
+        "unsub_runtime_gap_listener": None,
     }
 
     if validate_on_reload:
@@ -418,6 +456,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data[DOMAIN]["unsub_entity_registry_listener"] = unsub_entity_reg
 
+    if runtime_enabled and runtime_monitor is not None:
+
+        @callback
+        def _handle_runtime_trigger(event: Event) -> None:
+            payload = event.data if isinstance(event.data, dict) else {}
+            entity_id = payload.get("entity_id")
+            if not isinstance(entity_id, str) or not entity_id.startswith(
+                "automation."
+            ):
+                return
+            suppression_store = hass.data.get(DOMAIN, {}).get("suppression_store")
+            runtime_monitor.ingest_trigger_event(
+                entity_id,
+                occurred_at=event.time_fired,
+                suppression_store=suppression_store,
+            )
+
+        unsub_runtime_trigger = hass.bus.async_listen(
+            "automation_triggered",
+            _handle_runtime_trigger,
+        )
+        hass.data[DOMAIN]["unsub_runtime_trigger_listener"] = unsub_runtime_trigger
+        hass.data[DOMAIN]["unsub_runtime_gap_listener"] = (
+            _setup_runtime_gap_check_listener(hass, runtime_monitor)
+        )
+
     # Listen for options updates to reload the integration
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
@@ -452,6 +516,23 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsub_entity_reg = data.get("unsub_entity_registry_listener")
         if unsub_entity_reg is not None:
             unsub_entity_reg()
+
+        unsub_runtime_trigger = data.get("unsub_runtime_trigger_listener")
+        if unsub_runtime_trigger is not None:
+            unsub_runtime_trigger()
+
+        unsub_runtime_gap = data.get("unsub_runtime_gap_listener")
+        if unsub_runtime_gap is not None:
+            unsub_runtime_gap()
+
+        runtime_monitor = data.get("runtime_monitor")
+        if runtime_monitor is not None and hasattr(
+            runtime_monitor, "flush_runtime_state"
+        ):
+            try:
+                runtime_monitor.flush_runtime_state()
+            except Exception as err:
+                _LOGGER.debug("Failed to flush runtime state during unload: %s", err)
 
         # Unregister services
         hass.services.async_remove(DOMAIN, "validate")
@@ -523,6 +604,27 @@ def _setup_periodic_scan_listener(
         hass,
         _handle_periodic_scan,
         timedelta(hours=interval_hours),
+    )
+
+
+def _setup_runtime_gap_check_listener(
+    hass: HomeAssistant,
+    runtime_monitor: RuntimeHealthMonitor,
+) -> Callable[[], None]:
+    """Set up hourly runtime gap anomaly checks."""
+
+    async def _handle_runtime_gap_check(_: datetime) -> None:
+        try:
+            gap_issues = runtime_monitor.check_gap_anomalies()
+            if gap_issues:
+                _LOGGER.debug("Runtime gap check emitted %d issues", len(gap_issues))
+        except Exception as err:
+            _LOGGER.warning("Runtime gap check failed: %s", err)
+
+    return async_track_time_interval(
+        hass,
+        _handle_runtime_gap_check,
+        timedelta(hours=1),
     )
 
 

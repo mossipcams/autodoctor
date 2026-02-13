@@ -6,7 +6,9 @@ from homeassistant.components.sensor import SensorStateClass
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.const import DOMAIN
+from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
 from custom_components.autodoctor.sensor import (
+    RuntimeHealthAlertsSensor,
     ValidationIssuesSensor,
     async_setup_entry,
 )
@@ -24,8 +26,9 @@ async def test_async_setup_entry_adds_entity(hass: HomeAssistant) -> None:
 
     await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
 
-    assert len(added) == 1
+    assert len(added) == 2
     assert isinstance(added[0], ValidationIssuesSensor)
+    assert isinstance(added[1], RuntimeHealthAlertsSensor)
 
 
 async def test_sensor_attributes(hass: HomeAssistant) -> None:
@@ -116,3 +119,40 @@ async def test_extra_state_attributes_no_reporter(hass: HomeAssistant) -> None:
 
     hass.data.pop(DOMAIN, None)
     assert sensor.extra_state_attributes == {}
+
+
+async def test_runtime_health_sensor_reports_active_runtime_alerts(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime health sensor should expose active runtime alert metadata."""
+    entry = MagicMock()
+    entry.entry_id = "test"
+    sensor = RuntimeHealthAlertsSensor(hass, entry)
+
+    mock_runtime_monitor = MagicMock()
+    mock_runtime_monitor.get_active_runtime_alerts.return_value = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            automation_id="automation.kitchen",
+            automation_name="Kitchen",
+            entity_id="automation.kitchen",
+            location="runtime.health.burst",
+            message="Burst detected",
+            issue_type=IssueType.RUNTIME_AUTOMATION_BURST,
+        ),
+        ValidationIssue(
+            severity=Severity.WARNING,
+            automation_id="automation.hallway",
+            automation_name="Hallway",
+            entity_id="automation.hallway",
+            location="runtime.health.count",
+            message="Count anomaly",
+            issue_type=IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY,
+        ),
+    ]
+    hass.data[DOMAIN] = {"runtime_monitor": mock_runtime_monitor}
+
+    assert sensor.native_value == 2
+    attrs = sensor.extra_state_attributes
+    assert len(attrs["active_runtime_alerts"]) == 2
+    assert attrs["active_runtime_alerts"][0]["issue_type"] == "runtime_automation_burst"

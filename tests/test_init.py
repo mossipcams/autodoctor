@@ -1785,6 +1785,12 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
         "validate_on_reload": False,
         "runtime_health_enabled": True,
         "runtime_health_hour_ratio_days": 14,
+        "runtime_health_sensitivity": "high",
+        "runtime_health_burst_multiplier": 3.5,
+        "runtime_health_max_alerts_per_day": 8,
+        "runtime_health_smoothing_window": 4,
+        "runtime_health_restart_exclusion_minutes": 7,
+        "runtime_health_auto_adapt": False,
     }
     entry.add_update_listener = MagicMock(return_value=None)
     entry.async_on_unload = MagicMock()
@@ -1815,6 +1821,12 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert hass.data[DOMAIN]["runtime_monitor"] is mock_runtime_cls.return_value
     assert hass.data[DOMAIN]["runtime_health_enabled"] is True
     assert mock_runtime_cls.call_args.kwargs["hour_ratio_days"] == 14
+    assert mock_runtime_cls.call_args.kwargs["sensitivity"] == "high"
+    assert mock_runtime_cls.call_args.kwargs["burst_multiplier"] == 3.5
+    assert mock_runtime_cls.call_args.kwargs["max_alerts_per_day"] == 8
+    assert mock_runtime_cls.call_args.kwargs["smoothing_window"] == 4
+    assert mock_runtime_cls.call_args.kwargs["startup_recovery_minutes"] == 7
+    assert mock_runtime_cls.call_args.kwargs["auto_adapt"] is False
 
 
 @pytest.mark.asyncio
@@ -2719,3 +2731,208 @@ async def test_async_setup_entry_logs_runtime_config_disabled(
         await async_setup_entry(hass, entry)
 
     assert "Runtime health monitoring disabled" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_registers_runtime_trigger_listener_and_ingests_events() -> (
+    None
+):
+    """Runtime-enabled setup should subscribe to automation_triggered events."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    listener_callbacks: dict[str, object] = {}
+
+    def _capture_listener(event_type: str, callback: object) -> MagicMock:
+        listener_callbacks[event_type] = callback
+        return MagicMock()
+
+    hass.bus.async_listen = MagicMock(side_effect=_capture_listener)
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {
+        "validate_on_reload": False,
+        "runtime_health_enabled": True,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch("custom_components.autodoctor.RuntimeHealthMonitor") as mock_runtime_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+        assert "automation_triggered" in listener_callbacks
+
+        event = MagicMock()
+        event.data = {"entity_id": "automation.kitchen_lights"}
+        event.time_fired = datetime(2026, 2, 13, 14, 30, tzinfo=UTC)
+        callback = listener_callbacks["automation_triggered"]
+        assert callable(callback)
+        callback(event)
+
+        mock_runtime = mock_runtime_cls.return_value
+        mock_runtime.ingest_trigger_event.assert_called_once_with(
+            "automation.kitchen_lights",
+            occurred_at=event.time_fired,
+            suppression_store=mock_suppression,
+        )
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_calls_unsub_runtime_trigger_listener() -> None:
+    """Unload should unsubscribe automation_triggered runtime listener."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    unsub_runtime_trigger = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+            "unsub_periodic_scan_listener": None,
+            "unsub_runtime_trigger_listener": unsub_runtime_trigger,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    unsub_runtime_trigger.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_registers_runtime_gap_listener() -> None:
+    """Runtime-enabled setup should register hourly gap anomaly checks."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock(return_value=MagicMock())
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {
+        "validate_on_reload": False,
+        "runtime_health_enabled": True,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    unsub_gap = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch(
+            "custom_components.autodoctor._setup_runtime_gap_check_listener",
+            return_value=unsub_gap,
+        ) as mock_setup_gap,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+
+    mock_setup_gap.assert_called_once()
+    assert hass.data[DOMAIN]["unsub_runtime_gap_listener"] is unsub_gap
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_calls_unsub_runtime_gap_listener() -> None:
+    """Unload should unsubscribe hourly runtime gap listener."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    unsub_runtime_gap = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+            "unsub_periodic_scan_listener": None,
+            "unsub_runtime_trigger_listener": None,
+            "unsub_runtime_gap_listener": unsub_runtime_gap,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    unsub_runtime_gap.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_setup_runtime_gap_listener_runs_hourly_gap_check() -> None:
+    """Hourly runtime gap callback should call monitor.check_gap_anomalies()."""
+    from custom_components.autodoctor import _setup_runtime_gap_check_listener
+
+    hass = MagicMock()
+    runtime_monitor = MagicMock()
+    runtime_monitor.check_gap_anomalies = MagicMock(return_value=[])
+
+    callback = None
+
+    def _capture_track(_hass, cb, interval):
+        nonlocal callback
+        callback = cb
+        assert interval == timedelta(hours=1)
+        return MagicMock()
+
+    with patch(
+        "custom_components.autodoctor.async_track_time_interval",
+        side_effect=_capture_track,
+    ):
+        _setup_runtime_gap_check_listener(hass, runtime_monitor)
+
+    assert callback is not None
+    await callback(datetime(2026, 2, 13, 12, 0, tzinfo=UTC))
+    runtime_monitor.check_gap_anomalies.assert_called_once()

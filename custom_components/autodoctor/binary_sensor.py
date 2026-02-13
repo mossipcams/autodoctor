@@ -21,7 +21,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities."""
-    async_add_entities([ValidationOkSensor(hass, entry)])
+    async_add_entities(
+        [
+            ValidationOkSensor(hass, entry),
+            RuntimeHealthProblemSensor(hass, entry),
+        ]
+    )
 
 
 class ValidationOkSensor(BinarySensorEntity):
@@ -52,4 +57,35 @@ class ValidationOkSensor(BinarySensorEntity):
         reporter = data.get("reporter")
         if reporter:
             return len(reporter._active_issues) > 0
+        return False
+
+
+class RuntimeHealthProblemSensor(BinarySensorEntity):
+    """Binary sensor indicating runtime health anomalies are active."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Runtime Problems"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize runtime problem sensor."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_runtime_health_problem"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Autodoctor",
+            manufacturer="Autodoctor",
+            model="Automation Validator",
+            sw_version=VERSION,
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when runtime health monitor has active alerts."""
+        data = self.hass.data.get(DOMAIN, {})
+        runtime_monitor = data.get("runtime_monitor")
+        if runtime_monitor and hasattr(runtime_monitor, "get_active_runtime_alerts"):
+            return len(runtime_monitor.get_active_runtime_alerts()) > 0
         return False
