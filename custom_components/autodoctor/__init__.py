@@ -432,7 +432,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _is_river_available() -> bool:
+def _is_river_available() -> bool:  # pyright: ignore[reportUnusedFunction]
     """Return True if the river package is importable in this HA environment."""
     try:
         return importlib.util.find_spec("river") is not None

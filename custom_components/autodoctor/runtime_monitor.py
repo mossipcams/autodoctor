@@ -129,7 +129,7 @@ class _GammaPoissonDetector:
         return math.exp(log_prob)
 
 
-class _RiverAnomalyDetector:
+class _RiverAnomalyDetector:  # pyright: ignore[reportUnusedClass]
     """River-backed detector with watermark-based incremental learning.
 
     Persists a model per automation and tracks how many training rows
@@ -256,7 +256,7 @@ class RuntimeHealthMonitor:
         self.dismissed_threshold_multiplier = max(1.0, dismissed_threshold_multiplier)
         self.cold_start_days = max(0, cold_start_days)
         self.startup_recovery_minutes = max(0, startup_recovery_minutes)
-        self._detector = detector or _GammaPoissonDetector()
+        self._detector: _Detector | None = detector or _GammaPoissonDetector()
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}
