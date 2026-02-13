@@ -95,7 +95,7 @@ class _GammaPoissonDetector:
     def _coerce_count(self, row: dict[str, float]) -> int:
         value = row.get(self._count_feature, 0.0)
         try:
-            return max(0, int(round(float(value))))
+            return max(0, round(float(value)))
         except (TypeError, ValueError):
             return 0
 
