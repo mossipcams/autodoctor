@@ -10,7 +10,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Iterable
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from statistics import fmean, median
@@ -32,6 +32,7 @@ _BUCKET_MORNING_START_HOUR = 5
 _BUCKET_AFTERNOON_START_HOUR = 12
 _BUCKET_EVENING_START_HOUR = 17
 _DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES = 15
+_BACKFILL_MIN_LOOKBACK_DAYS = 30
 
 
 class _Detector(Protocol):
@@ -440,6 +441,63 @@ class RuntimeHealthMonitor:
         """Force a runtime state persistence flush."""
         self._persist_runtime_state()
 
+    async def async_backfill_from_recorder(
+        self,
+        automations: list[dict[str, Any]],
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        """Seed runtime state from recorder history when persisted state is empty."""
+        existing_automations = self._runtime_state.get("automations", {})
+        if isinstance(existing_automations, dict) and existing_automations:
+            return 0
+
+        automation_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for automation in automations:
+            automation_entity_id = self._resolve_automation_entity_id(automation)
+            if not automation_entity_id or automation_entity_id in seen_ids:
+                continue
+            automation_ids.append(automation_entity_id)
+            seen_ids.add(automation_entity_id)
+        if not automation_ids:
+            return 0
+
+        backfill_end = now or self._now_factory()
+        lookback_days = max(
+            _BACKFILL_MIN_LOOKBACK_DAYS,
+            self.baseline_days,
+            self.hour_ratio_days,
+            self.cold_start_days,
+        )
+        backfill_start = backfill_end - timedelta(days=lookback_days)
+        history = await self._async_fetch_trigger_history(
+            automation_ids,
+            backfill_start,
+            backfill_end,
+        )
+
+        seeded_automations = 0
+        for automation_id in automation_ids:
+            events = sorted(history.get(automation_id, []))
+            if not events:
+                continue
+            automation_state = self._ensure_automation_state(automation_id)
+            for event_time in events:
+                self._update_count_model(automation_state, event_time)
+                self._update_gap_model(automation_state, event_time)
+                self._detect_burst_anomaly(
+                    automation_entity_id=automation_id,
+                    automation_state=automation_state,
+                    now=event_time,
+                    allow_alerts=False,
+                )
+            seeded_automations += 1
+
+        if seeded_automations:
+            self._persist_runtime_state()
+        return seeded_automations
+
     @staticmethod
     def classify_time_bucket(timestamp: datetime) -> str:
         """Map timestamp into weekday/weekend x daypart bucket."""
@@ -505,6 +563,7 @@ class RuntimeHealthMonitor:
         """Evaluate BOCPD-derived gap thresholds and emit gap anomaly issues."""
         check_time = now or self._now_factory()
         issues: list[ValidationIssue] = []
+        state_dirty = False
         automations = self._runtime_state.get("automations", {})
         if not isinstance(automations, dict):
             return []
@@ -514,6 +573,10 @@ class RuntimeHealthMonitor:
             if not isinstance(automation_state_raw, dict):
                 continue
             automation_state = cast(dict[str, Any], automation_state_raw)
+            state_dirty = (
+                self._roll_count_model_forward(automation_state, now=check_time)
+                or state_dirty
+            )
             gap_model_raw = automation_state.get("gap_model", {})
             if not isinstance(gap_model_raw, dict):
                 continue
@@ -555,7 +618,7 @@ class RuntimeHealthMonitor:
             self._register_runtime_alert(issue)
             issues.append(issue)
 
-        if issues:
+        if issues or state_dirty:
             self._persist_runtime_state()
         else:
             self._maybe_flush_runtime_state(check_time)
@@ -666,20 +729,83 @@ class RuntimeHealthMonitor:
             automation_state["count_model"] = count_model
         bucket_name = self.classify_time_bucket(event_time)
         bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
+        self._advance_count_bucket_to_day(
+            bucket_name=bucket_name,
+            bucket_state=bucket_state,
+            target_day=event_time.date(),
+        )
 
-        event_day = event_time.date().isoformat()
-        current_day = str(bucket_state.get("current_day", ""))
-        if current_day and current_day != event_day:
-            finalized_count = max(0, int(bucket_state.get("current_count", 0)))
-            self._bocpd_count_detector.update_state(bucket_state, finalized_count)
-            bucket_state["current_count"] = 0
-
-        if not current_day or current_day != event_day:
-            bucket_state["current_day"] = event_day
-            bucket_state["current_count"] = 0
-
+        bucket_state["current_day"] = event_time.date().isoformat()
+        bucket_state["current_count"] = max(
+            0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
+        )
         bucket_state["current_count"] = int(bucket_state.get("current_count", 0)) + 1
         return bucket_name, bucket_state
+
+    def _advance_count_bucket_to_day(
+        self,
+        *,
+        bucket_name: str,
+        bucket_state: dict[str, Any],
+        target_day: date,
+    ) -> bool:
+        current_day = self._coerce_date(bucket_state.get("current_day"))
+        if current_day is None:
+            bucket_state["current_day"] = target_day.isoformat()
+            bucket_state["current_count"] = max(
+                0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
+            )
+            return True
+        if current_day >= target_day:
+            return False
+
+        current_count = max(
+            0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
+        )
+        cursor = current_day
+        consumed_current_count = False
+        while cursor < target_day:
+            if self._bucket_matches_day_type(bucket_name, cursor):
+                finalized = current_count if not consumed_current_count else 0
+                self._bocpd_count_detector.update_state(bucket_state, finalized)
+                consumed_current_count = True
+            cursor += timedelta(days=1)
+
+        if not consumed_current_count and current_count > 0:
+            self._bocpd_count_detector.update_state(bucket_state, current_count)
+
+        bucket_state["current_day"] = target_day.isoformat()
+        bucket_state["current_count"] = 0
+        return True
+
+    def _roll_count_model_forward(
+        self,
+        automation_state: dict[str, Any],
+        *,
+        now: datetime,
+    ) -> bool:
+        count_model_raw = automation_state.get("count_model", {})
+        if not isinstance(count_model_raw, dict):
+            return False
+        count_model = cast(dict[str, Any], count_model_raw)
+        buckets_raw = count_model.get("buckets", {})
+        if not isinstance(buckets_raw, dict):
+            return False
+
+        state_dirty = False
+        bucket_names = list(cast(dict[str, Any], buckets_raw).keys())
+        target_day = now.date()
+        for bucket_name in bucket_names:
+            bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
+            state_dirty = (
+                self._advance_count_bucket_to_day(
+                    bucket_name=bucket_name,
+                    bucket_state=bucket_state,
+                    target_day=target_day,
+                )
+                or state_dirty
+            )
+        return state_dirty
 
     def _update_gap_model(
         self,
@@ -828,6 +954,7 @@ class RuntimeHealthMonitor:
         automation_entity_id: str,
         automation_state: dict[str, Any],
         now: datetime,
+        allow_alerts: bool = True,
     ) -> list[ValidationIssue]:
         burst_model = automation_state.setdefault("burst_model", {})
         if not isinstance(burst_model, dict):
@@ -871,6 +998,8 @@ class RuntimeHealthMonitor:
         else:
             burst_model["baseline_rate_5m"] = baseline_rate
 
+        if not allow_alerts:
+            return []
         if len(recent) < 6 or float(current_5m_count) < threshold:
             return []
         if not self._allow_alert(automation_entity_id, now=now):
@@ -1027,6 +1156,27 @@ class RuntimeHealthMonitor:
         return None
 
     @staticmethod
+    def _coerce_date(value: Any) -> date | None:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _bucket_matches_day_type(bucket_name: str, day: date) -> bool:
+        if bucket_name.startswith("weekday_"):
+            return day.weekday() < 5
+        if bucket_name.startswith("weekend_"):
+            return day.weekday() >= 5
+        return True
+
+    @staticmethod
     def _coerce_float(value: Any, fallback: float) -> float:
         try:
             return float(value)
@@ -1092,6 +1242,7 @@ class RuntimeHealthMonitor:
             stats["recorder_query_failed"] = 1
 
         issues: list[ValidationIssue] = []
+        runtime_state_dirty = False
         all_events_by_automation = history
         domain_data: dict[str, Any] = (
             self.hass.data.get(DOMAIN, {}) if hasattr(self.hass, "data") else {}
@@ -1192,6 +1343,15 @@ class RuntimeHealthMonitor:
                 stats["insufficient_training_rows"] += 1
                 continue
             window_size = self._compute_window_size(expected)
+            runtime_state_dirty = (
+                self._persist_periodic_bocpd_state(
+                    automation_id=automation_entity_id,
+                    train_rows=train_rows,
+                    now=now,
+                    window_size=window_size,
+                )
+                or runtime_state_dirty
+            )
             _LOGGER.debug(
                 "Automation '%s': scoring with %d training rows, "
                 "expected %.1f/day, recent %d events",
@@ -1284,8 +1444,73 @@ class RuntimeHealthMonitor:
                     )
                 )
 
+        if runtime_state_dirty:
+            self._persist_runtime_state()
         self._last_run_stats = dict(stats)
         return issues
+
+    def _persist_periodic_bocpd_state(
+        self,
+        *,
+        automation_id: str,
+        train_rows: list[dict[str, float]],
+        now: datetime,
+        window_size: int,
+    ) -> bool:
+        if not isinstance(self._detector, _BOCPDDetector):
+            return False
+        if len(train_rows) < 2:
+            return False
+
+        training = train_rows[:-1]
+        if window_size > 0 and len(training) > window_size:
+            training = training[-window_size:]
+        if not training:
+            return False
+
+        detector = cast(_BOCPDDetector, self._detector)
+        state = detector.initial_state()
+        for row in training:
+            detector.update_state(state, detector._coerce_count(row))
+        detector.normalize_state(state)
+
+        automation_state = self._ensure_automation_state(automation_id)
+        count_model = automation_state.setdefault("count_model", {})
+        if not isinstance(count_model, dict):
+            count_model = {}
+            automation_state["count_model"] = count_model
+        bucket_name = self.classify_time_bucket(now)
+        bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
+
+        run_length_probs_raw = state.get("run_length_probs")
+        observations_raw = state.get("observations")
+        bucket_state["run_length_probs"] = (
+            [
+                self._coerce_float(value, 0.0)
+                for value in cast(list[Any], run_length_probs_raw)
+            ]
+            if isinstance(run_length_probs_raw, list)
+            else [1.0]
+        )
+        bucket_state["observations"] = (
+            [max(0, int(self._coerce_float(value, 0.0))) for value in observations_raw]
+            if isinstance(observations_raw, list)
+            else []
+        )
+        bucket_state["map_run_length"] = max(
+            0,
+            int(self._coerce_float(state.get("map_run_length"), 0.0)),
+        )
+        bucket_state["expected_rate"] = max(
+            0.0,
+            self._coerce_float(state.get("expected_rate"), 0.0),
+        )
+        bucket_state["current_day"] = str(bucket_state.get("current_day", "")) or now.date().isoformat()
+        bucket_state["current_count"] = max(
+            0,
+            int(self._coerce_float(bucket_state.get("current_count"), 0.0)),
+        )
+        return True
 
     def _score_current(
         self,

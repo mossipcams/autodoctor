@@ -1170,6 +1170,64 @@ async def test_validate_automations_precomputes_median_gap(
         assert isinstance(call_kwargs["median_gap_override"], float)
 
 
+@pytest.mark.asyncio
+async def test_validate_automations_persists_bocpd_state_for_live_models(
+    hass: HomeAssistant,
+    tmp_path,
+) -> None:
+    """Periodic BOCPD scoring should persist learned state for live model reuse."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {
+        "automation.runtime_test": [
+            now - timedelta(days=days_back, hours=2) for days_back in range(2, 40)
+        ]
+    }
+    store = RuntimeHealthStateStore(path=tmp_path / "runtime_state.json")
+
+    class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
+        def __init__(self) -> None:
+            super().__init__(
+                hass,
+                now_factory=lambda: now,
+                runtime_state_store=store,
+                telemetry_db_path=None,
+                warmup_samples=7,
+                min_expected_events=0,
+                burst_multiplier=999.0,
+            )
+
+        async def _async_fetch_trigger_history(
+            self,
+            automation_ids: list[str],
+            start: datetime,
+            end: datetime,
+        ) -> dict[str, list[datetime]]:
+            return {
+                automation_id: [
+                    ts
+                    for ts in history.get(automation_id, [])
+                    if start <= ts <= end
+                ]
+                for automation_id in automation_ids
+            }
+
+    monitor = _HistoryRuntimeMonitor()
+    await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+
+    persisted = store.load()
+    bucket_name = monitor.classify_time_bucket(now)
+    bucket = persisted["automations"]["automation.runtime_test"]["count_model"][
+        "buckets"
+    ][bucket_name]
+    assert bucket["observations"], "BOCPD observations should be persisted"
+    assert sum(bucket["run_length_probs"]) == pytest.approx(1.0)
+    assert bucket["expected_rate"] > 0.0
+
+
 def test_build_5m_bucket_index_groups_events_correctly() -> None:
     """_build_5m_bucket_index should bucket events into 5-minute windows."""
     all_events: dict[str, list[datetime]] = {
