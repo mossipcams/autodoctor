@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import importlib.util
 import json
 import logging
 import time
@@ -85,8 +84,6 @@ SERVICE_VALIDATE_SCHEMA = vol.Schema(
 )
 
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
-
-RUNTIME_HEALTH_RESTART_NOTIFICATION_ID = "autodoctor_runtime_health_restart_required"
 
 
 def _build_config_snapshot(configs: list[dict[str, Any]]) -> dict[str, str]:
@@ -430,14 +427,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
     await hass.config_entries.async_reload(entry.entry_id)
-
-
-def _is_river_available() -> bool:  # pyright: ignore[reportUnusedFunction]
-    """Return True if the river package is importable in this HA environment."""
-    try:
-        return importlib.util.find_spec("river") is not None
-    except Exception:  # pragma: no cover - defensive
-        return False
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

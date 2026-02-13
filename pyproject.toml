@@ -7,9 +7,7 @@ name = "autodoctor"
 version = "1.1.0"
 description = "Home Assistant integration that validates automations to detect state-related issues"
 requires-python = ">=3.12"
-dependencies = [
-    "river>=0.21.0",
-]
+dependencies = []
 
 [tool.setuptools.packages.find]
 include = ["custom_components*"]

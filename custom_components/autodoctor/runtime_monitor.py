@@ -19,13 +19,6 @@ from .const import DOMAIN
 from .models import IssueType, Severity, ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
-
-try:
-    from river import anomaly
-except ImportError:  # pragma: no cover - environment-dependent
-    anomaly = None
-
-_HAS_RIVER: bool = anomaly is not None
 _TELEMETRY_RETENTION_DAYS = 90
 
 
@@ -129,90 +122,6 @@ class _GammaPoissonDetector:
         return math.exp(log_prob)
 
 
-class _RiverAnomalyDetector:  # pyright: ignore[reportUnusedClass]
-    """River-backed detector with watermark-based incremental learning.
-
-    Persists a model per automation and tracks how many training rows
-    have already been learned, so subsequent calls only learn new rows.
-    If the row count shrinks (e.g. sliding window), the model resets.
-    """
-
-    def __init__(self) -> None:
-        self._models: dict[str, Any] = {}
-        self._watermarks: dict[str, int] = {}
-        self._window_sizes: dict[str, int] = {}
-
-    def score_current(
-        self,
-        automation_id: str,
-        train_rows: list[dict[str, float]],
-        window_size: int | None = None,
-    ) -> float:
-        if len(train_rows) < 2:
-            return 0.0
-
-        if not _HAS_RIVER:  # pragma: no cover - guarded by constructor call
-            raise RuntimeError("River is unavailable")
-
-        training = train_rows[:-1]
-        previous_window_size = self._window_sizes.get(automation_id)
-        if window_size is not None:
-            desired_window_size = window_size
-        elif previous_window_size is not None:
-            desired_window_size = previous_window_size
-        else:
-            desired_window_size = len(training)
-        watermark = self._watermarks.get(automation_id, 0)
-
-        # Reset if history shrank (sliding window shifted)
-        if watermark > len(training):
-            _LOGGER.debug("Resetting model for '%s' (window shifted)", automation_id)
-            watermark = 0
-            self._models.pop(automation_id, None)
-
-        model = self._models.get(automation_id)
-        if (
-            model is not None
-            and previous_window_size is not None
-            and previous_window_size != desired_window_size
-        ):
-            _LOGGER.debug(
-                "Resetting model for '%s' (window size changed: %d -> %d)",
-                automation_id,
-                previous_window_size,
-                desired_window_size,
-            )
-            model = None
-            watermark = 0
-            self._models.pop(automation_id, None)
-
-        if model is None:
-            _LOGGER.debug("Creating HalfSpaceTrees model for '%s'", automation_id)
-            assert anomaly is not None  # guaranteed by _HAS_RIVER check above
-            model = anomaly.HalfSpaceTrees(
-                n_trees=15, height=8, window_size=desired_window_size, seed=42
-            )
-            self._models[automation_id] = model
-            self._window_sizes[automation_id] = desired_window_size
-
-        new_rows = training[watermark:]
-        if new_rows:
-            _LOGGER.debug(
-                "Learning %d new rows for '%s' (watermark %d -> %d)",
-                len(new_rows),
-                automation_id,
-                watermark,
-                len(training),
-            )
-        for row in new_rows:
-            model.learn_one(row)
-        self._watermarks[automation_id] = len(training)
-
-        score = float(model.score_one(train_rows[-1]))
-        _LOGGER.debug("Scored '%s': %.3f", automation_id, score)
-        return score
-
-
 class RuntimeHealthMonitor:
     """Detect runtime automation anomalies from recorder trigger history."""
 
@@ -256,7 +165,7 @@ class RuntimeHealthMonitor:
         self.dismissed_threshold_multiplier = max(1.0, dismissed_threshold_multiplier)
         self.cold_start_days = max(0, cold_start_days)
         self.startup_recovery_minutes = max(0, startup_recovery_minutes)
-        self._detector: _Detector | None = detector or _GammaPoissonDetector()
+        self._detector: _Detector = detector or _GammaPoissonDetector()
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}
@@ -273,16 +182,14 @@ class RuntimeHealthMonitor:
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
-            "hour_ratio_days=%d, "
-            "river_available=%s, detector=%s",
+            "hour_ratio_days=%d, detector=%s",
             baseline_days,
             warmup_samples,
             anomaly_threshold,
             min_expected_events,
             overactive_factor,
             self.hour_ratio_days,
-            _HAS_RIVER,
-            type(self._detector).__name__ if self._detector else None,
+            type(self._detector).__name__,
         )
 
     def get_last_run_stats(self) -> dict[str, int]:
@@ -312,15 +219,6 @@ class RuntimeHealthMonitor:
         )
         stats: dict[str, int] = defaultdict(int)
         stats["total_automations"] = len(automations)
-
-        if self._detector is None:
-            _LOGGER.debug(
-                "River detector unavailable, skipping %d automations",
-                len(automations),
-            )
-            stats["river_unavailable"] = len(automations)
-            self._last_run_stats = dict(stats)
-            return []
 
         now = self._now_factory()
         recovery_cutoff = self._started_at + timedelta(
@@ -559,8 +457,6 @@ class RuntimeHealthMonitor:
         *,
         window_size: int,
     ) -> float:
-        if self._detector is None:  # pragma: no cover - guarded by caller
-            return 0.0
         try:
             return self._detector.score_current(
                 automation_id,

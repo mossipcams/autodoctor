@@ -120,13 +120,13 @@ def test_runtime_health_hour_ratio_default_and_key() -> None:
     assert DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS == 30
 
 
-def test_runtime_health_manifest_declares_river_requirement() -> None:
-    """Guard: Runtime health dependency must be installed by HA from manifest."""
+def test_runtime_health_manifest_has_no_external_ml_dependency() -> None:
+    """Guard: Runtime health should not require external ML packages in manifest."""
     with open("custom_components/autodoctor/manifest.json", encoding="utf-8") as f:
         manifest = json.load(f)
 
     requirements = manifest.get("requirements", [])
-    assert any(req.startswith("river") for req in requirements)
+    assert not any(req.startswith("river") for req in requirements)
 
 
 def test_max_recursion_depth_constant() -> None:

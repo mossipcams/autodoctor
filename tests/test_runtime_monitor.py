@@ -281,54 +281,6 @@ def test_training_and_current_rows_have_same_features() -> None:
     )
 
 
-def test_river_detector_uses_training_length_as_window_size() -> None:
-    """Window size must match training data length, not a hardcoded value."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows = [row] * 31  # 30 training + 1 current
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
-
-    call_kwargs = mock_anomaly.HalfSpaceTrees.call_args
-    assert call_kwargs[1]["window_size"] == 30
-
-
-def test_river_detector_learns_incrementally() -> None:
-    """Detector must persist models and only learn new rows on subsequent calls."""
-    from unittest.mock import MagicMock, patch
-
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows_10 = [row] * 9 + [{"count_24h": 5.0, "ratio": 5.0}]
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-
-        # First call: should learn 9 training rows (all except the last)
-        detector.score_current("auto.test", rows_10)
-        assert mock_model.learn_one.call_count == 9
-
-        mock_model.learn_one.reset_mock()
-
-        # Second call with 1 extra training row appended before the current row
-        rows_11 = [*rows_10[:-1], row, rows_10[-1]]
-        detector.score_current("auto.test", rows_11)
-        # Should only learn the 1 new row, not re-learn the original 9
-        assert mock_model.learn_one.call_count == 1
-
-
 def test_gamma_poisson_detector_scores_tail_events_higher_than_normal() -> None:
     """Gamma-Poisson detector should assign higher scores to tail events."""
     from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
@@ -447,23 +399,6 @@ async def test_validate_automations_logs_entry(
         await monitor.validate_automations([_automation("a1"), _automation("a2")])
 
     assert "Runtime health validation starting: 2 automations" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_logs_river_unavailable(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Should log when river detector is unavailable."""
-    monitor = RuntimeHealthMonitor(hass, detector=None)
-    # Force detector to None to simulate river unavailable
-    monitor._detector = None
-
-    with caplog.at_level(
-        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-    ):
-        await monitor.validate_automations([_automation("a1")])
-
-    assert "River detector unavailable" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -636,87 +571,6 @@ async def test_fetch_trigger_history_logs_query(
 
     assert "Querying recorder for 1 automation IDs" in caplog.text
     assert "Fetched 2 total trigger events" in caplog.text
-
-
-def test_river_detector_logs_model_creation(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """River detector should log when creating a new HalfSpaceTrees model."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows = [row] * 3
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with (
-        caplog.at_level(
-            logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-        ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
-    ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
-
-    assert "Creating HalfSpaceTrees model for 'auto.test'" in caplog.text
-
-
-def test_river_detector_logs_watermark_reset(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """River detector should log when resetting model due to window shift."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.5
-
-    with patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly:
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        # First call with 5 rows -> watermark = 4
-        detector.score_current("auto.test", [row] * 5)
-
-    # Now call with fewer rows -> triggers watermark reset
-    with (
-        caplog.at_level(
-            logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-        ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
-    ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", [row] * 3)
-
-    assert "Resetting model for 'auto.test' (window shifted)" in caplog.text
-
-
-def test_river_detector_logs_learning_and_score(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """River detector should log learning progress and score result."""
-    from custom_components.autodoctor.runtime_monitor import _RiverAnomalyDetector
-
-    detector = _RiverAnomalyDetector()
-    row = {"count_24h": 1.0, "ratio": 1.0}
-    rows = [row] * 5
-
-    mock_model = MagicMock()
-    mock_model.score_one.return_value = 0.42
-
-    with (
-        caplog.at_level(
-            logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-        ),
-        patch("custom_components.autodoctor.runtime_monitor.anomaly") as mock_anomaly,
-    ):
-        mock_anomaly.HalfSpaceTrees.return_value = mock_model
-        detector.score_current("auto.test", rows)
-
-    assert "Learning 4 new rows for 'auto.test'" in caplog.text
-    assert "Scored 'auto.test': 0.420" in caplog.text
 
 
 def test_feature_row_includes_expanded_runtime_features() -> None:
