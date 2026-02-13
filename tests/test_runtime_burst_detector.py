@@ -1,0 +1,66 @@
+"""Burst detector tests for runtime health monitoring."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from custom_components.autodoctor.models import IssueType, Severity
+from custom_components.autodoctor.runtime_health_state_store import (
+    RuntimeHealthStateStore,
+)
+from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+
+
+def _build_monitor(
+    tmp_path: Path, now: datetime, **kwargs: object
+) -> RuntimeHealthMonitor:
+    hass = MagicMock()
+    store = RuntimeHealthStateStore(path=tmp_path / "runtime_burst_state.json")
+    return RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        runtime_state_store=store,
+        telemetry_db_path=None,
+        warmup_samples=0,
+        min_expected_events=0,
+        **kwargs,
+    )
+
+
+def test_burst_detector_emits_immediate_critical_issue(tmp_path: Path) -> None:
+    """Rapid trigger spikes should emit immediate burst runtime issues."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(
+        tmp_path,
+        now,
+        burst_multiplier=2.0,
+        max_alerts_per_day=20,
+    )
+    aid = "automation.burst_watch"
+
+    # Train a low baseline rate (1 trigger per 5 minutes).
+    for idx in range(12):
+        monitor.ingest_trigger_event(
+            aid,
+            occurred_at=now - timedelta(minutes=(60 - (idx * 5))),
+        )
+
+    emitted = []
+    for second in range(20):
+        emitted.extend(
+            monitor.ingest_trigger_event(
+                aid,
+                occurred_at=now + timedelta(seconds=second),
+            )
+        )
+
+    burst_issues = [
+        issue
+        for issue in emitted
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_BURST
+    ]
+    assert burst_issues
+    assert burst_issues[0].severity == Severity.ERROR
+    assert "5m" in burst_issues[0].message

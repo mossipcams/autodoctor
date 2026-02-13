@@ -30,7 +30,13 @@
           "runtime_health_anomaly_threshold": "Runtime anomaly threshold",
           "runtime_health_min_expected_events": "Runtime min expected events/day",
           "runtime_health_overactive_factor": "Runtime overactive factor",
-          "runtime_health_hour_ratio_days": "Runtime hour-ratio lookback (days)"
+          "runtime_health_hour_ratio_days": "Runtime hour-ratio lookback (days)",
+          "runtime_health_sensitivity": "Runtime sensitivity",
+          "runtime_health_burst_multiplier": "Runtime burst multiplier",
+          "runtime_health_max_alerts_per_day": "Runtime max alerts/day",
+          "runtime_health_smoothing_window": "Runtime smoothing window",
+          "runtime_health_restart_exclusion_minutes": "Runtime restart exclusion (minutes)",
+          "runtime_health_auto_adapt": "Runtime auto-adapt baselines"
         }
       }
     }

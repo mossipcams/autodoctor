@@ -1,0 +1,165 @@
+name: Cleanup Branches
+
+on:
+  schedule:
+    - cron: "0 6 * * 0" # Sundays at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (log only, do not delete)"
+        type: boolean
+        default: true
+      stale_days:
+        description: "Days since last commit to consider unmerged branch stale"
+        type: number
+        default: 90
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine run mode
+        id: mode
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+            echo "stale_days=90" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+            echo "stale_days=${{ inputs.stale_days }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect open PR branches
+        id: open-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName \
+            --jq '.[].headRefName' > /tmp/open_pr_branches.txt
+          echo "Branches with open PRs:"
+          cat /tmp/open_pr_branches.txt
+
+      - name: Delete merged branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+        run: |
+          deleted=0
+          skipped=0
+          echo "## Merged Branch Cleanup" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "> **Mode:** dry run (no branches will be deleted)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "> **Mode:** live" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          branches=$(gh api "repos/$GITHUB_REPOSITORY/branches" --paginate --jq '.[].name')
+
+          for branch in $branches; do
+            # Skip protected patterns
+            if [[ "$branch" == "main" ]] || \
+               [[ "$branch" == release-please--branches--* ]] || \
+               [[ "$branch" == dependabot/* ]] || \
+               [[ "$branch" == "chore/rebuild-card" ]]; then
+              continue
+            fi
+
+            # Check merge status via compare API
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$branch" --jq '.status' 2>/dev/null || echo "error")
+
+            if [[ "$status" != "behind" ]] && [[ "$status" != "identical" ]]; then
+              continue
+            fi
+
+            # Skip branches with open PRs
+            if grep -qxF "$branch" /tmp/open_pr_branches.txt 2>/dev/null; then
+              echo "- ⏭️ \`$branch\` — merged but has open PR, skipping" >> "$GITHUB_STEP_SUMMARY"
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "- 🔍 \`$branch\` — merged (would delete)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" 2>/dev/null && \
+                echo "- ✅ \`$branch\` — merged, deleted" >> "$GITHUB_STEP_SUMMARY" || \
+                echo "- ❌ \`$branch\` — merged, failed to delete" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            deleted=$((deleted + 1))
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Merged branches processed:** $deleted | **Skipped (open PR):** $skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete stale unmerged branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+          STALE_DAYS: ${{ steps.mode.outputs.stale_days }}
+        run: |
+          deleted=0
+          skipped=0
+          cutoff=$(date -u -d "$STALE_DAYS days ago" +%s 2>/dev/null || date -u -v-${STALE_DAYS}d +%s)
+
+          echo "## Stale Unmerged Branch Cleanup" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "> **Stale threshold:** $STALE_DAYS days" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          branches=$(gh api "repos/$GITHUB_REPOSITORY/branches" --paginate --jq '.[].name')
+
+          for branch in $branches; do
+            # Skip protected patterns
+            if [[ "$branch" == "main" ]] || \
+               [[ "$branch" == release-please--branches--* ]] || \
+               [[ "$branch" == dependabot/* ]] || \
+               [[ "$branch" == "chore/rebuild-card" ]]; then
+              continue
+            fi
+
+            # Skip merged branches (already handled above)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$branch" --jq '.status' 2>/dev/null || echo "error")
+            if [[ "$status" == "behind" ]] || [[ "$status" == "identical" ]]; then
+              continue
+            fi
+
+            # Check last commit date
+            last_commit_date=$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" \
+              --jq '.commit.commit.committer.date' 2>/dev/null || echo "")
+
+            if [[ -z "$last_commit_date" ]]; then
+              continue
+            fi
+
+            last_commit_ts=$(date -u -d "$last_commit_date" +%s 2>/dev/null || date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$last_commit_date" +%s 2>/dev/null || echo "0")
+
+            if (( last_commit_ts >= cutoff )); then
+              continue
+            fi
+
+            # Skip branches with open PRs
+            if grep -qxF "$branch" /tmp/open_pr_branches.txt 2>/dev/null; then
+              echo "- ⏭️ \`$branch\` — stale but has open PR, skipping" >> "$GITHUB_STEP_SUMMARY"
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "- 🔍 \`$branch\` — last commit: $last_commit_date (would delete)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" 2>/dev/null && \
+                echo "- ✅ \`$branch\` — stale ($last_commit_date), deleted" >> "$GITHUB_STEP_SUMMARY" || \
+                echo "- ❌ \`$branch\` — stale, failed to delete" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            deleted=$((deleted + 1))
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Stale unmerged branches processed:** $deleted | **Skipped (open PR):** $skipped" >> "$GITHUB_STEP_SUMMARY"

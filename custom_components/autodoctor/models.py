@@ -38,6 +38,9 @@ class IssueType(StrEnum):
     SERVICE_TARGET_NOT_FOUND = "service_target_not_found"
     RUNTIME_AUTOMATION_STALLED = "runtime_automation_stalled"
     RUNTIME_AUTOMATION_OVERACTIVE = "runtime_automation_overactive"
+    RUNTIME_AUTOMATION_COUNT_ANOMALY = "runtime_automation_count_anomaly"
+    RUNTIME_AUTOMATION_GAP = "runtime_automation_gap"
+    RUNTIME_AUTOMATION_BURST = "runtime_automation_burst"
 
 
 @dataclass
@@ -175,6 +178,9 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
             {
                 IssueType.RUNTIME_AUTOMATION_STALLED,
                 IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+                IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY,
+                IssueType.RUNTIME_AUTOMATION_GAP,
+                IssueType.RUNTIME_AUTOMATION_BURST,
             }
         ),
     },

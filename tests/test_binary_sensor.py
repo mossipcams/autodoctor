@@ -6,10 +6,12 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.core import HomeAssistant
 
 from custom_components.autodoctor.binary_sensor import (
+    RuntimeHealthProblemSensor,
     ValidationOkSensor,
     async_setup_entry,
 )
 from custom_components.autodoctor.const import DOMAIN
+from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
 
 
 async def test_async_setup_entry_adds_entity(hass: HomeAssistant) -> None:
@@ -24,8 +26,9 @@ async def test_async_setup_entry_adds_entity(hass: HomeAssistant) -> None:
 
     await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
 
-    assert len(added) == 1
+    assert len(added) == 2
     assert isinstance(added[0], ValidationOkSensor)
+    assert isinstance(added[1], RuntimeHealthProblemSensor)
 
 
 async def test_sensor_attributes(hass: HomeAssistant) -> None:
@@ -96,3 +99,27 @@ async def test_is_on_no_reporter(hass: HomeAssistant) -> None:
 
     hass.data.pop(DOMAIN, None)  # No DOMAIN key at all
     assert sensor.is_on is False
+
+
+async def test_runtime_health_problem_sensor_reflects_runtime_alerts(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime problem sensor should be ON when runtime monitor has active alerts."""
+    entry = MagicMock()
+    entry.entry_id = "test"
+    sensor = RuntimeHealthProblemSensor(hass, entry)
+
+    runtime_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.runtime",
+        automation_name="Runtime",
+        entity_id="automation.runtime",
+        location="runtime.health.gap",
+        message="Gap anomaly",
+        issue_type=IssueType.RUNTIME_AUTOMATION_GAP,
+    )
+    mock_runtime_monitor = MagicMock()
+    mock_runtime_monitor.get_active_runtime_alerts.return_value = [runtime_issue]
+    hass.data[DOMAIN] = {"runtime_monitor": mock_runtime_monitor}
+
+    assert sensor.is_on is True
