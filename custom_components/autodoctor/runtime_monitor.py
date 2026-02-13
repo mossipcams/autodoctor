@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 import threading
 from collections import defaultdict
@@ -39,6 +40,93 @@ class _Detector(Protocol):
     ) -> float:
         """Train from history rows and return anomaly score for the current row."""
         ...
+
+
+class _GammaPoissonDetector:
+    """Gamma-Poisson anomaly detector over rolling 24h trigger counts.
+
+    Uses a conjugate Gamma prior over Poisson rate and returns a two-sided
+    tail anomaly score for the current count.
+    """
+
+    def __init__(
+        self,
+        *,
+        prior_alpha: float = 1.0,
+        prior_beta: float = 1.0,
+        count_feature: str = "rolling_24h_count",
+    ) -> None:
+        self._prior_alpha = max(1e-6, float(prior_alpha))
+        self._prior_beta = max(1e-6, float(prior_beta))
+        self._count_feature = count_feature
+
+    def score_current(
+        self,
+        automation_id: str,
+        train_rows: list[dict[str, float]],
+        window_size: int | None = None,
+    ) -> float:
+        """Return a two-sided tail score where larger means more anomalous."""
+        if len(train_rows) < 2:
+            return 0.0
+
+        training = train_rows[:-1]
+        if window_size is not None and window_size > 0 and len(training) > window_size:
+            training = training[-window_size:]
+
+        baseline_counts = [self._coerce_count(row) for row in training]
+        if not baseline_counts:
+            return 0.0
+        current_count = self._coerce_count(train_rows[-1])
+
+        score = self._score_count(
+            baseline_counts=baseline_counts,
+            current_count=current_count,
+        )
+        _LOGGER.debug(
+            "Scored '%s' with Gamma-Poisson: %.3f (current=%d, n=%d)",
+            automation_id,
+            score,
+            current_count,
+            len(baseline_counts),
+        )
+        return score
+
+    def _coerce_count(self, row: dict[str, float]) -> int:
+        value = row.get(self._count_feature, 0.0)
+        try:
+            return max(0, int(round(float(value))))
+        except (TypeError, ValueError):
+            return 0
+
+    def _score_count(self, *, baseline_counts: list[int], current_count: int) -> float:
+        n = len(baseline_counts)
+        total = float(sum(baseline_counts))
+        r = self._prior_alpha + total
+        p = (self._prior_beta + n) / (self._prior_beta + n + 1.0)
+
+        cdf = 0.0
+        for count in range(current_count + 1):
+            cdf += self._nb_pmf(count, r, p)
+
+        pmf_current = self._nb_pmf(current_count, r, p)
+        lower_tail = min(1.0, max(0.0, cdf))
+        upper_tail = min(1.0, max(0.0, 1.0 - (cdf - pmf_current)))
+        two_sided_p = min(1.0, 2.0 * min(lower_tail, upper_tail))
+        return float(-math.log10(max(two_sided_p, 1e-12)))
+
+    @staticmethod
+    def _nb_pmf(count: int, r: float, p: float) -> float:
+        if count < 0:
+            return 0.0
+        log_prob = (
+            math.lgamma(count + r)
+            - math.lgamma(count + 1)
+            - math.lgamma(r)
+            + (r * math.log(p))
+            + (count * math.log(1.0 - p))
+        )
+        return math.exp(log_prob)
 
 
 class _RiverAnomalyDetector:
@@ -168,7 +256,7 @@ class RuntimeHealthMonitor:
         self.dismissed_threshold_multiplier = max(1.0, dismissed_threshold_multiplier)
         self.cold_start_days = max(0, cold_start_days)
         self.startup_recovery_minutes = max(0, startup_recovery_minutes)
-        self._detector = detector or (_RiverAnomalyDetector() if _HAS_RIVER else None)
+        self._detector = detector or _GammaPoissonDetector()
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}

@@ -429,27 +429,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
-    old_enabled = bool(hass.data.get(DOMAIN, {}).get("runtime_health_enabled", False))
-    new_enabled = bool(
-        entry.options.get(CONF_RUNTIME_HEALTH_ENABLED, DEFAULT_RUNTIME_HEALTH_ENABLED)
-    )
-
-    # Dependency installation occurs on restart from manifest requirements.
-    if new_enabled and not old_enabled and not _is_river_available():
-        await hass.services.async_call(
-            "persistent_notification",
-            "create",
-            {
-                "title": "Autodoctor Runtime Health",
-                "message": (
-                    "Runtime health monitoring was enabled. "
-                    "Home Assistant restart is required to install the 'river' dependency."
-                ),
-                "notification_id": RUNTIME_HEALTH_RESTART_NOTIFICATION_ID,
-            },
-            blocking=True,
-        )
-
     await hass.config_entries.async_reload(entry.entry_id)
 
 

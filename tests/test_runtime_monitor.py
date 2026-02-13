@@ -329,6 +329,44 @@ def test_river_detector_learns_incrementally() -> None:
         assert mock_model.learn_one.call_count == 1
 
 
+def test_gamma_poisson_detector_scores_tail_events_higher_than_normal() -> None:
+    """Gamma-Poisson detector should assign higher scores to tail events."""
+    from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
+
+    detector = _GammaPoissonDetector()
+
+    def _row(count_24h: float) -> dict[str, float]:
+        return {
+            "rolling_24h_count": count_24h,
+            "rolling_7d_count": count_24h * 6.0,
+            "hour_ratio_30d": 1.0,
+            "gap_vs_median": 1.0,
+            "is_weekend": 0.0,
+            "other_automations_5m": 0.0,
+        }
+
+    training = [_row(9.0 + float(i % 3)) for i in range(23)]
+    score_normal = detector.score_current("automation.normal", [*training, _row(10.0)])
+    score_stalled = detector.score_current("automation.stalled", [*training, _row(0.0)])
+    score_overactive = detector.score_current(
+        "automation.overactive", [*training, _row(35.0)]
+    )
+
+    assert score_normal >= 0.0
+    assert score_stalled > score_normal
+    assert score_overactive > score_normal
+
+
+def test_runtime_monitor_defaults_to_gamma_poisson_detector(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime monitor should default to Gamma-Poisson detector."""
+    from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
+
+    monitor = RuntimeHealthMonitor(hass)
+    assert isinstance(monitor._detector, _GammaPoissonDetector)
+
+
 @pytest.mark.asyncio
 async def test_fetch_trigger_history_uses_modern_schema(
     hass: HomeAssistant,
