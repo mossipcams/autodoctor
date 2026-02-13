@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -202,3 +202,79 @@ def test_suppressed_runtime_paths_are_excluded_from_learning(tmp_path: Path) -> 
 
     state = monitor.get_runtime_state()
     assert "automation.suppressed" not in state["automations"]
+
+
+@pytest.mark.asyncio
+async def test_backfill_from_recorder_seeds_three_models_from_history(
+    tmp_path: Path,
+) -> None:
+    """Backfill should seed count/gap/burst models when runtime state starts empty."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
+
+    history: dict[str, list[datetime]] = {
+        "automation.kitchen": [
+            now - timedelta(days=3, hours=2),
+            now - timedelta(days=2, hours=2),
+            now - timedelta(days=1, minutes=45),
+            now - timedelta(days=1, minutes=25),
+            now - timedelta(days=1, minutes=5),
+        ],
+        "automation.hallway": [
+            now - timedelta(days=6, hours=1),
+            now - timedelta(days=5, hours=1),
+            now - timedelta(days=4, hours=1),
+            now - timedelta(days=3, hours=1),
+        ],
+    }
+    monitor._async_fetch_trigger_history = AsyncMock(return_value=history)  # type: ignore[method-assign]
+
+    await monitor.async_backfill_from_recorder(
+        [
+            {"id": "kitchen", "entity_id": "automation.kitchen"},
+            {"id": "hallway", "entity_id": "automation.hallway"},
+        ],
+        now=now,
+    )
+
+    state = monitor.get_runtime_state()
+    kitchen_state = state["automations"]["automation.kitchen"]
+    hallway_state = state["automations"]["automation.hallway"]
+
+    assert kitchen_state["count_model"]["buckets"]
+    assert hallway_state["count_model"]["buckets"]
+    assert (
+        kitchen_state["gap_model"]["last_trigger"]
+        == history["automation.kitchen"][-1].isoformat()
+    )
+    assert (
+        hallway_state["gap_model"]["last_trigger"]
+        == history["automation.hallway"][-1].isoformat()
+    )
+    assert kitchen_state["burst_model"]["baseline_rate_5m"] > 0.0
+    assert hallway_state["burst_model"]["baseline_rate_5m"] > 0.0
+
+
+def test_gap_check_rolls_count_bucket_forward_without_new_live_event(
+    tmp_path: Path,
+) -> None:
+    """Gap checks should finalize day buckets even when no new trigger arrives."""
+    now = datetime(2026, 2, 11, 9, 0, tzinfo=UTC)  # Wednesday
+    monitor = _build_monitor(
+        tmp_path,
+        now,
+        burst_multiplier=999.0,
+        gap_threshold_multiplier=999.0,
+    )
+    aid = "automation.sparse"
+    first_event = datetime(2026, 2, 9, 8, 15, tzinfo=UTC)  # Monday
+
+    monitor.ingest_trigger_event(aid, occurred_at=first_event)
+    monitor.check_gap_anomalies(now=now)
+
+    state = monitor.get_runtime_state()
+    bucket_name = monitor.classify_time_bucket(first_event)
+    bucket = state["automations"][aid]["count_model"]["buckets"][bucket_name]
+    assert bucket["observations"] == [1, 0]
+    assert bucket["current_day"] == now.date().isoformat()
+    assert bucket["current_count"] == 0
