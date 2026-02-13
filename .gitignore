@@ -39,5 +39,8 @@ CLAUDE.md
 .mutmut-cache/
 mutants/
 
+# Node
+node_modules/
+
 # GSD planning files
 .planning/

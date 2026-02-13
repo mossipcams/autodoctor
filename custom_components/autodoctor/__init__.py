@@ -439,6 +439,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await knowledge_base.async_load_history()
     _LOGGER.info("State knowledge base loaded")
 
+    if runtime_enabled and runtime_monitor is not None:
+        try:
+            await runtime_monitor.async_backfill_from_recorder(
+                _get_automation_configs(hass)
+            )
+        except Exception as err:
+            _LOGGER.warning("Runtime history backfill failed during setup: %s", err)
+
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
         _LOGGER.info("State knowledge base loaded")
