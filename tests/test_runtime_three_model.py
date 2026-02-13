@@ -43,8 +43,8 @@ def test_classify_time_bucket_returns_expected_segments(tmp_path: Path) -> None:
     assert monitor.classify_time_bucket(weekend_night) == "weekend_night"
 
 
-def test_count_model_tracks_alpha_beta_and_dispersion_metrics(tmp_path: Path) -> None:
-    """Per-bucket count model should maintain posterior and variance metrics."""
+def test_count_model_updates_bocpd_state_on_day_rollover(tmp_path: Path) -> None:
+    """Per-bucket count model should roll prior day count into BOCPD state."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
     monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
 
@@ -65,11 +65,12 @@ def test_count_model_tracks_alpha_beta_and_dispersion_metrics(tmp_path: Path) ->
     state = monitor.get_runtime_state()
     bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
 
-    assert bucket["alpha"] == pytest.approx(7.0)
-    assert bucket["beta"] == pytest.approx(3.0)
-    assert bucket["mean"] == pytest.approx(3.0)
-    assert bucket["variance"] > 0
-    assert bucket["vmr"] > 0
+    assert bucket["observations"] == [2, 4]
+    assert bucket["current_count"] == 1
+    assert bucket["current_day"] == (base_day + timedelta(days=2)).date().isoformat()
+    assert sum(bucket["run_length_probs"]) == pytest.approx(1.0)
+    assert bucket["map_run_length"] >= 0
+    assert bucket["expected_rate"] > 0.0
 
 
 def test_count_anomaly_emits_runtime_issue_with_expected_range_metadata(
@@ -112,8 +113,8 @@ def test_count_anomaly_emits_runtime_issue_with_expected_range_metadata(
     assert "observed" in count_issues[0].message.lower()
 
 
-def test_negative_binomial_promotion_triggers_when_vmr_is_high(tmp_path: Path) -> None:
-    """Buckets with sustained over-dispersion should promote to NB scoring mode."""
+def test_weekly_maintenance_is_noop_with_bocpd(tmp_path: Path) -> None:
+    """Weekly maintenance should not mutate BOCPD bucket internals."""
     now = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
     monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
     aid = "automation.nb_watch"
@@ -128,12 +129,18 @@ def test_negative_binomial_promotion_triggers_when_vmr_is_high(tmp_path: Path) -
             )
         cursor += timedelta(days=1)
 
+    before = monitor.get_runtime_state()
     monitor.run_weekly_maintenance(now=now)
+    after = monitor.get_runtime_state()
 
-    state = monitor.get_runtime_state()
-    bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
-    assert bucket["vmr"] > 1.5
-    assert bucket["use_negative_binomial"] is True
+    before_bucket = before["automations"][aid]["count_model"]["buckets"][
+        "weekday_morning"
+    ]
+    after_bucket = after["automations"][aid]["count_model"]["buckets"][
+        "weekday_morning"
+    ]
+    assert after_bucket == before_bucket
+    assert "use_negative_binomial" not in after_bucket
 
 
 def test_record_issue_dismissed_increases_threshold_multiplier(tmp_path: Path) -> None:
@@ -173,7 +180,10 @@ def test_auto_adapt_resets_bucket_after_persistent_count_anomalies(
 
     state = monitor.get_runtime_state()
     bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
-    assert bucket["counts"] == []
+    assert bucket["run_length_probs"] == [1.0]
+    assert bucket["observations"] == []
+    assert bucket["map_run_length"] == 0
+    assert bucket["expected_rate"] == pytest.approx(0.0)
     assert state["automations"][aid]["count_model"]["anomaly_streak"] == 0
 
 

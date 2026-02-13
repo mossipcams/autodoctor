@@ -281,11 +281,11 @@ def test_training_and_current_rows_have_same_features() -> None:
     )
 
 
-def test_gamma_poisson_detector_scores_tail_events_higher_than_normal() -> None:
-    """Gamma-Poisson detector should assign higher scores to tail events."""
-    from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
+def test_bocpd_detector_scores_tail_events_higher_than_normal() -> None:
+    """BOCPD detector should assign higher scores to tail events."""
+    from custom_components.autodoctor.runtime_monitor import _BOCPDDetector
 
-    detector = _GammaPoissonDetector()
+    detector = _BOCPDDetector()
 
     def _row(count_24h: float) -> dict[str, float]:
         return {
@@ -309,20 +309,20 @@ def test_gamma_poisson_detector_scores_tail_events_higher_than_normal() -> None:
     assert score_overactive > score_normal
 
 
-def test_runtime_monitor_defaults_to_gamma_poisson_detector(
+def test_runtime_monitor_defaults_to_bocpd_detector(
     hass: HomeAssistant,
 ) -> None:
-    """Runtime monitor should default to Gamma-Poisson detector."""
-    from custom_components.autodoctor.runtime_monitor import _GammaPoissonDetector
+    """Runtime monitor should default to BOCPD detector."""
+    from custom_components.autodoctor.runtime_monitor import _BOCPDDetector
 
     monitor = RuntimeHealthMonitor(hass)
-    assert isinstance(monitor._detector, _GammaPoissonDetector)
+    assert isinstance(monitor._detector, _BOCPDDetector)
 
 
 def test_runtime_monitor_default_anomaly_threshold_matches_log10_scale(
     hass: HomeAssistant,
 ) -> None:
-    """Default anomaly_threshold must be 1.3 (-log10 p≈0.05) for Gamma-Poisson."""
+    """Default anomaly_threshold should remain calibrated to log10 tail scale."""
     monitor = RuntimeHealthMonitor(hass)
     assert monitor.anomaly_threshold == 1.3
 
@@ -1386,3 +1386,10 @@ def test_legacy_row_builders_removed() -> None:
     assert not hasattr(RuntimeHealthMonitor, "_build_current_row"), (
         "_build_current_row is dead code — use _build_feature_row"
     )
+
+
+def test_legacy_gamma_poisson_class_removed() -> None:
+    """Legacy runtime detector should no longer be exported."""
+    from custom_components.autodoctor import runtime_monitor
+
+    assert not hasattr(runtime_monitor, "_GammaPoissonDetector")

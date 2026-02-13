@@ -30,8 +30,8 @@ def _build_monitor(
     )
 
 
-def test_gap_model_updates_lambda_and_p99_from_intervals(tmp_path: Path) -> None:
-    """Gap model should derive lambda and p99 threshold from rolling intervals."""
+def test_gap_model_stores_last_trigger_only(tmp_path: Path) -> None:
+    """Gap model should retain only last trigger timestamp in BOCPD mode."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
     monitor = _build_monitor(tmp_path, now)
     aid = "automation.gap_model"
@@ -47,14 +47,16 @@ def test_gap_model_updates_lambda_and_p99_from_intervals(tmp_path: Path) -> None
 
     state = monitor.get_runtime_state()
     gap_state = state["automations"][aid]["gap_model"]
-    assert gap_state["lambda_per_minute"] > 0
-    assert gap_state["p99_minutes"] > 0
+    assert gap_state["last_trigger"] == timestamps[-1].isoformat()
+    assert "intervals_minutes" not in gap_state
+    assert "lambda_per_minute" not in gap_state
+    assert "p99_minutes" not in gap_state
 
 
-def test_hourly_gap_check_emits_gap_issue_when_elapsed_exceeds_p99(
+def test_hourly_gap_check_emits_gap_issue_when_elapsed_exceeds_expected_gap(
     tmp_path: Path,
 ) -> None:
-    """Hourly gap check should alert when elapsed gap exceeds learned p99."""
+    """Hourly gap check should alert when elapsed gap exceeds learned expected gap."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
     monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
     aid = "automation.gap_alert"
@@ -70,4 +72,4 @@ def test_hourly_gap_check_emits_gap_issue_when_elapsed_exceeds_p99(
 
     assert gap_issues
     assert gap_issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
-    assert "p99" in gap_issues[0].message.lower()
+    assert "expected gap" in gap_issues[0].message.lower()

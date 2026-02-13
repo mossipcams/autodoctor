@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-RUNTIME_HEALTH_STATE_SCHEMA_VERSION = 1
+RUNTIME_HEALTH_STATE_SCHEMA_VERSION = 2
 _DEFAULT_FILENAME = "autodoctor_runtime_health_state.json"
 
 
@@ -17,14 +17,10 @@ def _default_automation_state() -> dict[str, Any]:
     return {
         "count_model": {
             "buckets": {},
-            "negative_binomial_buckets": [],
             "anomaly_streak": 0,
         },
         "gap_model": {
-            "intervals_minutes": [],
             "last_trigger": None,
-            "lambda_per_minute": 0.0,
-            "p99_minutes": 0.0,
         },
         "burst_model": {
             "recent_triggers": [],
@@ -126,6 +122,139 @@ class RuntimeHealthStateStore:
             if not isinstance(automation_state, dict):
                 automation_state = {}
                 automations_dict[automation_id] = automation_state
-            _deep_merge_defaults(automation_state, _default_automation_state())
+            self._migrate_automation_state(cast(dict[str, Any], automation_state))
+            _deep_merge_defaults(
+                cast(dict[str, Any], automation_state), _default_automation_state()
+            )
 
         return migrated
+
+    def _migrate_automation_state(self, automation_state: dict[str, Any]) -> None:
+        count_model_raw = automation_state.get("count_model")
+        count_model = (
+            cast(dict[str, Any], count_model_raw)
+            if isinstance(count_model_raw, dict)
+            else {}
+        )
+        buckets_raw = count_model.get("buckets")
+        buckets = (
+            cast(dict[str, Any], buckets_raw) if isinstance(buckets_raw, dict) else {}
+        )
+        migrated_buckets: dict[str, Any] = {}
+        for bucket_name, bucket_state_raw in list(buckets.items()):
+            bucket_state = (
+                cast(dict[str, Any], bucket_state_raw)
+                if isinstance(bucket_state_raw, dict)
+                else {}
+            )
+            migrated_buckets[bucket_name] = self._migrate_count_bucket(bucket_state)
+
+        automation_state["count_model"] = {
+            "buckets": migrated_buckets,
+            "anomaly_streak": max(
+                0, self._coerce_int(count_model.get("anomaly_streak"), 0)
+            ),
+        }
+
+        gap_model_raw = automation_state.get("gap_model")
+        gap_model = (
+            cast(dict[str, Any], gap_model_raw)
+            if isinstance(gap_model_raw, dict)
+            else {}
+        )
+        last_trigger = gap_model.get("last_trigger")
+        automation_state["gap_model"] = {
+            "last_trigger": last_trigger if isinstance(last_trigger, str) else None
+        }
+
+    def _migrate_count_bucket(self, bucket_state: dict[str, Any]) -> dict[str, Any]:
+        run_length_probs_raw = bucket_state.get("run_length_probs")
+        observations_raw = bucket_state.get("observations")
+        if isinstance(run_length_probs_raw, list) and isinstance(
+            observations_raw, list
+        ):
+            run_length_probs_values = cast(list[Any], run_length_probs_raw)
+            run_length_probs = self._normalize_probs(
+                [self._coerce_float(value, 0.0) for value in run_length_probs_values]
+            )
+            observations = [
+                max(0, self._coerce_int(value, 0))
+                for value in cast(list[Any], observations_raw)
+            ]
+            map_run_length = self._coerce_int(
+                bucket_state.get("map_run_length"),
+                self._argmax(run_length_probs),
+            )
+            expected_rate = self._coerce_float(
+                bucket_state.get("expected_rate"),
+                self._mean(observations),
+            )
+            return {
+                "run_length_probs": run_length_probs,
+                "observations": observations,
+                "current_day": str(bucket_state.get("current_day", "")),
+                "current_count": max(
+                    0, self._coerce_int(bucket_state.get("current_count"), 0)
+                ),
+                "map_run_length": max(0, map_run_length),
+                "expected_rate": max(0.0, expected_rate),
+            }
+
+        legacy_counts_raw = bucket_state.get("counts")
+        legacy_counts = (
+            [
+                max(0, self._coerce_int(value, 0))
+                for value in cast(list[Any], legacy_counts_raw)
+            ]
+            if isinstance(legacy_counts_raw, list)
+            else []
+        )
+        return {
+            "run_length_probs": [1.0],
+            "observations": legacy_counts,
+            "current_day": str(bucket_state.get("current_day", "")),
+            "current_count": max(
+                0, self._coerce_int(bucket_state.get("current_count"), 0)
+            ),
+            "map_run_length": 0,
+            "expected_rate": self._mean(legacy_counts),
+        }
+
+    @staticmethod
+    def _normalize_probs(values: list[float]) -> list[float]:
+        if not values:
+            return [1.0]
+        clamped = [max(0.0, float(value)) for value in values]
+        total = float(sum(clamped))
+        if total <= 0.0:
+            return [1.0]
+        normalized = [value / total for value in clamped]
+        while len(normalized) > 1 and normalized[-1] <= 1e-15:
+            normalized.pop()
+        return normalized
+
+    @staticmethod
+    def _argmax(values: list[float]) -> int:
+        if not values:
+            return 0
+        return int(max(range(len(values)), key=values.__getitem__))
+
+    @staticmethod
+    def _mean(values: list[int]) -> float:
+        if not values:
+            return 0.0
+        return float(sum(values)) / float(len(values))
+
+    @staticmethod
+    def _coerce_int(value: Any, fallback: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    @staticmethod
+    def _coerce_float(value: Any, fallback: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
