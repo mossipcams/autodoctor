@@ -2194,9 +2194,7 @@ async def test_options_updated_reloads() -> None:
 
 
 @pytest.mark.asyncio
-async def test_options_updated_no_notification_when_runtime_health_enabled() -> (
-    None
-):
+async def test_options_updated_no_notification_when_runtime_health_enabled() -> None:
     """Enabling runtime health should not require river-specific notifications."""
     from custom_components.autodoctor import _async_options_updated
 
