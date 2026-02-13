@@ -238,6 +238,20 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
     assert result["errors"]["base"] == "baseline_too_short_for_training"
 
 
+def test_options_schema_anomaly_threshold_accepts_log10_scale_values() -> None:
+    """Anomaly threshold range must accept values on the -log10(p) scale (up to 6.0)."""
+    schema = OptionsFlowHandler._build_options_schema(defaults={})
+
+    valid = schema({CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 1.3})
+    assert valid[CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD] == 1.3
+
+    valid = schema({CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 3.0})
+    assert valid[CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD] == 3.0
+
+    with pytest.raises(vol.Invalid):
+        schema({CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 7.0})
+
+
 def test_options_schema_runtime_health_hour_ratio_days_range() -> None:
     """Hour-ratio lookback should be bounded by schema range checks."""
     schema = OptionsFlowHandler._build_options_schema(defaults={})

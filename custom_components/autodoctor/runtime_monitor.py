@@ -132,7 +132,7 @@ class RuntimeHealthMonitor:
         baseline_days: int = 30,
         hour_ratio_days: int = 30,
         warmup_samples: int = 14,
-        anomaly_threshold: float = 0.8,
+        anomaly_threshold: float = 1.3,
         min_expected_events: int = 1,
         overactive_factor: float = 3.0,
         stalled_threshold: float | None = None,

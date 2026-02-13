@@ -38,7 +38,7 @@ class _TestRuntimeMonitor(RuntimeHealthMonitor):
         hass: HomeAssistant,
         history: dict[str, list[datetime]],
         now: datetime,
-        score: float = 0.95,
+        score: float = 2.0,
         **kwargs: object,
     ) -> None:
         super().__init__(
@@ -107,7 +107,7 @@ async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> 
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -132,7 +132,7 @@ async def test_runtime_monitor_flags_overactive_automation(hass: HomeAssistant) 
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
         overactive_factor=3.0,
     )
@@ -201,9 +201,9 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -234,9 +234,9 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -319,6 +319,14 @@ def test_runtime_monitor_defaults_to_gamma_poisson_detector(
     assert isinstance(monitor._detector, _GammaPoissonDetector)
 
 
+def test_runtime_monitor_default_anomaly_threshold_matches_log10_scale(
+    hass: HomeAssistant,
+) -> None:
+    """Default anomaly_threshold must be 1.3 (-log10 p≈0.05) for Gamma-Poisson."""
+    monitor = RuntimeHealthMonitor(hass)
+    assert monitor.anomaly_threshold == 1.3
+
+
 @pytest.mark.asyncio
 async def test_fetch_trigger_history_uses_modern_schema(
     hass: HomeAssistant,
@@ -375,14 +383,14 @@ def test_constructor_logs_config_params(
             hass,
             baseline_days=30,
             warmup_samples=14,
-            anomaly_threshold=0.8,
+            anomaly_threshold=1.3,
             min_expected_events=1,
             overactive_factor=3.0,
         )
 
     assert "baseline_days=30" in caplog.text
     assert "warmup_samples=14" in caplog.text
-    assert "anomaly_threshold=0.8" in caplog.text
+    assert "anomaly_threshold=1.3" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -705,9 +713,9 @@ async def test_validate_automations_logs_stalled_detection(
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
     )
 
@@ -737,9 +745,9 @@ async def test_validate_automations_logs_overactive_detection(
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
-        anomaly_threshold=0.8,
+        anomaly_threshold=1.3,
         min_expected_events=0,
         overactive_factor=3.0,
     )
@@ -788,12 +796,12 @@ async def test_runtime_monitor_uses_separate_thresholds(
         hass,
         history=history,
         now=now,
-        score=0.5,
+        score=1.5,
         warmup_samples=7,
         min_expected_events=0,
         overactive_factor=3.0,
-        stalled_threshold=0.9,
-        overactive_threshold=0.4,
+        stalled_threshold=2.0,
+        overactive_threshold=1.0,
     )
 
     issues = await monitor.validate_automations(
@@ -819,10 +827,10 @@ async def test_runtime_monitor_raises_threshold_when_runtime_issue_previously_su
         hass,
         history=history,
         now=now,
-        score=0.85,
+        score=1.5,
         warmup_samples=7,
         min_expected_events=0,
-        stalled_threshold=0.8,
+        stalled_threshold=1.3,
         dismissed_threshold_multiplier=1.25,
     )
 
@@ -1317,7 +1325,7 @@ async def test_validate_automations_passes_suppression_store_to_dismissed_multip
         hass,
         history=history,
         now=now,
-        score=0.95,
+        score=2.0,
         warmup_samples=7,
         min_expected_events=0,
     )

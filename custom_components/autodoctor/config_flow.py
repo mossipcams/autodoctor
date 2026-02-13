@@ -148,7 +148,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
                         DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
                     ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=6.0)),
                 vol.Optional(
                     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
                     default=defaults.get(
