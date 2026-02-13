@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.24.0](https://github.com/mossipcams/autodoctor/compare/v2.23.3...v2.24.0) (2026-02-13)
+
+
+### Features
+
+* **runtime:** default runtime health scoring to gamma-poisson ([b8e18b4](https://github.com/mossipcams/autodoctor/commit/b8e18b4057f6ea516c621719e32794d03a60b3a7))
+
+
+### Bug Fixes
+
+* **runtime:** address gamma-poisson lint warning ([873dbe3](https://github.com/mossipcams/autodoctor/commit/873dbe3e86db12b0b50e34b06055c903696565d1))
+* **runtime:** calibrate anomaly threshold default for -log10(p) scale ([8d0ef5d](https://github.com/mossipcams/autodoctor/commit/8d0ef5d810a9a02a1bb3f53c8564db15f5bfae43))
+
+
+### Code Refactoring
+
+* **runtime:** remove river dependency and dead detector paths ([1276c40](https://github.com/mossipcams/autodoctor/commit/1276c40c2cc112ccaa7cf1d3a675b76b57179936))
+
 ## [2.23.3](https://github.com/mossipcams/autodoctor/compare/v2.23.2...v2.23.3) (2026-02-12)
 
 
