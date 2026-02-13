@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.0](https://github.com/mossipcams/autodoctor/compare/v2.25.0...v2.26.0) (2026-02-13)
+
+
+### Features
+
+* **runtime:** seed runtime health models from recorder and persist BOCPD state ([8170565](https://github.com/mossipcams/autodoctor/commit/8170565d415c3fe6b59207ec6295bb2f69837039))
+
 ## [2.25.0](https://github.com/mossipcams/autodoctor/compare/v2.24.0...v2.25.0) (2026-02-13)
 
 
