@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.1](https://github.com/mossipcams/autodoctor/compare/v2.26.0...v2.26.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* **runtime:** wrap blocking file I/O with async executor jobs ([64bee41](https://github.com/mossipcams/autodoctor/commit/64bee411a4eb7aaacfcedc9fb9b4a02891d8828e))
+
 ## [2.26.0](https://github.com/mossipcams/autodoctor/compare/v2.25.0...v2.26.0) (2026-02-13)
 
 
