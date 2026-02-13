@@ -1558,6 +1558,89 @@ async def test_async_setup() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_setup_entry_calls_async_load_state() -> None:
+    """async_setup_entry should call runtime_monitor.async_load_state during setup."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {
+        "runtime_health_enabled": True,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    mock_monitor = MagicMock()
+    mock_monitor.async_load_state = AsyncMock()
+    mock_monitor.async_backfill_from_recorder = AsyncMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "custom_components.autodoctor.RuntimeHealthMonitor",
+            return_value=mock_monitor,
+        ),
+        patch(
+            "custom_components.autodoctor.async_track_time_interval",
+            return_value=MagicMock(),
+        ),
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        await async_setup_entry(hass, entry)
+        mock_monitor.async_load_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_calls_async_flush_runtime_state() -> None:
+    """async_unload_entry should call async_flush_runtime_state on runtime_monitor."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    mock_monitor = MagicMock()
+    mock_monitor.async_flush_runtime_state = AsyncMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+            "runtime_monitor": mock_monitor,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    mock_monitor.async_flush_runtime_state.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_async_setup_entry_full_lifecycle() -> None:
     """Test async_setup_entry complete setup flow with all components."""
     from custom_components.autodoctor import async_setup_entry
