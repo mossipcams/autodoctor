@@ -65,6 +65,7 @@ class RuntimeHealthStateStore:
     """Persist runtime health model state in JSON with migration defaults."""
 
     def __init__(self, hass: Any | None = None, *, path: str | Path | None = None):
+        self._hass = hass
         if path is not None:
             self._path = Path(path)
         elif (
@@ -80,6 +81,16 @@ class RuntimeHealthStateStore:
     def path(self) -> Path:
         """Return the configured state file path."""
         return self._path
+
+    async def async_load(self) -> dict[str, Any]:
+        """Load state from disk asynchronously via executor."""
+        assert self._hass is not None
+        return await self._hass.async_add_executor_job(self.load)
+
+    async def async_save(self, state: dict[str, Any]) -> None:
+        """Persist state to disk asynchronously via executor."""
+        assert self._hass is not None
+        await self._hass.async_add_executor_job(self.save, state)
 
     def load(self) -> dict[str, Any]:
         """Load state from disk, returning migrated defaults on failure or absence."""

@@ -403,7 +403,12 @@ class RuntimeHealthMonitor:
         self._last_query_failed = False
         self._live_trigger_events: dict[str, list[datetime]] = defaultdict(list)
         self._runtime_state_store = runtime_state_store or RuntimeHealthStateStore(hass)
-        self._runtime_state = self._runtime_state_store.load()
+        self._runtime_state = {
+            "schema_version": 2,
+            "automations": {},
+            "alerts": {"date": "", "global_count": 0},
+            "updated_at": "",
+        }
         self._active_runtime_alerts: dict[str, ValidationIssue] = {}
         self._last_runtime_state_flush = self._now_factory()
         self._runtime_state_flush_interval = timedelta(
@@ -433,6 +438,14 @@ class RuntimeHealthMonitor:
     def get_active_runtime_alerts(self) -> list[ValidationIssue]:
         """Return currently tracked runtime alerts."""
         return list(self._active_runtime_alerts.values())
+
+    async def async_load_state(self) -> None:
+        """Load persisted runtime state asynchronously."""
+        self._runtime_state = await self._runtime_state_store.async_load()
+
+    async def async_flush_runtime_state(self) -> None:
+        """Force a runtime state persistence flush asynchronously."""
+        await self._runtime_state_store.async_save(self._runtime_state)
 
     def flush_runtime_state(self) -> None:
         """Force a runtime state persistence flush."""
@@ -1129,13 +1142,15 @@ class RuntimeHealthMonitor:
         self._persist_runtime_state()
 
     def _persist_runtime_state(self) -> None:
-        self._runtime_state_store.save(self._runtime_state)
+        snapshot = deepcopy(self._runtime_state)
+        self.hass.async_create_task(self._runtime_state_store.async_save(snapshot))
         self._last_runtime_state_flush = self._now_factory()
 
     def _maybe_flush_runtime_state(self, now: datetime) -> None:
         if (now - self._last_runtime_state_flush) < self._runtime_state_flush_interval:
             return
-        self._runtime_state_store.save(self._runtime_state)
+        snapshot = deepcopy(self._runtime_state)
+        self.hass.async_create_task(self._runtime_state_store.async_save(snapshot))
         self._last_runtime_state_flush = now
 
     @staticmethod

@@ -1194,7 +1194,7 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
             now - timedelta(days=days_back, hours=2) for days_back in range(2, 40)
         ]
     }
-    store = RuntimeHealthStateStore(path=tmp_path / "runtime_state.json")
+    store = RuntimeHealthStateStore(hass, path=tmp_path / "runtime_state.json")
 
     class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
         def __init__(self) -> None:
@@ -1223,6 +1223,7 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
 
     monitor = _HistoryRuntimeMonitor()
     await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+    await hass.async_block_till_done()
 
     persisted = store.load()
     bucket_name = monitor.classify_time_bucket(now)
@@ -1457,3 +1458,124 @@ def test_legacy_gamma_poisson_class_removed() -> None:
     from custom_components.autodoctor import runtime_monitor
 
     assert not hasattr(runtime_monitor, "_GammaPoissonDetector")
+
+
+def test_init_does_not_call_sync_load(hass: HomeAssistant) -> None:
+    """RuntimeHealthMonitor.__init__ should not call sync load on the state store."""
+    mock_store = MagicMock()
+    mock_store.load.return_value = {
+        "schema_version": 2,
+        "automations": {},
+        "alerts": {"date": "", "global_count": 0},
+    }
+    _TestRuntimeMonitor(
+        hass,
+        history={},
+        now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
+        runtime_state_store=mock_store,
+    )
+    mock_store.load.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_load_state_populates_runtime_state(
+    hass: HomeAssistant,
+) -> None:
+    """async_load_state should populate _runtime_state from the state store."""
+    mock_store = MagicMock()
+
+    async def _async_load():
+        return {
+            "schema_version": 2,
+            "automations": {"automation.test": {"count_model": {"buckets": {}}}},
+            "alerts": {"date": "", "global_count": 0},
+        }
+
+    mock_store.async_load = _async_load
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={},
+        now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
+        runtime_state_store=mock_store,
+    )
+    await monitor.async_load_state()
+    state = monitor.get_runtime_state()
+    assert "automation.test" in state["automations"]
+
+
+@pytest.mark.asyncio
+async def test_async_flush_runtime_state_persists_to_disk(
+    hass: HomeAssistant,
+    tmp_path,
+) -> None:
+    """async_flush_runtime_state should await async_save on the store."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    state_path = tmp_path / "runtime_state.json"
+
+    async def _run_in_executor(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _run_in_executor
+    store = RuntimeHealthStateStore(hass, path=state_path)
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={},
+        now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
+        runtime_state_store=store,
+    )
+    await monitor.async_flush_runtime_state()
+    assert state_path.exists()
+
+
+def test_persist_runtime_state_uses_fire_and_forget(
+    hass: HomeAssistant,
+) -> None:
+    """_persist_runtime_state should use async_create_task for fire-and-forget."""
+    mock_store = MagicMock()
+    mock_store.async_save = AsyncMock()
+    created_tasks: list[object] = []
+    original_create_task = hass.async_create_task
+    hass.async_create_task = lambda coro, *a, **kw: created_tasks.append(coro)
+    try:
+        monitor = _TestRuntimeMonitor(
+            hass,
+            history={},
+            now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
+            runtime_state_store=mock_store,
+        )
+        monitor._persist_runtime_state()
+        assert len(created_tasks) == 1, (
+            "Expected _persist_runtime_state to call async_create_task once"
+        )
+    finally:
+        hass.async_create_task = original_create_task
+
+
+def test_maybe_flush_runtime_state_uses_fire_and_forget(
+    hass: HomeAssistant,
+) -> None:
+    """_maybe_flush_runtime_state should use async_create_task when interval elapsed."""
+    mock_store = MagicMock()
+    mock_store.async_save = AsyncMock()
+    created_tasks: list[object] = []
+    original_create_task = hass.async_create_task
+    hass.async_create_task = lambda coro, *a, **kw: created_tasks.append(coro)
+    try:
+        now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+        monitor = _TestRuntimeMonitor(
+            hass,
+            history={},
+            now=now,
+            runtime_state_store=mock_store,
+        )
+        # Force flush by advancing past the interval
+        future = now + timedelta(minutes=20)
+        monitor._maybe_flush_runtime_state(future)
+        assert len(created_tasks) == 1, (
+            "Expected _maybe_flush_runtime_state to call async_create_task once"
+        )
+    finally:
+        hass.async_create_task = original_create_task
