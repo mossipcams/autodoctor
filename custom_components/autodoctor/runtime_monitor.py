@@ -7,8 +7,8 @@ import logging
 import math
 import sqlite3
 import threading
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
-from collections.abc import Iterable
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
@@ -23,7 +23,7 @@ from .const import (
     DOMAIN,
 )
 from .models import IssueType, Severity, ValidationIssue
-from .runtime_health_state_store import RuntimeHealthStateStore
+from .runtime_health_state_store import RuntimeHealthStateStore, _default_state
 
 _LOGGER = logging.getLogger(__name__)
 _TELEMETRY_RETENTION_DAYS = 90
@@ -189,19 +189,41 @@ class _BOCPDDetector:
     def _score_tail_probability(
         self, state: dict[str, Any], current_count: int
     ) -> float:
-        pmf_current = self.predictive_pmf_for_count(state, current_count)
+        self._ensure_state(state)
+        observations = cast(list[int], state["observations"])
+        probs = cast(list[float], state["run_length_probs"])
+
+        # Pre-compute posterior params once per run-length
+        components: list[tuple[float, float, float]] = []
+        expected = 0.0
+        for run_length, mass in enumerate(probs):
+            if mass <= 0.0:
+                continue
+            alpha, beta = self._posterior_params(observations, run_length)
+            p = beta / (beta + 1.0)
+            components.append((mass, alpha, p))
+            expected += mass * (alpha / beta)
+        expected = max(0.0, expected)
+
+        def _fast_pmf(candidate: int) -> float:
+            total = 0.0
+            for mass, alpha, p in components:
+                total += mass * self._nb_pmf(candidate, alpha, p)
+            return max(0.0, total)
+
+        pmf_current = _fast_pmf(current_count)
         if pmf_current <= 0.0:
             return 12.0
 
         upper_limit = max(
             current_count + 64,
-            round(self.expected_rate(state) * 8.0) + 32,
+            round(expected * 8.0) + 32,
             64,
         )
         cumulative = 0.0
         cdf = 0.0
         for count in range(upper_limit + 1):
-            mass = self.predictive_pmf_for_count(state, count)
+            mass = _fast_pmf(count)
             cumulative += mass
             if count <= current_count:
                 cdf += mass
@@ -406,7 +428,7 @@ class RuntimeHealthMonitor:
         self._last_query_failed = False
         self._live_trigger_events: dict[str, list[datetime]] = defaultdict(list)
         self._runtime_state_store = runtime_state_store or RuntimeHealthStateStore(hass)
-        self._runtime_state = self._runtime_state_store.load()
+        self._runtime_state = _default_state()
         self._active_runtime_alerts: dict[str, ValidationIssue] = {}
         self._last_runtime_state_flush = self._now_factory()
         self._runtime_state_flush_interval = timedelta(
@@ -425,6 +447,10 @@ class RuntimeHealthMonitor:
             type(self._detector).__name__,
         )
 
+    async def async_load_state(self) -> None:
+        """Load persisted runtime state asynchronously."""
+        self._runtime_state = await self._runtime_state_store.async_load()
+
     def get_last_run_stats(self) -> dict[str, int]:
         """Return telemetry from the most recent run."""
         return dict(self._last_run_stats)
@@ -440,6 +466,10 @@ class RuntimeHealthMonitor:
     def flush_runtime_state(self) -> None:
         """Force a runtime state persistence flush."""
         self._persist_runtime_state()
+
+    async def async_flush_runtime_state(self) -> None:
+        """Force a runtime state persistence flush asynchronously."""
+        await self._runtime_state_store.async_save(self._runtime_state)
 
     async def async_backfill_from_recorder(
         self,
@@ -919,34 +949,30 @@ class RuntimeHealthMonitor:
         }
         coverage = sensitivity_to_coverage.get(self.sensitivity, 0.95)
         tail = (1.0 - coverage) / 2.0
-        lower = self._bocpd_quantile(bucket_state, tail)
-        upper = self._bocpd_quantile(bucket_state, 1.0 - tail)
-        return max(0, lower), max(0, upper)
-
-    def _bocpd_quantile(self, bucket_state: dict[str, Any], quantile: float) -> int:
-        q = min(1.0, max(0.0, quantile))
-        if q <= 0.0:
-            return 0
-        if q >= 1.0:
-            return 10_000
+        lower_q = min(1.0, max(0.0, tail))
+        upper_q = min(1.0, max(0.0, 1.0 - tail))
 
         cumulative = 0.0
+        lower = 0
+        upper = 10_000
+        lower_found = False
+        upper_found = False
         expected = self._bocpd_count_detector.expected_rate(bucket_state)
         max_count = max(64, round(expected * 10.0) + 32)
-        for count in range(max_count + 1):
+        for count in range(10_001):
             cumulative += self._bocpd_count_detector.predictive_pmf_for_count(
                 bucket_state, count
             )
-            if cumulative >= q:
-                return count
-
-        for count in range(max_count + 1, 10_001):
-            cumulative += self._bocpd_count_detector.predictive_pmf_for_count(
-                bucket_state, count
-            )
-            if cumulative >= q:
-                return count
-        return 10_000
+            if not lower_found and cumulative >= lower_q:
+                lower = count
+                lower_found = True
+            if not upper_found and cumulative >= upper_q:
+                upper = count
+                upper_found = True
+                break
+            if count > max_count and cumulative >= 0.999999:
+                break
+        return max(0, lower), max(0, upper)
 
     def _detect_burst_anomaly(
         self,
@@ -1132,13 +1158,19 @@ class RuntimeHealthMonitor:
         self._persist_runtime_state()
 
     def _persist_runtime_state(self) -> None:
-        self._runtime_state_store.save(self._runtime_state)
+        snapshot = deepcopy(self._runtime_state)
+        self.hass.async_create_task(
+            self._runtime_state_store.async_save(snapshot)
+        )
         self._last_runtime_state_flush = self._now_factory()
 
     def _maybe_flush_runtime_state(self, now: datetime) -> None:
         if (now - self._last_runtime_state_flush) < self._runtime_state_flush_interval:
             return
-        self._runtime_state_store.save(self._runtime_state)
+        snapshot = deepcopy(self._runtime_state)
+        self.hass.async_create_task(
+            self._runtime_state_store.async_save(snapshot)
+        )
         self._last_runtime_state_flush = now
 
     @staticmethod
@@ -1468,10 +1500,10 @@ class RuntimeHealthMonitor:
         if not training:
             return False
 
-        detector = cast(_BOCPDDetector, self._detector)
+        detector = self._detector
         state = detector.initial_state()
         for row in training:
-            detector.update_state(state, detector._coerce_count(row))
+            detector.update_state(state, self._coerce_bocpd_count_from_row(row))
         detector.normalize_state(state)
 
         automation_state = self._ensure_automation_state(automation_id)
@@ -1493,7 +1525,10 @@ class RuntimeHealthMonitor:
             else [1.0]
         )
         bucket_state["observations"] = (
-            [max(0, int(self._coerce_float(value, 0.0))) for value in observations_raw]
+            [
+                max(0, int(self._coerce_float(value, 0.0)))
+                for value in cast(list[Any], observations_raw)
+            ]
             if isinstance(observations_raw, list)
             else []
         )
@@ -1511,6 +1546,14 @@ class RuntimeHealthMonitor:
             int(self._coerce_float(bucket_state.get("current_count"), 0.0)),
         )
         return True
+
+    @staticmethod
+    def _coerce_bocpd_count_from_row(row: dict[str, float]) -> int:
+        value = row.get("rolling_24h_count", 0.0)
+        try:
+            return max(0, round(float(value)))
+        except (TypeError, ValueError):
+            return 0
 
     def _score_current(
         self,
@@ -1625,20 +1668,19 @@ class RuntimeHealthMonitor:
 
     @staticmethod
     def _count_events_in_range(
-        events: Iterable[datetime],
+        events: list[datetime],
         start: datetime,
         end: datetime,
     ) -> int:
-        return sum(1 for ts in events if start <= ts <= end)
+        return bisect_right(events, end) - bisect_left(events, start)
 
     @staticmethod
     def _median_gap_minutes(events: list[datetime]) -> float:
         if len(events) < 2:
             return 60.0
-        sorted_events = sorted(events)
         gaps = [
-            (sorted_events[idx] - sorted_events[idx - 1]).total_seconds() / 60.0
-            for idx in range(1, len(sorted_events))
+            (events[idx] - events[idx - 1]).total_seconds() / 60.0
+            for idx in range(1, len(events))
         ]
         return max(1.0, float(median(gaps)))
 
@@ -1689,7 +1731,7 @@ class RuntimeHealthMonitor:
         median_gap_override: float | None = None,
         bucket_index: dict[datetime, set[str]] | None = None,
     ) -> dict[str, float]:
-        events_up_to_now = [ts for ts in automation_events if ts <= now]
+        events_up_to_now = automation_events[:bisect_right(automation_events, now)]
         rolling_24h_count = float(
             RuntimeHealthMonitor._count_events_in_range(
                 events_up_to_now, now - timedelta(hours=24), now
@@ -1703,9 +1745,9 @@ class RuntimeHealthMonitor:
 
         baseline_window_days = max(1, hour_ratio_days)
         baseline_window_start = now - timedelta(days=baseline_window_days)
-        baseline_30d = [
-            ts for ts in baseline_events if baseline_window_start <= ts < now
-        ]
+        bl_start = bisect_left(baseline_events, baseline_window_start)
+        bl_end = bisect_left(baseline_events, now)
+        baseline_30d = baseline_events[bl_start:bl_end]
         current_hour_start = now.replace(minute=0, second=0, microsecond=0)
         current_hour_count = float(
             RuntimeHealthMonitor._count_events_in_range(
@@ -1768,6 +1810,10 @@ class RuntimeHealthMonitor:
         median_gap_override: float | None = None,
         bucket_index: dict[datetime, set[str]] | None = None,
     ) -> list[dict[str, float]]:
+        if median_gap_override is None:
+            median_gap_override = RuntimeHealthMonitor._median_gap_minutes(
+                baseline_events
+            )
         rows: list[dict[str, float]] = []
         current = baseline_start + timedelta(days=max(0, cold_start_days))
         while current < baseline_end:

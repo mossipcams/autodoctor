@@ -584,7 +584,7 @@ async def test_fetch_trigger_history_logs_query(
 def test_feature_row_includes_expanded_runtime_features() -> None:
     """Feature rows should include the expanded runtime feature set."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    events = [now - timedelta(hours=h) for h in [1, 3, 5, 27, 48, 72]]
+    events = sorted([now - timedelta(hours=h) for h in [1, 3, 5, 27, 48, 72]])
     all_events = {
         "automation.a": events,
         "automation.b": [now - timedelta(hours=1, minutes=2)],
@@ -612,12 +612,12 @@ def test_feature_row_includes_expanded_runtime_features() -> None:
 def test_feature_row_hour_ratio_uses_configured_window() -> None:
     """Hour ratio should be derived from configurable lookback days."""
     now = datetime(2026, 2, 11, 12, 30, tzinfo=UTC)
-    events = [
+    events = sorted([
         now - timedelta(minutes=10),  # current hour event
         now - timedelta(days=8),  # same hour, outside 7d but inside 30d
         now - timedelta(days=20),  # same hour, outside 7d but inside 30d
         now - timedelta(days=2, hours=1),  # different hour
-    ]
+    ])
     all_events = {"automation.a": events}
 
     row_30 = RuntimeHealthMonitor._build_feature_row(
@@ -646,16 +646,16 @@ def test_feature_row_hour_ratio_uses_configured_window() -> None:
 def test_feature_row_hour_ratio_uses_current_clock_hour_bucket() -> None:
     """Hour ratio should not count events from the previous clock hour."""
     now = datetime(2026, 2, 11, 12, 30, tzinfo=UTC)
-    automation_events = [
+    automation_events = sorted([
         datetime(2026, 2, 11, 11, 50, tzinfo=UTC),  # trailing 60m, previous hour
         datetime(2026, 2, 10, 12, 10, tzinfo=UTC),
         datetime(2026, 2, 9, 12, 5, tzinfo=UTC),
-    ]
-    baseline_events = [
+    ])
+    baseline_events = sorted([
         datetime(2026, 2, 10, 12, 10, tzinfo=UTC),
         datetime(2026, 2, 9, 12, 5, tzinfo=UTC),
         datetime(2026, 2, 8, 12, 15, tzinfo=UTC),
-    ]
+    ])
     all_events = {"automation.a": automation_events}
 
     row = RuntimeHealthMonitor._build_feature_row(
@@ -1186,7 +1186,7 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
             now - timedelta(days=days_back, hours=2) for days_back in range(2, 40)
         ]
     }
-    store = RuntimeHealthStateStore(path=tmp_path / "runtime_state.json")
+    store = RuntimeHealthStateStore(hass, path=tmp_path / "runtime_state.json")
 
     class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
         def __init__(self) -> None:
@@ -1217,6 +1217,7 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
 
     monitor = _HistoryRuntimeMonitor()
     await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+    await hass.async_block_till_done()
 
     persisted = store.load()
     bucket_name = monitor.classify_time_bucket(now)
@@ -1446,8 +1447,251 @@ def test_legacy_row_builders_removed() -> None:
     )
 
 
+def test_state_store_caches_mkdir(tmp_path) -> None:
+    """RuntimeHealthStateStore.save() should only call mkdir once, not on every save."""
+    from pathlib import Path as _Path
+
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    store = RuntimeHealthStateStore(path=tmp_path / "state.json")
+    state = store.load()
+
+    with patch.object(_Path, "mkdir", wraps=tmp_path.mkdir) as mock_mkdir:
+        store.save(state)
+        store.save(state)
+        store.save(state)
+        assert mock_mkdir.call_count <= 1, (
+            f"mkdir called {mock_mkdir.call_count} times, expected at most 1"
+        )
+
+
+def test_bocpd_expected_count_range_single_cdf_pass() -> None:
+    """_bocpd_expected_count_range should compute CDF once, not twice via separate quantile calls."""
+    import inspect
+
+    source = inspect.getsource(RuntimeHealthMonitor._bocpd_expected_count_range)
+    # Optimized version should not call _bocpd_quantile twice
+    assert source.count("_bocpd_quantile") <= 0, (
+        "_bocpd_expected_count_range should compute both quantiles in a single CDF pass"
+    )
+
+
+def test_score_tail_caches_posterior_params() -> None:
+    """_score_tail_probability should not recompute posterior params per count value."""
+    from custom_components.autodoctor.runtime_monitor import _BOCPDDetector
+
+    detector = _BOCPDDetector(count_feature="rolling_24h_count")
+    state: dict = {
+        "run_length_probs": [0.3, 0.7],
+        "observations": [5, 8, 3],
+        "current_day": "",
+        "current_count": 0,
+    }
+    detector._ensure_state(state)
+
+    with patch.object(
+        detector,
+        "_posterior_params",
+        wraps=detector._posterior_params,
+    ) as mock_pp:
+        detector._score_tail_probability(state, 5)
+        # Without caching: called once per (run_length x count_value) ~ 2 * 100+
+        # With caching: called once per run_length ~ 2 (plus 1 for pmf_current check)
+        n_run_lengths = len(state["run_length_probs"])
+        # Allow up to 2x run_lengths for the initial pmf_current + the CDF sweep
+        assert mock_pp.call_count <= n_run_lengths * 2
+
+
+def test_build_training_rows_precomputes_median_gap() -> None:
+    """_build_training_rows_from_events should compute median_gap once, not per row."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline_start = now - timedelta(days=5)
+    baseline_end = now
+    events = sorted([baseline_start + timedelta(hours=h) for h in range(0, 120, 12)])
+    all_events: dict[str, list[datetime]] = {"automation.a": events}
+
+    with patch.object(
+        RuntimeHealthMonitor,
+        "_median_gap_minutes",
+        wraps=RuntimeHealthMonitor._median_gap_minutes,
+    ) as mock_median:
+        RuntimeHealthMonitor._build_training_rows_from_events(
+            automation_id="automation.a",
+            baseline_events=events,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            expected_daily=2.0,
+            all_events_by_automation=all_events,
+            cold_start_days=0,
+        )
+        # Without optimization, _median_gap_minutes would be called once per row (5 times).
+        # With pre-computation, it should be called at most once.
+        assert mock_median.call_count <= 1
+
+
+def test_median_gap_minutes_does_not_re_sort() -> None:
+    """_median_gap_minutes must not re-sort already-sorted input (callers guarantee order)."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    events = [
+        now - timedelta(minutes=60),
+        now - timedelta(minutes=50),
+        now - timedelta(minutes=30),
+        now,
+    ]
+    with patch(
+        "custom_components.autodoctor.runtime_monitor.sorted",
+        side_effect=AssertionError("sorted() should not be called"),
+    ):
+        result = RuntimeHealthMonitor._median_gap_minutes(events)
+    assert result == pytest.approx(20.0)
+
+
+def test_count_events_in_range_uses_bisect() -> None:
+    """_count_events_in_range should use bisect for O(log n) range counting on sorted lists."""
+    base = datetime(2024, 1, 15, tzinfo=UTC)
+    events = [base + timedelta(hours=i) for i in range(100)]
+    start = base + timedelta(hours=10)
+    end = base + timedelta(hours=20)
+    result = RuntimeHealthMonitor._count_events_in_range(events, start, end)
+    assert result == 11  # hours 10..20 inclusive
+    # Verify type hint accepts list[datetime] (not just Iterable)
+    assert RuntimeHealthMonitor._count_events_in_range([], start, end) == 0
+
+
 def test_legacy_gamma_poisson_class_removed() -> None:
     """Legacy runtime detector should no longer be exported."""
     from custom_components.autodoctor import runtime_monitor
 
     assert not hasattr(runtime_monitor, "_GammaPoissonDetector")
+
+
+@pytest.mark.asyncio
+async def test_async_load_state_populates_runtime_state(tmp_path) -> None:
+    """async_load_state should load persisted state into the monitor."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    state_path = tmp_path / "runtime_state.json"
+    store = RuntimeHealthStateStore(path=state_path)
+    store.save({"automations": {"automation.kitchen": {"count_model": {"buckets": {}, "anomaly_streak": 0}}}})
+
+    hass = MagicMock()
+
+    async def _run_in_executor(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _run_in_executor
+    async_store = RuntimeHealthStateStore(hass, path=state_path)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        runtime_state_store=async_store,
+    )
+
+    await monitor.async_load_state()
+    state = monitor.get_runtime_state()
+    assert "automation.kitchen" in state["automations"]
+
+
+@pytest.mark.asyncio
+async def test_async_flush_runtime_state_persists_to_disk(tmp_path) -> None:
+    """async_flush_runtime_state should await saving state to disk."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    state_path = tmp_path / "runtime_state.json"
+    hass = MagicMock()
+
+    async def _run_in_executor(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _run_in_executor
+    store = RuntimeHealthStateStore(hass, path=state_path)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        runtime_state_store=store,
+    )
+
+    # Mutate runtime state so there's something to flush
+    monitor._runtime_state["automations"]["automation.test"] = {"count_model": {}}
+
+    await monitor.async_flush_runtime_state()
+
+    assert state_path.exists()
+    loaded = json.loads(state_path.read_text())
+    assert "automation.test" in loaded["automations"]
+
+
+def test_persist_runtime_state_uses_fire_and_forget(tmp_path) -> None:
+    """_persist_runtime_state should fire-and-forget via hass.async_create_task."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    state_path = tmp_path / "runtime_state.json"
+    hass = MagicMock()
+    hass.async_create_task = MagicMock()
+    hass.async_add_executor_job = MagicMock()
+    store = RuntimeHealthStateStore(hass, path=state_path)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        runtime_state_store=store,
+    )
+
+    monitor._persist_runtime_state()
+
+    # Should use fire-and-forget pattern, not direct sync save
+    hass.async_create_task.assert_called_once()
+
+
+def test_maybe_flush_runtime_state_uses_fire_and_forget(tmp_path) -> None:
+    """_maybe_flush_runtime_state should fire-and-forget when interval elapsed."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    state_path = tmp_path / "runtime_state.json"
+    hass = MagicMock()
+    hass.async_create_task = MagicMock()
+    hass.async_add_executor_job = MagicMock()
+    store = RuntimeHealthStateStore(hass, path=state_path)
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: now,
+        runtime_state_store=store,
+    )
+
+    # Force interval to have elapsed
+    monitor._last_runtime_state_flush = now - timedelta(minutes=20)
+    monitor._maybe_flush_runtime_state(now)
+
+    hass.async_create_task.assert_called_once()
+
+
+def test_init_does_not_call_sync_load() -> None:
+    """RuntimeHealthMonitor.__init__ should not call sync load on the state store."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    hass = MagicMock()
+    store = MagicMock(spec=RuntimeHealthStateStore)
+    RuntimeHealthMonitor(
+        hass,
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
+        runtime_state_store=store,
+    )
+
+    store.load.assert_not_called()

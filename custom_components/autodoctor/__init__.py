@@ -441,6 +441,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if runtime_enabled and runtime_monitor is not None:
         try:
+            await runtime_monitor.async_load_state()
+        except Exception as err:
+            _LOGGER.warning("Runtime state load failed during setup: %s", err)
+        try:
             await runtime_monitor.async_backfill_from_recorder(
                 _get_automation_configs(hass)
             )
@@ -535,10 +539,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         runtime_monitor = data.get("runtime_monitor")
         if runtime_monitor is not None and hasattr(
-            runtime_monitor, "flush_runtime_state"
+            runtime_monitor, "async_flush_runtime_state"
         ):
             try:
-                runtime_monitor.flush_runtime_state()
+                await runtime_monitor.async_flush_runtime_state()
             except Exception as err:
                 _LOGGER.debug("Failed to flush runtime state during unload: %s", err)
 

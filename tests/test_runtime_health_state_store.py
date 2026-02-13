@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -182,3 +183,49 @@ def test_migrate_v1_to_v2_strips_gap_model_fields(tmp_path: Path) -> None:
 
     gap_model = loaded["automations"]["automation.legacy"]["gap_model"]
     assert gap_model == {"last_trigger": "2026-02-13T11:50:00+00:00"}
+
+
+@pytest.mark.asyncio
+async def test_async_load_delegates_to_sync_load(tmp_path: Path) -> None:
+    """async_load should delegate to sync load via hass.async_add_executor_job."""
+    state_path = tmp_path / "runtime_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": RUNTIME_HEALTH_STATE_SCHEMA_VERSION,
+                "automations": {},
+                "alerts": {"date": "", "global_count": 0},
+            }
+        )
+    )
+    hass = MagicMock()
+
+    async def _run_in_executor(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _run_in_executor
+    store = RuntimeHealthStateStore(hass, path=state_path)
+    state = await store.async_load()
+
+    assert state["schema_version"] == RUNTIME_HEALTH_STATE_SCHEMA_VERSION
+    assert state["automations"] == {}
+
+
+@pytest.mark.asyncio
+async def test_async_save_delegates_to_sync_save(tmp_path: Path) -> None:
+    """async_save should delegate to sync save via hass.async_add_executor_job."""
+    state_path = tmp_path / "runtime_state.json"
+    hass = MagicMock()
+
+    async def _run_in_executor(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _run_in_executor
+    store = RuntimeHealthStateStore(hass, path=state_path)
+    await store.async_save(
+        {"schema_version": RUNTIME_HEALTH_STATE_SCHEMA_VERSION, "automations": {}}
+    )
+
+    assert state_path.exists()
+    loaded = json.loads(state_path.read_text())
+    assert loaded["schema_version"] == RUNTIME_HEALTH_STATE_SCHEMA_VERSION

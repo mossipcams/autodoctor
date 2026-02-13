@@ -65,6 +65,7 @@ class RuntimeHealthStateStore:
     """Persist runtime health model state in JSON with migration defaults."""
 
     def __init__(self, hass: Any | None = None, *, path: str | Path | None = None):
+        self._hass = hass
         if path is not None:
             self._path = Path(path)
         elif (
@@ -75,11 +76,20 @@ class RuntimeHealthStateStore:
             self._path = Path(hass.config.path(_DEFAULT_FILENAME))
         else:
             self._path = Path(_DEFAULT_FILENAME)
+        self._dir_ensured = False
 
     @property
     def path(self) -> Path:
         """Return the configured state file path."""
         return self._path
+
+    async def async_load(self) -> dict[str, Any]:
+        """Load state from disk asynchronously via executor."""
+        return await self._hass.async_add_executor_job(self.load)
+
+    async def async_save(self, state: dict[str, Any]) -> None:
+        """Persist state to disk asynchronously via executor."""
+        await self._hass.async_add_executor_job(self.save, state)
 
     def load(self) -> dict[str, Any]:
         """Load state from disk, returning migrated defaults on failure or absence."""
@@ -97,7 +107,9 @@ class RuntimeHealthStateStore:
         """Persist state to disk using an atomic replace write."""
         migrated = self._migrate(state)
         migrated["updated_at"] = datetime.now(UTC).isoformat()
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._dir_ensured:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._dir_ensured = True
         tmp_path = self._path.with_suffix(f"{self._path.suffix}.tmp")
         tmp_path.write_text(
             json.dumps(migrated, separators=(",", ":"), sort_keys=True),
