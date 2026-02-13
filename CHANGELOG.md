@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.0](https://github.com/mossipcams/autodoctor/compare/v2.24.0...v2.25.0) (2026-02-13)
+
+
+### Features
+
+* **runtime:** migrate runtime health models to BOCPD ([9b2d38a](https://github.com/mossipcams/autodoctor/commit/9b2d38afe859627f6f5f71f67a38fd14767730a1))
+
 ## [2.24.0](https://github.com/mossipcams/autodoctor/compare/v2.23.3...v2.24.0) (2026-02-13)
 
 
