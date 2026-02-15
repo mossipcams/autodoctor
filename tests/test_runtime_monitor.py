@@ -1589,9 +1589,7 @@ async def test_bucket_expected_rate_returns_zero_for_missing_bucket(
     now = datetime(2026, 2, 14, 10, 0, tzinfo=UTC)  # Saturday morning
     monitor = _TestRuntimeMonitor(hass, history={}, now=now)
     # No runtime state seeded — bucket should be missing
-    rate = monitor._bucket_expected_rate(
-        "automation.test_missing", now
-    )
+    rate = monitor._bucket_expected_rate("automation.test_missing", now)
     assert rate is None
 
 
@@ -1642,7 +1640,9 @@ async def test_stalled_skipped_when_bucket_rate_is_zero(
     issues = await monitor.validate_automations(
         [_automation("wake_up", "Wake Up Light")]
     )
-    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED]
+    stalled = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    ]
     assert stalled == [], "Should not flag stalled when bucket expected rate is 0.0"
 
 
@@ -1672,8 +1672,12 @@ async def test_stalled_still_flags_on_weekday_with_nonzero_bucket_rate(
     issues = await monitor.validate_automations(
         [_automation("wake_up", "Wake Up Light")]
     )
-    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED]
-    assert len(stalled) == 1, "Should flag stalled when bucket expected rate is non-zero"
+    stalled = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    ]
+    assert len(stalled) == 1, (
+        "Should flag stalled when bucket expected rate is non-zero"
+    )
 
 
 @pytest.mark.asyncio
