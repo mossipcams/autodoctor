@@ -863,6 +863,30 @@ class RuntimeHealthMonitor:
             return 0.0
         return bucket_duration_minutes / expected_count
 
+    def _bucket_expected_rate(
+        self,
+        automation_id: str,
+        now: datetime,
+    ) -> float | None:
+        """Return the BOCPD expected_rate for the current time bucket, or None."""
+        automation_state = self._ensure_automation_state(automation_id)
+        count_model_raw = automation_state.get("count_model", {})
+        if not isinstance(count_model_raw, dict):
+            return None
+        count_model = cast(dict[str, Any], count_model_raw)
+        buckets_raw = count_model.get("buckets", {})
+        if not isinstance(buckets_raw, dict):
+            return None
+        buckets = cast(dict[str, Any], buckets_raw)
+
+        bucket_name = self.classify_time_bucket(now)
+        bucket_state_raw = buckets.get(bucket_name)
+        if not isinstance(bucket_state_raw, dict):
+            return None
+        bucket_state = cast(dict[str, Any], bucket_state_raw)
+
+        return max(0.0, self._coerce_float(bucket_state.get("expected_rate"), 0.0))
+
     @staticmethod
     def _bucket_duration_minutes(bucket_name: str) -> float:
         if bucket_name.endswith("_morning"):
@@ -1401,7 +1425,13 @@ class RuntimeHealthMonitor:
             stalled_threshold = self.stalled_threshold * threshold_multiplier
             overactive_threshold = self.overactive_threshold * threshold_multiplier
 
-            if recent_count == 0 and smoothed_score >= stalled_threshold:
+            bucket_rate = self._bucket_expected_rate(automation_entity_id, now)
+
+            if (
+                recent_count == 0
+                and smoothed_score >= stalled_threshold
+                and bucket_rate != 0.0
+            ):
                 _LOGGER.info(
                     "Stalled: '%s' - 0 triggers in 24h, baseline %.1f/day, score %.2f",
                     automation_name,
@@ -1430,6 +1460,7 @@ class RuntimeHealthMonitor:
             if (
                 recent_count > expected * self.overactive_factor
                 and smoothed_score >= overactive_threshold
+                and bucket_rate != 0.0
             ):
                 _LOGGER.info(
                     "Overactive: '%s' - %d triggers in 24h, baseline %.1f/day, score %.2f",

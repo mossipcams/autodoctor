@@ -1579,3 +1579,135 @@ def test_maybe_flush_runtime_state_uses_fire_and_forget(
         )
     finally:
         hass.async_create_task = original_create_task
+
+
+@pytest.mark.asyncio
+async def test_bucket_expected_rate_returns_zero_for_missing_bucket(
+    hass: HomeAssistant,
+) -> None:
+    """_bucket_expected_rate should return 0.0 when no bucket state exists."""
+    now = datetime(2026, 2, 14, 10, 0, tzinfo=UTC)  # Saturday morning
+    monitor = _TestRuntimeMonitor(hass, history={}, now=now)
+    # No runtime state seeded — bucket should be missing
+    rate = monitor._bucket_expected_rate(
+        "automation.test_missing", now
+    )
+    assert rate is None
+
+
+@pytest.mark.asyncio
+async def test_bucket_expected_rate_returns_seeded_rate(
+    hass: HomeAssistant,
+) -> None:
+    """_bucket_expected_rate should return the expected_rate from seeded bucket state."""
+    # Saturday 10:00 UTC -> weekend_morning bucket
+    now = datetime(2026, 2, 14, 10, 0, tzinfo=UTC)
+    monitor = _TestRuntimeMonitor(hass, history={}, now=now)
+    # Seed runtime state with a non-zero expected_rate in the weekend_morning bucket
+    auto_state = monitor._ensure_automation_state("automation.weekday_only")
+    auto_state["count_model"]["buckets"]["weekend_morning"] = {
+        "expected_rate": 5.2,
+    }
+    rate = monitor._bucket_expected_rate("automation.weekday_only", now)
+    assert rate == 5.2
+
+
+@pytest.mark.asyncio
+async def test_stalled_skipped_when_bucket_rate_is_zero(
+    hass: HomeAssistant,
+) -> None:
+    """Weekday-only automation should not be flagged stalled on a weekend."""
+    # Sunday 12:00 UTC -> weekend_afternoon bucket
+    now = datetime(2026, 2, 15, 12, 0, tzinfo=UTC)
+    # Baseline: one event every weekday for 30 days, none on weekends
+    baseline = [
+        now - timedelta(days=d, hours=2)
+        for d in range(2, 31)
+        if (now - timedelta(days=d, hours=2)).weekday() < 5
+    ]
+    history = {"wake_up": baseline}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=7,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+    )
+    # Seed the weekend_afternoon bucket with expected_rate=0.0
+    auto_state = monitor._ensure_automation_state("automation.wake_up")
+    auto_state["count_model"]["buckets"]["weekend_afternoon"] = {
+        "expected_rate": 0.0,
+    }
+    issues = await monitor.validate_automations(
+        [_automation("wake_up", "Wake Up Light")]
+    )
+    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED]
+    assert stalled == [], "Should not flag stalled when bucket expected rate is 0.0"
+
+
+@pytest.mark.asyncio
+async def test_stalled_still_flags_on_weekday_with_nonzero_bucket_rate(
+    hass: HomeAssistant,
+) -> None:
+    """Weekday-only automation should still be flagged stalled on a weekday."""
+    # Wednesday 12:00 UTC -> weekday_afternoon bucket
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    # Baseline: one event every day for 30 days, but nothing recent
+    baseline = [now - timedelta(days=d, hours=2) for d in range(2, 31)]
+    history = {"wake_up": baseline}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=7,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+    )
+    # Seed the weekday_afternoon bucket with a non-zero expected_rate
+    auto_state = monitor._ensure_automation_state("automation.wake_up")
+    auto_state["count_model"]["buckets"]["weekday_afternoon"] = {
+        "expected_rate": 3.4,
+    }
+    issues = await monitor.validate_automations(
+        [_automation("wake_up", "Wake Up Light")]
+    )
+    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED]
+    assert len(stalled) == 1, "Should flag stalled when bucket expected rate is non-zero"
+
+
+@pytest.mark.asyncio
+async def test_overactive_skipped_when_bucket_rate_is_zero(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive check should be suppressed when bucket expected rate is 0.0."""
+    # Wednesday 12:00 UTC -> weekday_afternoon bucket
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    # Baseline with daily events + a burst of recent events to trigger overactive
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
+    history = {"weekend_auto": baseline + burst}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=7,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+        overactive_factor=3.0,
+    )
+    # Seed the weekday_afternoon bucket with expected_rate=0.0
+    # (weekend-heavy automation not expected to fire on weekdays)
+    auto_state = monitor._ensure_automation_state("automation.weekend_auto")
+    auto_state["count_model"]["buckets"]["weekday_afternoon"] = {
+        "expected_rate": 0.0,
+    }
+    issues = await monitor.validate_automations(
+        [_automation("weekend_auto", "Weekend Party Lights")]
+    )
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == [], (
+        "Should not flag overactive when bucket expected rate is 0.0"
+    )
