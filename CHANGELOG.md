@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.2](https://github.com/mossipcams/autodoctor/compare/v2.26.1...v2.26.2) (2026-02-15)
+
+
+### Bug Fixes
+
+* **runtime:** use bucket-specific rate for stalled and overactive checks ([#126](https://github.com/mossipcams/autodoctor/issues/126)) ([04e3526](https://github.com/mossipcams/autodoctor/commit/04e35269c8db499f5b00cc17a4dc8be01077d295))
+
 ## [2.26.1](https://github.com/mossipcams/autodoctor/compare/v2.26.0...v2.26.1) (2026-02-13)
 
 
