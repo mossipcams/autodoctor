@@ -1141,6 +1141,20 @@ def test_choose_empty_default_no_crash() -> None:
     assert len(issues) == 0
 
 
+def test_choose_none_value_no_crash() -> None:
+    """Test that choose: None is handled gracefully without crashing."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "choose_none",
+        "alias": "Choose None",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [{"choose": None}],
+    }
+    issues = validator.validate_automations([automation])
+    assert isinstance(issues, list)
+
+
 def test_if_else_key_detected_and_validated() -> None:
     """Test that if/else blocks are detected and validated.
 
