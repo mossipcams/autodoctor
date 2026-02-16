@@ -161,3 +161,105 @@ def test_bocpd_score_current_implements_detector_protocol() -> None:
     score = detector.score_current("automation.protocol", rows, window_size=16)
     assert isinstance(score, float)
     assert score >= 0.0
+
+
+def _feature_row(
+    count_24h: float,
+    *,
+    hour_ratio_30d: float = 1.0,
+    gap_vs_median: float = 1.0,
+    other_automations_5m: float = 0.0,
+) -> dict[str, float]:
+    """Build a runtime feature row aligned with monitor feature schema."""
+    return {
+        "rolling_24h_count": count_24h,
+        "rolling_7d_count": count_24h * 6.0,
+        "hour_ratio_30d": hour_ratio_30d,
+        "gap_vs_median": gap_vs_median,
+        "is_weekend": 0.0,
+        "other_automations_5m": other_automations_5m,
+    }
+
+
+def test_bocpd_context_gap_signal_amplifies_stalled_score() -> None:
+    """Large gap-vs-median should increase anomaly confidence for stalls."""
+    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    baseline = [_feature_row(6.0 + float(i % 2)) for i in range(28)]
+
+    score_small_gap = detector.score_current(
+        "automation.stalled.small_gap",
+        [*baseline, _feature_row(0.0, gap_vs_median=1.0)],
+    )
+    score_large_gap = detector.score_current(
+        "automation.stalled.large_gap",
+        [*baseline, _feature_row(0.0, gap_vs_median=8.0)],
+    )
+
+    assert score_large_gap > score_small_gap
+
+
+def test_bocpd_context_hour_ratio_amplifies_overactive_score() -> None:
+    """High same-hour ratio should raise confidence for overactive anomalies."""
+    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    baseline = [_feature_row(7.0 + float(i % 2)) for i in range(28)]
+
+    score_typical_hour = detector.score_current(
+        "automation.overactive.typical",
+        [*baseline, _feature_row(30.0, hour_ratio_30d=1.0)],
+    )
+    score_hot_hour = detector.score_current(
+        "automation.overactive.hot_hour",
+        [*baseline, _feature_row(30.0, hour_ratio_30d=5.0)],
+    )
+
+    assert score_hot_hour > score_typical_hour
+
+
+def test_bocpd_context_global_activity_dampens_overactive_score() -> None:
+    """Broad cross-automation activity should dampen overactive confidence."""
+    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    baseline = [_feature_row(7.0 + float(i % 2)) for i in range(28)]
+
+    score_isolated = detector.score_current(
+        "automation.overactive.isolated",
+        [*baseline, _feature_row(30.0, other_automations_5m=0.0)],
+    )
+    score_global_surge = detector.score_current(
+        "automation.overactive.global",
+        [*baseline, _feature_row(30.0, other_automations_5m=25.0)],
+    )
+
+    assert score_global_surge < score_isolated
+
+
+def test_bocpd_changepoint_mass_increases_for_surprising_observation() -> None:
+    """Highly surprising counts should increase changepoint posterior mass."""
+    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    state = detector.initial_state()
+    for observed in [5] * 32:
+        detector.update_state(state, observed)
+
+    detector.update_state(state, 80)
+
+    assert state["run_length_probs"][0] > detector.hazard_rate
+
+
+def test_bocpd_extreme_scores_are_monotonic_for_larger_deviations() -> None:
+    """Larger overactive deviations should produce larger anomaly scores."""
+    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    baseline = [_feature_row(20.0 + float(i % 2)) for i in range(40)]
+
+    score_100 = detector.score_current(
+        "automation.extreme.100",
+        [*baseline, _feature_row(100.0)],
+    )
+    score_400 = detector.score_current(
+        "automation.extreme.400",
+        [*baseline, _feature_row(400.0)],
+    )
+    score_1200 = detector.score_current(
+        "automation.extreme.1200",
+        [*baseline, _feature_row(1200.0)],
+    )
+
+    assert score_100 < score_400 < score_1200

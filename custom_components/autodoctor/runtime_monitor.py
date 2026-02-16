@@ -99,8 +99,14 @@ class _BOCPDDetector:
         state = self.initial_state()
         for row in training:
             self.update_state(state, self._coerce_count(row))
-        current_count = self._coerce_count(train_rows[-1])
+        current_row = train_rows[-1]
+        current_count = self._coerce_count(current_row)
         score = self._score_tail_probability(state, current_count)
+        score *= self._context_score_multiplier(
+            state=state,
+            current_row=current_row,
+            current_count=current_count,
+        )
         _LOGGER.debug(
             "Scored '%s' with BOCPD: %.3f (current=%d, n=%d)",
             automation_id,
@@ -114,6 +120,7 @@ class _BOCPDDetector:
         """Apply one BOCPD update step for a finalized bucket count."""
         self._ensure_state(state)
         count = max(0, int(observed_count))
+        effective_hazard = self._effective_hazard(state, count)
         observations = cast(list[int], state["observations"])
         previous_probs = cast(list[float], state["run_length_probs"])
 
@@ -125,8 +132,8 @@ class _BOCPDDetector:
             p = beta / (beta + 1.0)
             predictive = self._nb_pmf(count, alpha, p)
             weighted = mass * predictive
-            changepoint_mass = weighted * self.hazard_rate
-            growth_mass = weighted * (1.0 - self.hazard_rate)
+            changepoint_mass = weighted * effective_hazard
+            growth_mass = weighted * (1.0 - effective_hazard)
             next_probs[0] += changepoint_mass
             growth_index = min(run_length + 1, self.max_run_length)
             next_probs[growth_index] += growth_mass
@@ -190,9 +197,12 @@ class _BOCPDDetector:
     def _score_tail_probability(
         self, state: dict[str, Any], current_count: int
     ) -> float:
+        pmf_floor = 1e-300
+        max_score = 80.0
         pmf_current = self.predictive_pmf_for_count(state, current_count)
+        surprise_score = min(max_score, -math.log10(max(pmf_current, pmf_floor)))
         if pmf_current <= 0.0:
-            return 12.0
+            return surprise_score
 
         upper_limit = max(
             current_count + 64,
@@ -206,13 +216,61 @@ class _BOCPDDetector:
             cumulative += mass
             if count <= current_count:
                 cdf += mass
-            if cumulative >= 0.999999:
+            if cumulative >= 0.999999 and count >= current_count:
                 break
 
         cdf = min(1.0, max(0.0, cdf))
         upper_tail = min(1.0, max(0.0, 1.0 - (cdf - pmf_current)))
         two_sided_p = min(1.0, 2.0 * min(cdf, upper_tail))
-        return float(-math.log10(max(two_sided_p, 1e-12)))
+        tail_score = min(max_score, -math.log10(max(two_sided_p, pmf_floor)))
+        if surprise_score > tail_score:
+            tail_score += 0.35 * (surprise_score - tail_score)
+        return max(0.0, min(max_score, float(tail_score)))
+
+    def _effective_hazard(self, state: dict[str, Any], observed_count: int) -> float:
+        """Increase changepoint prior on highly surprising observations."""
+        predictive = self.predictive_pmf_for_count(state, observed_count)
+        surprise = -math.log10(max(predictive, 1e-12))
+        if surprise <= 1.0:
+            return self.hazard_rate
+        boost = min(12.0, (surprise - 1.0) / 2.0)
+        return min(0.60, max(self.hazard_rate, self.hazard_rate * (1.0 + boost)))
+
+    def _context_score_multiplier(
+        self,
+        *,
+        state: dict[str, Any],
+        current_row: dict[str, float],
+        current_count: int,
+    ) -> float:
+        """Apply bounded runtime-context adjustments to BOCPD anomaly score."""
+        expected = max(0.0, self.expected_rate(state))
+        if expected <= 0.0:
+            return 1.0
+
+        deviation = float(current_count) - expected
+        gap_vs_median = max(
+            0.0, self._coerce_numeric(current_row.get("gap_vs_median"), 1.0)
+        )
+        hour_ratio = max(
+            0.0, self._coerce_numeric(current_row.get("hour_ratio_30d"), 1.0)
+        )
+        other_automations = max(
+            0.0,
+            self._coerce_numeric(current_row.get("other_automations_5m"), 0.0),
+        )
+
+        multiplier = 1.0
+        if deviation < 0.0:
+            gap_boost = min(0.40, 0.18 * math.log1p(max(0.0, gap_vs_median - 1.0)))
+            multiplier *= 1.0 + gap_boost
+        elif deviation > 0.0:
+            hour_boost = min(0.35, 0.20 * math.log1p(max(0.0, hour_ratio - 1.0)))
+            multiplier *= 1.0 + hour_boost
+            dampening = min(0.45, 0.14 * math.log1p(other_automations))
+            multiplier *= max(0.55, 1.0 - dampening)
+
+        return max(0.55, min(1.75, multiplier))
 
     def _posterior_params(
         self,
