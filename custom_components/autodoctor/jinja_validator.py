@@ -325,7 +325,7 @@ class JinjaValidator:
 
             # Check choose blocks
             if "choose" in action:
-                for opt_idx, option in enumerate(action.get("choose", [])):
+                for opt_idx, option in enumerate(action.get("choose") or []):
                     if not isinstance(option, dict):
                         continue
                     option = cast(dict[str, Any], option)
