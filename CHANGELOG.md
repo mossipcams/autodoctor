@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.3](https://github.com/mossipcams/autodoctor/compare/v2.26.2...v2.26.3) (2026-02-16)
+
+
+### Bug Fixes
+
+* **runtime:** replace broken bucket_rate guard with baseline day-type check ([#128](https://github.com/mossipcams/autodoctor/issues/128)) ([550804c](https://github.com/mossipcams/autodoctor/commit/550804c1679adf43370b448a2c3161495e04e004))
+
 ## [2.26.2](https://github.com/mossipcams/autodoctor/compare/v2.26.1...v2.26.2) (2026-02-15)
 
 
