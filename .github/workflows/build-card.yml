@@ -67,7 +67,7 @@ jobs:
 
       - name: Create PR for rebuilt card
         if: steps.card-diff.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore: rebuild autodoctor-card.js"
           branch: chore/rebuild-card
