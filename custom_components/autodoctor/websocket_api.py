@@ -781,6 +781,23 @@ async def websocket_suppress(
     key = f"{msg['automation_id']}:{msg['entity_id']}:{msg['issue_type']}"
     await suppression_store.async_suppress(key)
 
+    runtime_issue_types = {
+        IssueType.RUNTIME_AUTOMATION_STALLED.value,
+        IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value,
+        IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY.value,
+        IssueType.RUNTIME_AUTOMATION_GAP.value,
+        IssueType.RUNTIME_AUTOMATION_BURST.value,
+    }
+    if msg["issue_type"] in runtime_issue_types:
+        runtime_monitor = data.get("runtime_monitor")
+        if runtime_monitor is not None and hasattr(
+            runtime_monitor, "record_issue_dismissed"
+        ):
+            try:
+                runtime_monitor.record_issue_dismissed(msg["automation_id"])
+            except Exception as err:
+                _LOGGER.debug("Failed recording runtime dismissal learning: %s", err)
+
     connection.send_result(
         msg["id"], {"success": True, "suppressed_count": suppression_store.count}
     )

@@ -33,6 +33,7 @@ _BUCKET_AFTERNOON_START_HOUR = 12
 _BUCKET_EVENING_START_HOUR = 17
 _DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES = 15
 _BACKFILL_MIN_LOOKBACK_DAYS = 30
+_GAP_MODEL_MAX_RECENT_INTERVALS = 32
 
 
 class _Detector(Protocol):
@@ -545,6 +546,10 @@ class RuntimeHealthMonitor:
             automation_state, event_time
         )
         self._update_gap_model(automation_state, event_time)
+        self._clear_runtime_alert(
+            automation_entity_id,
+            IssueType.RUNTIME_AUTOMATION_GAP,
+        )
         issues = self._detect_burst_anomaly(
             automation_entity_id=automation_entity_id,
             automation_state=automation_state,
@@ -574,6 +579,8 @@ class RuntimeHealthMonitor:
         check_time = now or self._now_factory()
         issues: list[ValidationIssue] = []
         state_dirty = False
+        gap_issue_type = IssueType.RUNTIME_AUTOMATION_GAP
+        suppression_store = self._runtime_suppression_store()
         automations = self._runtime_state.get("automations", {})
         if not isinstance(automations, dict):
             return []
@@ -594,12 +601,14 @@ class RuntimeHealthMonitor:
 
             last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
             if last_trigger is None:
+                self._clear_runtime_alert(automation_id, gap_issue_type)
                 continue
 
             expected_gap = self._expected_gap_minutes_for_automation(
                 automation_state, last_trigger
             )
             if expected_gap <= 0.0:
+                self._clear_runtime_alert(automation_id, gap_issue_type)
                 continue
 
             threshold = expected_gap * self.gap_threshold_multiplier
@@ -607,6 +616,11 @@ class RuntimeHealthMonitor:
                 0.0, (check_time - last_trigger).total_seconds() / 60.0
             )
             if elapsed_minutes <= threshold:
+                self._clear_runtime_alert(automation_id, gap_issue_type)
+                continue
+
+            if self._is_runtime_suppressed(automation_id, suppression_store):
+                self._clear_runtime_alert(automation_id, gap_issue_type)
                 continue
 
             if not self._allow_alert(automation_id, now=check_time):
@@ -650,6 +664,10 @@ class RuntimeHealthMonitor:
             },
             "gap_model": {
                 "last_trigger": None,
+                "expected_gap_minutes": 0.0,
+                "ewma_gap_minutes": 0.0,
+                "median_gap_minutes": 0.0,
+                "recent_gaps_minutes": [],
             },
             "burst_model": {
                 "recent_triggers": [],
@@ -663,6 +681,14 @@ class RuntimeHealthMonitor:
             "adaptation": {
                 "threshold_multiplier": 1.0,
                 "dismissed_count": 0,
+            },
+            "periodic_model": {
+                "run_length_probs": [1.0],
+                "observations": [],
+                "map_run_length": 0,
+                "expected_rate": 0.0,
+                "updated_at": "",
+                "window_size": 0,
             },
         }
 
@@ -822,12 +848,47 @@ class RuntimeHealthMonitor:
         automation_state: dict[str, Any],
         event_time: datetime,
     ) -> None:
-        gap_model = automation_state.setdefault("gap_model", {})
-        if not isinstance(gap_model, dict):
-            gap_model = {}
-            automation_state["gap_model"] = gap_model
-        # Gap model is intentionally minimal; expected gap is derived from BOCPD
-        # count buckets at read-time.
+        gap_model_raw = automation_state.setdefault("gap_model", {})
+        if not isinstance(gap_model_raw, dict):
+            gap_model_raw = {}
+            automation_state["gap_model"] = gap_model_raw
+        gap_model = cast(dict[str, Any], gap_model_raw)
+        previous_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
+        if previous_trigger is not None and event_time > previous_trigger:
+            gap_minutes = max(
+                0.0,
+                (event_time - previous_trigger).total_seconds() / 60.0,
+            )
+            if gap_minutes > 0.0:
+                recent_raw = gap_model.get("recent_gaps_minutes")
+                recent_values = (
+                    cast(list[Any], recent_raw) if isinstance(recent_raw, list) else []
+                )
+                recent = [
+                    self._coerce_float(value, 0.0)
+                    for value in recent_values
+                    if self._coerce_float(value, 0.0) > 0.0
+                ]
+                recent.append(gap_minutes)
+                if len(recent) > _GAP_MODEL_MAX_RECENT_INTERVALS:
+                    del recent[:-_GAP_MODEL_MAX_RECENT_INTERVALS]
+
+                median_gap = float(median(recent))
+                previous_ewma = self._coerce_float(
+                    gap_model.get("ewma_gap_minutes"),
+                    gap_minutes,
+                )
+                ewma_gap = (
+                    gap_minutes
+                    if previous_ewma <= 0.0
+                    else (0.8 * previous_ewma) + (0.2 * gap_minutes)
+                )
+                expected_gap = max(1.0, (0.5 * median_gap) + (0.5 * ewma_gap))
+
+                gap_model["recent_gaps_minutes"] = recent
+                gap_model["median_gap_minutes"] = median_gap
+                gap_model["ewma_gap_minutes"] = ewma_gap
+                gap_model["expected_gap_minutes"] = expected_gap
         gap_model["last_trigger"] = event_time.isoformat()
 
     def _expected_gap_minutes_for_automation(
@@ -835,6 +896,15 @@ class RuntimeHealthMonitor:
         automation_state: dict[str, Any],
         last_trigger: datetime,
     ) -> float:
+        gap_model_raw = automation_state.get("gap_model", {})
+        if isinstance(gap_model_raw, dict):
+            gap_model = cast(dict[str, Any], gap_model_raw)
+            expected_gap = self._coerce_float(
+                gap_model.get("expected_gap_minutes"), 0.0
+            )
+            if expected_gap > 0.0:
+                return expected_gap
+
         count_model_raw = automation_state.get("count_model", {})
         if not isinstance(count_model_raw, dict):
             return 0.0
@@ -882,13 +952,16 @@ class RuntimeHealthMonitor:
         bucket_state: dict[str, Any],
         now: datetime,
     ) -> list[ValidationIssue]:
+        issue_type = IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
         observations = bucket_state.get("observations")
         if not isinstance(observations, list) or len(observations) < 7:
+            self._clear_runtime_alert(automation_entity_id, issue_type)
             return []
 
         lower, upper = self._bocpd_expected_count_range(bucket_state)
         observed = int(bucket_state.get("current_count", 0))
         if lower <= observed <= upper:
+            self._clear_runtime_alert(automation_entity_id, issue_type)
             count_model = automation_state.get("count_model", {})
             if isinstance(count_model, dict):
                 count_model["anomaly_streak"] = 0
@@ -966,6 +1039,7 @@ class RuntimeHealthMonitor:
         now: datetime,
         allow_alerts: bool = True,
     ) -> list[ValidationIssue]:
+        issue_type = IssueType.RUNTIME_AUTOMATION_BURST
         burst_model = automation_state.setdefault("burst_model", {})
         if not isinstance(burst_model, dict):
             burst_model = {}
@@ -1011,6 +1085,7 @@ class RuntimeHealthMonitor:
         if not allow_alerts:
             return []
         if len(recent) < 6 or float(current_5m_count) < threshold:
+            self._clear_runtime_alert(automation_entity_id, issue_type)
             return []
         if not self._allow_alert(automation_entity_id, now=now):
             return []
@@ -1025,7 +1100,7 @@ class RuntimeHealthMonitor:
                 f"Runtime burst detected in 5m window: observed {current_5m_count} "
                 f"triggers vs baseline {baseline_rate:.2f}/5m"
             ),
-            issue_type=IssueType.RUNTIME_AUTOMATION_BURST,
+            issue_type=issue_type,
             confidence="medium",
         )
         self._register_runtime_alert(issue)
@@ -1034,6 +1109,10 @@ class RuntimeHealthMonitor:
 
     def _register_runtime_alert(self, issue: ValidationIssue) -> None:
         self._active_runtime_alerts[issue.get_suppression_key()] = issue
+
+    def _clear_runtime_alert(self, automation_id: str, issue_type: IssueType) -> None:
+        key = f"{automation_id}:{automation_id}:{issue_type.value}"
+        self._active_runtime_alerts.pop(key, None)
 
     def _allow_alert(self, automation_id: str, *, now: datetime) -> bool:
         alerts = self._runtime_state.setdefault("alerts", {})
@@ -1087,6 +1166,16 @@ class RuntimeHealthMonitor:
             except Exception:
                 continue
         return False
+
+    def _runtime_suppression_store(self) -> Any | None:
+        """Return suppression store from hass domain data when available."""
+        hass_data = getattr(self.hass, "data", {})
+        data = cast(dict[str, Any], hass_data) if isinstance(hass_data, dict) else {}
+        domain_data_raw = data.get(DOMAIN, {})
+        if not isinstance(domain_data_raw, dict):
+            return None
+        domain_data = cast(dict[str, Any], domain_data_raw)
+        return domain_data.get("suppression_store")
 
     def record_issue_dismissed(self, automation_id: str) -> None:
         """Increase dismissal-aware threshold multiplier for an automation."""
@@ -1400,6 +1489,10 @@ class RuntimeHealthMonitor:
             )
             stalled_threshold = self.stalled_threshold * threshold_multiplier
             overactive_threshold = self.overactive_threshold * threshold_multiplier
+            runtime_suppressed = self._is_runtime_suppressed(
+                automation_entity_id,
+                suppression_store,
+            )
 
             is_weekend = now.weekday() >= 5
             day_type_active = any(
@@ -1410,7 +1503,10 @@ class RuntimeHealthMonitor:
                 recent_count == 0
                 and smoothed_score >= stalled_threshold
                 and day_type_active
+                and not runtime_suppressed
             ):
+                if not self._allow_alert(automation_entity_id, now=now):
+                    continue
                 _LOGGER.info(
                     "Stalled: '%s' - 0 triggers in 24h, baseline %.1f/day, score %.2f",
                     automation_name,
@@ -1440,7 +1536,10 @@ class RuntimeHealthMonitor:
                 recent_count > expected * self.overactive_factor
                 and smoothed_score >= overactive_threshold
                 and day_type_active
+                and not runtime_suppressed
             ):
+                if not self._allow_alert(automation_entity_id, now=now):
+                    continue
                 _LOGGER.info(
                     "Overactive: '%s' - %d triggers in 24h, baseline %.1f/day, score %.2f",
                     automation_name,
@@ -1500,16 +1599,14 @@ class RuntimeHealthMonitor:
         detector.normalize_state(state)
 
         automation_state = self._ensure_automation_state(automation_id)
-        count_model = automation_state.setdefault("count_model", {})
-        if not isinstance(count_model, dict):
-            count_model = {}
-            automation_state["count_model"] = count_model
-        bucket_name = self.classify_time_bucket(now)
-        bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
+        periodic_model = automation_state.setdefault("periodic_model", {})
+        if not isinstance(periodic_model, dict):
+            periodic_model = {}
+            automation_state["periodic_model"] = periodic_model
 
         run_length_probs_raw = state.get("run_length_probs")
         observations_raw = state.get("observations")
-        bucket_state["run_length_probs"] = (
+        periodic_model["run_length_probs"] = (
             [
                 self._coerce_float(value, 0.0)
                 for value in cast(list[Any], run_length_probs_raw)
@@ -1517,7 +1614,7 @@ class RuntimeHealthMonitor:
             if isinstance(run_length_probs_raw, list)
             else [1.0]
         )
-        bucket_state["observations"] = (
+        periodic_model["observations"] = (
             [
                 max(0, int(self._coerce_float(value, 0.0)))
                 for value in cast(list[Any], observations_raw)
@@ -1525,21 +1622,16 @@ class RuntimeHealthMonitor:
             if isinstance(observations_raw, list)
             else []
         )
-        bucket_state["map_run_length"] = max(
+        periodic_model["map_run_length"] = max(
             0,
             int(self._coerce_float(state.get("map_run_length"), 0.0)),
         )
-        bucket_state["expected_rate"] = max(
+        periodic_model["expected_rate"] = max(
             0.0,
             self._coerce_float(state.get("expected_rate"), 0.0),
         )
-        bucket_state["current_day"] = (
-            str(bucket_state.get("current_day", "")) or now.date().isoformat()
-        )
-        bucket_state["current_count"] = max(
-            0,
-            int(self._coerce_float(bucket_state.get("current_count"), 0.0)),
-        )
+        periodic_model["updated_at"] = now.isoformat()
+        periodic_model["window_size"] = max(0, int(window_size))
         return True
 
     def _score_current(

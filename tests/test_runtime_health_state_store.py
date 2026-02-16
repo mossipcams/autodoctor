@@ -61,9 +61,12 @@ def test_v2_round_trip_preserves_bocpd_state(tmp_path: Path) -> None:
     ]
     assert bucket["run_length_probs"] == [0.2, 0.8]
     assert bucket["observations"] == [2, 3]
-    assert loaded["automations"]["automation.kitchen"]["gap_model"] == {
-        "last_trigger": "2026-02-13T12:00:00+00:00"
-    }
+    gap_model = loaded["automations"]["automation.kitchen"]["gap_model"]
+    assert gap_model["last_trigger"] == "2026-02-13T12:00:00+00:00"
+    assert gap_model["expected_gap_minutes"] == pytest.approx(0.0)
+    assert gap_model["ewma_gap_minutes"] == pytest.approx(0.0)
+    assert gap_model["median_gap_minutes"] == pytest.approx(0.0)
+    assert gap_model["recent_gaps_minutes"] == []
     assert loaded["alerts"] == {"date": "2026-02-13", "global_count": 3}
 
 
@@ -158,7 +161,7 @@ def test_migrate_v1_to_v2_converts_buckets_to_bocpd(tmp_path: Path) -> None:
 
 
 def test_migrate_v1_to_v2_strips_gap_model_fields(tmp_path: Path) -> None:
-    """Legacy gap-model fields should be removed except last_trigger."""
+    """Legacy gap-model fields should be removed while retaining new gap defaults."""
     state_path = tmp_path / "runtime_state.json"
     state_path.write_text(
         json.dumps(
@@ -182,7 +185,14 @@ def test_migrate_v1_to_v2_strips_gap_model_fields(tmp_path: Path) -> None:
     loaded = store.load()
 
     gap_model = loaded["automations"]["automation.legacy"]["gap_model"]
-    assert gap_model == {"last_trigger": "2026-02-13T11:50:00+00:00"}
+    assert gap_model["last_trigger"] == "2026-02-13T11:50:00+00:00"
+    assert gap_model["expected_gap_minutes"] == pytest.approx(0.0)
+    assert gap_model["ewma_gap_minutes"] == pytest.approx(0.0)
+    assert gap_model["median_gap_minutes"] == pytest.approx(0.0)
+    assert gap_model["recent_gaps_minutes"] == []
+    assert "intervals_minutes" not in gap_model
+    assert "lambda_per_minute" not in gap_model
+    assert "p99_minutes" not in gap_model
 
 
 @pytest.mark.asyncio

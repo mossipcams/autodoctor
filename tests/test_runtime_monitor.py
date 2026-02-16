@@ -849,6 +849,94 @@ async def test_runtime_monitor_raises_threshold_when_runtime_issue_previously_su
 
 
 @pytest.mark.asyncio
+async def test_runtime_monitor_suppresses_stalled_even_when_score_exceeds_multiplier(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressed stalled automations should not emit runtime issues."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+    hass.data["autodoctor"] = {"suppression_store": suppression_store}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        stalled_threshold=1.3,
+        dismissed_threshold_multiplier=1.25,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Kitchen Motion")]
+    )
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_stalled_respects_per_automation_rate_limit(
+    hass: HomeAssistant,
+) -> None:
+    """Stalled alerts should honor per-automation daily caps."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        max_alerts_per_day=1,
+        global_alert_cap_per_day=10,
+    )
+
+    automations = [_automation("runtime_test", "Kitchen Motion")]
+    first = await monitor.validate_automations(automations)
+    second = await monitor.validate_automations(automations)
+
+    assert len(first) == 1
+    assert first[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    assert second == []
+
+
+@pytest.mark.asyncio
+async def test_overactive_respects_global_rate_limit(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive alerts should honor global daily caps."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
+    history = {
+        "runtime_a": baseline + burst,
+        "runtime_b": baseline + burst,
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        overactive_factor=3.0,
+        max_alerts_per_day=10,
+        global_alert_cap_per_day=1,
+    )
+
+    first = await monitor.validate_automations([_automation("runtime_a", "A")])
+    second = await monitor.validate_automations([_automation("runtime_b", "B")])
+
+    assert len(first) == 1
+    assert first[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    assert second == []
+
+
+@pytest.mark.asyncio
 async def test_runtime_monitor_logs_scores_to_sqlite(
     hass: HomeAssistant, tmp_path
 ) -> None:
@@ -1183,7 +1271,7 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
     hass: HomeAssistant,
     tmp_path,
 ) -> None:
-    """Periodic BOCPD scoring should persist learned state for live model reuse."""
+    """Periodic BOCPD scoring should persist dedicated periodic model state."""
     from custom_components.autodoctor.runtime_health_state_store import (
         RuntimeHealthStateStore,
     )
@@ -1226,13 +1314,87 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
     await hass.async_block_till_done()
 
     persisted = store.load()
+    periodic_model = persisted["automations"]["automation.runtime_test"][
+        "periodic_model"
+    ]
+    assert periodic_model["observations"], "BOCPD observations should be persisted"
+    assert sum(periodic_model["run_length_probs"]) == pytest.approx(1.0)
+    assert periodic_model["expected_rate"] > 0.0
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state(
+    hass: HomeAssistant,
+    tmp_path,
+) -> None:
+    """Periodic scoring should not mutate daypart live bucket expected-rate semantics."""
+    from custom_components.autodoctor.runtime_health_state_store import (
+        RuntimeHealthStateStore,
+    )
+
+    now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
+    aid = "automation.runtime_mix_units"
+    history_events: list[datetime] = []
+    cursor = now - timedelta(days=40)
+    for _ in range(32):
+        cursor += timedelta(days=1)
+        history_events.extend(
+            [
+                cursor.replace(hour=8, minute=0),  # morning
+                cursor.replace(hour=13, minute=0),  # afternoon
+                cursor.replace(hour=18, minute=0),  # evening
+                cursor.replace(hour=23, minute=0),  # night
+            ]
+        )
+    history = {aid: history_events}
+    store = RuntimeHealthStateStore(hass, path=tmp_path / "runtime_state.json")
+
+    class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
+        def __init__(self) -> None:
+            super().__init__(
+                hass,
+                now_factory=lambda: now,
+                runtime_state_store=store,
+                telemetry_db_path=None,
+                warmup_samples=7,
+                min_expected_events=0,
+                burst_multiplier=999.0,
+            )
+
+        async def _async_fetch_trigger_history(
+            self,
+            automation_ids: list[str],
+            start: datetime,
+            end: datetime,
+        ) -> dict[str, list[datetime]]:
+            return {
+                automation_id: [
+                    ts for ts in history.get(automation_id, []) if start <= ts <= end
+                ]
+                for automation_id in automation_ids
+            }
+
+    monitor = _HistoryRuntimeMonitor()
+
+    for event_time in history_events:
+        monitor.ingest_trigger_event(aid, occurred_at=event_time)
+
+    state_before = monitor.get_runtime_state()
     bucket_name = monitor.classify_time_bucket(now)
-    bucket = persisted["automations"]["automation.runtime_test"]["count_model"][
-        "buckets"
-    ][bucket_name]
-    assert bucket["observations"], "BOCPD observations should be persisted"
-    assert sum(bucket["run_length_probs"]) == pytest.approx(1.0)
-    assert bucket["expected_rate"] > 0.0
+    before_bucket = state_before["automations"][aid]["count_model"]["buckets"][
+        bucket_name
+    ]
+    before_expected_rate = before_bucket["expected_rate"]
+
+    await monitor.validate_automations(
+        [{"id": "runtime_mix_units", "alias": "Mix Units", "entity_id": aid}]
+    )
+
+    state_after = monitor.get_runtime_state()
+    after_bucket = state_after["automations"][aid]["count_model"]["buckets"][
+        bucket_name
+    ]
+    assert after_bucket["expected_rate"] == pytest.approx(before_expected_rate)
 
 
 def test_build_5m_bucket_index_groups_events_correctly() -> None:
