@@ -34,6 +34,7 @@ from custom_components.autodoctor.websocket_api import (
     websocket_list_suppressions,
     websocket_run_validation,
     websocket_run_validation_steps,
+    websocket_suppress,
     websocket_unsuppress,
 )
 
@@ -640,6 +641,42 @@ def test_compute_group_status() -> None:
 
 
 # === Suppression Management Commands ===
+
+
+@pytest.mark.asyncio
+async def test_websocket_suppress_runtime_issue_records_dismissal(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressing runtime issues should feed dismissal learning into runtime monitor."""
+    suppression_store = MagicMock()
+    suppression_store.async_suppress = AsyncMock()
+    suppression_store.count = 1
+    runtime_monitor = MagicMock()
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+        "learned_states_store": None,
+        "runtime_monitor": runtime_monitor,
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_result = MagicMock()
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/suppress",
+        "automation_id": "automation.runtime_test",
+        "entity_id": "automation.runtime_test",
+        "issue_type": "runtime_automation_gap",
+    }
+
+    await websocket_suppress.__wrapped__(hass, connection, msg)
+
+    suppression_store.async_suppress.assert_called_once_with(
+        "automation.runtime_test:automation.runtime_test:runtime_automation_gap"
+    )
+    runtime_monitor.record_issue_dismissed.assert_called_once_with(
+        "automation.runtime_test"
+    )
 
 
 @pytest.mark.asyncio

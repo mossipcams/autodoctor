@@ -21,6 +21,10 @@ def _default_automation_state() -> dict[str, Any]:
         },
         "gap_model": {
             "last_trigger": None,
+            "expected_gap_minutes": 0.0,
+            "ewma_gap_minutes": 0.0,
+            "median_gap_minutes": 0.0,
+            "recent_gaps_minutes": [],
         },
         "burst_model": {
             "recent_triggers": [],
@@ -34,6 +38,14 @@ def _default_automation_state() -> dict[str, Any]:
         "adaptation": {
             "threshold_multiplier": 1.0,
             "dismissed_count": 0,
+        },
+        "periodic_model": {
+            "run_length_probs": [1.0],
+            "observations": [],
+            "map_run_length": 0,
+            "expected_rate": 0.0,
+            "updated_at": "",
+            "window_size": 0,
         },
     }
 
@@ -174,8 +186,77 @@ class RuntimeHealthStateStore:
             else {}
         )
         last_trigger = gap_model.get("last_trigger")
+        expected_gap_minutes = max(
+            0.0, self._coerce_float(gap_model.get("expected_gap_minutes"), 0.0)
+        )
+        ewma_gap_minutes = max(
+            0.0, self._coerce_float(gap_model.get("ewma_gap_minutes"), 0.0)
+        )
+        median_gap_minutes = max(
+            0.0, self._coerce_float(gap_model.get("median_gap_minutes"), 0.0)
+        )
+        recent_gaps_raw = gap_model.get("recent_gaps_minutes")
+        recent_gaps = (
+            [
+                max(0.0, self._coerce_float(value, 0.0))
+                for value in cast(list[Any], recent_gaps_raw)
+                if self._coerce_float(value, 0.0) > 0.0
+            ]
+            if isinstance(recent_gaps_raw, list)
+            else []
+        )
         automation_state["gap_model"] = {
-            "last_trigger": last_trigger if isinstance(last_trigger, str) else None
+            "last_trigger": last_trigger if isinstance(last_trigger, str) else None,
+            "expected_gap_minutes": expected_gap_minutes,
+            "ewma_gap_minutes": ewma_gap_minutes,
+            "median_gap_minutes": median_gap_minutes,
+            "recent_gaps_minutes": recent_gaps,
+        }
+
+        periodic_model_raw = automation_state.get("periodic_model")
+        periodic_model = (
+            cast(dict[str, Any], periodic_model_raw)
+            if isinstance(periodic_model_raw, dict)
+            else {}
+        )
+        periodic_probs_raw = periodic_model.get("run_length_probs")
+        periodic_observations_raw = periodic_model.get("observations")
+        periodic_probs = (
+            self._normalize_probs(
+                [
+                    self._coerce_float(value, 0.0)
+                    for value in cast(list[Any], periodic_probs_raw)
+                ]
+            )
+            if isinstance(periodic_probs_raw, list)
+            else [1.0]
+        )
+        periodic_observations = (
+            [
+                max(0, self._coerce_int(value, 0))
+                for value in cast(list[Any], periodic_observations_raw)
+            ]
+            if isinstance(periodic_observations_raw, list)
+            else []
+        )
+        periodic_map_run_length = self._coerce_int(
+            periodic_model.get("map_run_length"),
+            self._argmax(periodic_probs),
+        )
+        periodic_expected_rate = self._coerce_float(
+            periodic_model.get("expected_rate"),
+            self._mean(periodic_observations),
+        )
+        updated_at = periodic_model.get("updated_at")
+        automation_state["periodic_model"] = {
+            "run_length_probs": periodic_probs,
+            "observations": periodic_observations,
+            "map_run_length": max(0, periodic_map_run_length),
+            "expected_rate": max(0.0, periodic_expected_rate),
+            "updated_at": updated_at if isinstance(updated_at, str) else "",
+            "window_size": max(
+                0, self._coerce_int(periodic_model.get("window_size"), 0)
+            ),
         }
 
     def _migrate_count_bucket(self, bucket_state: dict[str, Any]) -> dict[str, Any]:

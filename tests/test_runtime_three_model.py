@@ -113,6 +113,61 @@ def test_count_anomaly_emits_runtime_issue_with_expected_range_metadata(
     assert "observed" in count_issues[0].message.lower()
 
 
+def test_count_alert_clears_when_observation_returns_to_expected_range(
+    tmp_path: Path,
+) -> None:
+    """Active count alerts should clear once counts return to expected range."""
+    now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
+    monitor = _build_monitor(
+        tmp_path,
+        now,
+        sensitivity="high",
+        burst_multiplier=999.0,
+        max_alerts_per_day=20,
+    )
+    aid = "automation.count_recovery"
+    automation_state = monitor._ensure_automation_state(aid)
+    count_model = automation_state["count_model"]
+    bucket_name = "weekday_morning"
+    bucket_state = monitor._ensure_count_bucket_state(count_model, bucket_name)
+
+    for _ in range(20):
+        monitor._bocpd_count_detector.update_state(bucket_state, 1)
+    bucket_state["current_day"] = now.date().isoformat()
+    bucket_state["current_count"] = 10
+
+    emitted = monitor._detect_count_anomaly(
+        automation_entity_id=aid,
+        automation_state=automation_state,
+        bucket_name=bucket_name,
+        bucket_state=bucket_state,
+        now=now,
+    )
+    assert emitted
+    assert any(
+        issue.automation_id == aid
+        and issue.issue_type == IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
+        for issue in monitor.get_active_runtime_alerts()
+    )
+
+    bucket_state["current_count"] = 1
+    monitor._detect_count_anomaly(
+        automation_entity_id=aid,
+        automation_state=automation_state,
+        bucket_name=bucket_name,
+        bucket_state=bucket_state,
+        now=now + timedelta(minutes=1),
+    )
+
+    assert all(
+        not (
+            issue.automation_id == aid
+            and issue.issue_type == IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
+        )
+        for issue in monitor.get_active_runtime_alerts()
+    )
+
+
 def test_weekly_maintenance_is_noop_with_bocpd(tmp_path: Path) -> None:
     """Weekly maintenance should not mutate BOCPD bucket internals."""
     now = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
