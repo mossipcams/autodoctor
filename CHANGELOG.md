@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.26.4](https://github.com/mossipcams/autodoctor/compare/v2.26.3...v2.26.4) (2026-02-16)
+
+
+### Bug Fixes
+
+* **runtime:** harden runtime health model lifecycle ([2062e65](https://github.com/mossipcams/autodoctor/commit/2062e65e8be613ceb71ba8b57030a814faed35e7))
+* **runtime:** harden runtime health model lifecycle ([49b565c](https://github.com/mossipcams/autodoctor/commit/49b565ce60565a80128b931f06b4956775c2c745))
+
 ## [2.26.3](https://github.com/mossipcams/autodoctor/compare/v2.26.2...v2.26.3) (2026-02-16)
 
 
