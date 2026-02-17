@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.5](https://github.com/mossipcams/autodoctor/compare/v2.26.4...v2.26.5) (2026-02-17)
+
+
+### Bug Fixes
+
+* **runtime:** improve sparse automation coverage and reminder cadence gating ([#135](https://github.com/mossipcams/autodoctor/issues/135)) ([d3188a8](https://github.com/mossipcams/autodoctor/commit/d3188a80600118f325dae33c49c2d4bc7d4a52bb))
+
 ## [2.26.4](https://github.com/mossipcams/autodoctor/compare/v2.26.3...v2.26.4) (2026-02-16)
 
 
