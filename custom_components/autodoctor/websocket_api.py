@@ -339,16 +339,36 @@ def _find_automation_config(
         raw_configs_obj = automation_dict.get("config", [])
         if isinstance(raw_configs_obj, list):
             for config_obj in cast(list[object], raw_configs_obj):
-                if isinstance(config_obj, dict) and config_obj.get("id") == short_id:
-                    return cast(dict[str, Any], config_obj)
+                if not isinstance(config_obj, dict):
+                    continue
+                config = cast(dict[str, Any], config_obj)
+                config_id = config.get("id")
+                if isinstance(config_id, str) and config_id == short_id:
+                    return config
+                config_entity_id = config.get("__entity_id")
+                if (
+                    isinstance(config_entity_id, str)
+                    and config_entity_id == automation_id
+                ):
+                    return config
         return None
 
     entities = getattr(automation_data, "entities", None)
     if entities is not None:
         for entity in cast(list[Any], entities):
             raw_config = getattr(entity, "raw_config", None)
-            if isinstance(raw_config, dict) and raw_config.get("id") == short_id:
-                return cast(dict[str, Any], raw_config)
+            if not isinstance(raw_config, dict):
+                continue
+            config = cast(dict[str, Any], raw_config)
+            config_id = config.get("id")
+            if isinstance(config_id, str) and config_id == short_id:
+                return config
+            config_entity_id = config.get("__entity_id")
+            if isinstance(config_entity_id, str) and config_entity_id == automation_id:
+                return config
+            entity_id = getattr(entity, "entity_id", None)
+            if isinstance(entity_id, str) and entity_id == automation_id:
+                return config
     return None
 
 
@@ -468,6 +488,7 @@ async def websocket_get_issues(
         vol.Required("type"): "autodoctor/refresh",
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_refresh(
     hass: HomeAssistant,
@@ -523,6 +544,7 @@ async def websocket_get_validation(
         vol.Required("type"): "autodoctor/validation/run",
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_run_validation(
     hass: HomeAssistant,
@@ -567,6 +589,7 @@ async def websocket_run_validation(
         vol.Required("type"): "autodoctor/validation/run_steps",
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_run_validation_steps(
     hass: HomeAssistant,
@@ -739,6 +762,7 @@ async def websocket_get_validation_steps(
         vol.Optional("state"): str,  # State value for learning
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_suppress(
     hass: HomeAssistant,
@@ -808,6 +832,7 @@ async def websocket_suppress(
         vol.Required("type"): "autodoctor/clear_suppressions",
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_clear_suppressions(
     hass: HomeAssistant,
@@ -887,6 +912,7 @@ async def websocket_list_suppressions(
         vol.Required("key"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_unsuppress(
     hass: HomeAssistant,
@@ -945,6 +971,7 @@ async def websocket_fix_preview(
         vol.Required("suggested_value"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_fix_apply(
     hass: HomeAssistant,
@@ -1015,6 +1042,7 @@ async def websocket_fix_apply(
         vol.Required("type"): "autodoctor/fix_undo",
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_fix_undo(
     hass: HomeAssistant,

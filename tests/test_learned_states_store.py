@@ -353,3 +353,26 @@ async def test_async_learn_state_save_failure_rollback(hass: HomeAssistant) -> N
 
     # state_1 should still be there (not affected by rollback)
     assert "state_1" in states_after_failure
+
+
+async def test_async_learn_state_save_failure_cleans_empty_scaffolding(
+    hass: HomeAssistant,
+) -> None:
+    """Failed first write should not leave empty domain/integration containers."""
+    from unittest.mock import AsyncMock, patch
+
+    store = LearnedStatesStore(hass)
+
+    with (
+        patch.object(
+            store._store,
+            "async_save",
+            new_callable=AsyncMock,
+            side_effect=OSError("Disk full"),
+        ),
+        pytest.raises(IOError, match="Disk full"),
+    ):
+        await store.async_learn_state("vacuum", "roborock", "state_1")
+
+    assert store.get_learned_states("vacuum", "roborock") == set()
+    assert store._learned == {}

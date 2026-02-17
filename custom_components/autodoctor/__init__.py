@@ -20,6 +20,7 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
 from .analyzer import AutomationAnalyzer
@@ -666,14 +667,26 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             await kb.async_load_history()
             _LOGGER.info("Knowledge base refreshed")
 
-    hass.services.async_register(
-        DOMAIN, "validate", handle_validate, schema=SERVICE_VALIDATE_SCHEMA
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        "validate",
+        handle_validate,
+        schema=SERVICE_VALIDATE_SCHEMA,
     )
-    hass.services.async_register(
-        DOMAIN, "validate_automation", handle_validate, schema=SERVICE_VALIDATE_SCHEMA
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        "validate_automation",
+        handle_validate,
+        schema=SERVICE_VALIDATE_SCHEMA,
     )
-    hass.services.async_register(
-        DOMAIN, "refresh_knowledge_base", handle_refresh, schema=SERVICE_REFRESH_SCHEMA
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        "refresh_knowledge_base",
+        handle_refresh,
+        schema=SERVICE_REFRESH_SCHEMA,
     )
 
 

@@ -82,18 +82,24 @@ class SuppressionStore:
     async def async_suppress(self, key: str) -> None:
         """Add a suppression."""
         async with self._lock:
+            if key in self._suppressions:
+                return
             self._suppressions.add(key)
             await self._async_save()
 
     async def async_unsuppress(self, key: str) -> None:
         """Remove a single suppression by key."""
         async with self._lock:
+            if key not in self._suppressions:
+                return
             self._suppressions.discard(key)
             await self._async_save()
 
     async def async_clear_all(self) -> None:
         """Clear all suppressions."""
         async with self._lock:
+            if not self._suppressions:
+                return
             self._suppressions.clear()
             await self._async_save()
 

@@ -106,7 +106,12 @@ class LearnedStatesStore:
                 except Exception as err:
                     # Rollback the mutation on save failure to maintain consistency
                     # between in-memory state and persisted state
-                    self._learned[domain][integration].remove(state)
+                    integration_states = self._learned[domain][integration]
+                    integration_states.remove(state)
+                    if not integration_states:
+                        del self._learned[domain][integration]
+                    if not self._learned[domain]:
+                        del self._learned[domain]
                     _LOGGER.error(
                         "Failed to save learned state %s for %s.%s: %s",
                         state,
