@@ -19,6 +19,7 @@ def _build_monitor(
     tmp_path: Path, now: datetime, **kwargs: object
 ) -> RuntimeHealthMonitor:
     hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
     store = RuntimeHealthStateStore(path=tmp_path / "runtime_state.json")
     return RuntimeHealthMonitor(
         hass,

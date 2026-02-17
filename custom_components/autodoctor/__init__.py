@@ -626,9 +626,15 @@ def _setup_runtime_gap_check_listener(
     """Set up hourly runtime gap anomaly checks."""
 
     async def _handle_runtime_gap_check(_: datetime) -> None:
+        started = time.monotonic()
+        _LOGGER.debug("Runtime gap check started")
         try:
-            gap_issues = await hass.async_add_executor_job(
-                runtime_monitor.check_gap_anomalies,
+            gap_issues = runtime_monitor.check_gap_anomalies()
+            elapsed_ms = round((time.monotonic() - started) * 1000)
+            _LOGGER.debug(
+                "Runtime gap check finished: issues=%d duration_ms=%d",
+                len(gap_issues),
+                elapsed_ms,
             )
             if gap_issues:
                 _LOGGER.debug("Runtime gap check emitted %d issues", len(gap_issues))
@@ -927,6 +933,16 @@ async def async_validate_all_with_groups(hass: HomeAssistant) -> dict[str, Any]:
     visible_all_issues: list[ValidationIssue] = []
     for gid in VALIDATION_GROUP_ORDER:
         visible_all_issues.extend(visible_group_issues[gid])
+    raw_issue_count = len(cast(list[ValidationIssue], result["all_issues"]))
+    visible_issue_count = len(visible_all_issues)
+    suppressed_issue_count = max(0, raw_issue_count - visible_issue_count)
+    _LOGGER.debug(
+        "Validation visibility summary: raw_issues=%d visible_issues=%d "
+        "suppressed_issues=%d",
+        raw_issue_count,
+        visible_issue_count,
+        suppressed_issue_count,
+    )
 
     # Report only unsuppressed issues (Repairs + sensor surfaces).
     await reporter.async_report_issues(visible_all_issues)

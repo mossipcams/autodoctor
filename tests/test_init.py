@@ -1978,6 +1978,52 @@ async def test_validate_all_with_groups_filters_suppressed_before_reporting_and_
 
 
 @pytest.mark.asyncio
+async def test_validate_all_with_groups_logs_visibility_when_all_suppressed(
+    grouped_hass: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Validation logs should show raw/visible/suppressed counts."""
+    suppressed_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.hidden",
+        location="trigger[0]",
+        message="Suppressed issue",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [
+        suppressed_issue
+    ]
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].async_load_descriptions = AsyncMock()
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["suppression_store"] = suppression_store
+
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=[{"id": "test", "alias": "Test"}],
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"),
+    ):
+        await async_validate_all_with_groups(grouped_hass)
+
+    assert "Validation visibility summary" in caplog.text
+    assert "raw_issues=1" in caplog.text
+    assert "visible_issues=0" in caplog.text
+    assert "suppressed_issues=1" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_register_card_exceptions() -> None:
     """Test card registration exception handling."""
     from custom_components.autodoctor import _async_register_card
@@ -3056,12 +3102,13 @@ async def test_unload_entry_calls_unsub_runtime_gap_listener() -> None:
 
 
 @pytest.mark.asyncio
-async def test_setup_runtime_gap_listener_runs_hourly_gap_check() -> None:
-    """Hourly runtime gap callback should call monitor.check_gap_anomalies()."""
+async def test_setup_runtime_gap_listener_runs_hourly_gap_check(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Hourly runtime gap callback should run on event loop with debug summary."""
     from custom_components.autodoctor import _setup_runtime_gap_check_listener
 
     hass = MagicMock()
-    hass.async_add_executor_job = AsyncMock(return_value=[])
     runtime_monitor = MagicMock()
     runtime_monitor.check_gap_anomalies = MagicMock(return_value=[])
 
@@ -3080,7 +3127,10 @@ async def test_setup_runtime_gap_listener_runs_hourly_gap_check() -> None:
         _setup_runtime_gap_check_listener(hass, runtime_monitor)
 
     assert callback is not None
-    await callback(datetime(2026, 2, 13, 12, 0, tzinfo=UTC))
-    hass.async_add_executor_job.assert_called_once_with(
-        runtime_monitor.check_gap_anomalies,
-    )
+    with caplog.at_level(logging.DEBUG):
+        await callback(datetime(2026, 2, 13, 12, 0, tzinfo=UTC))
+
+    runtime_monitor.check_gap_anomalies.assert_called_once()
+    assert not hass.async_add_executor_job.called
+    assert "Runtime gap check started" in caplog.text
+    assert "Runtime gap check finished" in caplog.text
