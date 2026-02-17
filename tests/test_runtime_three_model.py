@@ -243,8 +243,10 @@ def test_auto_adapt_resets_bucket_after_persistent_count_anomalies(
     assert state["automations"][aid]["count_model"]["anomaly_streak"] == 0
 
 
-def test_suppressed_runtime_paths_are_excluded_from_learning(tmp_path: Path) -> None:
-    """Suppressed runtime alerts should skip model learning updates."""
+def test_suppressed_runtime_paths_continue_learning_without_alerts(
+    tmp_path: Path,
+) -> None:
+    """Suppressed runtime alerts should still update runtime model baselines."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
     monitor = _build_monitor(tmp_path, now)
     suppression_store = MagicMock()
@@ -257,7 +259,32 @@ def test_suppressed_runtime_paths_are_excluded_from_learning(tmp_path: Path) -> 
     )
 
     state = monitor.get_runtime_state()
-    assert "automation.suppressed" not in state["automations"]
+    assert "automation.suppressed" in state["automations"]
+    assert monitor.get_active_runtime_alerts() == []
+
+
+def test_out_of_order_runtime_events_do_not_backdate_last_trigger(
+    tmp_path: Path,
+) -> None:
+    """Older trigger timestamps should be ignored to keep model state monotonic."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
+    aid = "automation.out_of_order"
+
+    newer = now
+    older = now - timedelta(minutes=30)
+    monitor.ingest_trigger_event(aid, occurred_at=newer)
+    monitor.ingest_trigger_event(aid, occurred_at=older)
+
+    state = monitor.get_runtime_state()
+    gap_last_trigger = state["automations"][aid]["gap_model"]["last_trigger"]
+    assert gap_last_trigger == newer.isoformat()
+
+    bucket = state["automations"][aid]["count_model"]["buckets"][
+        monitor.classify_time_bucket(newer)
+    ]
+    assert bucket["current_day"] == newer.date().isoformat()
+    assert bucket["current_count"] == 1
 
 
 @pytest.mark.asyncio

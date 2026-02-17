@@ -52,18 +52,42 @@ async def test_sensor_attributes(hass: HomeAssistant) -> None:
 
 
 async def test_native_value_with_issues(hass: HomeAssistant) -> None:
-    """Test that native_value returns the count of active issues from reporter.
-
-    Verifies the sensor correctly queries the reporter's active issues and
-    returns the count as its state value for display in the UI.
-    """
+    """Test that native_value returns the count of visible validation issues."""
     entry = MagicMock()
     entry.entry_id = "test"
     sensor = ValidationIssuesSensor(hass, entry)
 
-    mock_reporter = MagicMock()
-    mock_reporter._active_issues = frozenset({"a", "b", "c"})
-    hass.data[DOMAIN] = {"reporter": mock_reporter}
+    hass.data[DOMAIN] = {
+        "validation_issues": [
+            ValidationIssue(
+                severity=Severity.ERROR,
+                automation_id="automation.kitchen",
+                automation_name="Kitchen",
+                entity_id="light.kitchen",
+                location="trigger[0].entity_id",
+                message="Entity does not exist",
+                issue_type=IssueType.ENTITY_NOT_FOUND,
+            ),
+            ValidationIssue(
+                severity=Severity.WARNING,
+                automation_id="automation.hallway",
+                automation_name="Hallway",
+                entity_id="sensor.hallway",
+                location="condition[0].state",
+                message="Invalid state",
+                issue_type=IssueType.INVALID_STATE,
+            ),
+            ValidationIssue(
+                severity=Severity.WARNING,
+                automation_id="automation.hallway",
+                automation_name="Hallway",
+                entity_id="sensor.hallway",
+                location="condition[1].state",
+                message="Case mismatch",
+                issue_type=IssueType.CASE_MISMATCH,
+            ),
+        ]
+    }
 
     assert sensor.native_value == 3
 

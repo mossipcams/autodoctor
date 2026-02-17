@@ -55,9 +55,13 @@ class ValidationIssuesSensor(SensorEntity):
     def native_value(self) -> int:
         """Return the issue count."""
         data = self.hass.data.get(DOMAIN, {})
+        validation_issues = data.get("validation_issues")
+        if isinstance(validation_issues, list):
+            return len(validation_issues)
+
         reporter = data.get("reporter")
         if reporter:
-            # _active_issues is a frozenset, safe to read directly
+            # Backward compatibility fallback for older in-memory shape.
             return len(reporter._active_issues)
         return 0
 

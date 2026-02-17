@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -474,6 +475,8 @@ class RuntimeHealthMonitor:
         self._runtime_state_flush_interval = timedelta(
             minutes=_DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES
         )
+        self._pending_runtime_state_snapshot: dict[str, Any] | None = None
+        self._runtime_state_save_task: asyncio.Task[Any] | None = None
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
@@ -595,11 +598,26 @@ class RuntimeHealthMonitor:
             "automation."
         ):
             return []
-        if self._is_runtime_suppressed(automation_entity_id, suppression_store):
-            return []
         event_time = occurred_at or self._now_factory()
-        self._live_trigger_events[automation_entity_id].append(event_time)
         automation_state = self._ensure_automation_state(automation_entity_id)
+        runtime_suppressed = self._is_runtime_suppressed(
+            automation_entity_id, suppression_store
+        )
+
+        gap_model_raw = automation_state.get("gap_model", {})
+        if isinstance(gap_model_raw, dict):
+            gap_model = cast(dict[str, Any], gap_model_raw)
+            last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
+            if last_trigger is not None and event_time <= last_trigger:
+                _LOGGER.debug(
+                    "Ignoring out-of-order runtime trigger for '%s': event_time=%s last_trigger=%s",
+                    automation_entity_id,
+                    event_time.isoformat(),
+                    last_trigger.isoformat(),
+                )
+                return []
+
+        self._live_trigger_events[automation_entity_id].append(event_time)
 
         count_bucket_name, count_bucket = self._update_count_model(
             automation_state, event_time
@@ -609,20 +627,35 @@ class RuntimeHealthMonitor:
             automation_entity_id,
             IssueType.RUNTIME_AUTOMATION_GAP,
         )
-        issues = self._detect_burst_anomaly(
-            automation_entity_id=automation_entity_id,
-            automation_state=automation_state,
-            now=event_time,
-        )
-        issues.extend(
-            self._detect_count_anomaly(
+        if runtime_suppressed:
+            self._clear_runtime_alert(
+                automation_entity_id, IssueType.RUNTIME_AUTOMATION_STALLED
+            )
+            self._clear_runtime_alert(
+                automation_entity_id, IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+            )
+            self._clear_runtime_alert(
+                automation_entity_id, IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
+            )
+            self._clear_runtime_alert(
+                automation_entity_id, IssueType.RUNTIME_AUTOMATION_BURST
+            )
+            issues: list[ValidationIssue] = []
+        else:
+            issues = self._detect_burst_anomaly(
                 automation_entity_id=automation_entity_id,
                 automation_state=automation_state,
-                bucket_name=count_bucket_name,
-                bucket_state=count_bucket,
                 now=event_time,
             )
-        )
+            issues.extend(
+                self._detect_count_anomaly(
+                    automation_entity_id=automation_entity_id,
+                    automation_state=automation_state,
+                    bucket_name=count_bucket_name,
+                    bucket_state=count_bucket,
+                    now=event_time,
+                )
+            )
         self._maybe_auto_adapt(
             automation_entity_id=automation_entity_id,
             automation_state=automation_state,
@@ -973,7 +1006,8 @@ class RuntimeHealthMonitor:
                 gap_model["median_gap_minutes"] = median_gap
                 gap_model["ewma_gap_minutes"] = ewma_gap
                 gap_model["expected_gap_minutes"] = expected_gap
-        gap_model["last_trigger"] = event_time.isoformat()
+        if previous_trigger is None or event_time >= previous_trigger:
+            gap_model["last_trigger"] = event_time.isoformat()
 
     def _expected_gap_minutes_for_automation(
         self,
@@ -1333,8 +1367,15 @@ class RuntimeHealthMonitor:
         reason: str,
         flush_time: datetime | None = None,
     ) -> None:
+        self._pending_runtime_state_snapshot = snapshot
+        if (
+            self._runtime_state_save_task is None
+            or self._runtime_state_save_task.done()
+        ):
+            self._runtime_state_save_task = self.hass.create_task(
+                self._async_drain_runtime_state_saves()
+            )
         thread = threading.current_thread()
-        self.hass.create_task(self._runtime_state_store.async_save(snapshot))
         _LOGGER.debug(
             "Runtime state save scheduled: reason=%s scheduler=create_task "
             "thread=%s thread_id=%s",
@@ -1343,6 +1384,16 @@ class RuntimeHealthMonitor:
             thread.ident,
         )
         self._last_runtime_state_flush = flush_time or self._now_factory()
+
+    async def _async_drain_runtime_state_saves(self) -> None:
+        """Serialize runtime state saves to prevent stale snapshots overwriting newer state."""
+        while self._pending_runtime_state_snapshot is not None:
+            snapshot = self._pending_runtime_state_snapshot
+            self._pending_runtime_state_snapshot = None
+            try:
+                await self._runtime_state_store.async_save(snapshot)
+            except Exception as err:
+                _LOGGER.debug("Failed to save runtime state snapshot: %s", err)
 
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:
@@ -1699,22 +1750,26 @@ class RuntimeHealthMonitor:
                     smoothed_score,
                 )
                 stats["stalled_detected"] += 1
-                issues.append(
-                    ValidationIssue(
-                        severity=Severity.ERROR,
-                        automation_id=automation_entity_id,
-                        automation_name=automation_name,
-                        entity_id=automation_entity_id,
-                        location="runtime.health",
-                        message=(
-                            f"Automation appears stalled: 0 triggers in last 24h, "
-                            f"baseline expected {expected:.1f}/day "
-                            f"(anomaly score {smoothed_score:.2f})"
-                        ),
-                        issue_type=IssueType.RUNTIME_AUTOMATION_STALLED,
-                        confidence="medium",
-                    )
+                stalled_issue = ValidationIssue(
+                    severity=Severity.ERROR,
+                    automation_id=automation_entity_id,
+                    automation_name=automation_name,
+                    entity_id=automation_entity_id,
+                    location="runtime.health",
+                    message=(
+                        f"Automation appears stalled: 0 triggers in last 24h, "
+                        f"baseline expected {expected:.1f}/day "
+                        f"(anomaly score {smoothed_score:.2f})"
+                    ),
+                    issue_type=IssueType.RUNTIME_AUTOMATION_STALLED,
+                    confidence="medium",
                 )
+                self._register_runtime_alert(stalled_issue)
+                self._clear_runtime_alert(
+                    automation_entity_id,
+                    IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+                )
+                issues.append(stalled_issue)
                 continue
 
             if (
@@ -1734,25 +1789,52 @@ class RuntimeHealthMonitor:
                     smoothed_score,
                 )
                 stats["overactive_detected"] += 1
-                issues.append(
-                    ValidationIssue(
-                        severity=Severity.WARNING,
-                        automation_id=automation_entity_id,
-                        automation_name=automation_name,
-                        entity_id=automation_entity_id,
-                        location="runtime.health",
-                        message=(
-                            f"Automation trigger rate is abnormally high: {recent_count} "
-                            f"triggers in last 24h vs baseline {expected:.1f}/day "
-                            f"(anomaly score {smoothed_score:.2f})"
-                        ),
-                        issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
-                        confidence="medium",
-                    )
+                overactive_issue = ValidationIssue(
+                    severity=Severity.WARNING,
+                    automation_id=automation_entity_id,
+                    automation_name=automation_name,
+                    entity_id=automation_entity_id,
+                    location="runtime.health",
+                    message=(
+                        f"Automation trigger rate is abnormally high: {recent_count} "
+                        f"triggers in last 24h vs baseline {expected:.1f}/day "
+                        f"(anomaly score {smoothed_score:.2f})"
+                    ),
+                    issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+                    confidence="medium",
                 )
+                self._register_runtime_alert(overactive_issue)
+                self._clear_runtime_alert(
+                    automation_entity_id,
+                    IssueType.RUNTIME_AUTOMATION_STALLED,
+                )
+                issues.append(overactive_issue)
+                continue
+
+            self._clear_runtime_alert(
+                automation_entity_id,
+                IssueType.RUNTIME_AUTOMATION_STALLED,
+            )
+            self._clear_runtime_alert(
+                automation_entity_id,
+                IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            )
+
+        evaluated_automation_ids = set(automation_ids)
+        existing_keys = {issue.get_suppression_key() for issue in issues}
+        for issue in self.get_active_runtime_alerts():
+            if issue.automation_id not in evaluated_automation_ids:
+                continue
+            key = issue.get_suppression_key()
+            if key in existing_keys:
+                continue
+            issues.append(issue)
+            existing_keys.add(key)
 
         if runtime_state_dirty:
             self._persist_runtime_state()
+        else:
+            self._maybe_flush_runtime_state(now)
         self._last_run_stats = dict(stats)
         return issues
 
@@ -1869,7 +1951,12 @@ class RuntimeHealthMonitor:
             data = (
                 cast(dict[str, Any], hass_data) if isinstance(hass_data, dict) else {}
             )
-            suppression_store = data.get("suppression_store")
+            domain_data_raw = data.get(DOMAIN, {})
+            if isinstance(domain_data_raw, dict):
+                domain_data = cast(dict[str, Any], domain_data_raw)
+                suppression_store = domain_data.get("suppression_store")
+            else:
+                suppression_store = None
         if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
             return learned_multiplier
 
@@ -2205,55 +2292,84 @@ class RuntimeHealthMonitor:
         end: datetime,
     ) -> dict[str, list[datetime]]:
         """Fetch automation trigger timestamps from recorder events table."""
+        requested_ids = [
+            automation_id for automation_id in automation_ids if automation_id
+        ]
+        if not requested_ids:
+            return {}
         self._last_query_failed = False
         try:
             from homeassistant.components.recorder import get_instance
             from sqlalchemy import text
         except Exception:  # pragma: no cover - dependency/runtime differences
             _LOGGER.debug("Recorder/SQLAlchemy unavailable for runtime monitoring")
-            return {aid: [] for aid in automation_ids}
+            return {aid: [] for aid in requested_ids}
 
         def _query() -> dict[str, list[datetime]]:
-            results: dict[str, list[datetime]] = {aid: [] for aid in automation_ids}
-            instance = get_instance(self.hass)
-            with instance.get_session() as session:
-                rows = session.execute(
-                    text(
-                        """
-                        SELECT ed.shared_data, e.time_fired_ts
-                        FROM events e
-                        INNER JOIN event_types et
-                            ON e.event_type_id = et.event_type_id
-                        INNER JOIN event_data ed
-                            ON e.data_id = ed.data_id
-                        WHERE et.event_type = 'automation_triggered'
-                        AND e.time_fired_ts >= :start_ts
-                        AND e.time_fired_ts <= :end_ts
-                        """
-                    ),
-                    {
-                        "start_ts": start.timestamp(),
-                        "end_ts": end.timestamp(),
-                    },
+            unique_ids = list(dict.fromkeys(requested_ids))
+            results: dict[str, list[datetime]] = {aid: [] for aid in unique_ids}
+
+            def _escape_like(value: str) -> str:
+                return (
+                    value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 )
 
-                for shared_data_raw, fired_ts in rows:
-                    if fired_ts is None:
-                        continue
-                    try:
-                        payload = cast(
-                            dict[str, Any],
-                            shared_data_raw
-                            if isinstance(shared_data_raw, dict)
-                            else json.loads(shared_data_raw or "{}"),
+            instance = get_instance(self.hass)
+            with instance.get_session() as session:
+                chunk_size = 200
+                for chunk_start in range(0, len(unique_ids), chunk_size):
+                    id_chunk = unique_ids[chunk_start : chunk_start + chunk_size]
+                    like_clauses: list[str] = []
+                    params: dict[str, Any] = {
+                        "start_ts": start.timestamp(),
+                        "end_ts": end.timestamp(),
+                    }
+                    for idx, automation_id in enumerate(id_chunk):
+                        param_name = f"entity_like_{idx}"
+                        params[param_name] = (
+                            f'%"entity_id"%"{_escape_like(automation_id)}"%'
                         )
-                    except (TypeError, json.JSONDecodeError):
-                        continue
+                        like_clauses.append(
+                            f"ed.shared_data LIKE :{param_name} ESCAPE '\\'"
+                        )
 
-                    entity_id: str | None = payload.get("entity_id")
-                    if entity_id not in results:
-                        continue
-                    results[entity_id].append(datetime.fromtimestamp(fired_ts, tz=UTC))
+                    rows = session.execute(
+                        text(
+                            f"""
+                            SELECT ed.shared_data, e.time_fired_ts
+                            FROM events e
+                            INNER JOIN event_types et
+                                ON e.event_type_id = et.event_type_id
+                            INNER JOIN event_data ed
+                                ON e.data_id = ed.data_id
+                            WHERE et.event_type = 'automation_triggered'
+                            AND e.time_fired_ts >= :start_ts
+                            AND e.time_fired_ts <= :end_ts
+                            AND ({" OR ".join(like_clauses)})
+                            """
+                        ),
+                        params,
+                    )
+
+                    for shared_data_raw, fired_ts in rows:
+                        if fired_ts is None:
+                            continue
+                        try:
+                            payload = cast(
+                                dict[str, Any],
+                                shared_data_raw
+                                if isinstance(shared_data_raw, dict)
+                                else json.loads(shared_data_raw or "{}"),
+                            )
+                        except (TypeError, json.JSONDecodeError):
+                            continue
+
+                        entity_id: str | None = payload.get("entity_id")
+                        if entity_id not in results:
+                            continue
+                        results[entity_id].append(
+                            datetime.fromtimestamp(fired_ts, tz=UTC)
+                        )
 
             return results
 
@@ -2278,4 +2394,4 @@ class RuntimeHealthMonitor:
             _LOGGER.debug(
                 "Failed to query recorder events for runtime monitor: %s", err
             )
-            return {aid: [] for aid in automation_ids}
+            return {aid: [] for aid in requested_ids}

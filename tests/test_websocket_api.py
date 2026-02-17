@@ -8,6 +8,8 @@ step-based validation results.
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -158,6 +160,38 @@ async def test_websocket_get_issues_returns_data(hass: HomeAssistant) -> None:
     result = call_args[0][1]
     assert "issues" in result
     assert "healthy_count" in result
+
+
+@pytest.mark.asyncio
+async def test_websocket_get_issues_applies_suppression_filtering_on_read(
+    hass: HomeAssistant,
+) -> None:
+    """Issues endpoint should apply suppression filtering against raw cache."""
+    suppressed_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.hidden",
+        location="trigger[0]",
+        message="Suppressed issue",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+    )
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+    hass.data[DOMAIN] = {
+        "issues": [suppressed_issue],
+        "validation_issues_raw": [suppressed_issue],
+        "suppression_store": suppression_store,
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_result = MagicMock()
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/issues"}
+
+    await _invoke_command(websocket_get_issues, hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    assert result["issues"] == []
 
 
 @pytest.mark.asyncio
@@ -756,6 +790,48 @@ async def test_websocket_suppress_runtime_issue_records_dismissal(
     runtime_monitor.record_issue_dismissed.assert_called_once_with(
         "automation.runtime_test"
     )
+
+
+@pytest.mark.asyncio
+async def test_websocket_suppress_reconciles_visible_issue_cache_and_reporter(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressing should update visible issue cache and repairs immediately."""
+    issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    suppression_store = MagicMock()
+    suppression_store.async_suppress = AsyncMock()
+    suppression_store.is_suppressed = MagicMock(
+        side_effect=lambda key: key == issue.get_suppression_key()
+    )
+    suppression_store.count = 1
+    reporter = MagicMock()
+    reporter.async_report_issues = AsyncMock()
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+        "learned_states_store": None,
+        "runtime_monitor": None,
+        "reporter": reporter,
+        "validation_issues_raw": [issue],
+        "validation_issues": [issue],
+        "issues": [issue],
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_result = MagicMock()
+    msg: dict[str, Any] = {
+        "id": 5,
+        "type": "autodoctor/suppress",
+        "automation_id": issue.automation_id,
+        "entity_id": issue.entity_id,
+        "issue_type": issue.issue_type.value,
+    }
+
+    await _invoke_command(websocket_suppress, hass, connection, msg)
+
+    assert hass.data[DOMAIN]["issues"] == []
+    assert hass.data[DOMAIN]["validation_issues"] == []
+    reporter.async_report_issues.assert_awaited_once_with([])
 
 
 @pytest.mark.asyncio
@@ -1536,9 +1612,17 @@ async def test_websocket_fix_apply_resolves_config_when_entity_id_differs_from_i
     }
 
     with patch(
-        "custom_components.autodoctor.async_validate_automation",
+        "custom_components.autodoctor.async_validate_all_with_groups",
         new_callable=AsyncMock,
-        return_value=[],
+        return_value={
+            "group_issues": {},
+            "group_durations": {},
+            "all_issues": [],
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+            "skip_reasons": {},
+        },
     ) as mock_validate:
         await _invoke_command(websocket_fix_apply, hass, connection, msg)
 
@@ -1549,7 +1633,7 @@ async def test_websocket_fix_apply_resolves_config_when_entity_id_differs_from_i
         hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
         == "light.living_room"
     )
-    mock_validate.assert_awaited_once_with(hass, "automation.morning_lights")
+    mock_validate.assert_awaited_once_with(hass)
 
 
 @pytest.mark.asyncio
@@ -1583,9 +1667,17 @@ async def test_websocket_fix_apply_updates_automation(
     }
 
     with patch(
-        "custom_components.autodoctor.async_validate_automation",
+        "custom_components.autodoctor.async_validate_all_with_groups",
         new_callable=AsyncMock,
-        return_value=[],
+        return_value={
+            "group_issues": {},
+            "group_durations": {},
+            "all_issues": [],
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+            "skip_reasons": {},
+        },
     ) as mock_validate:
         await _invoke_command(websocket_fix_apply, hass, connection, msg)
 
@@ -1596,7 +1688,7 @@ async def test_websocket_fix_apply_updates_automation(
         hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
         == "light.living_room"
     )
-    mock_validate.assert_awaited_once_with(hass, "automation.test")
+    mock_validate.assert_awaited_once_with(hass)
 
 
 @pytest.mark.asyncio
@@ -1637,6 +1729,212 @@ async def test_websocket_fix_apply_rejects_unexpected_current_value(
 
 
 @pytest.mark.asyncio
+async def test_websocket_fix_apply_rejects_non_persistable_automation_source(
+    hass: HomeAssistant,
+) -> None:
+    """Fix apply should reject config sources that cannot be persisted safely."""
+
+    class _AutomationEntity:
+        def __init__(self) -> None:
+            self.entity_id = "automation.test"
+            self.raw_config = {
+                "id": "test",
+                "__config_file__": "/config/other_source.yaml",
+                "trigger": [{"entity_id": "light.kitchen"}],
+            }
+
+    hass.data["automation"] = SimpleNamespace(entities=[_AutomationEntity()])
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_error = MagicMock()
+    msg: dict[str, Any] = {
+        "id": 101,
+        "type": "autodoctor/fix_apply",
+        "automation_id": "automation.test",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.kitchen",
+        "suggested_value": "light.kitchen_main",
+    }
+
+    await _invoke_command(websocket_fix_apply, hass, connection, msg)
+
+    connection.send_error.assert_called_once()
+    assert connection.send_error.call_args[0][1] == "fix_not_applicable"
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_apply_persists_yaml_and_triggers_reload(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """Fix apply should persist automations.yaml edits and reload automations."""
+    yaml_path = tmp_path / "automations.yaml"
+    yaml_path.write_text(
+        "- id: test\n  trigger:\n    - entity_id: light.Living_Room\n",
+        encoding="utf-8",
+    )
+
+    class _AutomationEntity:
+        def __init__(self) -> None:
+            self.entity_id = "automation.test"
+            self.raw_config = {
+                "id": "test",
+                "__config_file__": str(yaml_path),
+                "trigger": [{"entity_id": "light.Living_Room"}],
+            }
+
+    hass.data["automation"] = SimpleNamespace(entities=[_AutomationEntity()])
+    reload_handler = AsyncMock()
+    hass.services.async_register("automation", "reload", reload_handler)
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 102,
+        "type": "autodoctor/fix_apply",
+        "automation_id": "automation.test",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all_with_groups",
+        new_callable=AsyncMock,
+        return_value={
+            "group_issues": {},
+            "group_durations": {},
+            "all_issues": [],
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+            "skip_reasons": {},
+        },
+    ):
+        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    assert "light.living_room" in yaml_path.read_text(encoding="utf-8")
+    reload_handler.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_apply_preserves_unicode_in_persisted_yaml(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """Fix apply must preserve unicode characters (e.g. accented names) in YAML output."""
+    yaml_path = tmp_path / "automations.yaml"
+    yaml_path.write_text(
+        "- id: test\n  alias: \"Lumi\u00e8re du salon\"\n  trigger:\n    - entity_id: light.Living_Room\n",
+        encoding="utf-8",
+    )
+
+    class _AutomationEntity:
+        def __init__(self) -> None:
+            self.entity_id = "automation.test"
+            self.raw_config = {
+                "id": "test",
+                "__config_file__": str(yaml_path),
+                "alias": "Lumi\u00e8re du salon",
+                "trigger": [{"entity_id": "light.Living_Room"}],
+            }
+
+    hass.data["automation"] = SimpleNamespace(entities=[_AutomationEntity()])
+    reload_handler = AsyncMock()
+    hass.services.async_register("automation", "reload", reload_handler)
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 110,
+        "type": "autodoctor/fix_apply",
+        "automation_id": "automation.test",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all_with_groups",
+        new_callable=AsyncMock,
+        return_value={
+            "group_issues": {},
+            "group_durations": {},
+            "all_issues": [],
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+            "skip_reasons": {},
+        },
+    ):
+        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    written = yaml_path.read_text(encoding="utf-8")
+    assert "Lumi\u00e8re du salon" in written, (
+        f"Unicode alias was escaped or corrupted in output: {written!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_undo_loads_snapshot_from_store(
+    hass: HomeAssistant,
+) -> None:
+    """Undo should read snapshot from persistent store when memory cache is empty."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "test",
+                "trigger": [{"entity_id": "light.living_room"}],
+            }
+        ]
+    }
+    hass.data[DOMAIN] = {}
+
+    connection = MagicMock(spec=ActiveConnection)
+    with (
+        patch(
+            "custom_components.autodoctor.websocket_api._get_fix_snapshot_store"
+        ) as mock_store_factory,
+        patch(
+            "custom_components.autodoctor.async_validate_all_with_groups",
+            new_callable=AsyncMock,
+            return_value={
+                "group_issues": {},
+                "group_durations": {},
+                "all_issues": [],
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "analyzed_automations": 0,
+                "failed_automations": 0,
+                "skip_reasons": {},
+            },
+        ),
+    ):
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(
+            return_value={
+                "last_applied_fix": {
+                    "automation_id": "automation.test",
+                    "location": "trigger[0].entity_id",
+                    "previous_value": "light.Living_Room",
+                    "new_value": "light.living_room",
+                }
+            }
+        )
+        mock_store.async_save = AsyncMock()
+        mock_store_factory.return_value = mock_store
+
+        await _invoke_command(
+            websocket_fix_undo,
+            hass,
+            connection,
+            {"id": 103, "type": "autodoctor/fix_undo"},
+        )
+
+    connection.send_result.assert_called_once()
+    assert (
+        hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
+        == "light.Living_Room"
+    )
+
+
+@pytest.mark.asyncio
 async def test_websocket_fix_undo_reverts_last_applied_fix(
     hass: HomeAssistant,
 ) -> None:
@@ -1660,9 +1958,17 @@ async def test_websocket_fix_undo_reverts_last_applied_fix(
     connection = MagicMock(spec=ActiveConnection)
 
     with patch(
-        "custom_components.autodoctor.async_validate_automation",
+        "custom_components.autodoctor.async_validate_all_with_groups",
         new_callable=AsyncMock,
-        return_value=[],
+        return_value={
+            "group_issues": {},
+            "group_durations": {},
+            "all_issues": [],
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "analyzed_automations": 0,
+            "failed_automations": 0,
+            "skip_reasons": {},
+        },
     ) as mock_validate:
         await _invoke_command(
             websocket_fix_undo,
@@ -1679,7 +1985,7 @@ async def test_websocket_fix_undo_reverts_last_applied_fix(
         == "light.Living_Room"
     )
     assert hass.data[DOMAIN].get("last_applied_fix") is None
-    mock_validate.assert_awaited_once_with(hass, "automation.test")
+    mock_validate.assert_awaited_once_with(hass)
 
 
 @pytest.mark.asyncio

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
+import yaml
 from homeassistant.components import websocket_api
 from homeassistant.config import AUTOMATION_CONFIG_PATH
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 from .models import (
@@ -27,6 +30,8 @@ if TYPE_CHECKING:
     from .suppression_store import SuppressionStore
 
 _LOGGER = logging.getLogger(__name__)
+_FIX_SNAPSHOT_STORAGE_KEY = "autodoctor.fix_snapshot"
+_FIX_SNAPSHOT_STORAGE_VERSION = 1
 
 
 async def async_setup_websocket_api(hass: HomeAssistant) -> None:
@@ -372,6 +377,155 @@ def _find_automation_config(
     return None
 
 
+def _is_dict_mode_automation_data(hass: HomeAssistant) -> bool:
+    """Return True when automation data is the legacy/test dict shape."""
+    return isinstance(hass.data.get("automation"), dict)
+
+
+def _resolve_config_file_path(hass: HomeAssistant, config_file: str) -> Path:
+    """Resolve config file path against HA config dir when given a relative path."""
+    raw_path = Path(config_file)
+    if raw_path.is_absolute():
+        return raw_path
+    if hasattr(hass, "config") and hasattr(hass.config, "path"):
+        try:
+            return Path(hass.config.path(config_file))
+        except Exception:
+            pass
+    return raw_path
+
+
+def _apply_fix_to_automation_yaml(
+    *,
+    file_path: Path,
+    automation_id: str,
+    location: str,
+    expected_current: str | None,
+    suggested_value: str,
+    candidate_ids: list[str] | None = None,
+) -> tuple[bool, str, str | None]:
+    """Apply a scalar replacement directly to automations.yaml."""
+    try:
+        payload = yaml.safe_load(file_path.read_text(encoding="utf-8"))
+    except OSError as err:
+        return False, f"Unable to read automation config file: {err}", None
+    except yaml.YAMLError as err:
+        return False, f"Unable to parse automation config file: {err}", None
+
+    if payload is None:
+        payload = []
+    if not isinstance(payload, list):
+        return False, "Automation config file must contain a list of automations.", None
+
+    path = _parse_location_path(location)
+    if path is None:
+        return False, "Unsupported location format.", None
+
+    short_id = automation_id.replace("automation.", "", 1)
+    candidate_id_set = {short_id}
+    if candidate_ids:
+        candidate_id_set.update(candidate_ids)
+    candidate_entity_ids = {
+        cid if cid.startswith("automation.") else f"automation.{cid}"
+        for cid in candidate_id_set
+    }
+    candidate_entity_ids.add(automation_id)
+    target_automation: dict[str, Any] | None = None
+    for item in cast(list[Any], payload):
+        if not isinstance(item, dict):
+            continue
+        item_dict = cast(dict[str, Any], item)
+        raw_id = item_dict.get("id")
+        raw_entity_id = (
+            f"automation.{raw_id}" if isinstance(raw_id, str) and raw_id else None
+        )
+        raw_entity_hint = item_dict.get("__entity_id")
+        if (
+            (isinstance(raw_id, str) and raw_id in candidate_id_set)
+            or (
+                isinstance(raw_entity_id, str) and raw_entity_id in candidate_entity_ids
+            )
+            or (
+                isinstance(raw_entity_hint, str)
+                and raw_entity_hint in candidate_entity_ids
+            )
+        ):
+            target_automation = item_dict
+            break
+
+    if target_automation is None:
+        return False, "Automation not found in automations.yaml.", None
+
+    resolved = _resolve_parent_and_key(target_automation, path)
+    if resolved is None:
+        return False, "Location does not resolve in automations.yaml.", None
+
+    container, key, live_value = resolved
+    if not isinstance(live_value, str):
+        return False, "Target value is not a string.", None
+    if expected_current is not None and live_value != expected_current:
+        return False, "Current value mismatch; automation has changed.", live_value
+    if live_value == suggested_value:
+        return False, "Suggested value already applied.", live_value
+
+    previous_value = live_value
+    container[key] = suggested_value
+    try:
+        file_path.write_text(
+            yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+    except OSError as err:
+        container[key] = previous_value
+        return False, f"Unable to write automation config file: {err}", previous_value
+
+    return True, "", previous_value
+
+
+def _get_fix_snapshot_store(hass: HomeAssistant) -> Store[dict[str, Any]]:
+    """Return persistent store used for last-applied-fix snapshots."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    store = domain_data.get("_fix_snapshot_store")
+    if isinstance(store, Store):
+        return cast(Store[dict[str, Any]], store)
+    new_store: Store[dict[str, Any]] = Store(
+        hass,
+        _FIX_SNAPSHOT_STORAGE_VERSION,
+        _FIX_SNAPSHOT_STORAGE_KEY,
+    )
+    domain_data["_fix_snapshot_store"] = new_store
+    return new_store
+
+
+async def _async_load_last_fix_snapshot(hass: HomeAssistant) -> dict[str, Any] | None:
+    """Load last applied fix snapshot from memory or persistent storage."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    snapshot = domain_data.get("last_applied_fix")
+    if isinstance(snapshot, dict):
+        return cast(dict[str, Any], snapshot)
+
+    store = _get_fix_snapshot_store(hass)
+    payload = await store.async_load()
+    loaded = (
+        cast(dict[str, Any], payload.get("last_applied_fix"))
+        if isinstance(payload, dict)
+        and isinstance(payload.get("last_applied_fix"), dict)
+        else None
+    )
+    domain_data["last_applied_fix"] = loaded
+    return loaded
+
+
+async def _async_save_last_fix_snapshot(
+    hass: HomeAssistant, snapshot: dict[str, Any] | None
+) -> None:
+    """Persist last applied fix snapshot."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    domain_data["last_applied_fix"] = snapshot
+    store = _get_fix_snapshot_store(hass)
+    await store.async_save({"last_applied_fix": snapshot})
+
+
 def _build_fix_preview(
     hass: HomeAssistant,
     automation_id: str,
@@ -456,6 +610,24 @@ def _filter_suppressed(
     return visible, suppressed_count
 
 
+async def _async_reconcile_visible_issues(hass: HomeAssistant) -> None:
+    """Recompute visible issues from raw cache and update reporter-backed surfaces."""
+    data = hass.data.get(DOMAIN, {})
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+    raw_issues: list[ValidationIssue] = data.get(
+        "validation_issues_raw",
+        data.get("validation_issues", data.get("issues", [])),
+    )
+    visible_issues, _ = _filter_suppressed(raw_issues, suppression_store)
+
+    data["issues"] = visible_issues
+    data["validation_issues"] = visible_issues
+
+    reporter = data.get("reporter")
+    if reporter is not None and hasattr(reporter, "async_report_issues"):
+        await reporter.async_report_issues(visible_issues)
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "autodoctor/issues",
@@ -469,7 +641,12 @@ async def websocket_get_issues(
 ) -> None:
     """Get current issues with fix suggestions."""
     data = hass.data.get(DOMAIN, {})
-    issues: list[ValidationIssue] = data.get("issues", [])
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+    all_issues: list[ValidationIssue] = data.get(
+        "validation_issues_raw",
+        data.get("validation_issues", data.get("issues", [])),
+    )
+    issues, _ = _filter_suppressed(all_issues, suppression_store)
 
     issues_with_fixes = _format_issues_with_fixes(hass, issues)
     healthy_count = _get_healthy_count(hass, issues)
@@ -758,7 +935,7 @@ async def websocket_get_validation_steps(
         vol.Required("type"): "autodoctor/suppress",
         vol.Required("automation_id"): str,
         vol.Required("entity_id"): str,
-        vol.Required("issue_type"): str,
+        vol.Required("issue_type"): vol.In([it.value for it in IssueType]),
         vol.Optional("state"): str,  # State value for learning
     }
 )
@@ -804,6 +981,7 @@ async def websocket_suppress(
     # Suppress the issue
     key = f"{msg['automation_id']}:{msg['entity_id']}:{msg['issue_type']}"
     await suppression_store.async_suppress(key)
+    await _async_reconcile_visible_issues(hass)
 
     runtime_issue_types = {
         IssueType.RUNTIME_AUTOMATION_STALLED.value,
@@ -850,6 +1028,7 @@ async def websocket_clear_suppressions(
         return
 
     await suppression_store.async_clear_all()
+    await _async_reconcile_visible_issues(hass)
 
     connection.send_result(msg["id"], {"success": True, "suppressed_count": 0})
 
@@ -930,6 +1109,7 @@ async def websocket_unsuppress(
         return
 
     await suppression_store.async_unsuppress(msg["key"])
+    await _async_reconcile_visible_issues(hass)
 
     connection.send_result(
         msg["id"], {"success": True, "suppressed_count": suppression_store.count}
@@ -1008,22 +1188,80 @@ async def websocket_fix_apply(
         return
 
     container, key, previous_value = resolved
-    container[key] = msg["suggested_value"]
+    suggested_value = msg["suggested_value"]
+    config_file_raw = config.get("__config_file__")
+    persisted_file_change = False
+
+    if isinstance(config_file_raw, str):
+        config_path = _resolve_config_file_path(hass, config_file_raw)
+        if config_path.name != AUTOMATION_CONFIG_PATH:
+            connection.send_error(
+                msg["id"],
+                "fix_not_applicable",
+                "Automation source is not safely persistable.",
+            )
+            return
+
+        config_ids: list[str] = []
+        raw_id = config.get("id")
+        if isinstance(raw_id, str) and raw_id:
+            config_ids.append(raw_id)
+        raw_entity_id = config.get("__entity_id")
+        if isinstance(raw_entity_id, str) and raw_entity_id.startswith("automation."):
+            config_ids.append(raw_entity_id.replace("automation.", "", 1))
+
+        ok, reason, persisted_previous = await hass.async_add_executor_job(
+            partial(
+                _apply_fix_to_automation_yaml,
+                file_path=config_path,
+                automation_id=msg["automation_id"],
+                location=msg["location"],
+                expected_current=preview.get("current_value"),
+                suggested_value=suggested_value,
+                candidate_ids=config_ids,
+            )
+        )
+        if not ok:
+            connection.send_error(msg["id"], "fix_not_applicable", reason)
+            return
+
+        previous_value = (
+            persisted_previous
+            if isinstance(persisted_previous, str)
+            else previous_value
+        )
+        container[key] = suggested_value
+        persisted_file_change = True
+    elif _is_dict_mode_automation_data(hass):
+        container[key] = suggested_value
+    else:
+        connection.send_error(
+            msg["id"],
+            "fix_not_applicable",
+            "Automation source is not safely persistable.",
+        )
+        return
+
+    if persisted_file_change:
+        try:
+            await hass.services.async_call("automation", "reload", {}, blocking=True)
+        except Exception as err:
+            _LOGGER.warning("Automation reload after fix failed: %s", err)
 
     try:
-        from . import async_validate_automation
+        from . import async_validate_all_with_groups
 
-        await async_validate_automation(hass, msg["automation_id"])
+        await async_validate_all_with_groups(hass)
     except Exception as err:
         _LOGGER.warning("Post-fix validation failed: %s", err)
 
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN]["last_applied_fix"] = {
+    snapshot = {
         "automation_id": msg["automation_id"],
         "location": msg["location"],
         "previous_value": previous_value,
-        "new_value": msg["suggested_value"],
+        "new_value": suggested_value,
     }
+    await _async_save_last_fix_snapshot(hass, snapshot)
 
     connection.send_result(
         msg["id"],
@@ -1032,7 +1270,7 @@ async def websocket_fix_apply(
             "automation_id": msg["automation_id"],
             "location": msg["location"],
             "previous_value": previous_value,
-            "new_value": msg["suggested_value"],
+            "new_value": suggested_value,
         },
     )
 
@@ -1050,8 +1288,7 @@ async def websocket_fix_undo(
     msg: dict[str, Any],
 ) -> None:
     """Undo the most recent successful fix application."""
-    data = hass.data.setdefault(DOMAIN, {})
-    snapshot = data.get("last_applied_fix")
+    snapshot = await _async_load_last_fix_snapshot(hass)
     if not snapshot:
         connection.send_error(
             msg["id"], "fix_undo_unavailable", "No applied fix to undo"
@@ -1098,16 +1335,62 @@ async def websocket_fix_undo(
         )
         return
 
-    container[key] = previous_value
+    config_file_raw = config.get("__config_file__")
+    persisted_file_change = False
+    if isinstance(config_file_raw, str):
+        config_path = _resolve_config_file_path(hass, config_file_raw)
+        if config_path.name != AUTOMATION_CONFIG_PATH:
+            connection.send_error(
+                msg["id"], "fix_undo_failed", "Automation source is not persistable."
+            )
+            return
+
+        config_ids: list[str] = []
+        raw_id = config.get("id")
+        if isinstance(raw_id, str) and raw_id:
+            config_ids.append(raw_id)
+        raw_entity_id = config.get("__entity_id")
+        if isinstance(raw_entity_id, str) and raw_entity_id.startswith("automation."):
+            config_ids.append(raw_entity_id.replace("automation.", "", 1))
+
+        ok, reason, _ = await hass.async_add_executor_job(
+            partial(
+                _apply_fix_to_automation_yaml,
+                file_path=config_path,
+                automation_id=automation_id,
+                location=location,
+                expected_current=new_value,
+                suggested_value=previous_value,
+                candidate_ids=config_ids,
+            )
+        )
+        if not ok:
+            connection.send_error(msg["id"], "fix_undo_failed", reason)
+            return
+        container[key] = previous_value
+        persisted_file_change = True
+    elif _is_dict_mode_automation_data(hass):
+        container[key] = previous_value
+    else:
+        connection.send_error(
+            msg["id"], "fix_undo_failed", "Automation source is not persistable."
+        )
+        return
+
+    if persisted_file_change:
+        try:
+            await hass.services.async_call("automation", "reload", {}, blocking=True)
+        except Exception as err:
+            _LOGGER.warning("Automation reload after undo failed: %s", err)
 
     try:
-        from . import async_validate_automation
+        from . import async_validate_all_with_groups
 
-        await async_validate_automation(hass, automation_id)
+        await async_validate_all_with_groups(hass)
     except Exception as err:
         _LOGGER.warning("Post-undo validation failed: %s", err)
 
-    data["last_applied_fix"] = None
+    await _async_save_last_fix_snapshot(hass, None)
     connection.send_result(
         msg["id"],
         {

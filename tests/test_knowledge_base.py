@@ -159,6 +159,41 @@ async def test_clear_cache(hass: HomeAssistant) -> None:
     assert kb._area_names is None
 
 
+async def test_invalidate_location_caches_clears_zone_area_and_zone_aware_entries(
+    hass: HomeAssistant,
+) -> None:
+    """Location cache invalidation should drop zone/area caches and zone-aware entity cache."""
+    kb = StateKnowledgeBase(hass)
+
+    hass.states.async_set("zone.home", "zoning", {"friendly_name": "Home"})
+    hass.states.async_set("person.matt", "Home")
+    hass.states.async_set("device_tracker.phone", "Home")
+    hass.states.async_set("binary_sensor.motion", "on")
+    area_registry = ar.async_get(hass)
+    area_registry.async_create("Living Room")
+    await hass.async_block_till_done()
+
+    kb.get_valid_states("person.matt")
+    kb.get_valid_states("device_tracker.phone")
+    kb.get_valid_states("binary_sensor.motion")
+    kb._get_zone_names()
+    kb._get_area_names()
+
+    assert "person.matt" in kb._cache
+    assert "device_tracker.phone" in kb._cache
+    assert "binary_sensor.motion" in kb._cache
+    assert kb._zone_names is not None
+    assert kb._area_names is not None
+
+    kb.invalidate_location_caches()
+
+    assert kb._zone_names is None
+    assert kb._area_names is None
+    assert "person.matt" not in kb._cache
+    assert "device_tracker.phone" not in kb._cache
+    assert "binary_sensor.motion" in kb._cache
+
+
 async def test_schema_introspection_climate_hvac_modes(hass: HomeAssistant) -> None:
     """Test that hvac_modes from entity state attributes are recognized.
 
