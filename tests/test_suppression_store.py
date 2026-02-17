@@ -312,8 +312,34 @@ async def test_async_unsuppress_nonexistent_key(hass: HomeAssistant) -> None:
     # Count should remain 1
     assert store.count == 1
 
-    # Should still have called async_save (set.discard is idempotent)
-    mock_save.assert_called_once()
+    # No write should occur when suppression set is unchanged
+    mock_save.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_suppress_duplicate_key_skips_save(hass: HomeAssistant) -> None:
+    """Suppressing an existing key should not re-persist identical data."""
+    store = SuppressionStore(hass)
+    key = "automation.a:light.a:entity_not_found"
+    await store.async_suppress(key)
+
+    with patch.object(store._store, "async_save", new_callable=AsyncMock) as mock_save:
+        await store.async_suppress(key)
+
+    assert store.count == 1
+    mock_save.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_clear_all_empty_skips_save(hass: HomeAssistant) -> None:
+    """Clearing an already-empty suppression set should not write to disk."""
+    store = SuppressionStore(hass)
+    assert store.count == 0
+
+    with patch.object(store._store, "async_save", new_callable=AsyncMock) as mock_save:
+        await store.async_clear_all()
+
+    mock_save.assert_not_called()
 
 
 async def test_is_suppressed_during_async_load_race(hass: HomeAssistant) -> None:

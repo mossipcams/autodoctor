@@ -7,12 +7,14 @@ step-based validation results.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.components.websocket_api import ActiveConnection
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import Unauthorized
 
 from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.models import (
@@ -25,6 +27,7 @@ from custom_components.autodoctor.websocket_api import (
     _format_issues_with_fixes,
     _resolve_automation_edit_config_id,
     async_setup_websocket_api,
+    websocket_clear_suppressions,
     websocket_fix_apply,
     websocket_fix_preview,
     websocket_fix_undo,
@@ -32,11 +35,29 @@ from custom_components.autodoctor.websocket_api import (
     websocket_get_validation,
     websocket_get_validation_steps,
     websocket_list_suppressions,
+    websocket_refresh,
     websocket_run_validation,
     websocket_run_validation_steps,
     websocket_suppress,
     websocket_unsuppress,
 )
+
+
+async def _invoke_command(
+    handler: Any,
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Invoke websocket handler by unwrapping decorators until coroutine function."""
+    target = handler
+    while not inspect.iscoroutinefunction(target):
+        wrapped = getattr(target, "__wrapped__", None)
+        if wrapped is None:
+            break
+        target = wrapped
+    assert inspect.iscoroutinefunction(target)
+    await target(hass, connection, msg)
 
 
 @pytest.mark.asyncio
@@ -51,6 +72,64 @@ async def test_websocket_api_setup(hass: HomeAssistant) -> None:
     ) as mock_register:
         await async_setup_websocket_api(hass)
         assert mock_register.call_count == 13
+
+
+@pytest.mark.parametrize(
+    ("handler", "msg"),
+    [
+        (websocket_refresh, {"id": 1, "type": "autodoctor/refresh"}),
+        (websocket_run_validation, {"id": 2, "type": "autodoctor/validation/run"}),
+        (
+            websocket_run_validation_steps,
+            {"id": 3, "type": "autodoctor/validation/run_steps"},
+        ),
+        (
+            websocket_suppress,
+            {
+                "id": 4,
+                "type": "autodoctor/suppress",
+                "automation_id": "automation.test",
+                "entity_id": "light.kitchen",
+                "issue_type": "entity_not_found",
+            },
+        ),
+        (
+            websocket_clear_suppressions,
+            {"id": 5, "type": "autodoctor/clear_suppressions"},
+        ),
+        (
+            websocket_unsuppress,
+            {
+                "id": 6,
+                "type": "autodoctor/unsuppress",
+                "key": "automation.test:light.kitchen:entity_not_found",
+            },
+        ),
+        (
+            websocket_fix_apply,
+            {
+                "id": 7,
+                "type": "autodoctor/fix_apply",
+                "automation_id": "automation.test",
+                "location": "trigger[0].entity_id",
+                "current_value": "light.kitchen",
+                "suggested_value": "light.kitchen_main",
+            },
+        ),
+        (websocket_fix_undo, {"id": 8, "type": "autodoctor/fix_undo"}),
+    ],
+)
+def test_mutating_websocket_commands_require_admin(
+    hass: HomeAssistant,
+    handler: Any,
+    msg: dict[str, Any],
+) -> None:
+    """Mutating/expensive websocket commands should reject non-admin users."""
+    connection = MagicMock(spec=ActiveConnection)
+    connection.user = MagicMock(is_admin=False)
+
+    with pytest.raises(Unauthorized):
+        handler(hass, connection, msg)
 
 
 @pytest.mark.asyncio
@@ -71,7 +150,7 @@ async def test_websocket_get_issues_returns_data(hass: HomeAssistant) -> None:
 
     # Access the underlying async function through __wrapped__
     # (the decorators wrap the function)
-    await websocket_get_issues.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_issues, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     call_args = connection.send_result.call_args
@@ -98,7 +177,7 @@ async def test_websocket_get_validation(hass: HomeAssistant) -> None:
 
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation"}
 
-    await websocket_get_validation.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_validation, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     call_args = connection.send_result.call_args
@@ -136,7 +215,7 @@ async def test_websocket_get_validation_uses_raw_cache_for_suppressed_count(
     connection.send_result = MagicMock()
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation"}
 
-    await websocket_get_validation.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_validation, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert result["issues"] == []
@@ -165,7 +244,7 @@ async def test_websocket_run_validation(hass: HomeAssistant) -> None:
         new_callable=AsyncMock,
         return_value=[],
     ):
-        await websocket_run_validation.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     call_args = connection.send_result.call_args
@@ -197,7 +276,7 @@ async def test_websocket_run_validation_handles_error(hass: HomeAssistant) -> No
         new_callable=AsyncMock,
         side_effect=Exception("Validation failed"),
     ):
-        await websocket_run_validation.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation, hass, connection, msg)
 
     # Should call send_error, not crash
     connection.send_error.assert_called_once()
@@ -279,7 +358,7 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
             "timestamp": "2026-01-30T12:00:00+00:00",
         },
     ):
-        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -377,7 +456,7 @@ async def test_websocket_run_validation_steps_with_suppression(
             "timestamp": "2026-01-30T12:00:00+00:00",
         },
     ):
-        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -428,7 +507,7 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -462,7 +541,7 @@ async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant) 
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -523,7 +602,7 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -568,7 +647,7 @@ async def test_websocket_get_validation_steps_prefers_raw_groups_for_suppression
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await websocket_get_validation_steps.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     g0 = result["groups"][0]
@@ -597,7 +676,7 @@ async def test_websocket_run_validation_steps_error_handling(
         new_callable=AsyncMock,
         side_effect=Exception("Validation failed"),
     ):
-        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     call_args = connection.send_error.call_args
@@ -669,7 +748,7 @@ async def test_websocket_suppress_runtime_issue_records_dismissal(
         "issue_type": "runtime_automation_gap",
     }
 
-    await websocket_suppress.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_suppress, hass, connection, msg)
 
     suppression_store.async_suppress.assert_called_once_with(
         "automation.runtime_test:automation.runtime_test:runtime_automation_gap"
@@ -704,7 +783,7 @@ async def test_websocket_list_suppressions(hass: HomeAssistant) -> None:
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
-    await websocket_list_suppressions.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_list_suppressions, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -738,7 +817,7 @@ async def test_websocket_list_suppressions_uses_raw_issue_cache(
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
-    await websocket_list_suppressions.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_list_suppressions, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert len(result["suppressions"]) == 1
@@ -758,7 +837,7 @@ async def test_websocket_list_suppressions_not_ready(hass: HomeAssistant) -> Non
     connection.send_error = MagicMock()
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
-    await websocket_list_suppressions.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_list_suppressions, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "not_ready"
@@ -783,7 +862,7 @@ async def test_websocket_unsuppress(hass: HomeAssistant) -> None:
     key = "automation.test:light.test:entity_not_found"
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/unsuppress", "key": key}
 
-    await websocket_unsuppress.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_unsuppress, hass, connection, msg)
 
     suppression_store.async_unsuppress.assert_called_once_with(key)
     connection.send_result.assert_called_once()
@@ -809,7 +888,7 @@ async def test_websocket_unsuppress_not_ready(hass: HomeAssistant) -> None:
         "key": "some:key:here",
     }
 
-    await websocket_unsuppress.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_unsuppress, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "not_ready"
@@ -1304,7 +1383,7 @@ async def test_websocket_run_validation_steps_reports_failed_automations(
             },
         },
     ):
-        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert result["analyzed_automations"] == 4
@@ -1351,7 +1430,7 @@ async def test_websocket_runtime_health_issue_can_be_suppressed(
             "timestamp": "2026-02-11T12:00:00+00:00",
         },
     ):
-        await websocket_run_validation_steps.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     runtime_group = next(g for g in result["groups"] if g["id"] == "runtime_health")
@@ -1389,13 +1468,88 @@ async def test_websocket_fix_preview_returns_proposed_change(
         "suggested_value": "light.living_room",
     }
 
-    await websocket_fix_preview.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_fix_preview, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
     assert result["applicable"] is True
     assert result["current_value"] == "light.Living_Room"
     assert result["suggested_value"] == "light.living_room"
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_preview_resolves_config_when_entity_id_differs_from_id(
+    hass: HomeAssistant,
+) -> None:
+    """Preview should resolve dict-mode config via __entity_id fallback."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "runtime_id_123",
+                "__entity_id": "automation.morning_lights",
+                "trigger": [{"platform": "state", "entity_id": "light.Living_Room"}],
+            }
+        ]
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 43,
+        "type": "autodoctor/fix_preview",
+        "automation_id": "automation.morning_lights",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    await _invoke_command(websocket_fix_preview, hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["applicable"] is True
+    assert result["current_value"] == "light.Living_Room"
+
+
+@pytest.mark.asyncio
+async def test_websocket_fix_apply_resolves_config_when_entity_id_differs_from_id(
+    hass: HomeAssistant,
+) -> None:
+    """Apply should mutate dict-mode config resolved via __entity_id."""
+    hass.data["automation"] = {
+        "config": [
+            {
+                "id": "runtime_id_123",
+                "__entity_id": "automation.morning_lights",
+                "trigger": [{"platform": "state", "entity_id": "light.Living_Room"}],
+            }
+        ]
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 98,
+        "type": "autodoctor/fix_apply",
+        "automation_id": "automation.morning_lights",
+        "location": "trigger[0].entity_id",
+        "current_value": "light.Living_Room",
+        "suggested_value": "light.living_room",
+    }
+
+    with patch(
+        "custom_components.autodoctor.async_validate_automation",
+        new_callable=AsyncMock,
+        return_value=[],
+    ) as mock_validate:
+        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["applied"] is True
+    assert (
+        hass.data["automation"]["config"][0]["trigger"][0]["entity_id"]
+        == "light.living_room"
+    )
+    mock_validate.assert_awaited_once_with(hass, "automation.morning_lights")
 
 
 @pytest.mark.asyncio
@@ -1433,7 +1587,7 @@ async def test_websocket_fix_apply_updates_automation(
         new_callable=AsyncMock,
         return_value=[],
     ) as mock_validate:
-        await websocket_fix_apply.__wrapped__(hass, connection, msg)
+        await _invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -1476,7 +1630,7 @@ async def test_websocket_fix_apply_rejects_unexpected_current_value(
         "suggested_value": "light.living_room",
     }
 
-    await websocket_fix_apply.__wrapped__(hass, connection, msg)
+    await _invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "fix_not_applicable"
@@ -1510,8 +1664,11 @@ async def test_websocket_fix_undo_reverts_last_applied_fix(
         new_callable=AsyncMock,
         return_value=[],
     ) as mock_validate:
-        await websocket_fix_undo.__wrapped__(
-            hass, connection, {"id": 7, "type": "autodoctor/fix_undo"}
+        await _invoke_command(
+            websocket_fix_undo,
+            hass,
+            connection,
+            {"id": 7, "type": "autodoctor/fix_undo"},
         )
 
     connection.send_result.assert_called_once()
@@ -1534,8 +1691,8 @@ async def test_websocket_fix_undo_rejects_when_no_snapshot(
     connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
 
-    await websocket_fix_undo.__wrapped__(
-        hass, connection, {"id": 8, "type": "autodoctor/fix_undo"}
+    await _invoke_command(
+        websocket_fix_undo, hass, connection, {"id": 8, "type": "autodoctor/fix_undo"}
     )
 
     connection.send_error.assert_called_once()

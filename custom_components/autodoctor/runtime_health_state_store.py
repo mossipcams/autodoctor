@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -121,7 +122,9 @@ class RuntimeHealthStateStore:
         migrated = self._migrate(state)
         migrated["updated_at"] = datetime.now(UTC).isoformat()
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self._path.with_suffix(f"{self._path.suffix}.tmp")
+        tmp_path = self._path.with_suffix(
+            f"{self._path.suffix}.{secrets.token_hex(8)}.tmp"
+        )
         tmp_path.write_text(
             json.dumps(migrated, separators=(",", ":"), sort_keys=True),
             encoding="utf-8",

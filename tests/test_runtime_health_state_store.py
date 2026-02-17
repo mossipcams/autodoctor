@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -85,6 +88,58 @@ def test_save_uses_atomic_replace(tmp_path: Path, monkeypatch) -> None:
 
     assert replaced, "Expected save() to use Path.replace() for atomic write"
     assert replaced[0][1] == state_path
+    assert state_path.exists()
+
+
+def test_concurrent_save_does_not_fail(tmp_path: Path, monkeypatch) -> None:
+    """Concurrent saves should not fail due to temp-file collisions."""
+    state_path = tmp_path / "runtime_state.json"
+    store = RuntimeHealthStateStore(path=state_path)
+    first_write_done = threading.Event()
+    release_first_writer = threading.Event()
+    original_write_text = Path.write_text
+    write_calls = 0
+
+    def _interleaved_write_text(
+        self: Path, data: str, encoding: str | None = None
+    ) -> int:
+        nonlocal write_calls
+        write_calls += 1
+        written = original_write_text(self, data, encoding=encoding)
+        if write_calls == 1:
+            first_write_done.set()
+            # Hold first writer between write and replace so second writer can run.
+            assert release_first_writer.wait(timeout=5)
+        return written
+
+    monkeypatch.setattr(Path, "write_text", _interleaved_write_text)
+
+    errors: list[Exception] = []
+
+    def _save_once(counter: int) -> None:
+        try:
+            store.save(
+                {
+                    "schema_version": RUNTIME_HEALTH_STATE_SCHEMA_VERSION,
+                    "automations": {
+                        "automation.test": {"count_model": {"seed": counter}}
+                    },
+                }
+            )
+        except Exception as err:  # pragma: no cover - assertion below checks this path
+            errors.append(err)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_save_once, 1)
+        assert first_write_done.wait(timeout=5)
+        second = pool.submit(_save_once, 2)
+        # Give second save a chance to complete replace before first continues.
+        time.sleep(0.05)
+        release_first_writer.set()
+        first.result()
+        second.result()
+
+    assert errors == []
     assert state_path.exists()
 
 

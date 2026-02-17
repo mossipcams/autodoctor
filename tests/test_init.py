@@ -1313,12 +1313,9 @@ async def test_handle_validate_with_automation_id() -> None:
     from custom_components.autodoctor import _async_setup_services
 
     hass = MagicMock()
-    hass.services.async_register = MagicMock()
-
-    await _async_setup_services(hass)
-
-    # Extract the registered handler for "validate"
-    validate_handler = hass.services.async_register.call_args_list[0][0][2]
+    with patch("custom_components.autodoctor.async_register_admin_service") as mock_reg:
+        await _async_setup_services(hass)
+    validate_handler = mock_reg.call_args_list[0].args[3]
 
     call = MagicMock()
     call.data = {"automation_id": "automation.test123"}
@@ -1353,16 +1350,14 @@ async def test_handle_refresh_with_knowledge_base() -> None:
     from custom_components.autodoctor import _async_setup_services
 
     hass = MagicMock()
-    hass.services.async_register = MagicMock()
 
     mock_kb = MagicMock()
     mock_kb.async_load_history = AsyncMock()
     hass.data = {DOMAIN: {"knowledge_base": mock_kb}}
 
-    await _async_setup_services(hass)
-
-    # Extract the registered handler for "refresh_knowledge_base"
-    refresh_handler = hass.services.async_register.call_args_list[2][0][2]
+    with patch("custom_components.autodoctor.async_register_admin_service") as mock_reg:
+        await _async_setup_services(hass)
+    refresh_handler = mock_reg.call_args_list[2].args[3]
 
     call = MagicMock()
     call.data = {}
@@ -1423,11 +1418,9 @@ async def test_handle_validate_without_automation_id() -> None:
     from custom_components.autodoctor import _async_setup_services
 
     hass = MagicMock()
-    hass.services.async_register = MagicMock()
-
-    await _async_setup_services(hass)
-
-    validate_handler = hass.services.async_register.call_args_list[0][0][2]
+    with patch("custom_components.autodoctor.async_register_admin_service") as mock_reg:
+        await _async_setup_services(hass)
+    validate_handler = mock_reg.call_args_list[0].args[3]
 
     call = MagicMock()
     call.data = {}  # No automation_id
@@ -1446,6 +1439,23 @@ async def test_handle_validate_without_automation_id() -> None:
 
     mock_all.assert_called_once()
     mock_targeted.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_setup_services_registers_admin_services() -> None:
+    """Service endpoints should be registered as admin-only."""
+    from custom_components.autodoctor import _async_setup_services
+
+    hass = MagicMock()
+
+    with patch("custom_components.autodoctor.async_register_admin_service") as mock_reg:
+        await _async_setup_services(hass)
+
+    assert [call.args[2] for call in mock_reg.call_args_list] == [
+        "validate",
+        "validate_automation",
+        "refresh_knowledge_base",
+    ]
 
 
 @pytest.mark.asyncio
