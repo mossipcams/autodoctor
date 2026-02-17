@@ -1822,7 +1822,7 @@ async def test_websocket_fix_apply_preserves_unicode_in_persisted_yaml(
     """Fix apply must preserve unicode characters (e.g. accented names) in YAML output."""
     yaml_path = tmp_path / "automations.yaml"
     yaml_path.write_text(
-        "- id: test\n  alias: \"Lumi\u00e8re du salon\"\n  trigger:\n    - entity_id: light.Living_Room\n",
+        '- id: test\n  alias: "Lumi\u00e8re du salon"\n  trigger:\n    - entity_id: light.Living_Room\n',
         encoding="utf-8",
     )
 
