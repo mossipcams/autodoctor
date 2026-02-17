@@ -336,6 +336,11 @@ async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
     assert issues[0].automation_id == "automation.runtime_test"
+    assert any(
+        i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+        and i.automation_id == "automation.runtime_test"
+        for i in monitor.get_active_runtime_alerts()
+    )
 
 
 @pytest.mark.asyncio
@@ -362,6 +367,11 @@ async def test_runtime_monitor_flags_overactive_automation(hass: HomeAssistant) 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     assert issues[0].automation_id == "automation.runtime_test"
+    assert any(
+        i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+        and i.automation_id == "automation.runtime_test"
+        for i in monitor.get_active_runtime_alerts()
+    )
 
 
 @pytest.mark.asyncio
@@ -704,6 +714,62 @@ async def test_fetch_trigger_history_uses_modern_schema(
 
     # Verify results are parsed correctly
     assert len(result["automation.test1"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_trigger_history_adds_entity_id_selective_filter(
+    hass: HomeAssistant,
+) -> None:
+    """Recorder query should include entity_id filter fragments for requested IDs."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    start = now - timedelta(days=30)
+    ts1 = (now - timedelta(days=1)).timestamp()
+    captured_sql: list[str] = []
+    captured_params: list[dict[str, object]] = []
+
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+
+    def _capture_execute(
+        statement: object, params: dict[str, object]
+    ) -> list[tuple[str, float]]:
+        captured_sql.append(str(statement))
+        captured_params.append(dict(params))
+        return [(json.dumps({"entity_id": "automation.kitchen_main"}), ts1)]
+
+    mock_session.execute.side_effect = _capture_execute
+
+    mock_instance = MagicMock()
+    mock_instance.get_session.return_value = mock_session
+
+    monitor = RuntimeHealthMonitor(hass, detector=_FixedScoreDetector(0.0))
+
+    with patch(
+        "homeassistant.components.recorder.get_instance",
+        return_value=mock_instance,
+    ):
+        hass.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
+        result = await monitor._async_fetch_trigger_history(
+            ["automation.kitchen_main"], start, now
+        )
+
+    assert len(result["automation.kitchen_main"]) == 1
+    assert captured_sql, "Expected recorder query execution"
+    assert any("LIKE" in sql for sql in captured_sql), (
+        "Recorder query should include entity_id selectivity filters"
+    )
+    filter_values = [
+        value
+        for params in captured_params
+        for key, value in params.items()
+        if key.startswith("entity_like_")
+    ]
+    assert filter_values, "Expected LIKE parameters for requested automation IDs"
+    assert any(
+        "automation.kitchen_main" in str(v).replace("\\", "") for v in filter_values
+    )
+    assert any('"entity_id"' in str(v) for v in filter_values)
 
 
 def test_constructor_logs_config_params(
@@ -1227,7 +1293,9 @@ async def test_stalled_respects_per_automation_rate_limit(
 
     assert len(first) == 1
     assert first[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    assert second == []
+    assert len(second) == 1
+    assert second[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    assert second[0].automation_id == first[0].automation_id
 
 
 @pytest.mark.asyncio

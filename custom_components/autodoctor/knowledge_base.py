@@ -434,6 +434,15 @@ class StateKnowledgeBase:
         self._zone_names = None
         self._area_names = None
 
+    def invalidate_location_caches(self) -> None:
+        """Invalidate zone/area derived caches and zone-aware entity cache entries."""
+        self._zone_names = None
+        self._area_names = None
+        for entity_id in list(self._cache):
+            domain = self.get_domain(entity_id)
+            if domain in ("person", "device_tracker"):
+                self._cache.pop(entity_id, None)
+
     def get_valid_attributes(self, entity_id: str, attribute: str) -> set[str] | None:
         """Get valid values for an entity attribute.
 
