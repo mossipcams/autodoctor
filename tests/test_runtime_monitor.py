@@ -120,7 +120,9 @@ async def test_runtime_monitor_extends_lookback_for_sparse_warmup(
             end: datetime,
         ) -> dict[str, list[datetime]]:
             fetch_calls.append((start, end, tuple(automation_ids)))
-            return await super()._async_fetch_trigger_history(automation_ids, start, end)
+            return await super()._async_fetch_trigger_history(
+                automation_ids, start, end
+            )
 
     monitor = _TrackingRuntimeMonitor(
         hass,

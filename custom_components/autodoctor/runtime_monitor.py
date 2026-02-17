@@ -1404,7 +1404,10 @@ class RuntimeHealthMonitor:
         )
         if self._last_query_failed:
             stats["recorder_query_failed"] = 1
-        if self.warmup_samples > 0 and self.baseline_days < _SPARSE_WARMUP_LOOKBACK_DAYS:
+        if (
+            self.warmup_samples > 0
+            and self.baseline_days < _SPARSE_WARMUP_LOOKBACK_DAYS
+        ):
             sparse_automation_ids: list[str] = []
             for automation_id in automation_ids:
                 baseline_events = [
@@ -1438,7 +1441,9 @@ class RuntimeHealthMonitor:
                         | set(extended_history.get(automation_id, []))
                     )
                     history[automation_id] = merged_events
-                    baseline_start_by_automation[automation_id] = extended_baseline_start
+                    baseline_start_by_automation[automation_id] = (
+                        extended_baseline_start
+                    )
                 looked_back_automation_ids.update(sparse_automation_ids)
                 stats["extended_lookback_used"] += len(sparse_automation_ids)
                 _LOGGER.debug(
@@ -1483,7 +1488,9 @@ class RuntimeHealthMonitor:
                 baseline_days=len(day_counts),
                 baseline_event_count=len(baseline_events),
                 oldest_event_age_days=(
-                    (now - timestamps[0]).total_seconds() / 86400 if timestamps else None
+                    (now - timestamps[0]).total_seconds() / 86400
+                    if timestamps
+                    else None
                 ),
             )
             _LOGGER.debug(
@@ -1832,9 +1839,8 @@ class RuntimeHealthMonitor:
             return required
         if baseline_event_count <= 0:
             return required
-        if (
-            oldest_event_age_days is not None
-            and oldest_event_age_days < float(self.cold_start_days)
+        if oldest_event_age_days is not None and oldest_event_age_days < float(
+            self.cold_start_days
         ):
             return required
         if baseline_days < self.baseline_days:
