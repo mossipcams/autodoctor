@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.7](https://github.com/mossipcams/autodoctor/compare/v2.26.6...v2.26.7) (2026-02-17)
+
+
+### Code Refactoring
+
+* harden admin auth and clean runtime/websocket tech debt ([#139](https://github.com/mossipcams/autodoctor/issues/139)) ([556569d](https://github.com/mossipcams/autodoctor/commit/556569dadbd10492fcebd7b42d31c98565f5f069))
+
 ## [2.26.6](https://github.com/mossipcams/autodoctor/compare/v2.26.5...v2.26.6) (2026-02-17)
 
 
