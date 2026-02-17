@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.6](https://github.com/mossipcams/autodoctor/compare/v2.26.5...v2.26.6) (2026-02-17)
+
+
+### Bug Fixes
+
+* **runtime:** harden gap-check threading and add debug observability ([#137](https://github.com/mossipcams/autodoctor/issues/137)) ([c60e599](https://github.com/mossipcams/autodoctor/commit/c60e59912ee253bd790d87572e58c9ee2fc05c4e))
+
 ## [2.26.5](https://github.com/mossipcams/autodoctor/compare/v2.26.4...v2.26.5) (2026-02-17)
 
 
