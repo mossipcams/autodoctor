@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.26.8](https://github.com/mossipcams/autodoctor/compare/v2.26.7...v2.26.8) (2026-02-17)
+
+
+### Bug Fixes
+
+* complete critical-to-medium architecture remediation ([#141](https://github.com/mossipcams/autodoctor/issues/141)) ([4fa54cc](https://github.com/mossipcams/autodoctor/commit/4fa54cc66577ac9cc2ded02273612aa88d6c6f5a))
+* **tests:** apply ruff formatting to websocket test file ([#143](https://github.com/mossipcams/autodoctor/issues/143)) ([da7386c](https://github.com/mossipcams/autodoctor/commit/da7386cbb7ac91f8da2965c990e23bd5b06ff998))
+
 ## [2.26.7](https://github.com/mossipcams/autodoctor/compare/v2.26.6...v2.26.7) (2026-02-17)
 
 
