@@ -98,6 +98,225 @@ async def test_runtime_monitor_skips_when_warmup_insufficient(
 
 
 @pytest.mark.asyncio
+async def test_runtime_monitor_extends_lookback_for_sparse_warmup(
+    hass: HomeAssistant,
+) -> None:
+    """Sparse automations should trigger a wider history fetch before warmup skip."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    sparse_history = {
+        "runtime_sparse": [
+            now - timedelta(days=35, hours=2),
+            now - timedelta(days=50, hours=2),
+            now - timedelta(days=65, hours=2),
+        ]
+    }
+    fetch_calls: list[tuple[datetime, datetime, tuple[str, ...]]] = []
+
+    class _TrackingRuntimeMonitor(_TestRuntimeMonitor):
+        async def _async_fetch_trigger_history(
+            self,
+            automation_ids: list[str],
+            start: datetime,
+            end: datetime,
+        ) -> dict[str, list[datetime]]:
+            fetch_calls.append((start, end, tuple(automation_ids)))
+            return await super()._async_fetch_trigger_history(
+                automation_ids, start, end
+            )
+
+    monitor = _TrackingRuntimeMonitor(
+        hass,
+        history=sparse_history,
+        now=now,
+        score=0.1,
+        baseline_days=30,
+        warmup_samples=3,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_sparse")])
+    stats = monitor.get_last_run_stats()
+
+    assert issues == []
+    assert len(fetch_calls) == 2
+    assert fetch_calls[1][0] < fetch_calls[0][0]
+    assert fetch_calls[1][1] == fetch_calls[0][0], (
+        "Extended lookback query should end where the original query started (no overlap)"
+    )
+    assert stats.get("insufficient_warmup", 0) == 0
+    assert stats.get("extended_lookback_used", 0) == 1
+    assert stats.get("scored_after_lookback", 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_adapts_warmup_for_low_frequency_automation(
+    hass: HomeAssistant,
+) -> None:
+    """Low-frequency automations should still score after extended lookback."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    sparse_history = {
+        "runtime_sparse": [
+            now - timedelta(days=35, hours=2),
+            now - timedelta(days=56, hours=2),
+        ]
+    }
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=sparse_history,
+        now=now,
+        score=0.2,
+        baseline_days=30,
+        warmup_samples=5,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_sparse")])
+    stats = monitor.get_last_run_stats()
+
+    assert issues == []
+    assert stats.get("insufficient_warmup", 0) == 0
+    assert "automation.runtime_sparse" in monitor._score_history
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_suppresses_sparse_stalled_alerts(
+    hass: HomeAssistant,
+) -> None:
+    """Sparse-history automations should avoid hard stalled alerts."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    sparse_history = {
+        "runtime_sparse": [
+            now - timedelta(days=35, hours=2),
+            now - timedelta(days=56, hours=2),
+        ]
+    }
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=sparse_history,
+        now=now,
+        score=2.2,
+        baseline_days=30,
+        warmup_samples=5,
+        min_expected_events=0,
+        anomaly_threshold=1.3,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_sparse")])
+
+    assert issues == []
+    assert "automation.runtime_sparse" in monitor._score_history
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_does_not_flag_overactive_for_bursty_reminder_baseline(
+    hass: HomeAssistant,
+) -> None:
+    """Bursty reminder baselines should tolerate historically normal high days."""
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    daily_counts = [
+        0,
+        0,
+        6,
+        0,
+        0,
+        10,
+        0,
+        0,
+        5,
+        0,
+        0,
+        8,
+        0,
+        0,
+        7,
+        0,
+        0,
+        5,
+        0,
+        0,
+        9,
+        0,
+        0,
+        6,
+        0,
+        0,
+        4,
+        0,
+        0,
+        9,
+    ]
+    history_events: list[datetime] = []
+    for days_back, day_count in enumerate(daily_counts, start=2):
+        day = now - timedelta(days=days_back, hours=2)
+        for minute in range(day_count):
+            history_events.append(day + timedelta(minutes=minute * 5))
+    # Recent burst (12 in 24h) that should be treated as in-regime for this baseline.
+    for minute in range(12):
+        history_events.append(now - timedelta(hours=2, minutes=minute * 3))
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"garage_door": history_events},
+        now=now,
+        score=2.31,
+        warmup_samples=3,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+        overactive_factor=3.0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("garage_door", "Garage Door")]
+    )
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_does_not_flag_stalled_for_weekly_reminder_cadence(
+    hass: HomeAssistant,
+) -> None:
+    """Weekly reminder-like cadence should not be stalled after only a few quiet days."""
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    history = {
+        "trash_reminder": [
+            now - timedelta(days=20, hours=2),
+            now - timedelta(days=13, hours=2),
+            now - timedelta(days=6, hours=2),
+        ]
+    }
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.20,
+        warmup_samples=3,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+        baseline_days=30,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("trash_reminder", "Trash Reminder")]
+    )
+
+    stalled = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    ]
+    assert stalled == []
+
+
+@pytest.mark.asyncio
 async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> None:
     """Automation with expected activity but no recent triggers should be flagged."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
@@ -143,6 +362,113 @@ async def test_runtime_monitor_flags_overactive_automation(hass: HomeAssistant) 
     assert len(issues) == 1
     assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     assert issues[0].automation_id == "automation.runtime_test"
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_flags_overactive_for_extreme_reminder_burst(
+    hass: HomeAssistant,
+) -> None:
+    """Reminder-like baselines should still alert on truly extreme bursts."""
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    daily_counts = [
+        0,
+        0,
+        6,
+        0,
+        0,
+        10,
+        0,
+        0,
+        5,
+        0,
+        0,
+        8,
+        0,
+        0,
+        7,
+        0,
+        0,
+        5,
+        0,
+        0,
+        9,
+        0,
+        0,
+        6,
+        0,
+        0,
+        4,
+        0,
+        0,
+        9,
+    ]
+    history_events: list[datetime] = []
+    for days_back, day_count in enumerate(daily_counts, start=2):
+        day = now - timedelta(days=days_back, hours=2)
+        for minute in range(day_count):
+            history_events.append(day + timedelta(minutes=minute * 5))
+    for minute in range(30):
+        history_events.append(now - timedelta(hours=2, minutes=minute * 2))
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"garage_door": history_events},
+        now=now,
+        score=2.80,
+        warmup_samples=3,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+        overactive_factor=3.0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("garage_door", "Garage Door")]
+    )
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_flags_stalled_when_weekly_reminder_misses_cadence(
+    hass: HomeAssistant,
+) -> None:
+    """Cadence-aware stalled logic should still fire when silence is far too long."""
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    history = {
+        "trash_reminder": [
+            now - timedelta(days=33, hours=2),
+            now - timedelta(days=26, hours=2),
+            now - timedelta(days=19, hours=2),
+            now - timedelta(days=12, hours=2),
+        ]
+    }
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.25,
+        warmup_samples=3,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+        baseline_days=40,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("trash_reminder", "Trash Reminder")]
+    )
+
+    stalled = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    ]
+    assert len(stalled) == 1
 
 
 @pytest.mark.asyncio
