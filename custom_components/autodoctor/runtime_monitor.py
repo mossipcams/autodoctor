@@ -1393,9 +1393,9 @@ class RuntimeHealthMonitor:
             self._last_run_stats = dict(stats)
             return []
 
-        baseline_start_by_automation: dict[str, datetime] = {
-            automation_id: baseline_start for automation_id in automation_ids
-        }
+        baseline_start_by_automation: dict[str, datetime] = dict.fromkeys(
+            automation_ids, baseline_start
+        )
         looked_back_automation_ids: set[str] = set()
         history = await self._async_fetch_trigger_history(
             automation_ids,
@@ -1404,7 +1404,7 @@ class RuntimeHealthMonitor:
         )
         if self._last_query_failed:
             stats["recorder_query_failed"] = 1
-        if self.warmup_samples > 0 and _SPARSE_WARMUP_LOOKBACK_DAYS > self.baseline_days:
+        if self.warmup_samples > 0 and self.baseline_days < _SPARSE_WARMUP_LOOKBACK_DAYS:
             sparse_automation_ids: list[str] = []
             for automation_id in automation_ids:
                 baseline_events = [
