@@ -2020,13 +2020,18 @@ async def test_async_flush_runtime_state_persists_to_disk(
 
 def test_persist_runtime_state_uses_fire_and_forget(
     hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """_persist_runtime_state should use async_create_task for fire-and-forget."""
+    """_persist_runtime_state should use thread-safe create_task scheduling."""
     mock_store = MagicMock()
     mock_store.async_save = AsyncMock()
     created_tasks: list[object] = []
-    original_create_task = hass.async_create_task
-    hass.async_create_task = lambda coro, *a, **kw: created_tasks.append(coro)
+    original_create_task = hass.create_task
+    original_async_create_task = hass.async_create_task
+    hass.create_task = lambda coro, *a, **kw: created_tasks.append(coro)
+    hass.async_create_task = MagicMock(
+        side_effect=AssertionError("async_create_task should not be used")
+    )
     try:
         monitor = _TestRuntimeMonitor(
             hass,
@@ -2034,23 +2039,38 @@ def test_persist_runtime_state_uses_fire_and_forget(
             now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
             runtime_state_store=mock_store,
         )
-        monitor._persist_runtime_state()
+        with caplog.at_level(logging.DEBUG):
+            monitor._persist_runtime_state()
         assert len(created_tasks) == 1, (
-            "Expected _persist_runtime_state to call async_create_task once"
+            "Expected _persist_runtime_state to call create_task once"
         )
+        assert "Runtime state save scheduled" in caplog.text
+        assert "reason=persist" in caplog.text
+        assert "scheduler=create_task" in caplog.text
+        assert "thread_id=" in caplog.text
     finally:
-        hass.async_create_task = original_create_task
+        for coro in created_tasks:
+            close = getattr(coro, "close", None)
+            if callable(close):
+                close()
+        hass.create_task = original_create_task
+        hass.async_create_task = original_async_create_task
 
 
 def test_maybe_flush_runtime_state_uses_fire_and_forget(
     hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """_maybe_flush_runtime_state should use async_create_task when interval elapsed."""
+    """_maybe_flush_runtime_state should use thread-safe create_task when due."""
     mock_store = MagicMock()
     mock_store.async_save = AsyncMock()
     created_tasks: list[object] = []
-    original_create_task = hass.async_create_task
-    hass.async_create_task = lambda coro, *a, **kw: created_tasks.append(coro)
+    original_create_task = hass.create_task
+    original_async_create_task = hass.async_create_task
+    hass.create_task = lambda coro, *a, **kw: created_tasks.append(coro)
+    hass.async_create_task = MagicMock(
+        side_effect=AssertionError("async_create_task should not be used")
+    )
     try:
         now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
         monitor = _TestRuntimeMonitor(
@@ -2061,12 +2081,22 @@ def test_maybe_flush_runtime_state_uses_fire_and_forget(
         )
         # Force flush by advancing past the interval
         future = now + timedelta(minutes=20)
-        monitor._maybe_flush_runtime_state(future)
+        with caplog.at_level(logging.DEBUG):
+            monitor._maybe_flush_runtime_state(future)
         assert len(created_tasks) == 1, (
-            "Expected _maybe_flush_runtime_state to call async_create_task once"
+            "Expected _maybe_flush_runtime_state to call create_task once"
         )
+        assert "Runtime state save scheduled" in caplog.text
+        assert "reason=periodic_flush" in caplog.text
+        assert "scheduler=create_task" in caplog.text
+        assert "thread_id=" in caplog.text
     finally:
-        hass.async_create_task = original_create_task
+        for coro in created_tasks:
+            close = getattr(coro, "close", None)
+            if callable(close):
+                close()
+        hass.create_task = original_create_task
+        hass.async_create_task = original_async_create_task
 
 
 def test_bucket_expected_rate_removed() -> None:

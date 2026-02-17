@@ -639,6 +639,13 @@ class RuntimeHealthMonitor:
         issues: list[ValidationIssue] = []
         state_dirty = False
         gap_issue_type = IssueType.RUNTIME_AUTOMATION_GAP
+        counters = {
+            "evaluated": 0,
+            "alerted": 0,
+            "suppressed": 0,
+            "cleared": 0,
+            "rate_limited": 0,
+        }
         suppression_store = self._runtime_suppression_store()
         automations = self._runtime_state.get("automations", {})
         if not isinstance(automations, dict):
@@ -648,6 +655,7 @@ class RuntimeHealthMonitor:
         for automation_id, automation_state_raw in automations_dict.items():
             if not isinstance(automation_state_raw, dict):
                 continue
+            counters["evaluated"] += 1
             automation_state = cast(dict[str, Any], automation_state_raw)
             state_dirty = (
                 self._roll_count_model_forward(automation_state, now=check_time)
@@ -661,6 +669,7 @@ class RuntimeHealthMonitor:
             last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
             if last_trigger is None:
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                counters["cleared"] += 1
                 continue
 
             expected_gap = self._expected_gap_minutes_for_automation(
@@ -668,6 +677,7 @@ class RuntimeHealthMonitor:
             )
             if expected_gap <= 0.0:
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                counters["cleared"] += 1
                 continue
 
             threshold = expected_gap * self.gap_threshold_multiplier
@@ -676,13 +686,16 @@ class RuntimeHealthMonitor:
             )
             if elapsed_minutes <= threshold:
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                counters["cleared"] += 1
                 continue
 
             if self._is_runtime_suppressed(automation_id, suppression_store):
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                counters["suppressed"] += 1
                 continue
 
             if not self._allow_alert(automation_id, now=check_time):
+                counters["rate_limited"] += 1
                 continue
 
             issue = ValidationIssue(
@@ -700,11 +713,23 @@ class RuntimeHealthMonitor:
             )
             self._register_runtime_alert(issue)
             issues.append(issue)
+            counters["alerted"] += 1
 
         if issues or state_dirty:
             self._persist_runtime_state()
         else:
             self._maybe_flush_runtime_state(check_time)
+        _LOGGER.debug(
+            "Runtime gap check summary: evaluated=%d alerted=%d suppressed=%d "
+            "cleared=%d rate_limited=%d issues=%d state_dirty=%s",
+            counters["evaluated"],
+            counters["alerted"],
+            counters["suppressed"],
+            counters["cleared"],
+            counters["rate_limited"],
+            len(issues),
+            state_dirty,
+        )
         return issues
 
     def run_weekly_maintenance(self, *, now: datetime | None = None) -> None:
@@ -1291,15 +1316,33 @@ class RuntimeHealthMonitor:
 
     def _persist_runtime_state(self) -> None:
         snapshot = deepcopy(self._runtime_state)
-        self.hass.async_create_task(self._runtime_state_store.async_save(snapshot))
-        self._last_runtime_state_flush = self._now_factory()
+        self._schedule_runtime_state_save(snapshot, reason="persist")
 
     def _maybe_flush_runtime_state(self, now: datetime) -> None:
         if (now - self._last_runtime_state_flush) < self._runtime_state_flush_interval:
             return
         snapshot = deepcopy(self._runtime_state)
-        self.hass.async_create_task(self._runtime_state_store.async_save(snapshot))
-        self._last_runtime_state_flush = now
+        self._schedule_runtime_state_save(
+            snapshot, reason="periodic_flush", flush_time=now
+        )
+
+    def _schedule_runtime_state_save(
+        self,
+        snapshot: dict[str, Any],
+        *,
+        reason: str,
+        flush_time: datetime | None = None,
+    ) -> None:
+        thread = threading.current_thread()
+        self.hass.create_task(self._runtime_state_store.async_save(snapshot))
+        _LOGGER.debug(
+            "Runtime state save scheduled: reason=%s scheduler=create_task "
+            "thread=%s thread_id=%s",
+            reason,
+            thread.name,
+            thread.ident,
+        )
+        self._last_runtime_state_flush = flush_time or self._now_factory()
 
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:

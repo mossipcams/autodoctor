@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 from custom_components.autodoctor.models import IssueType
 from custom_components.autodoctor.runtime_health_state_store import (
@@ -17,6 +20,7 @@ def _build_monitor(
     tmp_path: Path, now: datetime, **kwargs: object
 ) -> RuntimeHealthMonitor:
     hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
     store = RuntimeHealthStateStore(path=tmp_path / "runtime_gap_state.json")
     return RuntimeHealthMonitor(
         hass,
@@ -147,3 +151,30 @@ def test_gap_alert_clears_after_recovery_trigger(tmp_path: Path) -> None:
         )
         for issue in monitor.get_active_runtime_alerts()
     )
+
+
+def test_gap_check_logs_summary_counters(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Gap checks should log evaluated/alerted/suppressed/cleared counters."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.gap_log_summary"
+
+    for idx in range(8):
+        monitor.ingest_trigger_event(
+            aid,
+            occurred_at=now - timedelta(minutes=(80 - (idx * 10))),
+        )
+
+    with caplog.at_level(
+        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
+    ):
+        gap_issues = monitor.check_gap_anomalies(now=now + timedelta(hours=2))
+
+    assert gap_issues
+    assert "Runtime gap check summary" in caplog.text
+    assert "evaluated=1" in caplog.text
+    assert "alerted=1" in caplog.text
+    assert "suppressed=0" in caplog.text
