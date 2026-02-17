@@ -98,6 +98,113 @@ async def test_runtime_monitor_skips_when_warmup_insufficient(
 
 
 @pytest.mark.asyncio
+async def test_runtime_monitor_extends_lookback_for_sparse_warmup(
+    hass: HomeAssistant,
+) -> None:
+    """Sparse automations should trigger a wider history fetch before warmup skip."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    sparse_history = {
+        "runtime_sparse": [
+            now - timedelta(days=35, hours=2),
+            now - timedelta(days=50, hours=2),
+            now - timedelta(days=65, hours=2),
+        ]
+    }
+    fetch_calls: list[tuple[datetime, datetime, tuple[str, ...]]] = []
+
+    class _TrackingRuntimeMonitor(_TestRuntimeMonitor):
+        async def _async_fetch_trigger_history(
+            self,
+            automation_ids: list[str],
+            start: datetime,
+            end: datetime,
+        ) -> dict[str, list[datetime]]:
+            fetch_calls.append((start, end, tuple(automation_ids)))
+            return await super()._async_fetch_trigger_history(automation_ids, start, end)
+
+    monitor = _TrackingRuntimeMonitor(
+        hass,
+        history=sparse_history,
+        now=now,
+        score=0.1,
+        baseline_days=30,
+        warmup_samples=3,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_sparse")])
+    stats = monitor.get_last_run_stats()
+
+    assert issues == []
+    assert len(fetch_calls) == 2
+    assert fetch_calls[1][0] < fetch_calls[0][0]
+    assert stats.get("insufficient_warmup", 0) == 0
+    assert stats.get("extended_lookback_used", 0) == 1
+    assert stats.get("scored_after_lookback", 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_adapts_warmup_for_low_frequency_automation(
+    hass: HomeAssistant,
+) -> None:
+    """Low-frequency automations should still score after extended lookback."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    sparse_history = {
+        "runtime_sparse": [
+            now - timedelta(days=35, hours=2),
+            now - timedelta(days=56, hours=2),
+        ]
+    }
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=sparse_history,
+        now=now,
+        score=0.2,
+        baseline_days=30,
+        warmup_samples=5,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_sparse")])
+    stats = monitor.get_last_run_stats()
+
+    assert issues == []
+    assert stats.get("insufficient_warmup", 0) == 0
+    assert "automation.runtime_sparse" in monitor._score_history
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_suppresses_sparse_stalled_alerts(
+    hass: HomeAssistant,
+) -> None:
+    """Sparse-history automations should avoid hard stalled alerts."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    sparse_history = {
+        "runtime_sparse": [
+            now - timedelta(days=35, hours=2),
+            now - timedelta(days=56, hours=2),
+        ]
+    }
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=sparse_history,
+        now=now,
+        score=2.2,
+        baseline_days=30,
+        warmup_samples=5,
+        min_expected_events=0,
+        anomaly_threshold=1.3,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_sparse")])
+
+    assert issues == []
+    assert "automation.runtime_sparse" in monitor._score_history
+
+
+@pytest.mark.asyncio
 async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> None:
     """Automation with expected activity but no recent triggers should be flagged."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)

@@ -34,6 +34,7 @@ _BUCKET_EVENING_START_HOUR = 17
 _DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES = 15
 _BACKFILL_MIN_LOOKBACK_DAYS = 30
 _GAP_MODEL_MAX_RECENT_INTERVALS = 32
+_SPARSE_WARMUP_LOOKBACK_DAYS = 90
 
 
 class _Detector(Protocol):
@@ -1392,6 +1393,10 @@ class RuntimeHealthMonitor:
             self._last_run_stats = dict(stats)
             return []
 
+        baseline_start_by_automation: dict[str, datetime] = {
+            automation_id: baseline_start for automation_id in automation_ids
+        }
+        looked_back_automation_ids: set[str] = set()
         history = await self._async_fetch_trigger_history(
             automation_ids,
             baseline_start,
@@ -1399,6 +1404,47 @@ class RuntimeHealthMonitor:
         )
         if self._last_query_failed:
             stats["recorder_query_failed"] = 1
+        if self.warmup_samples > 0 and _SPARSE_WARMUP_LOOKBACK_DAYS > self.baseline_days:
+            sparse_automation_ids: list[str] = []
+            for automation_id in automation_ids:
+                baseline_events = [
+                    ts
+                    for ts in history.get(automation_id, [])
+                    if baseline_start <= ts < recent_start
+                ]
+                day_counts = self._build_daily_counts(
+                    baseline_events,
+                    baseline_start,
+                    recent_start,
+                )
+                active_days = sum(1 for count in day_counts if count > 0)
+                if active_days < self.warmup_samples:
+                    sparse_automation_ids.append(automation_id)
+
+            if sparse_automation_ids:
+                extended_baseline_start = recent_start - timedelta(
+                    days=_SPARSE_WARMUP_LOOKBACK_DAYS
+                )
+                extended_history = await self._async_fetch_trigger_history(
+                    sparse_automation_ids,
+                    extended_baseline_start,
+                    now,
+                )
+                if self._last_query_failed:
+                    stats["recorder_query_failed"] = 1
+                for automation_id in sparse_automation_ids:
+                    merged_events = sorted(
+                        set(history.get(automation_id, []))
+                        | set(extended_history.get(automation_id, []))
+                    )
+                    history[automation_id] = merged_events
+                    baseline_start_by_automation[automation_id] = extended_baseline_start
+                looked_back_automation_ids.update(sparse_automation_ids)
+                stats["extended_lookback_used"] += len(sparse_automation_ids)
+                _LOGGER.debug(
+                    "Runtime health extended lookback applied to %d sparse automations",
+                    len(sparse_automation_ids),
+                )
 
         issues: list[ValidationIssue] = []
         runtime_state_dirty = False
@@ -1415,17 +1461,31 @@ class RuntimeHealthMonitor:
                 continue
 
             automation_name = str(automation.get("alias", automation_entity_id))
+            automation_baseline_start = baseline_start_by_automation.get(
+                automation_entity_id,
+                baseline_start,
+            )
             timestamps = sorted(history.get(automation_entity_id, []))
 
             baseline_events = [
-                t for t in timestamps if baseline_start <= t < recent_start
+                t for t in timestamps if automation_baseline_start <= t < recent_start
             ]
             recent_events = [t for t in timestamps if recent_start <= t <= now]
             day_counts = self._build_daily_counts(
-                baseline_events, baseline_start, recent_start
+                baseline_events,
+                automation_baseline_start,
+                recent_start,
             )
             expected = fmean(day_counts) if day_counts else 0.0
             active_days = sum(1 for c in day_counts if c > 0)
+            required_warmup = self._effective_warmup_samples(
+                expected_daily=expected,
+                baseline_days=len(day_counts),
+                baseline_event_count=len(baseline_events),
+                oldest_event_age_days=(
+                    (now - timestamps[0]).total_seconds() / 86400 if timestamps else None
+                ),
+            )
             _LOGGER.debug(
                 "Automation '%s': %d baseline events, %d recent events, %d active days",
                 automation_name,
@@ -1434,13 +1494,13 @@ class RuntimeHealthMonitor:
                 active_days,
             )
 
-            if active_days < self.warmup_samples:
+            if active_days < required_warmup:
                 _LOGGER.debug(
                     "Automation '%s': skipped (insufficient warmup: "
                     "%d active days < %d required)",
                     automation_name,
                     active_days,
-                    self.warmup_samples,
+                    required_warmup,
                 )
                 stats["insufficient_warmup"] += 1
                 continue
@@ -1472,7 +1532,7 @@ class RuntimeHealthMonitor:
             train_rows = self._build_training_rows_from_events(
                 automation_id=automation_entity_id,
                 baseline_events=baseline_events,
-                baseline_start=baseline_start,
+                baseline_start=automation_baseline_start,
                 baseline_end=recent_start,
                 expected_daily=expected,
                 all_events_by_automation=all_events_by_automation,
@@ -1511,6 +1571,8 @@ class RuntimeHealthMonitor:
                 )
                 or runtime_state_dirty
             )
+            if automation_entity_id in looked_back_automation_ids:
+                stats["scored_after_lookback"] += 1
             _LOGGER.debug(
                 "Automation '%s': scoring with %d training rows, "
                 "expected %.1f/day, recent %d events",
@@ -1556,11 +1618,13 @@ class RuntimeHealthMonitor:
             day_type_active = any(
                 (t.weekday() >= 5) == is_weekend for t in baseline_events
             )
+            alert_baseline_ok = len(baseline_events) >= max(3, required_warmup)
 
             if (
                 recent_count == 0
                 and smoothed_score >= stalled_threshold
                 and day_type_active
+                and alert_baseline_ok
                 and not runtime_suppressed
             ):
                 if not self._allow_alert(automation_entity_id, now=now):
@@ -1594,6 +1658,7 @@ class RuntimeHealthMonitor:
                 recent_count > expected * self.overactive_factor
                 and smoothed_score >= overactive_threshold
                 and day_type_active
+                and alert_baseline_ok
                 and not runtime_suppressed
             ):
                 if not self._allow_alert(automation_entity_id, now=now):
@@ -1752,6 +1817,31 @@ class RuntimeHealthMonitor:
     @staticmethod
     def _compute_window_size(expected_daily: float) -> int:
         return max(16, min(1024, int(max(1.0, expected_daily) * 30)))
+
+    def _effective_warmup_samples(
+        self,
+        *,
+        expected_daily: float,
+        baseline_days: int,
+        baseline_event_count: int,
+        oldest_event_age_days: float | None = None,
+    ) -> int:
+        """Compute warmup requirements with low-frequency-aware adaptation."""
+        required = max(0, int(self.warmup_samples))
+        if required <= 1:
+            return required
+        if baseline_event_count <= 0:
+            return required
+        if (
+            oldest_event_age_days is not None
+            and oldest_event_age_days < float(self.cold_start_days)
+        ):
+            return required
+        if baseline_days < self.baseline_days:
+            return required
+        if expected_daily < 1.0:
+            return min(required, 2)
+        return required
 
     def _log_score_telemetry(
         self,
