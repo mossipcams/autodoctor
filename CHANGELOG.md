@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.10](https://github.com/mossipcams/autodoctor/compare/v2.26.9...v2.26.10) (2026-02-18)
+
+
+### Bug Fixes
+
+* **frontend:** use atomic update for Lovelace card resource on version bump ([#146](https://github.com/mossipcams/autodoctor/issues/146)) ([49a46e7](https://github.com/mossipcams/autodoctor/commit/49a46e72c97891f6ad233e4897c140c8483cdde5))
+
 ## [2.26.9](https://github.com/mossipcams/autodoctor/compare/v2.26.8...v2.26.9) (2026-02-18)
 
 
