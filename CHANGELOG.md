@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.12](https://github.com/mossipcams/autodoctor/compare/v2.26.11...v2.26.12) (2026-02-18)
+
+
+### Bug Fixes
+
+* **runtime:** reduce gap false positives with inter-session cadence learning ([#150](https://github.com/mossipcams/autodoctor/issues/150)) ([00f50c8](https://github.com/mossipcams/autodoctor/commit/00f50c8f959d70048e24fa42d7f3dd0c25d3c0f9))
+
 ## [2.26.11](https://github.com/mossipcams/autodoctor/compare/v2.26.10...v2.26.11) (2026-02-18)
 
 
