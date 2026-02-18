@@ -668,3 +668,112 @@ def test_gap_check_logs_reason_coded_decisions(
     assert "Runtime gap decision" in caplog.text
     assert "reason=profile_inactive_weekday" in caplog.text
     assert "reason=alert_emitted" in caplog.text
+
+
+def test_gap_uses_per_bucket_expected_gap_when_available(tmp_path: Path) -> None:
+    """Gap evaluation should use per_bucket_expected_gap from automation profile."""
+    now = datetime(2026, 2, 18, 9, 30, tzinfo=UTC)  # Wednesday morning
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.per_bucket_gap"
+
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=60)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["median_gap_minutes"] = 30.0
+    automation_state["gap_model"]["ewma_gap_minutes"] = 30.0
+    automation_state["gap_model"]["recent_gaps_minutes"] = [30.0]
+    # Profile: bucket-level expected gap overrides the scalar.
+    # Legacy threshold = 30 * 1.5 = 45 => 60 min would breach.
+    # Per-bucket threshold = 120 * 1.5 = 180 => 60 min is within.
+    automation_state["per_bucket_expected_gap"] = {
+        "weekday_morning": 120.0,
+    }
+    automation_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    # Call twice to get past gap confirmation requirement
+    monitor.check_gap_anomalies(now=now)
+    issues = monitor.check_gap_anomalies(now=now)
+    # Without per-bucket override: 60 > 30*1.5=45 => would alert.
+    # With per-bucket: 60 < 120*1.5=180 => no alert.
+    assert issues == []
+
+
+def test_gap_suppressed_when_bucket_missing_from_profile(tmp_path: Path) -> None:
+    """Gap should be suppressed when the current bucket has no profile data."""
+    now = datetime(2026, 2, 18, 14, 0, tzinfo=UTC)  # Wednesday afternoon
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.missing_bucket"
+
+    automation_state = monitor._ensure_automation_state(aid)
+    # last_trigger at 13:00 = still afternoon bucket
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=60)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["median_gap_minutes"] = 30.0
+    automation_state["gap_model"]["ewma_gap_minutes"] = 30.0
+    automation_state["gap_model"]["recent_gaps_minutes"] = [30.0]
+    # Profile only has morning — afternoon is missing => 0.0 => suppress
+    automation_state["per_bucket_expected_gap"] = {
+        "weekday_morning": 60.0,
+    }
+    automation_state["count_model"]["buckets"] = {
+        "weekday_afternoon": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    monitor.check_gap_anomalies(now=now)
+    issues = monitor.check_gap_anomalies(now=now)
+    # last_trigger classifies as weekday_afternoon, not in profile => 0 => suppress
+    assert issues == []
+
+
+def test_gap_falls_back_to_legacy_when_no_profile(tmp_path: Path) -> None:
+    """Gap evaluation should use legacy scalar when no per_bucket_expected_gap exists."""
+    now = datetime(2026, 2, 18, 9, 30, tzinfo=UTC)  # Wednesday morning
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.legacy_fallback"
+
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=200)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["median_gap_minutes"] = 30.0
+    automation_state["gap_model"]["ewma_gap_minutes"] = 30.0
+    automation_state["gap_model"]["recent_gaps_minutes"] = [30.0]
+    # No per_bucket_expected_gap — legacy path should be used
+    automation_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    # Call twice — first confirms, second emits
+    monitor.check_gap_anomalies(now=now)
+    issues = monitor.check_gap_anomalies(now=now)
+    # 200 min >> 30 min expected gap * 1.5 = 45 => should alert via legacy
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP

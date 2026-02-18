@@ -2388,6 +2388,169 @@ def test_build_5m_bucket_index_groups_events_correctly() -> None:
     assert "automation.b" not in index.get(bucket_key_1205, set())
 
 
+@pytest.mark.parametrize(
+    ("automation_id", "timestamps", "expected_schedule_type"),
+    [
+        (
+            "automation.periodic_profile",
+            [
+                datetime(2026, 2, 10, 6, 0, tzinfo=UTC) + timedelta(hours=idx)
+                for idx in range(24)
+            ],
+            "periodic",
+        ),
+        (
+            "automation.scheduled_profile",
+            [
+                datetime(2026, 2, 1, 7, 0, tzinfo=UTC) + timedelta(days=day)
+                for day in range(10)
+            ]
+            + [
+                datetime(2026, 2, 1, 19, 0, tzinfo=UTC) + timedelta(days=day)
+                for day in range(10)
+            ],
+            "scheduled",
+        ),
+        (
+            "automation.clustered_profile",
+            [
+                datetime(2026, 2, 1, 8, 0, tzinfo=UTC)
+                + timedelta(days=day, minutes=offset)
+                for day in range(8)
+                for offset in (0, 10, 20)
+            ],
+            "clustered",
+        ),
+        (
+            "automation.event_driven_profile",
+            [
+                datetime(2026, 2, 10, 0, 0, tzinfo=UTC),
+                datetime(2026, 2, 10, 3, 0, tzinfo=UTC),
+                datetime(2026, 2, 10, 3, 37, tzinfo=UTC),
+                datetime(2026, 2, 10, 11, 12, tzinfo=UTC),
+                datetime(2026, 2, 11, 0, 5, tzinfo=UTC),
+                datetime(2026, 2, 11, 6, 48, tzinfo=UTC),
+                datetime(2026, 2, 12, 2, 17, tzinfo=UTC),
+            ],
+            "event_driven",
+        ),
+    ],
+)
+def test_build_profile_classifies_schedule_type(
+    tmp_path: Path,
+    automation_id: str,
+    timestamps: list[datetime],
+    expected_schedule_type: str,
+) -> None:
+    """build_profile should classify schedule type from runtime event-store history."""
+    store = RuntimeEventStore(tmp_path / "runtime_profile.db")
+    store.ensure_schema(target_version=1)
+    store.bulk_import(automation_id, timestamps)
+
+    monitor = RuntimeHealthMonitor(
+        hass=MagicMock(),
+        telemetry_db_path=None,
+        now_factory=lambda: datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
+    )
+    profile = monitor.build_profile(
+        store=store,
+        automation_id=automation_id,
+        now=datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
+    )
+
+    store.close()
+    assert profile.schedule_type == expected_schedule_type
+
+
+def test_build_profile_returns_per_bucket_expected_gaps(tmp_path: Path) -> None:
+    """build_profile should compute per-bucket expected gaps from bucket inter-arrivals."""
+    automation_id = "automation.bucket_profile"
+    store = RuntimeEventStore(tmp_path / "runtime_profile_gap.db")
+    store.ensure_schema(target_version=1)
+
+    timestamps = [
+        datetime(2026, 2, 16, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 16, 9, 30, tzinfo=UTC),
+        datetime(2026, 2, 16, 10, 0, tzinfo=UTC),
+        datetime(2026, 2, 17, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 17, 9, 30, tzinfo=UTC),
+        datetime(2026, 2, 17, 10, 0, tzinfo=UTC),
+        datetime(2026, 2, 16, 13, 0, tzinfo=UTC),
+        datetime(2026, 2, 16, 15, 0, tzinfo=UTC),
+        datetime(2026, 2, 17, 13, 0, tzinfo=UTC),
+        datetime(2026, 2, 17, 15, 0, tzinfo=UTC),
+    ]
+    store.bulk_import(automation_id, timestamps)
+
+    monitor = RuntimeHealthMonitor(
+        hass=MagicMock(),
+        telemetry_db_path=None,
+        now_factory=lambda: datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
+    )
+    profile = monitor.build_profile(
+        store=store,
+        automation_id=automation_id,
+        now=datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
+    )
+
+    store.close()
+    assert profile.per_bucket_expected_gap["weekday_morning"] == pytest.approx(30.0)
+    assert profile.per_bucket_expected_gap["weekday_afternoon"] == pytest.approx(120.0)
+
+
+def test_catch_up_count_model_replays_missing_finalized_days(
+    tmp_path: Path,
+) -> None:
+    """catch_up_count_model should feed missing finalized daily counts into BOCPD state."""
+    automation_id = "automation.catch_up_test"
+    store = RuntimeEventStore(tmp_path / "catch_up.db")
+    store.ensure_schema(target_version=1)
+
+    # Plant 2 events per day for Feb 14-17 (Sat-Tue) in the morning bucket
+    timestamps = [
+        datetime(2026, 2, 14, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 14, 10, 0, tzinfo=UTC),
+        datetime(2026, 2, 15, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 15, 10, 0, tzinfo=UTC),
+        datetime(2026, 2, 16, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 16, 10, 0, tzinfo=UTC),
+        datetime(2026, 2, 17, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 17, 10, 0, tzinfo=UTC),
+    ]
+    store.bulk_import(automation_id, timestamps)
+    store.rebuild_daily_summaries(automation_id)
+
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass=MagicMock(),
+        telemetry_db_path=None,
+        now_factory=lambda: now,
+    )
+
+    # Pre-seed bucket state as if last scored on Feb 13
+    automation_state = monitor._ensure_automation_state(automation_id)
+    bucket_state = monitor._ensure_count_bucket_state(
+        automation_state["count_model"], "weekday_morning"
+    )
+    bucket_state["current_day"] = "2026-02-13"
+    bucket_state["current_count"] = 0
+    bucket_state["observations"] = [1, 1, 1]
+
+    monitor.catch_up_count_model(
+        store=store,
+        automation_id=automation_id,
+        now=now,
+    )
+
+    updated = automation_state["count_model"]["buckets"]["weekday_morning"]
+    # Feb 14 (Sat) and 15 (Sun) are weekend — don't match weekday_morning.
+    # Feb 16 (Mon) and 17 (Tue) are weekday_morning days with 2 events each.
+    # Original 3 obs + 2 new weekday days = 5 observations.
+    assert len(updated["observations"]) == 5
+
+    store.close()
+
+
 def test_build_feature_row_uses_prebucketed_5m_index() -> None:
     """_build_feature_row should use bucket_index for O(1) lookup when provided."""
     now = datetime(2026, 2, 11, 12, 3, tzinfo=UTC)
@@ -2943,3 +3106,40 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
     assert overactive == [], (
         "Should not flag overactive when current weekday has no baseline evidence"
     )
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_skips_recorder_query_in_cutover_mode(
+    hass: HomeAssistant,
+) -> None:
+    """validate_automations should not call _async_fetch_trigger_history when cutover is on."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        runtime_event_store_cutover=True,
+    )
+
+    # Provide a mock async event store so the cutover branch is taken
+    mock_async_store = MagicMock()
+
+    async def _mock_get_events(aid, start, end):
+        ts_list = history.get(aid, history.get(aid.replace("automation.", ""), []))
+        return [ts.timestamp() for ts in ts_list if start <= ts <= end]
+
+    mock_async_store.async_get_events = _mock_get_events
+    monitor._async_runtime_event_store = mock_async_store
+
+    with patch.object(
+        monitor,
+        "_async_fetch_trigger_history",
+        wraps=monitor._async_fetch_trigger_history,
+    ) as recorder_spy:
+        await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
+        recorder_spy.assert_not_called()
