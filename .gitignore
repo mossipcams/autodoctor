@@ -44,3 +44,10 @@ node_modules/
 
 # GSD planning files
 .planning/
+
+# MCP servers
+ha_logs_mcp/
+tests/mcp/
+.env
+.env.*
+mcp_config.json
