@@ -4,7 +4,7 @@
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg?style=flat-square)](https://hacs.xyz)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-A Home Assistant custom integration that validates your automations to detect issues before they cause silent failures.
+A Home Assistant custom integration that validates your automations and monitors their runtime health to detect issues before they cause silent failures.
 
 ## The Problem
 
@@ -15,18 +15,22 @@ Hours later you discover:
 - You typed `Armed_Away` but it's actually `armed_away`
 - You have a typo: `binary_sensor.motion_sensor`
 - A template has a syntax error: `{{ is_state('sensor.temp' }}`
+- An automation that ran daily just stopped firing three days ago
 
 **Autodoctor catches these issues before they waste your time.**
 
 ## Features
 
-- **Static Validation** - Checks automation configs against known valid states
-- **Jinja Template Validation** - Catches syntax errors in templates before they fail
-- **Service Call Validation** - Validates service calls against the HA service registry
-- **Entity Suggestions** - Suggests fixes for entity ID typos using fuzzy matching
-- **State Learning** - Learns valid states when you dismiss false positives
-- **Issue Suppression** - Dismiss false positives globally (card, Repairs, sensors)
-- **Runtime Health Monitoring (ML)** - Detects stalled and overactive automations from recorder history
+- **Static Validation** -- Checks automation configs against known valid states, entity existence, and attribute values
+- **Jinja Template Validation** -- Catches syntax errors in templates before they fail silently
+- **Service Call Validation** -- Validates service calls against the HA service registry (existence, required params, select options)
+- **Entity Suggestions** -- Suggests fixes for entity ID typos using fuzzy matching
+- **One-Click Fixes** -- Preview and apply suggested fixes directly from the dashboard card
+- **State Learning** -- Learns valid states when you dismiss false positives
+- **Issue Suppression** -- Dismiss false positives globally (card, Repairs, sensors) with full management UI
+- **Runtime Health Monitoring** -- Detects stalled, overactive, bursty, and gap anomalies in automation trigger patterns using Bayesian changepoint detection
+- **Validation Pipeline UI** -- Animated step-by-step validation progress in the dashboard card
+- **Periodic Scanning** -- Configurable background re-validation interval
 
 ## Installation
 
@@ -55,11 +59,13 @@ Add the card to your dashboard:
 type: custom:autodoctor-card
 ```
 
-The card displays issues with:
-- Severity indicators (error/warning)
-- Direct links to edit the automation
-- Entity ID fix suggestions for typos
+The card includes:
+- Severity indicators (error/warning/info)
+- Animated validation pipeline showing per-group progress
+- Direct links to edit the automation (YAML and UI automations)
+- Entity ID fix suggestions with one-click apply and undo
 - Dismiss buttons (dismissing also teaches Autodoctor valid states)
+- Suppression management view (list, unsuppress)
 
 ## Services
 
@@ -79,8 +85,10 @@ The card displays issues with:
 ## Issue Reporting
 
 Issues are reported via:
-- **Repairs** - Settings → Repairs shows actionable issues
-- **Log warnings/errors** - For monitoring and debugging
+- **Dashboard Card** -- Custom Lovelace card with full issue details and fix actions
+- **Repairs** -- Settings → Repairs shows actionable issues with edit links
+- **Sensors** -- Issue count sensor and binary problem sensor for use in automations
+- **Log warnings/errors** -- For monitoring and debugging
 
 Suppressed issues are removed from all primary issue surfaces (dashboard card, Repairs, and Autodoctor entities). Suppression metadata is still retained for counts/history.
 
@@ -88,22 +96,36 @@ Suppressed issues are removed from all primary issue surfaces (dashboard card, R
 
 Access via Settings → Devices & Services → Autodoctor → Configure
 
+### General
+
 | Option | Default | Description |
 |--------|---------|-------------|
-| History lookback (days) | 30 | Days of state history to analyze |
+| History lookback (days) | 30 | Days of state history to analyze for the knowledge base |
 | Validate on reload | Yes | Auto-validate when automations reload |
 | Debounce delay (seconds) | 5 | Wait before validating after reload |
+| Periodic scan interval (hours) | 4 | Background re-validation interval |
 | Strict template validation | No | Warn about unknown Jinja2 filters/tests (disable if using custom components) |
 | Strict service validation | No | Warn about unknown service parameters |
-| Runtime health monitoring (ML) | No | Enable trigger-behavior anomaly detection |
-| Runtime baseline history (days) | 30 | Recorder history window for runtime behavior baseline |
-| Runtime warmup samples | 3 | Minimum active baseline days before anomaly scoring starts |
-| Runtime anomaly threshold | 0.8 | Score threshold for runtime anomaly issue generation |
-| Runtime minimum expected events/day | 0 | Minimum daily baseline activity required for stalling checks |
-| Runtime overactive multiplier | 3.0 | 24h trigger count multiplier over baseline for overactive detection |
-| Runtime hour-ratio lookback (days) | 30 | Lookback window used for same-hour activity ratio features |
 
-Runtime baseline must be larger than the internal cold-start window (7 days) so anomaly training rows can be generated.
+### Runtime Health Monitoring
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| Enable runtime health monitoring | No | Turn on trigger-behavior anomaly detection |
+| Baseline history (days) | 30 | Recorder history window for building behavior baselines |
+| Warmup samples | 3 | Minimum active baseline days before scoring starts |
+| Anomaly threshold | 1.3 | Score threshold (-log10 p-value) for generating issues |
+| Min expected events/day | 0 | Minimum daily baseline activity required for stalled checks |
+| Overactive factor | 3.0 | Trigger count multiplier over baseline for overactive detection |
+| Hour-ratio lookback (days) | 30 | Lookback window for same-hour activity ratio features |
+| Sensitivity | medium | Overall sensitivity (low/medium/high) |
+| Burst multiplier | 4.0 | Short-window trigger rate multiplier for burst detection |
+| Max alerts/day | 10 | Per-automation alert cap to limit noise |
+| Smoothing window | 5 | Moving average window for score smoothing |
+| Restart exclusion (minutes) | 5 | Ignore triggers within N minutes of HA restart |
+| Auto-adapt baselines | Yes | Automatically adjust baselines as patterns change |
+
+Runtime baseline must be larger than the internal cold-start window (7 days) so training data can be generated.
 
 ## How It Works
 
@@ -111,11 +133,11 @@ Runtime baseline must be larger than the internal cold-start window (7 days) so 
 
 Autodoctor builds a knowledge base of valid states from multiple sources:
 
-1. **Device class defaults** - Known states for 30+ domains (e.g., `person` → `home`, `not_home`)
-2. **Enum sensor options** - Validates `device_class: enum` sensors against their declared `options` attribute
-3. **Schema introspection** - Reads `hvac_modes`, `options`, `effect_list` from entity attributes
-4. **Recorder history** - Learns actual states from your historical data
-5. **User feedback** - Remembers states you mark as valid when dismissing issues
+1. **Device class defaults** -- Known states for 30+ domains (e.g., `person` → `home`, `not_home`)
+2. **Enum sensor options** -- Validates `device_class: enum` sensors against their declared `options` attribute
+3. **Schema introspection** -- Reads `hvac_modes`, `options`, `effect_list` from entity attributes
+4. **Recorder history** -- Learns actual states from your historical data
+5. **User feedback** -- Remembers states you mark as valid when dismissing issues
 
 ### What Gets Validated
 
@@ -125,30 +147,52 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 - Template syntax (Jinja2 parse errors, unknown filters/tests with strict mode)
 - Service calls (existence, required params, select option validation)
 - Entity references in triggers, conditions, and actions
+- Device, area, and tag registry references
 
 ### Validation Rules
 
 | Check | Severity | Example |
 |-------|----------|---------|
 | Entity doesn't exist | Error | `binary_sensor.motoin_sensor` (typo) |
+| Entity removed | Info | Entity was renamed or deleted |
 | State never valid | Error | `person.matt` → `"away"` (should be `not_home`) |
 | Case mismatch | Warning | `"Armed_Away"` vs `"armed_away"` |
 | Attribute doesn't exist | Warning | `state_attr('climate.hvac', 'temprature')` |
+| Invalid attribute value | Warning | `fan_mode: "turbo"` not in known modes |
 | Template syntax error | Error | `{{ is_state('sensor.temp' }}` (missing paren) |
 | Service doesn't exist | Error | `light.trun_on` (typo) |
 | Missing required param | Error | `light.turn_on` without `entity_id` |
+| Invalid select option | Warning | Service param value not in allowed options |
 | Unknown filter/test | Warning | Opt-in via strict template validation |
+| Device/area/tag not found | Error | Registry ID doesn't exist |
 
 ### Runtime Health Monitoring
 
-When enabled, runtime monitoring analyzes automation trigger history and can report:
-- **Stalled automations** - expected trigger activity has dropped to zero in the last 24h.
-- **Overactive automations** - last 24h trigger rate is abnormally high versus baseline.
+When enabled, Autodoctor monitors automation trigger patterns in real time and detects behavioral anomalies using **Bayesian Online Changepoint Detection (BOCPD)** with a Gamma-Poisson conjugate model. Models are seeded from recorder history on first enable and persisted across restarts.
+
+Runtime monitoring detects five types of anomalies:
+
+| Issue | Description |
+|-------|-------------|
+| **Stalled** | An automation that normally fires has stopped triggering |
+| **Overactive** | Trigger rate is abnormally high versus baseline |
+| **Count anomaly** | Daily trigger count is statistically unusual (BOCPD posterior) |
+| **Gap** | Unusually long silence between triggers for a regularly-firing automation |
+| **Burst** | Short-window trigger spike exceeding the burst multiplier |
+
+Key behaviors:
+- **Time-bucket awareness** -- Models are segmented by weekday/weekend and morning/afternoon/evening/night to account for natural schedule variation
+- **Recorder backfill** -- On first enable, seeds models from existing recorder history so detection starts immediately rather than waiting for a full baseline window
+- **Restart exclusion** -- Ignores triggers shortly after HA restarts to avoid false positives from startup activity
+- **Alert caps** -- Per-automation and global daily alert limits prevent alert fatigue
+- **Auto-adapt** -- Baselines automatically adjust as automation patterns evolve
+- **State persistence** -- BOCPD model state is saved to disk and survives restarts
 
 Practical guidance:
-- Use baseline windows comfortably above 7 days (for example 21-30 days) for stable scoring.
-- Keep warmup samples less than or equal to baseline days.
-- Tune hour-ratio lookback days if your automations have strong weekly/monthly hour-of-day patterns.
+- Use baseline windows of 21-30 days for stable scoring
+- Keep warmup samples less than or equal to baseline days
+- Start with the default "medium" sensitivity and adjust from there
+- Tune the burst multiplier if you have automations with legitimate traffic spikes
 
 ### What Is NOT Validated
 
@@ -161,9 +205,11 @@ Autodoctor deliberately skips checks that generate false positives:
 - **Custom Jinja2 filters/tests** -- Unless strict mode is enabled
 - **Service parameter types** -- Only select/enum options are checked (YAML coercion makes type checking unreliable)
 
-### Entity Suggestions
+### Entity Suggestions and One-Click Fixes
 
 When an entity ID is invalid or missing, Autodoctor suggests corrections using fuzzy matching within the same domain. For example, if you type `light.livingroom`, it will suggest `light.living_room`.
+
+From the dashboard card, you can preview a suggested fix, apply it directly to your automation config, and undo if needed -- all without leaving the dashboard.
 
 ### State Learning
 
@@ -172,7 +218,7 @@ When you dismiss an issue as a false positive, Autodoctor learns that the state 
 ## Requirements
 
 - Home Assistant 2024.1 or newer
-- Recorder integration (for history analysis)
+- Recorder integration (for history analysis and runtime health)
 
 ## License
 

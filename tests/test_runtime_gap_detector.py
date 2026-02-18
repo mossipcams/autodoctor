@@ -34,6 +34,57 @@ def _build_monitor(
     )
 
 
+def _next_weekday_after(
+    base: datetime, target_weekday: int, *, hour: int = 12
+) -> datetime:
+    days_ahead = (target_weekday - base.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    candidate = base + timedelta(days=days_ahead)
+    return candidate.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+@pytest.mark.parametrize(
+    ("active_weekdays", "inactive_weekday"),
+    [
+        ({0, 2, 4}, 1),
+        ({2}, 1),
+    ],
+)
+def test_gap_check_respects_learned_active_weekdays(
+    tmp_path: Path,
+    active_weekdays: set[int],
+    inactive_weekday: int,
+) -> None:
+    """Gap checks should honor learned weekday cadence from recent history."""
+    seed_now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, seed_now, max_alerts_per_day=20)
+    aid = "automation.weekly_pattern"
+
+    for days_back in range(30):
+        ts = seed_now - timedelta(days=(29 - days_back))
+        if ts.weekday() in active_weekdays:
+            monitor.ingest_trigger_event(
+                aid,
+                occurred_at=ts.replace(hour=9, minute=0, second=0, microsecond=0),
+            )
+
+    baseline_check = seed_now + timedelta(days=14)
+    outside_now = _next_weekday_after(baseline_check, inactive_weekday)
+    inside_now = _next_weekday_after(
+        outside_now,
+        min(active_weekdays, key=lambda w: (w - outside_now.weekday()) % 7),
+        hour=9,
+    )
+
+    no_issue = monitor.check_gap_anomalies(now=outside_now)
+    late_issue = monitor.check_gap_anomalies(now=inside_now)
+
+    assert no_issue == []
+    assert late_issue
+    assert late_issue[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
+
+
 def test_gap_model_stores_last_trigger_only(tmp_path: Path) -> None:
     """Gap model should retain only last trigger timestamp in BOCPD mode."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)

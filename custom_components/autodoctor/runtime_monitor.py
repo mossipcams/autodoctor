@@ -1443,6 +1443,48 @@ class RuntimeHealthMonitor:
             return day.weekday() >= 5
         return True
 
+    @staticmethod
+    def _is_current_weekday_expected_from_baseline_events(
+        *,
+        baseline_events: list[datetime],
+        baseline_start: datetime,
+        baseline_end: datetime,
+        check_time: datetime,
+    ) -> bool | None:
+        """Return weekday expectation from baseline activity; None when evidence is weak."""
+        if baseline_end <= baseline_start:
+            return None
+
+        observed_days = [0] * 7
+        cursor = baseline_start.date()
+        end_day = baseline_end.date()
+        while cursor < end_day:
+            observed_days[cursor.weekday()] += 1
+            cursor += timedelta(days=1)
+
+        evidence_threshold_days = 2
+        current_weekday = check_time.weekday()
+        if observed_days[current_weekday] < evidence_threshold_days:
+            return None
+
+        active_dates_by_weekday: list[set[date]] = [set() for _ in range(7)]
+        for ts in baseline_events:
+            if baseline_start <= ts < baseline_end:
+                active_dates_by_weekday[ts.weekday()].add(ts.date())
+
+        if active_dates_by_weekday[current_weekday]:
+            return True
+
+        other_weekday_has_activity = any(
+            active_dates_by_weekday[idx]
+            and observed_days[idx] >= evidence_threshold_days
+            for idx in range(7)
+            if idx != current_weekday
+        )
+        if other_weekday_has_activity:
+            return False
+        return None
+
     def _is_gap_window_expected(
         self,
         *,
@@ -1897,13 +1939,22 @@ class RuntimeHealthMonitor:
             day_type_active = any(
                 (t.weekday() >= 5) == is_weekend for t in baseline_events
             )
+            weekday_expected = self._is_current_weekday_expected_from_baseline_events(
+                baseline_events=baseline_events,
+                baseline_start=automation_baseline_start,
+                baseline_end=recent_start,
+                check_time=now,
+            )
+            alert_window_expected = (
+                day_type_active if weekday_expected is None else weekday_expected
+            )
             alert_baseline_ok = len(baseline_events) >= max(3, required_warmup)
 
             if (
                 recent_count == 0
                 and minutes_since_last >= stalled_silence_minutes
                 and smoothed_score >= stalled_threshold
-                and day_type_active
+                and alert_window_expected
                 and alert_baseline_ok
                 and not runtime_suppressed
             ):
@@ -1941,7 +1992,7 @@ class RuntimeHealthMonitor:
             if (
                 recent_count > overactive_count_limit
                 and smoothed_score >= overactive_threshold
-                and day_type_active
+                and alert_window_expected
                 and alert_baseline_ok
                 and not runtime_suppressed
             ):

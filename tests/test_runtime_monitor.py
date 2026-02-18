@@ -448,13 +448,13 @@ async def test_runtime_monitor_flags_stalled_when_weekly_reminder_misses_cadence
     hass: HomeAssistant,
 ) -> None:
     """Cadence-aware stalled logic should still fire when silence is far too long."""
-    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 2, 19, 12, 0, tzinfo=UTC)  # Thursday
     history = {
         "trash_reminder": [
-            now - timedelta(days=33, hours=2),
-            now - timedelta(days=26, hours=2),
-            now - timedelta(days=19, hours=2),
-            now - timedelta(days=12, hours=2),
+            datetime(2026, 1, 15, 10, 0, tzinfo=UTC),  # Thursday
+            datetime(2026, 1, 22, 10, 0, tzinfo=UTC),  # Thursday
+            datetime(2026, 1, 29, 10, 0, tzinfo=UTC),  # Thursday
+            datetime(2026, 2, 5, 10, 0, tzinfo=UTC),  # Thursday
         ]
     }
 
@@ -2266,4 +2266,107 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
     ]
     assert overactive == [], (
         "Should not flag overactive when no baseline events on current day type"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stalled_skipped_when_no_baseline_events_on_current_weekday(
+    hass: HomeAssistant,
+) -> None:
+    """Stalled should not fire on weekdays with zero historical activity."""
+    # Tuesday 12:00 UTC
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    # Baseline has only Wednesday activity and nothing in the recent day.
+    baseline = [
+        datetime(2026, 1, 21, 9, 0, tzinfo=UTC),
+        datetime(2026, 1, 28, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 4, 9, 0, tzinfo=UTC),
+    ]
+    history = {"weekly_auto": baseline}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=7,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("weekly_auto", "Weekly Auto")]
+    )
+    stalled = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    ]
+
+    assert stalled == [], (
+        "Should not flag stalled when current weekday has no baseline evidence"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stalled_flags_when_baseline_events_exist_on_current_weekday(
+    hass: HomeAssistant,
+) -> None:
+    """Stalled should still fire when current weekday is historically active."""
+    # Wednesday 12:00 UTC
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    baseline = [
+        datetime(2026, 1, 22, 9, 0, tzinfo=UTC),  # Thursday
+        datetime(2026, 1, 28, 9, 0, tzinfo=UTC),  # Wednesday
+        datetime(2026, 2, 4, 9, 0, tzinfo=UTC),  # Wednesday
+    ]
+    history = {"weekly_auto": baseline}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=7,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("weekly_auto", "Weekly Auto")]
+    )
+    stalled = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    ]
+
+    assert len(stalled) == 1
+
+
+@pytest.mark.asyncio
+async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive should not fire on weekdays with zero historical activity."""
+    # Tuesday 12:00 UTC
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    baseline = [
+        datetime(2026, 1, 21, 9, 0, tzinfo=UTC),
+        datetime(2026, 1, 28, 9, 0, tzinfo=UTC),
+        datetime(2026, 2, 4, 9, 0, tzinfo=UTC),
+    ]
+    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
+    history = {"weekly_auto": baseline + burst}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        warmup_samples=7,
+        anomaly_threshold=1.3,
+        min_expected_events=0,
+        overactive_factor=3.0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("weekly_auto", "Weekly Auto")]
+    )
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+
+    assert overactive == [], (
+        "Should not flag overactive when current weekday has no baseline evidence"
     )
