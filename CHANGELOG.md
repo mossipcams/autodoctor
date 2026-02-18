@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.0](https://github.com/mossipcams/autodoctor/compare/v2.27.0...v2.28.0) (2026-02-18)
+
+
+### Features
+
+* **runtime:** runtime event store redesign with profiling and per-bucket gap evaluation ([#155](https://github.com/mossipcams/autodoctor/issues/155)) ([e1dd54b](https://github.com/mossipcams/autodoctor/commit/e1dd54bedb12862a41d459571662f5300ccc9975))
+
 ## [2.27.0](https://github.com/mossipcams/autodoctor/compare/v2.26.12...v2.27.0) (2026-02-18)
 
 
