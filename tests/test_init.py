@@ -1003,6 +1003,70 @@ async def test_register_card_replaces_old_version() -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_card_update_failure_falls_back_to_create() -> None:
+    """Update failure should fall back to creating a current-version resource."""
+    from custom_components.autodoctor import _async_register_card
+
+    hass = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": "/autodoctor/autodoctor-card.js?v=0.0.1", "id": "old_id"}
+    ]
+    mock_resources.async_update_item = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_called_once()
+    mock_resources.async_create_item.assert_called_once()
+    created = mock_resources.async_create_item.call_args[0][0]
+    assert "autodoctor" in created["url"]
+    assert created["res_type"] == "module"
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_card_existing_resource_without_id_creates_new() -> None:
+    """Missing resource id should still create a current-version card resource."""
+    from custom_components.autodoctor import _async_register_card
+
+    hass = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": "/autodoctor/autodoctor-card.js?v=0.0.1"}
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_called_once()
+    payload = mock_resources.async_create_item.call_args[0][0]
+    assert payload["res_type"] == "module"
+    assert "autodoctor" in payload["url"]
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_register_card_yaml_mode_skips_resources() -> None:
     """Test that card resource registration is skipped in Lovelace YAML mode.
 
