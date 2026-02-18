@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.9](https://github.com/mossipcams/autodoctor/compare/v2.26.8...v2.26.9) (2026-02-18)
+
+
+### Bug Fixes
+
+* **runtime:** harden gap cadence detection and restore frontend parity ([#144](https://github.com/mossipcams/autodoctor/issues/144)) ([16a79a5](https://github.com/mossipcams/autodoctor/commit/16a79a5fd32098302ab6be6a8852572848b0ecfd))
+
 ## [2.26.8](https://github.com/mossipcams/autodoctor/compare/v2.26.7...v2.26.8) (2026-02-17)
 
 
