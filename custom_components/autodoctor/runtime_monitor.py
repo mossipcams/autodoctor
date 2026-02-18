@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -18,12 +19,19 @@ from statistics import fmean, median
 from typing import Any, Protocol, cast
 
 from .const import (
+    DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
+    DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
+    DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
+    DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
+    DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
     DEFAULT_RUNTIME_HEALTH_GAP_THRESHOLD_MULTIPLIER,
     DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
     DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
+    DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     DOMAIN,
 )
 from .models import IssueType, Severity, ValidationIssue
+from .runtime_event_store import AsyncRuntimeEventStore, RuntimeEventStore
 from .runtime_health_state_store import RuntimeHealthStateStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,6 +44,9 @@ _DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES = 15
 _BACKFILL_MIN_LOOKBACK_DAYS = 30
 _GAP_MODEL_MAX_RECENT_INTERVALS = 32
 _SPARSE_WARMUP_LOOKBACK_DAYS = 90
+_GAP_PROFILE_CONFIDENCE_EVENTS = 10
+_GAP_PROFILE_MIN_EVENTS_FOR_INACTIVE = 8
+_GAP_CONFIRMATION_RESET_HOURS = 3
 
 
 class _Detector(Protocol):
@@ -409,6 +420,20 @@ class RuntimeHealthMonitor:
         hazard_rate: float = DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
         max_run_length: int = DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
         gap_threshold_multiplier: float = DEFAULT_RUNTIME_HEALTH_GAP_THRESHOLD_MULTIPLIER,
+        runtime_event_store_enabled: bool = DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
+        runtime_event_store_shadow_read: bool = (
+            DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ
+        ),
+        runtime_event_store_cutover: bool = DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
+        runtime_event_store_reconciliation_enabled: bool = (
+            DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED
+        ),
+        runtime_schedule_anomaly_enabled: bool = (
+            DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED
+        ),
+        runtime_daily_rollup_enabled: bool = DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
+        runtime_event_store: RuntimeEventStore | None = None,
+        async_runtime_event_store: AsyncRuntimeEventStore | None = None,
         now_factory: Any = None,
     ) -> None:
         self.hass = hass
@@ -444,6 +469,24 @@ class RuntimeHealthMonitor:
         self.hazard_rate = min(1.0, max(1e-6, float(hazard_rate)))
         self.max_run_length = max(2, int(max_run_length))
         self.gap_threshold_multiplier = max(1.0, float(gap_threshold_multiplier))
+        self._runtime_event_store_enabled = bool(runtime_event_store_enabled)
+        self._runtime_event_store_shadow_read = bool(runtime_event_store_shadow_read)
+        self._runtime_event_store_cutover = bool(runtime_event_store_cutover)
+        self._runtime_event_store_reconciliation_enabled = bool(
+            runtime_event_store_reconciliation_enabled
+        )
+        self._runtime_schedule_anomaly_enabled = bool(runtime_schedule_anomaly_enabled)
+        self._runtime_daily_rollup_enabled = bool(runtime_daily_rollup_enabled)
+        self._runtime_event_store_degraded = False
+        self._runtime_event_store_pending_jobs = 0
+        self._runtime_event_store_write_failures = 0
+        self._runtime_event_store_dropped_events = 0
+        self._runtime_event_store_low_parity_cycles = 0
+        self._runtime_event_store: RuntimeEventStore | None = runtime_event_store
+        self._async_runtime_event_store: AsyncRuntimeEventStore | None = (
+            async_runtime_event_store
+        )
+        self._runtime_event_store_tasks: set[asyncio.Task[Any]] = set()
         self._bocpd_count_detector = _BOCPDDetector(
             hazard_rate=self.hazard_rate,
             max_run_length=self.max_run_length,
@@ -477,6 +520,21 @@ class RuntimeHealthMonitor:
         )
         self._pending_runtime_state_snapshot: dict[str, Any] | None = None
         self._runtime_state_save_task: asyncio.Task[Any] | None = None
+        self._runtime_event_store_db_path: str | None = None
+        if self._runtime_event_store_enabled and self._runtime_event_store is None:
+            if hasattr(hass, "config") and hasattr(hass.config, "path"):
+                self._runtime_event_store_db_path = hass.config.path(
+                    "autodoctor_runtime.db"
+                )
+        if (
+            self._runtime_event_store_enabled
+            and self._async_runtime_event_store is None
+            and self._runtime_event_store is not None
+        ):
+            self._async_runtime_event_store = AsyncRuntimeEventStore(
+                hass,
+                self._runtime_event_store,
+            )
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "anomaly_threshold=%.1f, min_expected_events=%d, overactive_factor=%.1f, "
@@ -555,21 +613,142 @@ class RuntimeHealthMonitor:
             events = sorted(history.get(automation_id, []))
             if not events:
                 continue
-            automation_state = self._ensure_automation_state(automation_id)
-            for event_time in events:
-                self._update_count_model(automation_state, event_time)
-                self._update_gap_model(automation_state, event_time)
-                self._detect_burst_anomaly(
-                    automation_entity_id=automation_id,
-                    automation_state=automation_state,
-                    now=event_time,
-                    allow_alerts=False,
+            status_key = f"backfill_status:{automation_id}"
+            attempts_key = f"backfill_attempts:{automation_id}"
+            error_key = f"backfill_last_error:{automation_id}"
+            if self._runtime_event_store is not None:
+                attempts = 1
+                attempts_raw = await self.hass.async_add_executor_job(
+                    self._runtime_event_store.get_metadata, attempts_key
                 )
-            seeded_automations += 1
+                if isinstance(attempts_raw, str):
+                    try:
+                        attempts = max(1, int(attempts_raw) + 1)
+                    except (TypeError, ValueError):
+                        attempts = 1
+                await self.hass.async_add_executor_job(
+                    self._runtime_event_store.set_metadata_batch,
+                    {attempts_key: str(attempts), status_key: "pending"},
+                )
+
+            try:
+                automation_state = self._ensure_automation_state(automation_id)
+                for event_time in events:
+                    self._update_count_model(automation_state, event_time)
+                    self._update_gap_model(automation_state, event_time)
+                    self._detect_burst_anomaly(
+                        automation_entity_id=automation_id,
+                        automation_state=automation_state,
+                        now=event_time,
+                        allow_alerts=False,
+                    )
+                    if (
+                        self._runtime_event_store_enabled
+                        and self._async_runtime_event_store is not None
+                    ):
+                        await self._async_runtime_event_store.async_record_trigger(
+                            automation_id,
+                            event_time,
+                        )
+                seeded_automations += 1
+                if self._runtime_event_store is not None:
+                    await self.hass.async_add_executor_job(
+                        self._runtime_event_store.set_metadata_batch,
+                        {status_key: "success", error_key: ""},
+                    )
+            except Exception as err:
+                if self._runtime_event_store is not None:
+                    await self.hass.async_add_executor_job(
+                        self._runtime_event_store.set_metadata_batch,
+                        {status_key: "failed", error_key: str(err)},
+                    )
+                _LOGGER.debug(
+                    "Runtime backfill failed for '%s': %s", automation_id, err
+                )
 
         if seeded_automations:
             self._persist_runtime_state()
         return seeded_automations
+
+    async def async_reconcile_event_store_from_recorder(
+        self,
+        automations: list[dict[str, Any]],
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        """Replay recorder events since last persisted timestamp into event store."""
+        if (
+            not self._runtime_event_store_enabled
+            or not self._runtime_event_store_reconciliation_enabled
+            or self._async_runtime_event_store is None
+        ):
+            return 0
+
+        automation_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for automation in automations:
+            automation_entity_id = self._resolve_automation_entity_id(automation)
+            if not automation_entity_id or automation_entity_id in seen_ids:
+                continue
+            automation_ids.append(automation_entity_id)
+            seen_ids.add(automation_entity_id)
+        if not automation_ids:
+            return 0
+
+        reconcile_end = now or self._now_factory()
+        default_start = reconcile_end - timedelta(hours=24)
+        reconcile_start = default_start
+        if self._runtime_event_store is not None:
+            try:
+                last_persisted_raw = await self.hass.async_add_executor_job(
+                    self._runtime_event_store.get_metadata,
+                    "ingestion:last_persisted_ts",
+                )
+                if last_persisted_raw:
+                    reconcile_start = datetime.fromtimestamp(
+                        float(last_persisted_raw),
+                        tz=UTC,
+                    )
+            except (TypeError, ValueError, OSError):
+                reconcile_start = default_start
+
+        history = await self._async_fetch_trigger_history(
+            automation_ids,
+            reconcile_start,
+            reconcile_end,
+        )
+
+        imported = 0
+        for automation_id in automation_ids:
+            events = sorted(history.get(automation_id, []))
+            for event_time in events:
+                try:
+                    wrote = await self._async_runtime_event_store.async_record_trigger(
+                        automation_id,
+                        event_time,
+                    )
+                    if wrote is not False:
+                        imported += 1
+                except Exception as err:
+                    self._runtime_event_store_degraded = True
+                    self._runtime_event_store_write_failures += 1
+                    if self._runtime_event_store is not None:
+                        await self.hass.async_add_executor_job(
+                            self._runtime_event_store.set_metadata,
+                            "ingestion:last_writer_error",
+                            str(err),
+                        )
+
+        if self._runtime_event_store is not None:
+            ts_str = str(reconcile_end.timestamp())
+            await self.hass.async_add_executor_job(
+                self._runtime_event_store.set_metadata_batch,
+                {
+                    "ingestion:last_persisted_ts": ts_str,
+                    "ingestion:last_enqueue_ts": ts_str,
+                },
+            )
+        return imported
 
     @staticmethod
     def classify_time_bucket(timestamp: datetime) -> str:
@@ -618,6 +797,10 @@ class RuntimeHealthMonitor:
                 return []
 
         self._live_trigger_events[automation_entity_id].append(event_time)
+        self._enqueue_runtime_event_store_write(
+            automation_entity_id=automation_entity_id,
+            event_time=event_time,
+        )
 
         count_bucket_name, count_bucket = self._update_count_model(
             automation_state, event_time
@@ -664,6 +847,139 @@ class RuntimeHealthMonitor:
         self._maybe_flush_runtime_state(event_time)
         return issues
 
+    def _enqueue_runtime_event_store_write(
+        self,
+        *,
+        automation_entity_id: str,
+        event_time: datetime,
+    ) -> None:
+        """Schedule an async dual-write of a live trigger into local event store."""
+        if (
+            not self._runtime_event_store_enabled
+            or self._async_runtime_event_store is None
+        ):
+            return
+        async_store = self._async_runtime_event_store
+
+        async def _write() -> None:
+            try:
+                self._runtime_event_store_pending_jobs = max(
+                    self._runtime_event_store_pending_jobs,
+                    int(getattr(async_store, "pending_jobs", 0)),
+                )
+                result = await async_store.async_record_trigger(
+                    automation_entity_id,
+                    event_time,
+                )
+                if result is False:
+                    self._runtime_event_store_degraded = True
+                    self._runtime_event_store_dropped_events += 1
+                self._runtime_event_store_pending_jobs = int(
+                    getattr(async_store, "pending_jobs", 0)
+                )
+            except Exception as err:
+                self._runtime_event_store_degraded = True
+                self._runtime_event_store_write_failures += 1
+                self._runtime_event_store_pending_jobs = int(
+                    getattr(async_store, "pending_jobs", 0)
+                )
+                _LOGGER.debug(
+                    "Runtime event-store write failed for '%s': %s",
+                    automation_entity_id,
+                    err,
+                )
+
+        task: Any
+        if hasattr(self.hass, "async_create_task"):
+            task = self.hass.async_create_task(_write())
+        elif hasattr(self.hass, "create_task"):
+            task = self.hass.create_task(_write())
+        else:
+            task = asyncio.create_task(_write())
+
+        if isinstance(task, asyncio.Task):
+            self._runtime_event_store_tasks.add(task)
+            task.add_done_callback(self._runtime_event_store_tasks.discard)
+
+    def get_event_store_diagnostics(self) -> dict[str, Any]:
+        """Return runtime event-store rollout diagnostics."""
+        return {
+            "enabled": self._runtime_event_store_enabled,
+            "cutover": self._runtime_event_store_cutover,
+            "degraded": self._runtime_event_store_degraded,
+            "pending_jobs": self._runtime_event_store_pending_jobs,
+            "write_failures": self._runtime_event_store_write_failures,
+            "dropped_events": self._runtime_event_store_dropped_events,
+        }
+
+    async def async_close_event_store(self) -> None:
+        """Drain pending event-store tasks and close the SQLite connection."""
+        # Await all in-flight write tasks before closing the connection
+        tasks = list(self._runtime_event_store_tasks)
+        for task in tasks:
+            with contextlib.suppress(Exception):
+                await task
+        self._runtime_event_store_tasks.clear()
+        if self._runtime_event_store is not None:
+            await self.hass.async_add_executor_job(self._runtime_event_store.close)
+
+    async def async_init_event_store(self) -> None:
+        """Create and initialize the runtime event store off the event loop."""
+        if (
+            not self._runtime_event_store_enabled
+            or self._runtime_event_store is not None
+            or not self._runtime_event_store_db_path
+        ):
+            return
+
+        db_path = self._runtime_event_store_db_path
+
+        def _create_store() -> RuntimeEventStore:
+            store = RuntimeEventStore(db_path)
+            store.ensure_schema(target_version=1)
+            return store
+
+        try:
+            store = await self.hass.async_add_executor_job(_create_store)
+            self._runtime_event_store = store
+            self._async_runtime_event_store = AsyncRuntimeEventStore(
+                self.hass,
+                store,
+            )
+        except Exception as err:
+            _LOGGER.warning("Failed initializing runtime event store: %s", err)
+            self._runtime_event_store_enabled = False
+            self._runtime_event_store = None
+
+    def _apply_runtime_event_store_rollback_guard(
+        self,
+        *,
+        sampled: int,
+        parity_ok: int,
+    ) -> None:
+        """Automatically disable cutover when parity is repeatedly below threshold."""
+        if not self._runtime_event_store_cutover:
+            return
+        if sampled <= 0:
+            self._runtime_event_store_low_parity_cycles = 0
+            return
+
+        parity_ratio = float(parity_ok) / float(sampled)
+        if parity_ratio < 0.95:
+            self._runtime_event_store_low_parity_cycles += 1
+        else:
+            self._runtime_event_store_low_parity_cycles = 0
+
+        if self._runtime_event_store_low_parity_cycles >= 2:
+            _LOGGER.warning(
+                "Runtime event-store cutover auto-disabled due to low parity: "
+                "ratio=%.3f (%d/%d)",
+                parity_ratio,
+                parity_ok,
+                sampled,
+            )
+            self._runtime_event_store_cutover = False
+
     def check_gap_anomalies(
         self, *, now: datetime | None = None
     ) -> list[ValidationIssue]:
@@ -698,10 +1014,22 @@ class RuntimeHealthMonitor:
             if not isinstance(gap_model_raw, dict):
                 continue
             gap_model = cast(dict[str, Any], gap_model_raw)
+            profile_confidence = self._gap_profile_confidence(
+                automation_state=automation_state
+            )
 
             last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
             if last_trigger is None:
+                self._clear_gap_breach_confirmation(gap_model)
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="clear",
+                    reason="no_last_trigger",
+                    profile_confidence=profile_confidence,
+                )
                 counters["cleared"] += 1
                 continue
 
@@ -709,33 +1037,160 @@ class RuntimeHealthMonitor:
                 automation_state, last_trigger
             )
             if expected_gap <= 0.0:
+                self._clear_gap_breach_confirmation(gap_model)
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="clear",
+                    reason="no_expected_gap",
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                )
                 counters["cleared"] += 1
                 continue
 
-            threshold = expected_gap * self.gap_threshold_multiplier
+            gap_threshold_multiplier = self._gap_adaptation_threshold_multiplier(
+                automation_state=automation_state
+            )
+            threshold = (
+                expected_gap * self.gap_threshold_multiplier * gap_threshold_multiplier
+            )
             elapsed_minutes = max(
                 0.0, (check_time - last_trigger).total_seconds() / 60.0
             )
             if elapsed_minutes <= threshold:
+                self._clear_gap_breach_confirmation(gap_model)
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="clear",
+                    reason="within_threshold",
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                )
                 counters["cleared"] += 1
                 continue
             if not self._is_gap_window_expected(
                 automation_state=automation_state,
                 check_time=check_time,
             ):
+                self._clear_gap_breach_confirmation(gap_model)
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="suppress",
+                    reason="window_not_expected",
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                )
+                counters["cleared"] += 1
+                continue
+            profile_eligible, profile_reason = self._is_gap_window_eligible_by_profile(
+                automation_state=automation_state,
+                check_time=check_time,
+            )
+            if not profile_eligible:
+                self._clear_gap_breach_confirmation(gap_model)
+                self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="suppress",
+                    reason=profile_reason,
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                )
+                counters["cleared"] += 1
+                continue
+            if self._is_gap_within_recurring_safe_window(
+                automation_state=automation_state,
+                check_time=check_time,
+                elapsed_minutes=elapsed_minutes,
+            ):
+                self._clear_gap_breach_confirmation(gap_model)
+                self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="suppress",
+                    reason="recurring_safe_gap",
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                )
                 counters["cleared"] += 1
                 continue
 
             if self._is_runtime_suppressed(automation_id, suppression_store):
+                self._clear_gap_breach_confirmation(gap_model)
                 self._clear_runtime_alert(automation_id, gap_issue_type)
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="suppress",
+                    reason="runtime_suppressed",
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                )
                 counters["suppressed"] += 1
+                continue
+
+            required_confirmations = self._required_gap_confirmations(
+                automation_state=automation_state,
+                cadence_confidence=profile_confidence,
+            )
+            if not self._confirm_gap_breach(
+                gap_model=gap_model,
+                now=check_time,
+                required_confirmations=required_confirmations,
+            ):
+                counters["pending"] = int(counters.get("pending", 0)) + 1
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="suppress",
+                    reason="awaiting_confirmation",
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                    required_confirmations=required_confirmations,
+                )
                 continue
 
             if not self._allow_alert(automation_id, now=check_time):
                 counters["rate_limited"] += 1
+                self._record_gap_decision(
+                    automation_id=automation_id,
+                    gap_model=gap_model,
+                    check_time=check_time,
+                    decision="suppress",
+                    reason="rate_limited",
+                    elapsed_minutes=elapsed_minutes,
+                    threshold_minutes=threshold,
+                    expected_gap_minutes=expected_gap,
+                    profile_confidence=profile_confidence,
+                    required_confirmations=required_confirmations,
+                )
                 continue
 
             issue = ValidationIssue(
@@ -754,6 +1209,18 @@ class RuntimeHealthMonitor:
             self._register_runtime_alert(issue)
             issues.append(issue)
             counters["alerted"] += 1
+            self._record_gap_decision(
+                automation_id=automation_id,
+                gap_model=gap_model,
+                check_time=check_time,
+                decision="alert",
+                reason="alert_emitted",
+                elapsed_minutes=elapsed_minutes,
+                threshold_minutes=threshold,
+                expected_gap_minutes=expected_gap,
+                profile_confidence=profile_confidence,
+                required_confirmations=required_confirmations,
+            )
 
         if issues or state_dirty:
             self._persist_runtime_state()
@@ -771,6 +1238,108 @@ class RuntimeHealthMonitor:
             state_dirty,
         )
         return issues
+
+    def _is_gap_window_eligible_by_profile(
+        self,
+        *,
+        automation_state: dict[str, Any],
+        check_time: datetime,
+    ) -> tuple[bool, str]:
+        """Return (eligible, reason_code) for profile-based gap eligibility."""
+        gap_model_raw = automation_state.get("gap_model", {})
+        if not isinstance(gap_model_raw, dict):
+            return True, "profile_unavailable"
+        gap_model = cast(dict[str, Any], gap_model_raw)
+        profile_raw = gap_model.get("cadence_profile")
+        if not isinstance(profile_raw, dict):
+            return True, "profile_unavailable"
+        profile = cast(dict[str, Any], profile_raw)
+
+        confidence = self._coerce_float(profile.get("confidence"), 0.0)
+        if confidence < 0.7:
+            return True, "profile_low_confidence"
+
+        current_weekday = check_time.weekday()
+        inactive_weekdays_raw = profile.get("inactive_weekdays")
+        if isinstance(inactive_weekdays_raw, list):
+            inactive_weekdays: set[int] = set()
+            for raw_value in cast(list[Any], inactive_weekdays_raw):
+                if isinstance(raw_value, (int, float)):
+                    inactive_weekdays.add(int(raw_value))
+            if current_weekday in inactive_weekdays:
+                return False, "profile_inactive_weekday"
+
+        active_weekdays_raw = profile.get("active_weekdays")
+        if isinstance(active_weekdays_raw, list):
+            active_weekdays: set[int] = set()
+            for raw_value in cast(list[Any], active_weekdays_raw):
+                if isinstance(raw_value, (int, float)):
+                    active_weekdays.add(int(raw_value))
+            if active_weekdays and current_weekday not in active_weekdays:
+                return False, "profile_outside_active_weekday"
+
+        active_buckets_raw = profile.get("active_buckets")
+        enforce_active_buckets = bool(profile.get("enforce_active_buckets"))
+        if (
+            enforce_active_buckets
+            and isinstance(active_buckets_raw, list)
+            and confidence >= 0.85
+        ):
+            active_buckets: set[str] = set()
+            for raw_value in cast(list[Any], active_buckets_raw):
+                if isinstance(raw_value, str):
+                    active_buckets.add(str(raw_value))
+            current_bucket = self.classify_time_bucket(check_time)
+            if active_buckets and current_bucket not in active_buckets:
+                return False, "profile_outside_active_bucket"
+        return True, "profile_eligible"
+
+    def _record_gap_decision(
+        self,
+        *,
+        automation_id: str,
+        gap_model: dict[str, Any],
+        check_time: datetime,
+        decision: str,
+        reason: str,
+        elapsed_minutes: float | None = None,
+        threshold_minutes: float | None = None,
+        expected_gap_minutes: float | None = None,
+        profile_confidence: float | None = None,
+        required_confirmations: int | None = None,
+    ) -> None:
+        pending_confirmations = int(
+            self._coerce_float(gap_model.get("pending_gap_breach_count"), 0.0)
+        )
+        gap_model["last_gap_decision"] = {
+            "decision": decision,
+            "reason": reason,
+            "check_time": check_time.isoformat(),
+            "elapsed_minutes": elapsed_minutes,
+            "threshold_minutes": threshold_minutes,
+            "expected_gap_minutes": expected_gap_minutes,
+            "profile_confidence": profile_confidence,
+            "required_confirmations": required_confirmations,
+            "pending_confirmations": pending_confirmations,
+        }
+        _LOGGER.debug(
+            "Runtime gap decision: automation=%s decision=%s reason=%s "
+            "elapsed=%.1f threshold=%.1f expected=%.1f confidence=%.2f "
+            "confirmations=%d/%s",
+            automation_id,
+            decision,
+            reason,
+            elapsed_minutes if elapsed_minutes is not None else -1.0,
+            threshold_minutes if threshold_minutes is not None else -1.0,
+            expected_gap_minutes if expected_gap_minutes is not None else -1.0,
+            profile_confidence if profile_confidence is not None else -1.0,
+            pending_confirmations,
+            (
+                str(required_confirmations)
+                if required_confirmations is not None
+                else "-"
+            ),
+        )
 
     def run_weekly_maintenance(self, *, now: datetime | None = None) -> None:
         """Record maintenance tick; BOCPD path has no periodic bucket promotion."""
@@ -792,6 +1361,10 @@ class RuntimeHealthMonitor:
                 "ewma_gap_minutes": 0.0,
                 "median_gap_minutes": 0.0,
                 "recent_gaps_minutes": [],
+                "cadence_profile": {},
+                "safe_gap_windows": {},
+                "pending_gap_breach_count": 0,
+                "pending_gap_breach_at": None,
             },
             "burst_model": {
                 "recent_triggers": [],
@@ -805,6 +1378,9 @@ class RuntimeHealthMonitor:
             "adaptation": {
                 "threshold_multiplier": 1.0,
                 "dismissed_count": 0,
+                "gap_threshold_multiplier": 1.0,
+                "gap_confirmation_required": 1,
+                "gap_recovery_events": 0,
             },
             "periodic_model": {
                 "run_length_probs": [1.0],
@@ -977,6 +1553,7 @@ class RuntimeHealthMonitor:
             gap_model_raw = {}
             automation_state["gap_model"] = gap_model_raw
         gap_model = cast(dict[str, Any], gap_model_raw)
+        self._update_gap_cadence_profile(gap_model=gap_model, event_time=event_time)
         previous_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
         if previous_trigger is not None and event_time > previous_trigger:
             gap_minutes = max(
@@ -1013,6 +1590,11 @@ class RuntimeHealthMonitor:
                 )
                 if recurring_inter_session_gap > 0.0:
                     expected_gap = max(expected_gap, recurring_inter_session_gap)
+                self._update_safe_gap_window(
+                    gap_model=gap_model,
+                    event_time=event_time,
+                    gap_minutes=gap_minutes,
+                )
 
                 gap_model["recent_gaps_minutes"] = recent
                 gap_model["median_gap_minutes"] = median_gap
@@ -1021,6 +1603,256 @@ class RuntimeHealthMonitor:
                 gap_model["inter_session_gap_minutes"] = recurring_inter_session_gap
         if previous_trigger is None or event_time >= previous_trigger:
             gap_model["last_trigger"] = event_time.isoformat()
+        self._clear_gap_breach_confirmation(gap_model)
+        self._decay_gap_dismissal_adaptation(automation_state)
+
+    def _update_gap_cadence_profile(
+        self,
+        *,
+        gap_model: dict[str, Any],
+        event_time: datetime,
+    ) -> None:
+        """Update learned weekday/time-bucket cadence profile from trigger events."""
+        profile_raw = gap_model.get("cadence_profile")
+        profile = (
+            cast(dict[str, Any], profile_raw) if isinstance(profile_raw, dict) else {}
+        )
+
+        weekday_counts_raw = profile.get("weekday_counts")
+        weekday_counts: list[int] = []
+        if isinstance(weekday_counts_raw, list):
+            for raw_value in cast(list[Any], weekday_counts_raw)[:7]:
+                weekday_counts.append(int(self._coerce_float(raw_value, 0.0)))
+        while len(weekday_counts) < 7:
+            weekday_counts.append(0)
+
+        bucket_counts_raw = profile.get("bucket_counts")
+        bucket_counts = (
+            {
+                str(name): int(self._coerce_float(value, 0.0))
+                for name, value in cast(dict[Any, Any], bucket_counts_raw).items()
+            }
+            if isinstance(bucket_counts_raw, dict)
+            else {}
+        )
+
+        weekday = event_time.weekday()
+        weekday_counts[weekday] += 1
+        bucket_name = self.classify_time_bucket(event_time)
+        bucket_counts[bucket_name] = max(0, bucket_counts.get(bucket_name, 0)) + 1
+
+        total_events = int(self._coerce_float(profile.get("total_events"), 0.0)) + 1
+        active_weekdays = [idx for idx, count in enumerate(weekday_counts) if count > 0]
+        inactive_weekdays = (
+            [idx for idx, count in enumerate(weekday_counts) if count == 0]
+            if total_events >= _GAP_PROFILE_MIN_EVENTS_FOR_INACTIVE
+            else []
+        )
+        active_buckets = [
+            name for name, count in bucket_counts.items() if int(count) > 0
+        ]
+        confidence = min(
+            1.0, float(total_events) / float(_GAP_PROFILE_CONFIDENCE_EVENTS)
+        )
+
+        profile["version"] = 1
+        profile["total_events"] = total_events
+        profile["weekday_counts"] = weekday_counts
+        profile["bucket_counts"] = bucket_counts
+        profile["active_weekdays"] = active_weekdays
+        profile["inactive_weekdays"] = inactive_weekdays
+        profile["active_buckets"] = active_buckets
+        profile["confidence"] = confidence
+        profile["updated_at"] = event_time.isoformat()
+        gap_model["cadence_profile"] = profile
+
+    def _safe_gap_context_key(self, check_time: datetime) -> str:
+        return f"{check_time.weekday()}:{self.classify_time_bucket(check_time)}"
+
+    def _update_safe_gap_window(
+        self,
+        *,
+        gap_model: dict[str, Any],
+        event_time: datetime,
+        gap_minutes: float,
+    ) -> None:
+        safe_windows_raw = gap_model.get("safe_gap_windows")
+        safe_windows = (
+            cast(dict[str, Any], safe_windows_raw)
+            if isinstance(safe_windows_raw, dict)
+            else {}
+        )
+        context_key = self._safe_gap_context_key(event_time)
+        context_raw = safe_windows.get(context_key)
+        context = (
+            cast(dict[str, Any], context_raw) if isinstance(context_raw, dict) else {}
+        )
+
+        samples_raw = context.get("samples")
+        samples = (
+            [
+                self._coerce_float(value, 0.0)
+                for value in cast(list[Any], samples_raw)
+                if self._coerce_float(value, 0.0) > 0.0
+            ]
+            if isinstance(samples_raw, list)
+            else []
+        )
+        samples.append(max(0.0, float(gap_minutes)))
+        if len(samples) > _GAP_MODEL_MAX_RECENT_INTERVALS:
+            del samples[:-_GAP_MODEL_MAX_RECENT_INTERVALS]
+
+        rounded = [max(1, round(value)) for value in samples]
+        context["samples"] = samples
+        context["p90_minutes"] = self._percentile(rounded, 0.9) if rounded else 0.0
+        context["updated_at"] = event_time.isoformat()
+        safe_windows[context_key] = context
+        gap_model["safe_gap_windows"] = safe_windows
+
+    def _is_gap_within_recurring_safe_window(
+        self,
+        *,
+        automation_state: dict[str, Any],
+        check_time: datetime,
+        elapsed_minutes: float,
+    ) -> bool:
+        if self._gap_profile_confidence(automation_state=automation_state) < 0.7:
+            return False
+        gap_model_raw = automation_state.get("gap_model", {})
+        if not isinstance(gap_model_raw, dict):
+            return False
+        gap_model = cast(dict[str, Any], gap_model_raw)
+        safe_windows_raw = gap_model.get("safe_gap_windows")
+        if not isinstance(safe_windows_raw, dict):
+            return False
+        safe_windows = cast(dict[str, Any], safe_windows_raw)
+        context_key = self._safe_gap_context_key(check_time)
+        context_raw = safe_windows.get(context_key)
+        if not isinstance(context_raw, dict):
+            return False
+        context = cast(dict[str, Any], context_raw)
+        samples_raw = context.get("samples")
+        sample_count = len(samples_raw) if isinstance(samples_raw, list) else 0
+        if sample_count < 3:
+            return False
+        p90_minutes = self._coerce_float(context.get("p90_minutes"), 0.0)
+        if p90_minutes <= 0.0:
+            return False
+        safe_limit = p90_minutes * self.gap_threshold_multiplier
+        return elapsed_minutes <= safe_limit
+
+    def _gap_profile_confidence(self, *, automation_state: dict[str, Any]) -> float:
+        gap_model_raw = automation_state.get("gap_model", {})
+        if not isinstance(gap_model_raw, dict):
+            return 0.0
+        gap_model = cast(dict[str, Any], gap_model_raw)
+        profile_raw = gap_model.get("cadence_profile")
+        if not isinstance(profile_raw, dict):
+            return 0.0
+        profile = cast(dict[str, Any], profile_raw)
+        return self._coerce_float(profile.get("confidence"), 0.0)
+
+    def _required_gap_confirmations(
+        self,
+        *,
+        automation_state: dict[str, Any],
+        cadence_confidence: float,
+    ) -> int:
+        adaptation_raw = automation_state.get("adaptation", {})
+        adaptation = (
+            cast(dict[str, Any], adaptation_raw)
+            if isinstance(adaptation_raw, dict)
+            else {}
+        )
+        adapted_required = max(
+            1,
+            int(
+                self._coerce_float(
+                    adaptation.get("gap_confirmation_required"),
+                    1.0,
+                )
+            ),
+        )
+        baseline_required = 2 if cadence_confidence < 0.7 else 1
+        return max(baseline_required, adapted_required)
+
+    def _gap_adaptation_threshold_multiplier(
+        self,
+        *,
+        automation_state: dict[str, Any],
+    ) -> float:
+        adaptation_raw = automation_state.get("adaptation", {})
+        if not isinstance(adaptation_raw, dict):
+            return 1.0
+        adaptation = cast(dict[str, Any], adaptation_raw)
+        gap_multiplier = self._coerce_float(
+            adaptation.get("gap_threshold_multiplier"),
+            self._coerce_float(adaptation.get("threshold_multiplier"), 1.0),
+        )
+        return max(1.0, gap_multiplier)
+
+    def _confirm_gap_breach(
+        self,
+        *,
+        gap_model: dict[str, Any],
+        now: datetime,
+        required_confirmations: int,
+    ) -> bool:
+        required = max(1, int(required_confirmations))
+        if required <= 1:
+            gap_model["pending_gap_breach_count"] = 1
+            gap_model["pending_gap_breach_at"] = now.isoformat()
+            return True
+
+        last_seen = self._coerce_datetime(gap_model.get("pending_gap_breach_at"))
+        pending_count = max(
+            0,
+            int(
+                self._coerce_float(
+                    gap_model.get("pending_gap_breach_count"),
+                    0.0,
+                )
+            ),
+        )
+        if (
+            last_seen is None
+            or now < last_seen
+            or (now - last_seen) > timedelta(hours=_GAP_CONFIRMATION_RESET_HOURS)
+        ):
+            pending_count = 0
+        pending_count += 1
+        gap_model["pending_gap_breach_count"] = pending_count
+        gap_model["pending_gap_breach_at"] = now.isoformat()
+        return pending_count >= required
+
+    def _clear_gap_breach_confirmation(self, gap_model: dict[str, Any]) -> None:
+        gap_model["pending_gap_breach_count"] = 0
+        gap_model["pending_gap_breach_at"] = None
+
+    def _decay_gap_dismissal_adaptation(self, automation_state: dict[str, Any]) -> None:
+        adaptation_raw = automation_state.get("adaptation", {})
+        if not isinstance(adaptation_raw, dict):
+            return
+        adaptation = cast(dict[str, Any], adaptation_raw)
+
+        current_multiplier = self._coerce_float(
+            adaptation.get("gap_threshold_multiplier"),
+            1.0,
+        )
+        if current_multiplier > 1.0:
+            adaptation["gap_threshold_multiplier"] = max(1.0, current_multiplier - 0.05)
+
+        recovery_events = (
+            int(self._coerce_float(adaptation.get("gap_recovery_events"), 0.0)) + 1
+        )
+        adaptation["gap_recovery_events"] = recovery_events
+        current_required = max(
+            1,
+            int(self._coerce_float(adaptation.get("gap_confirmation_required"), 1.0)),
+        )
+        if recovery_events >= 5 and current_required > 1:
+            adaptation["gap_confirmation_required"] = current_required - 1
+            adaptation["gap_recovery_events"] = 0
 
     def _expected_gap_minutes_for_automation(
         self,
@@ -1323,6 +2155,19 @@ class RuntimeHealthMonitor:
         adaptation["threshold_multiplier"] = max(
             1.0, current_multiplier * self.dismissed_threshold_multiplier
         )
+        gap_current_multiplier = self._coerce_float(
+            adaptation.get("gap_threshold_multiplier"),
+            adaptation["threshold_multiplier"],
+        )
+        adaptation["gap_threshold_multiplier"] = max(
+            1.0, gap_current_multiplier * self.dismissed_threshold_multiplier
+        )
+        gap_required = max(
+            1,
+            int(self._coerce_float(adaptation.get("gap_confirmation_required"), 1.0)),
+        )
+        adaptation["gap_confirmation_required"] = min(4, gap_required + 1)
+        adaptation["gap_recovery_events"] = 0
         self._persist_runtime_state()
 
     def _maybe_auto_adapt(
@@ -1699,13 +2544,20 @@ class RuntimeHealthMonitor:
             automation_ids, baseline_start
         )
         looked_back_automation_ids: set[str] = set()
-        history = await self._async_fetch_trigger_history(
-            automation_ids,
-            baseline_start,
-            now,
-        )
-        if self._last_query_failed:
-            stats["recorder_query_failed"] = 1
+        if self._runtime_event_store_cutover and self._async_runtime_event_store:
+            history = await self._async_fetch_trigger_history_from_store(
+                automation_ids=automation_ids,
+                start=baseline_start,
+                end=now,
+            )
+        else:
+            history = await self._async_fetch_trigger_history(
+                automation_ids,
+                baseline_start,
+                now,
+            )
+            if self._last_query_failed:
+                stats["recorder_query_failed"] = 1
         if (
             self.warmup_samples > 0
             and self.baseline_days < _SPARSE_WARMUP_LOOKBACK_DAYS
@@ -1730,13 +2582,25 @@ class RuntimeHealthMonitor:
                 extended_baseline_start = recent_start - timedelta(
                     days=_SPARSE_WARMUP_LOOKBACK_DAYS
                 )
-                extended_history = await self._async_fetch_trigger_history(
-                    sparse_automation_ids,
-                    extended_baseline_start,
-                    baseline_start,
-                )
-                if self._last_query_failed:
-                    stats["recorder_query_failed"] = 1
+                if (
+                    self._runtime_event_store_cutover
+                    and self._async_runtime_event_store
+                ):
+                    extended_history = (
+                        await self._async_fetch_trigger_history_from_store(
+                            automation_ids=sparse_automation_ids,
+                            start=extended_baseline_start,
+                            end=baseline_start,
+                        )
+                    )
+                else:
+                    extended_history = await self._async_fetch_trigger_history(
+                        sparse_automation_ids,
+                        extended_baseline_start,
+                        baseline_start,
+                    )
+                    if self._last_query_failed:
+                        stats["recorder_query_failed"] = 1
                 for automation_id in sparse_automation_ids:
                     merged_events = sorted(
                         history.get(automation_id, [])
@@ -1752,6 +2616,47 @@ class RuntimeHealthMonitor:
                     "Runtime health extended lookback applied to %d sparse automations",
                     len(sparse_automation_ids),
                 )
+
+        if (
+            self._runtime_event_store_shadow_read
+            and self._async_runtime_event_store is not None
+        ):
+            store_history = await self._async_fetch_trigger_history_from_store(
+                automation_ids=automation_ids,
+                start=baseline_start,
+                end=now,
+            )
+            sampled = 0
+            parity_ok = 0
+            last_trigger_ok = 0
+            for automation_id in automation_ids:
+                recorder_events = sorted(history.get(automation_id, []))
+                local_events = sorted(store_history.get(automation_id, []))
+                if not recorder_events and not local_events:
+                    continue
+                sampled += 1
+                recorder_count = len(recorder_events)
+                local_count = len(local_events)
+                tolerance = max(1, round(recorder_count * 0.01))
+                if abs(local_count - recorder_count) <= tolerance:
+                    parity_ok += 1
+
+                recorder_last = recorder_events[-1] if recorder_events else None
+                local_last = local_events[-1] if local_events else None
+                if recorder_last is None and local_last is None:
+                    last_trigger_ok += 1
+                elif recorder_last is not None and local_last is not None:
+                    delta_seconds = abs((local_last - recorder_last).total_seconds())
+                    if delta_seconds <= 60.0:
+                        last_trigger_ok += 1
+
+            stats["runtime_store_shadow_sampled"] = sampled
+            stats["runtime_store_shadow_parity_ok"] = parity_ok
+            stats["runtime_store_shadow_last_trigger_ok"] = last_trigger_ok
+            self._apply_runtime_event_store_rollback_guard(
+                sampled=sampled,
+                parity_ok=parity_ok,
+            )
 
         issues: list[ValidationIssue] = []
         runtime_state_dirty = False
@@ -1893,7 +2798,30 @@ class RuntimeHealthMonitor:
             score = self._score_current(
                 automation_entity_id, train_rows, window_size=window_size
             )
-            smoothed_score = self._smoothed_score(automation_entity_id, score)
+            prefetched_ema: float | None = None
+            if (
+                not self._score_history.get(automation_entity_id)
+                and self._runtime_event_store_enabled
+                and self._runtime_event_store is not None
+            ):
+                try:
+                    persisted = await self.hass.async_add_executor_job(
+                        self._runtime_event_store.get_last_score,
+                        automation_entity_id,
+                    )
+                    if persisted is not None:
+                        prefetched_ema = self._coerce_float(
+                            getattr(persisted, "ema_score", 0.0), 0.0
+                        )
+                except Exception as err:
+                    _LOGGER.debug(
+                        "Failed reading persisted runtime EMA for '%s': %s",
+                        automation_entity_id,
+                        err,
+                    )
+            smoothed_score = self._smoothed_score(
+                automation_entity_id, score, persisted_ema=prefetched_ema
+            )
             telemetry_ok = await self.hass.async_add_executor_job(
                 partial(
                     self._log_score_telemetry,
@@ -1905,6 +2833,29 @@ class RuntimeHealthMonitor:
             )
             if not telemetry_ok:
                 stats["telemetry_write_failed"] += 1
+            if (
+                self._runtime_event_store_enabled
+                and self._runtime_event_store is not None
+            ):
+                try:
+                    await self.hass.async_add_executor_job(
+                        partial(
+                            self._runtime_event_store.record_score,
+                            automation_entity_id,
+                            scored_at=now,
+                            score=smoothed_score,
+                            ema_score=smoothed_score,
+                            features=current_row,
+                        )
+                    )
+                except Exception as err:
+                    self._runtime_event_store_write_failures += 1
+                    self._runtime_event_store_degraded = True
+                    _LOGGER.debug(
+                        "Failed persisting runtime score history for '%s': %s",
+                        automation_entity_id,
+                        err,
+                    )
             _LOGGER.debug(
                 "Automation '%s': anomaly score=%.3f ema=%.3f",
                 automation_name,
@@ -2140,8 +3091,16 @@ class RuntimeHealthMonitor:
             )
             return self._detector.score_current(automation_id, train_rows)
 
-    def _smoothed_score(self, automation_id: str, score: float) -> float:
+    def _smoothed_score(
+        self,
+        automation_id: str,
+        score: float,
+        *,
+        persisted_ema: float | None = None,
+    ) -> float:
         history = self._score_history.setdefault(automation_id, [])
+        if not history and persisted_ema is not None:
+            history.append(max(0.0, persisted_ema))
         history.append(score)
         if len(history) > self.score_ema_samples:
             del history[: -self.score_ema_samples]
@@ -2612,3 +3571,34 @@ class RuntimeHealthMonitor:
                 "Failed to query recorder events for runtime monitor: %s", err
             )
             return {aid: [] for aid in requested_ids}
+
+    async def _async_fetch_trigger_history_from_store(
+        self,
+        *,
+        automation_ids: list[str],
+        start: datetime,
+        end: datetime,
+    ) -> dict[str, list[datetime]]:
+        """Fetch trigger history from local runtime event store."""
+        if self._async_runtime_event_store is None:
+            return {automation_id: [] for automation_id in automation_ids}
+        history: dict[str, list[datetime]] = {}
+        for automation_id in automation_ids:
+            try:
+                epochs = await self._async_runtime_event_store.async_get_events(
+                    automation_id,
+                    start,
+                    end,
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Failed reading runtime event store history for '%s': %s",
+                    automation_id,
+                    err,
+                )
+                history[automation_id] = []
+                continue
+            history[automation_id] = [
+                datetime.fromtimestamp(float(ts), tz=UTC) for ts in epochs
+            ]
+        return history

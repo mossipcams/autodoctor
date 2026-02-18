@@ -180,3 +180,32 @@ async def test_runtime_health_sensor_reports_active_runtime_alerts(
     attrs = sensor.extra_state_attributes
     assert len(attrs["active_runtime_alerts"]) == 2
     assert attrs["active_runtime_alerts"][0]["issue_type"] == "runtime_automation_burst"
+
+
+async def test_runtime_health_sensor_exposes_event_store_diagnostics(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime sensor attributes should include event-store rollout diagnostics."""
+    entry = MagicMock()
+    entry.entry_id = "test"
+    sensor = RuntimeHealthAlertsSensor(hass, entry)
+
+    mock_runtime_monitor = MagicMock()
+    mock_runtime_monitor.get_active_runtime_alerts.return_value = []
+    mock_runtime_monitor.get_event_store_diagnostics.return_value = {
+        "enabled": True,
+        "cutover": False,
+        "degraded": True,
+        "pending_jobs": 3,
+        "write_failures": 2,
+        "dropped_events": 1,
+    }
+    hass.data[DOMAIN] = {"runtime_monitor": mock_runtime_monitor}
+
+    attrs = sensor.extra_state_attributes
+    assert attrs["runtime_event_store_enabled"] is True
+    assert attrs["runtime_event_store_cutover"] is False
+    assert attrs["runtime_event_store_degraded"] is True
+    assert attrs["runtime_event_store_pending_jobs"] == 3
+    assert attrs["runtime_event_store_write_failures"] == 2
+    assert attrs["runtime_event_store_dropped_events"] == 1

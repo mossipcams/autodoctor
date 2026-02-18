@@ -36,7 +36,13 @@
           "runtime_health_max_alerts_per_day": "Runtime max alerts/day",
           "runtime_health_smoothing_window": "Runtime smoothing window",
           "runtime_health_restart_exclusion_minutes": "Runtime restart exclusion (minutes)",
-          "runtime_health_auto_adapt": "Runtime auto-adapt baselines"
+          "runtime_health_auto_adapt": "Runtime auto-adapt baselines",
+          "runtime_event_store_enabled": "Runtime local event store enabled",
+          "runtime_event_store_shadow_read": "Runtime store shadow-read parity checks",
+          "runtime_event_store_cutover": "Runtime store cutover (read from local store)",
+          "runtime_event_store_reconciliation_enabled": "Runtime store reconciliation replay",
+          "runtime_schedule_anomaly_enabled": "Runtime schedule anomaly issue types",
+          "runtime_daily_rollup_enabled": "Runtime daily rollup cache"
         },
         "data_description": {
           "history_days": "Number of days of state history to analyze",
@@ -56,7 +62,13 @@
           "runtime_health_max_alerts_per_day": "Maximum runtime alerts emitted per automation per day",
           "runtime_health_smoothing_window": "Number of consecutive anomalies before auto-adapt can reset the baseline",
           "runtime_health_restart_exclusion_minutes": "Minutes to suppress runtime scoring after startup/restart",
-          "runtime_health_auto_adapt": "Automatically reset count baselines after persistent anomalies"
+          "runtime_health_auto_adapt": "Automatically reset count baselines after persistent anomalies",
+          "runtime_event_store_enabled": "Persist runtime trigger events into a local autodoctor-owned SQLite database",
+          "runtime_event_store_shadow_read": "Compute recorder vs local-store parity checks without changing runtime scoring decisions",
+          "runtime_event_store_cutover": "Read runtime history from local event store instead of recorder queries",
+          "runtime_event_store_reconciliation_enabled": "Replay recorder events since last persisted timestamp to heal missed local writes",
+          "runtime_schedule_anomaly_enabled": "Enable schedule-aware runtime issue types such as missed/late/early detections",
+          "runtime_daily_rollup_enabled": "Use optional pre-computed daily bucket counts cache for runtime aggregations"
         }
       }
     }

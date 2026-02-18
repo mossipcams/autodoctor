@@ -29,6 +29,11 @@ from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
+    CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
+    CONF_RUNTIME_EVENT_STORE_CUTOVER,
+    CONF_RUNTIME_EVENT_STORE_ENABLED,
+    CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
+    CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -42,12 +47,18 @@ from .const import (
     CONF_RUNTIME_HEALTH_SENSITIVITY,
     CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
+    CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
+    DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
+    DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
+    DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
+    DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
+    DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -61,6 +72,7 @@ from .const import (
     DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
     DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
+    DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
@@ -523,12 +535,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 CONF_RUNTIME_HEALTH_AUTO_ADAPT,
                 DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
             ),
+            runtime_event_store_enabled=options.get(
+                CONF_RUNTIME_EVENT_STORE_ENABLED,
+                DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
+            ),
+            runtime_event_store_shadow_read=options.get(
+                CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
+                DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
+            ),
+            runtime_event_store_cutover=options.get(
+                CONF_RUNTIME_EVENT_STORE_CUTOVER,
+                DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
+            ),
+            runtime_event_store_reconciliation_enabled=options.get(
+                CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
+                DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
+            ),
+            runtime_schedule_anomaly_enabled=options.get(
+                CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
+                DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
+            ),
+            runtime_daily_rollup_enabled=options.get(
+                CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
+                DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
+            ),
         )
         if runtime_enabled
         else None
     )
     if runtime_enabled:
         _LOGGER.debug("Runtime health monitoring enabled")
+        if runtime_monitor is not None:
+            await runtime_monitor.async_init_event_store()
     else:
         _LOGGER.debug("Runtime health monitoring disabled")
     reporter = IssueReporter(hass)
@@ -725,6 +763,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await runtime_monitor.async_flush_runtime_state()
             except Exception as err:
                 _LOGGER.debug("Failed to flush runtime state during unload: %s", err)
+
+        if runtime_monitor is not None and hasattr(
+            runtime_monitor, "async_close_event_store"
+        ):
+            try:
+                await runtime_monitor.async_close_event_store()
+            except Exception as err:
+                _LOGGER.debug(
+                    "Failed to close runtime event store during unload: %s",
+                    err,
+                )
 
         # Unregister services
         hass.services.async_remove(DOMAIN, "validate")

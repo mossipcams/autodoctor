@@ -78,7 +78,9 @@ def test_gap_check_respects_learned_active_weekdays(
     )
 
     no_issue = monitor.check_gap_anomalies(now=outside_now)
-    late_issue = monitor.check_gap_anomalies(now=inside_now)
+    # First check on active day may require confirmation; second call confirms.
+    monitor.check_gap_anomalies(now=inside_now)
+    late_issue = monitor.check_gap_anomalies(now=inside_now + timedelta(hours=1))
 
     assert no_issue == []
     assert late_issue
@@ -106,6 +108,44 @@ def test_gap_model_stores_last_trigger_only(tmp_path: Path) -> None:
     assert "intervals_minutes" not in gap_state
     assert "lambda_per_minute" not in gap_state
     assert "p99_minutes" not in gap_state
+
+
+def test_gap_model_learns_weekday_cadence_profile_from_events(tmp_path: Path) -> None:
+    """Gap model should learn active/inactive weekdays and confidence."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)  # Wednesday
+    monitor = _build_monitor(tmp_path, now)
+    aid = "automation.profile_learning"
+
+    # 6 weeks of activity on Monday/Wednesday only.
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)  # Monday
+    for week in range(6):
+        monitor.ingest_trigger_event(aid, occurred_at=start + timedelta(days=7 * week))
+        monitor.ingest_trigger_event(
+            aid,
+            occurred_at=start + timedelta(days=7 * week + 2),
+        )
+
+    state = monitor.get_runtime_state()
+    profile = state["automations"][aid]["gap_model"]["cadence_profile"]
+
+    assert set(profile["active_weekdays"]) == {0, 2}
+    assert 1 in set(profile["inactive_weekdays"])
+    assert profile["confidence"] >= 0.7
+
+
+def test_gap_model_marks_low_confidence_when_history_is_sparse(tmp_path: Path) -> None:
+    """Cadence profile confidence should stay low for very sparse event history."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now)
+    aid = "automation.profile_sparse"
+
+    monitor.ingest_trigger_event(aid, occurred_at=now - timedelta(days=2))
+    monitor.ingest_trigger_event(aid, occurred_at=now - timedelta(days=1))
+
+    state = monitor.get_runtime_state()
+    profile = state["automations"][aid]["gap_model"]["cadence_profile"]
+
+    assert profile["confidence"] < 0.7
 
 
 def test_hourly_gap_check_emits_gap_issue_when_elapsed_exceeds_expected_gap(
@@ -149,6 +189,229 @@ def test_hourly_gap_check_respects_runtime_suppression(tmp_path: Path) -> None:
     gap_issues = monitor.check_gap_anomalies(now=now + timedelta(hours=2))
 
     assert gap_issues == []
+
+
+def test_gap_check_suppresses_when_profile_marks_current_bucket_inactive(
+    tmp_path: Path,
+) -> None:
+    """High-confidence cadence profile should suppress out-of-bucket gap alerts."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)  # Wednesday morning
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.bucket_profile_gate"
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=240)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["cadence_profile"] = {
+        "version": 1,
+        "confidence": 0.95,
+        "active_weekdays": [2],
+        "inactive_weekdays": [],
+        "active_buckets": ["weekday_night"],
+        "enforce_active_buckets": True,
+    }
+    automation_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    issues = monitor.check_gap_anomalies(now=now)
+
+    assert issues == []
+
+
+def test_gap_check_does_not_suppress_with_low_profile_confidence(
+    tmp_path: Path,
+) -> None:
+    """Low-confidence profile should not suppress otherwise eligible gap alerts."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)  # Wednesday morning
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.low_conf_profile"
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=240)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["cadence_profile"] = {
+        "version": 1,
+        "confidence": 0.3,
+        "active_weekdays": [2],
+        "inactive_weekdays": [2],
+        "active_buckets": ["weekday_night"],
+        "enforce_active_buckets": True,
+    }
+    automation_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    first = monitor.check_gap_anomalies(now=now)
+    second = monitor.check_gap_anomalies(now=now + timedelta(hours=1))
+
+    assert first == []
+    assert second
+    assert second[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
+
+
+def test_gap_check_requires_second_breach_when_profile_confidence_is_low(
+    tmp_path: Path,
+) -> None:
+    """Low-confidence candidates should require a second consecutive breach."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)  # Wednesday morning
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.low_conf_confirmation"
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=240)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["cadence_profile"] = {
+        "version": 1,
+        "confidence": 0.2,
+        "active_weekdays": [2],
+        "inactive_weekdays": [],
+        "active_buckets": ["weekday_morning"],
+    }
+    automation_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    first = monitor.check_gap_anomalies(now=now)
+    second = monitor.check_gap_anomalies(now=now + timedelta(hours=1))
+
+    assert first == []
+    assert second
+    assert second[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
+
+
+def test_gap_check_applies_dismissal_adaptation_to_threshold(
+    tmp_path: Path,
+) -> None:
+    """Dismissals should raise the effective gap threshold for future checks."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)
+    baseline_monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    adapted_monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.dismissal_gap"
+
+    for monitor in (baseline_monitor, adapted_monitor):
+        state = monitor._ensure_automation_state(aid)
+        state["gap_model"]["last_trigger"] = (now - timedelta(minutes=50)).isoformat()
+        state["gap_model"]["expected_gap_minutes"] = 30.0
+        state["gap_model"]["cadence_profile"] = {
+            "version": 1,
+            "confidence": 1.0,
+            "active_weekdays": [2],
+            "inactive_weekdays": [],
+            "active_buckets": ["weekday_morning"],
+        }
+        state["count_model"]["buckets"] = {
+            "weekday_morning": {
+                "expected_rate": 1.0,
+                "current_count": 1,
+                "observations": [1, 1, 1, 1, 1],
+                "run_length_probs": [1.0],
+                "hazard": 0.1,
+                "current_day": now.date().isoformat(),
+            }
+        }
+
+    baseline_issues = baseline_monitor.check_gap_anomalies(now=now)
+
+    adapted_monitor.record_issue_dismissed(aid)
+    adapted_issues = adapted_monitor.check_gap_anomalies(now=now)
+
+    assert baseline_issues
+    assert adapted_issues == []
+
+
+def test_gap_dismissal_adaptation_decays_after_recovery_events(tmp_path: Path) -> None:
+    """Gap-specific adaptation should decay back toward default on healthy activity."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.dismissal_decay"
+
+    monitor.record_issue_dismissed(aid)
+    monitor.record_issue_dismissed(aid)
+    adaptation = monitor.get_runtime_state()["automations"][aid]["adaptation"]
+    assert adaptation["gap_threshold_multiplier"] > 1.0
+    assert adaptation["gap_confirmation_required"] >= 2
+
+    # Healthy triggers should slowly relax dismissal adaptation.
+    base = now + timedelta(minutes=1)
+    for idx in range(8):
+        monitor.ingest_trigger_event(
+            aid, occurred_at=base + timedelta(minutes=idx * 10)
+        )
+
+    adaptation_after = monitor.get_runtime_state()["automations"][aid]["adaptation"]
+    assert (
+        adaptation_after["gap_threshold_multiplier"]
+        <= adaptation["gap_threshold_multiplier"]
+    )
+    assert adaptation_after["gap_threshold_multiplier"] >= 1.0
+    assert adaptation_after["gap_confirmation_required"] >= 1
+
+
+def test_gap_check_suppresses_when_elapsed_is_within_recurring_safe_window(
+    tmp_path: Path,
+) -> None:
+    """Known recurring safe windows should suppress gap alerts in matching context."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)  # Wednesday morning
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.safe_window"
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=130)
+    ).isoformat()
+    automation_state["gap_model"]["expected_gap_minutes"] = 30.0
+    automation_state["gap_model"]["cadence_profile"] = {
+        "version": 1,
+        "confidence": 1.0,
+        "active_weekdays": [2],
+        "inactive_weekdays": [],
+        "active_buckets": ["weekday_morning"],
+    }
+    context_key = f"{now.weekday()}:{monitor.classify_time_bucket(now)}"
+    automation_state["gap_model"]["safe_gap_windows"] = {
+        context_key: {
+            "samples": [92.0, 98.0, 104.0, 100.0],
+            "p90_minutes": 104.0,
+        }
+    }
+    automation_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    issues = monitor.check_gap_anomalies(now=now)
+
+    assert issues == []
 
 
 def test_gap_check_skips_weekday_for_weekend_only_automation(tmp_path: Path) -> None:
@@ -339,3 +602,69 @@ def test_gap_check_logs_summary_counters(
     assert "evaluated=1" in caplog.text
     assert "alerted=1" in caplog.text
     assert "suppressed=0" in caplog.text
+
+
+def test_gap_check_logs_reason_coded_decisions(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Gap checks should log explicit decision reasons for alert/suppress paths."""
+    now = datetime(2026, 2, 18, 9, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+
+    suppressed_id = "automation.reason_suppressed"
+    suppressed_state = monitor._ensure_automation_state(suppressed_id)
+    suppressed_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=240)
+    ).isoformat()
+    suppressed_state["gap_model"]["expected_gap_minutes"] = 30.0
+    suppressed_state["gap_model"]["cadence_profile"] = {
+        "version": 1,
+        "confidence": 0.95,
+        "active_weekdays": [0, 4],  # Not Wednesday.
+        "inactive_weekdays": [2],
+        "active_buckets": ["weekday_morning"],
+    }
+    suppressed_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    alerted_id = "automation.reason_alerted"
+    alerted_state = monitor._ensure_automation_state(alerted_id)
+    alerted_state["gap_model"]["last_trigger"] = (
+        now - timedelta(minutes=240)
+    ).isoformat()
+    alerted_state["gap_model"]["expected_gap_minutes"] = 30.0
+    alerted_state["gap_model"]["cadence_profile"] = {
+        "version": 1,
+        "confidence": 1.0,
+        "active_weekdays": [2],
+        "inactive_weekdays": [],
+        "active_buckets": ["weekday_morning"],
+    }
+    alerted_state["count_model"]["buckets"] = {
+        "weekday_morning": {
+            "expected_rate": 1.0,
+            "current_count": 1,
+            "observations": [1, 1, 1, 1, 1],
+            "run_length_probs": [1.0],
+            "hazard": 0.1,
+            "current_day": now.date().isoformat(),
+        }
+    }
+
+    with caplog.at_level(
+        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
+    ):
+        monitor.check_gap_anomalies(now=now)
+
+    assert "Runtime gap decision" in caplog.text
+    assert "reason=profile_inactive_weekday" in caplog.text
+    assert "reason=alert_emitted" in caplog.text
