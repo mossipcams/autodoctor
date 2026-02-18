@@ -389,6 +389,18 @@ class _BOCPDDetector:
         return math.exp(log_prob)
 
 
+class AutomationProfile:
+    """Classification of an automation's trigger schedule behavior."""
+
+    __slots__ = ("per_bucket_expected_gap", "schedule_type")
+
+    def __init__(
+        self, schedule_type: str, per_bucket_expected_gap: dict[str, float]
+    ) -> None:
+        self.schedule_type = schedule_type
+        self.per_bucket_expected_gap = per_bucket_expected_gap
+
+
 class RuntimeHealthMonitor:
     """Detect runtime automation anomalies from recorder trigger history."""
 
@@ -911,6 +923,108 @@ class RuntimeHealthMonitor:
             "write_failures": self._runtime_event_store_write_failures,
             "dropped_events": self._runtime_event_store_dropped_events,
         }
+
+    def build_profile(
+        self,
+        store: RuntimeEventStore,
+        automation_id: str,
+        now: datetime,
+    ) -> AutomationProfile:
+        """Build an AutomationProfile from runtime event-store history."""
+        epochs = store.get_events(automation_id)
+
+        # Compute per-bucket expected gaps (median inter-arrival per bucket)
+        per_bucket_expected_gap: dict[str, float] = {}
+        for bucket in (
+            "weekday_morning",
+            "weekday_afternoon",
+            "weekday_evening",
+            "weekday_night",
+            "weekend_morning",
+            "weekend_afternoon",
+            "weekend_evening",
+            "weekend_night",
+        ):
+            gaps = store.get_inter_arrival_times(automation_id, time_bucket=bucket)
+            if gaps:
+                per_bucket_expected_gap[bucket] = median(gaps)
+
+        # Need enough events to classify
+        all_gaps = store.get_inter_arrival_times(automation_id)
+        if len(epochs) < 8 or not all_gaps:
+            return AutomationProfile(
+                schedule_type="event_driven",
+                per_bucket_expected_gap=per_bucket_expected_gap,
+            )
+
+        mean_gap = fmean(all_gaps)
+        if mean_gap < 1e-9:
+            return AutomationProfile(
+                schedule_type="event_driven",
+                per_bucket_expected_gap=per_bucket_expected_gap,
+            )
+
+        median_gap = median(all_gaps)
+        std_gap = (sum((g - mean_gap) ** 2 for g in all_gaps) / len(all_gaps)) ** 0.5
+        cv = std_gap / mean_gap
+
+        distinct_hours = {datetime.fromtimestamp(e, tz=UTC).hour for e in epochs}
+
+        if cv < 0.5 and len(distinct_hours) >= 6:
+            schedule_type = "periodic"
+        elif cv < 0.5:
+            schedule_type = "scheduled"
+        elif median_gap / mean_gap < 0.3:
+            schedule_type = "clustered"
+        else:
+            schedule_type = "event_driven"
+
+        return AutomationProfile(
+            schedule_type=schedule_type,
+            per_bucket_expected_gap=per_bucket_expected_gap,
+        )
+
+    def catch_up_count_model(
+        self,
+        store: RuntimeEventStore,
+        automation_id: str,
+        now: datetime,
+    ) -> None:
+        """Replay missing finalized daily counts into BOCPD bucket state."""
+        automation_state = self._ensure_automation_state(automation_id)
+        count_model_raw: object = automation_state.setdefault("count_model", {})
+        if not isinstance(count_model_raw, dict):
+            count_model_raw = {}
+            automation_state["count_model"] = count_model_raw
+        count_model = cast(dict[str, Any], count_model_raw)
+        buckets_raw: object = count_model.setdefault("buckets", {})
+        if not isinstance(buckets_raw, dict):
+            buckets_raw = {}
+            count_model["buckets"] = buckets_raw
+        buckets = cast(dict[str, Any], buckets_raw)
+
+        store.rebuild_daily_summaries(automation_id)
+
+        for bucket_name in list(buckets.keys()):
+            bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
+            current_day_str = bucket_state.get("current_day")
+            current_day = self._coerce_date(current_day_str)
+            if current_day is None:
+                continue
+            target_day = now.date()
+            if current_day >= target_day:
+                continue
+
+            daily_bucket = store.get_daily_bucket_counts(automation_id, bucket_name)
+
+            cursor = current_day + timedelta(days=1)
+            while cursor < target_day:
+                if self._bucket_matches_day_type(bucket_name, cursor):
+                    count = daily_bucket.get(cursor.isoformat(), 0)
+                    self._bocpd_count_detector.update_state(bucket_state, count)
+                cursor += timedelta(days=1)
+            bucket_state["current_day"] = target_day.isoformat()
+            bucket_state["current_count"] = 0
 
     async def async_close_event_store(self) -> None:
         """Drain pending event-store tasks and close the SQLite connection."""
@@ -1859,6 +1973,15 @@ class RuntimeHealthMonitor:
         automation_state: dict[str, Any],
         last_trigger: datetime,
     ) -> float:
+        per_bucket_raw = automation_state.get("per_bucket_expected_gap")
+        if isinstance(per_bucket_raw, dict):
+            bucket_name = self.classify_time_bucket(last_trigger)
+            bucket_gap = self._coerce_float(
+                cast(dict[str, Any], per_bucket_raw).get(bucket_name), 0.0
+            )
+            # When profile exists, use bucket value or 0 (suppress) for missing buckets
+            return bucket_gap
+
         gap_model_raw = automation_state.get("gap_model", {})
         if isinstance(gap_model_raw, dict):
             gap_model = cast(dict[str, Any], gap_model_raw)

@@ -543,6 +543,24 @@ class RuntimeEventStore:
             )
             self._conn.commit()
 
+    def get_daily_bucket_counts(
+        self, automation_id: str, time_bucket: str
+    ) -> dict[str, int]:
+        """Return day_date -> trigger_count for one automation and time bucket."""
+        if not automation_id or not time_bucket:
+            return {}
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT day_date, trigger_count
+                FROM daily_bucket_counts
+                WHERE automation_id = ? AND time_bucket = ?
+                ORDER BY day_date ASC
+                """,
+                (automation_id, time_bucket),
+            ).fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}
+
     def _apply_schema_v1(self) -> None:
         self._conn.execute(
             """
