@@ -962,11 +962,11 @@ async def test_register_card_current_version_already_registered() -> None:
 
 @pytest.mark.asyncio
 async def test_register_card_replaces_old_version() -> None:
-    """Test that old card versions are replaced with new version on upgrade.
+    """Test that old card versions are updated in place on upgrade.
 
-    When upgrading the integration, old card resources (different version
-    param) must be removed and the new version registered. This ensures
-    browsers always load the current card code.
+    When upgrading the integration, existing card resources must be updated
+    atomically (not delete + create) to avoid losing the resource if
+    creation fails after deletion.
 
     Mutation coverage: Kills ZeroIterationForLoop on resource iteration and
     resource_id extraction mutations.
@@ -980,6 +980,7 @@ async def test_register_card_replaces_old_version() -> None:
     mock_resources.async_items.return_value = [
         {"url": "/autodoctor/autodoctor-card.js?v=0.0.1", "id": "old_id"}
     ]
+    mock_resources.async_update_item = AsyncMock()
     mock_resources.async_create_item = AsyncMock()
     mock_resources.async_delete_item = AsyncMock()
 
@@ -991,9 +992,14 @@ async def test_register_card_replaces_old_version() -> None:
     with patch("pathlib.Path.exists", return_value=True):
         await _async_register_card(hass)
 
-    # Should delete old and create new
-    mock_resources.async_delete_item.assert_called_once_with("old_id")
-    mock_resources.async_create_item.assert_called_once()
+    # Should update in place, not delete + create
+    mock_resources.async_update_item.assert_called_once()
+    update_args = mock_resources.async_update_item.call_args[0]
+    assert update_args[0] == "old_id"
+    assert "autodoctor" in update_args[1]["url"]
+    assert update_args[1]["res_type"] == "module"
+    mock_resources.async_delete_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
 
 
 @pytest.mark.asyncio
