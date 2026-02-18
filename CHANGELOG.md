@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.11](https://github.com/mossipcams/autodoctor/compare/v2.26.10...v2.26.11) (2026-02-18)
+
+
+### Bug Fixes
+
+* **frontend:** harden card resource registration and frontend parity ([#148](https://github.com/mossipcams/autodoctor/issues/148)) ([23d1bd9](https://github.com/mossipcams/autodoctor/commit/23d1bd9e50661f527d0d25286348cd75c0b8c09f))
+
 ## [2.26.10](https://github.com/mossipcams/autodoctor/compare/v2.26.9...v2.26.10) (2026-02-18)
 
 
