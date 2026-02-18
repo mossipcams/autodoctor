@@ -146,6 +146,93 @@ def test_gap_check_uses_interarrival_model_for_daily_automations(
     assert late_issue[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
 
 
+def test_gap_check_handles_recurring_inactive_windows_for_morning_cluster(
+    tmp_path: Path,
+) -> None:
+    """Recurring morning-only sessions should not alert during normal evening idle."""
+    now = datetime(2026, 2, 17, 20, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.morning_cluster"
+
+    # Train with morning-only clustered runs (06:00, 07:00, 08:00).
+    for day in range(10):
+        base = (now - timedelta(days=(9 - day))).replace(
+            hour=6,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        for hour_offset in (0, 1, 2):
+            monitor.ingest_trigger_event(
+                aid,
+                occurred_at=base + timedelta(hours=hour_offset),
+            )
+
+    no_issue = monitor.check_gap_anomalies(now=now)
+    late_issue = monitor.check_gap_anomalies(now=now + timedelta(hours=30))
+
+    assert no_issue == []
+    assert late_issue
+    assert late_issue[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
+
+
+def test_gap_check_handles_recurring_overnight_windows_for_daytime_hourly(
+    tmp_path: Path,
+) -> None:
+    """Daytime-hourly schedules should tolerate overnight quiet windows."""
+    train_now = datetime(2026, 2, 17, 20, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, train_now, max_alerts_per_day=20)
+    aid = "automation.daytime_hourly"
+
+    # Train with hourly daytime runs (08:00-20:00) and nightly inactivity.
+    for day in range(10):
+        base = (train_now - timedelta(days=(9 - day))).replace(
+            hour=8,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        for hour_offset in range(13):
+            monitor.ingest_trigger_event(
+                aid,
+                occurred_at=base + timedelta(hours=hour_offset),
+            )
+
+    no_issue = monitor.check_gap_anomalies(now=datetime(2026, 2, 18, 5, 0, tzinfo=UTC))
+    late_issue = monitor.check_gap_anomalies(
+        now=datetime(2026, 2, 18, 16, 0, tzinfo=UTC)
+    )
+
+    assert no_issue == []
+    assert late_issue
+    assert late_issue[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
+
+
+def test_gap_check_single_long_gap_does_not_desensitize_model(
+    tmp_path: Path,
+) -> None:
+    """A one-off long gap should not be treated as recurring expected cadence."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.single_long_gap"
+
+    start = now - timedelta(hours=6)
+    for idx in range(18):
+        offset_minutes = idx * 10
+        if idx >= 8:
+            # Inject one 180-minute interruption between idx=7 and idx=8.
+            offset_minutes += 180
+        monitor.ingest_trigger_event(
+            aid,
+            occurred_at=start + timedelta(minutes=offset_minutes),
+        )
+
+    issues = monitor.check_gap_anomalies(now=now + timedelta(hours=2))
+
+    assert issues
+    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_GAP
+
+
 def test_gap_alert_clears_after_recovery_trigger(tmp_path: Path) -> None:
     """Active gap alerts should clear once a new trigger closes the elapsed gap."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
