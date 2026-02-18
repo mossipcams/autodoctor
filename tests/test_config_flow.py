@@ -18,6 +18,11 @@ from custom_components.autodoctor.const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
+    CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
+    CONF_RUNTIME_EVENT_STORE_CUTOVER,
+    CONF_RUNTIME_EVENT_STORE_ENABLED,
+    CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
+    CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -31,6 +36,7 @@ from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_SENSITIVITY,
     CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
+    CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
@@ -267,6 +273,29 @@ def test_options_schema_runtime_health_hour_ratio_days_range() -> None:
 
     with pytest.raises(vol.Invalid):
         schema({CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 0})
+
+
+def test_options_schema_runtime_event_store_flags_present() -> None:
+    """Runtime event-store rollout flags should be configurable in options schema."""
+    schema = OptionsFlowHandler._build_options_schema(defaults={})
+
+    validated = schema(
+        {
+            CONF_RUNTIME_EVENT_STORE_ENABLED: True,
+            CONF_RUNTIME_EVENT_STORE_SHADOW_READ: True,
+            CONF_RUNTIME_EVENT_STORE_CUTOVER: False,
+            CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED: True,
+            CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED: False,
+            CONF_RUNTIME_DAILY_ROLLUP_ENABLED: True,
+        }
+    )
+
+    assert validated[CONF_RUNTIME_EVENT_STORE_ENABLED] is True
+    assert validated[CONF_RUNTIME_EVENT_STORE_SHADOW_READ] is True
+    assert validated[CONF_RUNTIME_EVENT_STORE_CUTOVER] is False
+    assert validated[CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED] is True
+    assert validated[CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED] is False
+    assert validated[CONF_RUNTIME_DAILY_ROLLUP_ENABLED] is True
 
 
 # ===== CFG-01/CFG-02 Fix Tests =====

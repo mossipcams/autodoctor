@@ -1663,6 +1663,7 @@ async def test_async_setup_entry_calls_async_load_state() -> None:
 
     mock_monitor = MagicMock()
     mock_monitor.async_load_state = AsyncMock()
+    mock_monitor.async_init_event_store = AsyncMock()
     mock_monitor.async_backfill_from_recorder = AsyncMock()
 
     with (
@@ -1956,6 +1957,12 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
         "runtime_health_smoothing_window": 4,
         "runtime_health_restart_exclusion_minutes": 7,
         "runtime_health_auto_adapt": False,
+        "runtime_event_store_enabled": True,
+        "runtime_event_store_shadow_read": True,
+        "runtime_event_store_cutover": False,
+        "runtime_event_store_reconciliation_enabled": True,
+        "runtime_schedule_anomaly_enabled": False,
+        "runtime_daily_rollup_enabled": True,
     }
     entry.add_update_listener = MagicMock(return_value=None)
     entry.async_on_unload = MagicMock()
@@ -1980,6 +1987,7 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
         mock_learned.async_load = AsyncMock()
         mock_learned_cls.return_value = mock_learned
 
+        mock_runtime_cls.return_value.async_init_event_store = AsyncMock()
         await async_setup_entry(hass, entry)
 
     assert "runtime_monitor" in hass.data[DOMAIN]
@@ -1992,6 +2000,19 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert mock_runtime_cls.call_args.kwargs["smoothing_window"] == 4
     assert mock_runtime_cls.call_args.kwargs["startup_recovery_minutes"] == 7
     assert mock_runtime_cls.call_args.kwargs["auto_adapt"] is False
+    assert mock_runtime_cls.call_args.kwargs["runtime_event_store_enabled"] is True
+    assert mock_runtime_cls.call_args.kwargs["runtime_event_store_shadow_read"] is True
+    assert mock_runtime_cls.call_args.kwargs["runtime_event_store_cutover"] is False
+    assert (
+        mock_runtime_cls.call_args.kwargs["runtime_event_store_reconciliation_enabled"]
+        is True
+    )
+    assert (
+        mock_runtime_cls.call_args.kwargs["runtime_schedule_anomaly_enabled"] is False
+    )
+    assert mock_runtime_cls.call_args.kwargs["runtime_daily_rollup_enabled"] is True
+    # Event store init must happen asynchronously after construction
+    mock_runtime_cls.return_value.async_init_event_store.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -2872,7 +2893,7 @@ async def test_async_setup_entry_logs_runtime_config_enabled(
         caplog.at_level(logging.DEBUG, logger="custom_components.autodoctor"),
         patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
         patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
-        patch("custom_components.autodoctor.RuntimeHealthMonitor"),
+        patch("custom_components.autodoctor.RuntimeHealthMonitor") as mock_runtime_cls,
         patch(
             "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
         ),
@@ -2881,6 +2902,7 @@ async def test_async_setup_entry_logs_runtime_config_enabled(
             new_callable=AsyncMock,
         ),
     ):
+        mock_runtime_cls.return_value.async_init_event_store = AsyncMock()
         mock_suppression = AsyncMock()
         mock_suppression.async_load = AsyncMock()
         mock_suppression_cls.return_value = mock_suppression
@@ -2987,6 +3009,7 @@ async def test_async_setup_entry_registers_runtime_trigger_listener_and_ingests_
             new_callable=AsyncMock,
         ),
     ):
+        mock_runtime_cls.return_value.async_init_event_store = AsyncMock()
         mock_suppression = AsyncMock()
         mock_suppression.async_load = AsyncMock()
         mock_suppression_cls.return_value = mock_suppression
@@ -3067,6 +3090,7 @@ async def test_async_setup_entry_runs_runtime_backfill_on_startup() -> None:
         mock_learned_cls.return_value = mock_learned
 
         mock_runtime = mock_runtime_cls.return_value
+        mock_runtime.async_init_event_store = AsyncMock()
         mock_runtime.async_backfill_from_recorder = AsyncMock(return_value=2)
 
         await async_setup_entry(hass, entry)
@@ -3428,3 +3452,31 @@ async def test_unload_entry_calls_location_cache_unsub_listeners() -> None:
     assert result is True
     unsub_zone_listener.assert_called_once()
     unsub_area_listener.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_closes_runtime_event_store() -> None:
+    """async_unload_entry should close the runtime event store via public method."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    mock_monitor = MagicMock()
+    mock_monitor.async_flush_runtime_state = AsyncMock()
+    mock_monitor.async_close_event_store = AsyncMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.async_add_executor_job = AsyncMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+            "runtime_monitor": mock_monitor,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    mock_monitor.async_close_event_store.assert_awaited_once()

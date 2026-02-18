@@ -23,6 +23,7 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── runtime_health_state_store.py # Runtime health model state persistence
+│   ├── runtime_event_store.py       # Runtime event/score SQLite storage
 │   ├── runtime_monitor.py           # River-based runtime health monitoring
 │   ├── sensor.py                    # Issue count sensor
 │   ├── learned_states_store.py      # User-learned state persistence
@@ -72,6 +73,7 @@ autodoctor/
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
 - **`runtime_health_state_store.py`** - JSON-backed storage for runtime three-model state (count/gap/burst baselines and alert counters)
+- **`runtime_event_store.py`** - Local SQLite runtime event and score history store (trigger events, backfill metadata, score telemetry)
 - **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types)
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries

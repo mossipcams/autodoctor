@@ -126,7 +126,7 @@ class RuntimeHealthAlertsSensor(SensorEntity):
             return {}
 
         runtime_alerts = runtime_monitor.get_active_runtime_alerts()
-        return {
+        attrs: dict[str, Any] = {
             "active_runtime_alerts": [
                 {
                     "automation_id": issue.automation_id,
@@ -138,3 +138,12 @@ class RuntimeHealthAlertsSensor(SensorEntity):
                 for issue in runtime_alerts
             ]
         }
+        if hasattr(runtime_monitor, "get_event_store_diagnostics"):
+            store_diag = runtime_monitor.get_event_store_diagnostics()
+            attrs["runtime_event_store_enabled"] = store_diag["enabled"]
+            attrs["runtime_event_store_cutover"] = store_diag["cutover"]
+            attrs["runtime_event_store_degraded"] = store_diag["degraded"]
+            attrs["runtime_event_store_pending_jobs"] = store_diag["pending_jobs"]
+            attrs["runtime_event_store_write_failures"] = store_diag["write_failures"]
+            attrs["runtime_event_store_dropped_events"] = store_diag["dropped_events"]
+        return attrs

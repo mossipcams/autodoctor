@@ -36,7 +36,13 @@
           "runtime_health_max_alerts_per_day": "Runtime max alerts/day",
           "runtime_health_smoothing_window": "Runtime smoothing window",
           "runtime_health_restart_exclusion_minutes": "Runtime restart exclusion (minutes)",
-          "runtime_health_auto_adapt": "Runtime auto-adapt baselines"
+          "runtime_health_auto_adapt": "Runtime auto-adapt baselines",
+          "runtime_event_store_enabled": "Runtime local event store enabled",
+          "runtime_event_store_shadow_read": "Runtime store shadow-read parity checks",
+          "runtime_event_store_cutover": "Runtime store cutover (read from local store)",
+          "runtime_event_store_reconciliation_enabled": "Runtime store reconciliation replay",
+          "runtime_schedule_anomaly_enabled": "Runtime schedule anomaly issue types",
+          "runtime_daily_rollup_enabled": "Runtime daily rollup cache"
         }
       }
     }
