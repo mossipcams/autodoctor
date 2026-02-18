@@ -785,6 +785,12 @@ class RuntimeHealthMonitor:
         suppression_store: Any = None,
     ) -> list[ValidationIssue]:
         """Ingest a live automation_triggered event for runtime model updates."""
+        # TEMPORARY DEBUG: trace ingest entry
+        _LOGGER.debug(
+            "[TEMP DEBUG] ingest_trigger_event called: entity=%s time=%s",
+            automation_entity_id,
+            occurred_at,
+        )
         if not automation_entity_id or not automation_entity_id.startswith(
             "automation."
         ):
@@ -818,6 +824,8 @@ class RuntimeHealthMonitor:
             automation_state, event_time
         )
         self._update_gap_model(automation_state, event_time)
+        # TEMPORARY DEBUG: trace successful ingest
+        _LOGGER.debug("[TEMP DEBUG] ingest complete: entity=%s bucket=%s", automation_entity_id, count_bucket_name)
         self._clear_runtime_alert(
             automation_entity_id,
             IssueType.RUNTIME_AUTOMATION_GAP,
