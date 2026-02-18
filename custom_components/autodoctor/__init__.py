@@ -349,27 +349,47 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 
             if current_exists:
                 _LOGGER.debug("Autodoctor card already registered with current version")
-            else:
-                # Remove old versions first
-                for resource in existing:
+            elif existing:
+                # Update first existing resource in place (atomic — avoids
+                # losing the resource if delete succeeds but create fails)
+                primary = existing[0]
+                primary_id: str | None = primary.get("id")
+                if primary_id:
+                    try:
+                        await resources.async_update_item(
+                            primary_id, {"url": card_url, "res_type": "module"}
+                        )
+                        _LOGGER.info(
+                            "Updated autodoctor card resource: %s -> %s",
+                            primary.get("url"),
+                            card_url,
+                        )
+                    except Exception as err:
+                        _LOGGER.warning("Failed to update Lovelace resource: %s", err)
+
+                # Remove any duplicate entries
+                for resource in existing[1:]:
                     resource_id: str | None = resource.get("id")
                     if resource_id:
                         try:
                             await resources.async_delete_item(resource_id)
                             _LOGGER.debug(
-                                "Removed old autodoctor card resource: %s",
+                                "Removed duplicate autodoctor card resource: %s",
                                 resource.get("url"),
                             )
                         except Exception as err:
-                            _LOGGER.warning("Failed to remove old resource: %s", err)
-
-                # Create new resource with current version
+                            _LOGGER.warning(
+                                "Failed to remove duplicate resource: %s", err
+                            )
+            else:
+                # No existing resource — create fresh
                 try:
                     await resources.async_create_item(
                         {"url": card_url, "res_type": "module"}
                     )
                     _LOGGER.info(
-                        "Registered autodoctor card as Lovelace resource: %s", card_url
+                        "Registered autodoctor card as Lovelace resource: %s",
+                        card_url,
                     )
                 except Exception as err:
                     _LOGGER.warning("Failed to register Lovelace resource: %s", err)
