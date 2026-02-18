@@ -1,6 +1,6 @@
 {
   "name": "autodoctor-card",
-  "version": "2.26.7",
+  "version": "2.26.8",
   "description": "Lovelace card for Autodoctor automation health",
   "type": "module",
   "scripts": {

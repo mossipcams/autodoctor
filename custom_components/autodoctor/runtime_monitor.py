@@ -721,6 +721,13 @@ class RuntimeHealthMonitor:
                 self._clear_runtime_alert(automation_id, gap_issue_type)
                 counters["cleared"] += 1
                 continue
+            if not self._is_gap_window_expected(
+                automation_state=automation_state,
+                check_time=check_time,
+            ):
+                self._clear_runtime_alert(automation_id, gap_issue_type)
+                counters["cleared"] += 1
+                continue
 
             if self._is_runtime_suppressed(automation_id, suppression_store):
                 self._clear_runtime_alert(automation_id, gap_issue_type)
@@ -1429,6 +1436,128 @@ class RuntimeHealthMonitor:
         if bucket_name.startswith("weekend_"):
             return day.weekday() >= 5
         return True
+
+    def _is_gap_window_expected(
+        self,
+        *,
+        automation_state: dict[str, Any],
+        check_time: datetime,
+    ) -> bool:
+        """Return True when current weekday/weekend bucket is expected active."""
+        count_model_raw = automation_state.get("count_model", {})
+        if not isinstance(count_model_raw, dict):
+            return True
+        count_model = cast(dict[str, Any], count_model_raw)
+        buckets_raw = count_model.get("buckets", {})
+        if not isinstance(buckets_raw, dict):
+            return True
+        buckets = cast(dict[str, Any], buckets_raw)
+
+        current_bucket = self.classify_time_bucket(check_time)
+        current_bucket_state = buckets.get(current_bucket)
+        if isinstance(current_bucket_state, dict) and self._bucket_has_activity(
+            cast(dict[str, Any], current_bucket_state)
+        ):
+            return True
+
+        day_type = "weekend" if check_time.weekday() >= 5 else "weekday"
+        opposite_day_type = "weekday" if day_type == "weekend" else "weekend"
+        day_active, day_evidence_days, day_activity_ratio = (
+            self._day_type_activity_profile(
+                buckets=buckets,
+                day_type=day_type,
+            )
+        )
+        opposite_active, opposite_evidence_days, _ = self._day_type_activity_profile(
+            buckets=buckets,
+            day_type=opposite_day_type,
+        )
+        evidence_threshold_days = 2
+        sparse_day_type_ratio = 0.5
+
+        if (
+            day_active
+            and day_evidence_days >= evidence_threshold_days
+            and day_activity_ratio < sparse_day_type_ratio
+        ):
+            return False
+        return not (
+            not day_active
+            and day_evidence_days == 0
+            and opposite_active
+            and opposite_evidence_days >= evidence_threshold_days
+        )
+
+    def _day_type_activity_profile(
+        self,
+        *,
+        buckets: dict[str, Any],
+        day_type: str,
+    ) -> tuple[bool, int, float]:
+        """Return (has_activity, observed_days, nonzero_day_ratio) for a day type."""
+        prefix = f"{day_type}_"
+        has_activity = False
+        observed_days = 0
+        nonzero_day_ratio = 0.0
+        for bucket_name, bucket_state_raw in buckets.items():
+            if not bucket_name.startswith(prefix) or not isinstance(
+                bucket_state_raw, dict
+            ):
+                continue
+            bucket_state = cast(dict[str, Any], bucket_state_raw)
+            observed_days = max(observed_days, self._bucket_observed_days(bucket_state))
+            nonzero_day_ratio = max(
+                nonzero_day_ratio,
+                self._bucket_nonzero_day_ratio(bucket_state),
+            )
+            if self._bucket_has_activity(bucket_state):
+                has_activity = True
+        return has_activity, observed_days, nonzero_day_ratio
+
+    def _bucket_has_activity(self, bucket_state: dict[str, Any]) -> bool:
+        expected_rate = self._coerce_float(bucket_state.get("expected_rate"), 0.0)
+        if expected_rate > 0.0:
+            return True
+        if int(self._coerce_float(bucket_state.get("current_count"), 0.0)) > 0:
+            return True
+        observations_raw = bucket_state.get("observations")
+        if not isinstance(observations_raw, list):
+            return False
+        observations = cast(list[Any], observations_raw)
+        return any(self._coerce_float(value, 0.0) > 0.0 for value in observations)
+
+    def _bucket_observed_days(self, bucket_state: dict[str, Any]) -> int:
+        observations_raw = bucket_state.get("observations")
+        observations = (
+            cast(list[Any], observations_raw)
+            if isinstance(observations_raw, list)
+            else []
+        )
+        observed_days = len(observations)
+        current_day = bucket_state.get("current_day")
+        if isinstance(current_day, str) and current_day:
+            observed_days = max(observed_days, 1)
+        return observed_days
+
+    def _bucket_nonzero_day_ratio(self, bucket_state: dict[str, Any]) -> float:
+        observations_raw = bucket_state.get("observations")
+        if not isinstance(observations_raw, list):
+            return (
+                1.0
+                if int(self._coerce_float(bucket_state.get("current_count"), 0.0)) > 0
+                else 0.0
+            )
+        observations = cast(list[Any], observations_raw)
+        if not observations:
+            return (
+                1.0
+                if int(self._coerce_float(bucket_state.get("current_count"), 0.0)) > 0
+                else 0.0
+            )
+        nonzero_days = sum(
+            1 for value in observations if self._coerce_float(value, 0.0) > 0.0
+        )
+        return float(nonzero_days) / float(len(observations))
 
     @staticmethod
     def _coerce_float(value: Any, fallback: float) -> float:

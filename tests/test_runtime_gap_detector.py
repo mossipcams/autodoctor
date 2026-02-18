@@ -100,6 +100,29 @@ def test_hourly_gap_check_respects_runtime_suppression(tmp_path: Path) -> None:
     assert gap_issues == []
 
 
+def test_gap_check_skips_weekday_for_weekend_only_automation(tmp_path: Path) -> None:
+    """Weekend-only automations should not alert on weekday inactivity windows."""
+    now = datetime(2026, 2, 17, 18, 51, tzinfo=UTC)  # Tuesday
+    monitor = _build_monitor(tmp_path, now, max_alerts_per_day=20)
+    aid = "automation.weekend_only"
+
+    # Two weekend cycles that include late-night Sunday activity crossing midnight.
+    # This models weekend schedules whose last run can land on Monday 00:00.
+    for weekend_start in (
+        datetime(2026, 2, 7, 6, 0, tzinfo=UTC),
+        datetime(2026, 2, 14, 6, 0, tzinfo=UTC),
+    ):
+        for idx in range(8):
+            monitor.ingest_trigger_event(
+                aid,
+                occurred_at=weekend_start + timedelta(hours=idx * 6),
+            )
+
+    gap_issues = monitor.check_gap_anomalies(now=now)
+
+    assert gap_issues == []
+
+
 def test_gap_check_uses_interarrival_model_for_daily_automations(
     tmp_path: Path,
 ) -> None:
