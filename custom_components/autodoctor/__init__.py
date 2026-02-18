@@ -682,19 +682,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         @callback
         def _handle_runtime_trigger(event: Event) -> None:
+            # TEMPORARY DEBUG: trace event arrival
+            _LOGGER.debug(
+                "[TEMP DEBUG] automation_triggered event received: data=%s",
+                event.data,
+            )
             payload = event.data if isinstance(event.data, dict) else {}
             entity_id = payload.get("entity_id")
             if not isinstance(entity_id, str) or not entity_id.startswith(
                 "automation."
             ):
+                # TEMPORARY DEBUG: trace filtered-out events
+                _LOGGER.debug(
+                    "[TEMP DEBUG] Event filtered out: entity_id=%r", entity_id
+                )
                 return
             suppression_store = hass.data.get(DOMAIN, {}).get("suppression_store")
+            # TEMPORARY DEBUG: trace dispatch to monitor
+            _LOGGER.debug(
+                "[TEMP DEBUG] Dispatching to ingest_trigger_event: entity_id=%s time=%s",
+                entity_id,
+                event.time_fired,
+            )
             runtime_monitor.ingest_trigger_event(
                 entity_id,
                 occurred_at=event.time_fired,
                 suppression_store=suppression_store,
             )
 
+        # TEMPORARY DEBUG: confirm listener registration
+        _LOGGER.debug("[TEMP DEBUG] Registering automation_triggered listener")
         unsub_runtime_trigger = hass.bus.async_listen(
             "automation_triggered",
             _handle_runtime_trigger,
