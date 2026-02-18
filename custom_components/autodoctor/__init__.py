@@ -366,6 +366,33 @@ async def _async_register_card(hass: HomeAssistant) -> None:
                         )
                     except Exception as err:
                         _LOGGER.warning("Failed to update Lovelace resource: %s", err)
+                        try:
+                            await resources.async_create_item(
+                                {"url": card_url, "res_type": "module"}
+                            )
+                            _LOGGER.info(
+                                "Created autodoctor card resource after update failure: %s",
+                                card_url,
+                            )
+                        except Exception as create_err:
+                            _LOGGER.warning(
+                                "Failed fallback create for Lovelace resource: %s",
+                                create_err,
+                            )
+                else:
+                    try:
+                        await resources.async_create_item(
+                            {"url": card_url, "res_type": "module"}
+                        )
+                        _LOGGER.info(
+                            "Created autodoctor card resource for missing-id entry: %s",
+                            card_url,
+                        )
+                    except Exception as create_err:
+                        _LOGGER.warning(
+                            "Failed create for missing-id Lovelace resource: %s",
+                            create_err,
+                        )
 
                 # Remove any duplicate entries
                 for resource in existing[1:]:
