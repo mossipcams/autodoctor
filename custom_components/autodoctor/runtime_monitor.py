@@ -1008,11 +1008,17 @@ class RuntimeHealthMonitor:
                     else (0.8 * previous_ewma) + (0.2 * gap_minutes)
                 )
                 expected_gap = max(1.0, (0.5 * median_gap) + (0.5 * ewma_gap))
+                recurring_inter_session_gap = self._recurring_inter_session_gap_minutes(
+                    recent
+                )
+                if recurring_inter_session_gap > 0.0:
+                    expected_gap = max(expected_gap, recurring_inter_session_gap)
 
                 gap_model["recent_gaps_minutes"] = recent
                 gap_model["median_gap_minutes"] = median_gap
                 gap_model["ewma_gap_minutes"] = ewma_gap
                 gap_model["expected_gap_minutes"] = expected_gap
+                gap_model["inter_session_gap_minutes"] = recurring_inter_session_gap
         if previous_trigger is None or event_time >= previous_trigger:
             gap_model["last_trigger"] = event_time.isoformat()
 
@@ -1558,6 +1564,37 @@ class RuntimeHealthMonitor:
             1 for value in observations if self._coerce_float(value, 0.0) > 0.0
         )
         return float(nonzero_days) / float(len(observations))
+
+    @classmethod
+    def _recurring_inter_session_gap_minutes(cls, gaps: list[float]) -> float:
+        """Estimate recurring long idle windows between activity sessions."""
+        positive_gaps = [float(value) for value in gaps if float(value) > 0.0]
+        if len(positive_gaps) < 4:
+            return 0.0
+
+        typical_gap = max(1.0, float(median(positive_gaps)))
+        long_gap_cutoff = max((typical_gap * 3.0), (typical_gap + 90.0))
+        long_gaps = [value for value in positive_gaps if value >= long_gap_cutoff]
+        if len(long_gaps) < 2:
+            return 0.0
+
+        bin_size_minutes = 60.0
+        clustered_long_gaps: dict[int, list[float]] = defaultdict(list)
+        for value in long_gaps:
+            cluster_key = round(value / bin_size_minutes)
+            clustered_long_gaps[cluster_key].append(value)
+
+        recurring_long_gaps = [
+            value
+            for bucket_values in clustered_long_gaps.values()
+            if len(bucket_values) >= 2
+            for value in bucket_values
+        ]
+        if len(recurring_long_gaps) < 2:
+            return 0.0
+
+        recurring_as_int = [max(1, round(value)) for value in recurring_long_gaps]
+        return max(1.0, cls._percentile(recurring_as_int, 0.75))
 
     @staticmethod
     def _coerce_float(value: Any, fallback: float) -> float:
