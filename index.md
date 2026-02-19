@@ -41,8 +41,7 @@ autodoctor/
 │   └── strings.json                 # UI strings
 ├── scripts/                         # Utility scripts
 │   ├── extract_ha_states.py         # Extract valid states from HA source
-│   ├── pre_pr_checks.sh             # Pre-PR validation gate
-│   └── runtime_gap_backtest.py      # Backtest gap detection on historical data
+│   └── pre_pr_checks.sh             # Pre-PR validation gate
 ├── tests/                           # Test suite
 ├── docs/plans/                      # Design documents
 └── www/autodoctor/                  # Frontend source (TypeScript)
@@ -232,7 +231,7 @@ Supports all 10 Home Assistant condition types:
 - `test_knowledge_base.py` (75 tests) - Multi-source state truth (device classes, learned states, capabilities, history)
 - `test_service_validator.py` (121 tests) - Service call validation
 - `test_jinja_validator.py` (62 tests) - Jinja2 template syntax and semantics
-- `test_init.py` (87 tests) - Integration lifecycle and orchestration
+- `test_init.py` (78 tests) - Integration lifecycle and orchestration
 - `test_websocket_api.py` (55 tests) - WebSocket API commands
 - `test_models.py` (34 tests) - Data models and enum validation
 - `test_ha_catalog.py` (14 tests) - HA Jinja2 catalog completeness
@@ -258,7 +257,6 @@ Supports all 10 Home Assistant condition types:
 - `test_async_runtime_event_store.py` (4 tests) - Async event store wrapper: executor delegation, saturation
 - `test_runtime_alert_rate_limit.py` (3 tests) - Alert rate limiting
 - `test_runtime_burst_detector.py` (2 tests) - Burst detection logic
-- `test_runtime_gap_backtest_script.py` (1 test) - Gap backtest script validation
 - `test_runtime_gap_replay.py` (1 test) - Gap replay edge cases
 
 **Property-Based Test Files (Hypothesis fuzzing, 200 examples each):**
@@ -276,7 +274,6 @@ Supports all 10 Home Assistant condition types:
 
 - `scripts/extract_ha_states.py` - Extract valid states from Home Assistant source code
 - `scripts/pre_pr_checks.sh` - Pre-PR validation gate (formatting, built-card drift)
-- `scripts/runtime_gap_backtest.py` - Backtest gap detection parameters on historical trigger data
 
 ## Validation Narrowing (v2.7.0 -- v2.14.0)
 

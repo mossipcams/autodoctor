@@ -1216,6 +1216,7 @@ async def test_setup_periodic_scan_listener_runs_validate_all() -> None:
     from custom_components.autodoctor import _setup_periodic_scan_listener
 
     hass = MagicMock()
+    hass.data = {}  # No runtime_monitor — maintenance check skipped
     captured: dict[str, object] = {}
     unsub = MagicMock()
 
@@ -2976,3 +2977,50 @@ async def test_async_setup_entry_registers_runtime_trigger_listener_and_ingests_
             occurred_at=event.time_fired,
             suppression_store=mock_suppression,
         )
+
+
+@pytest.mark.asyncio
+async def test_periodic_scan_triggers_weekly_maintenance_when_due() -> None:
+    """Periodic scan should call run_weekly_maintenance when 7+ days have elapsed."""
+    from custom_components.autodoctor import _setup_periodic_scan_listener
+
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock()
+    captured: dict[str, object] = {}
+    unsub = MagicMock()
+
+    def _fake_track(_hass: MagicMock, action: object, interval: timedelta) -> MagicMock:
+        captured["action"] = action
+        captured["interval"] = interval
+        return unsub
+
+    mock_runtime = MagicMock()
+    # Last maintenance was 8 days ago
+    eight_days_ago = (datetime.now(UTC) - timedelta(days=8)).isoformat()
+    mock_runtime.get_runtime_state.return_value = {
+        "last_weekly_maintenance": eight_days_ago,
+    }
+
+    hass.data = {
+        DOMAIN: {
+            "runtime_monitor": mock_runtime,
+            "runtime_health_enabled": True,
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.autodoctor.async_track_time_interval",
+            side_effect=_fake_track,
+        ),
+        patch(
+            "custom_components.autodoctor.async_validate_all", new_callable=AsyncMock
+        ),
+    ):
+        _setup_periodic_scan_listener(hass, 4)
+        callback = captured["action"]
+        await callback(datetime.now(UTC))  # type: ignore[misc]
+
+    hass.async_add_executor_job.assert_awaited_once_with(
+        mock_runtime.run_weekly_maintenance
+    )

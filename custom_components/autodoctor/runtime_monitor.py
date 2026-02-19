@@ -213,18 +213,17 @@ class RuntimeHealthMonitor:
             automation_entity_id, suppression_store
         )
 
-        gap_model_raw = automation_state.get("gap_model", {})
-        if isinstance(gap_model_raw, dict):
-            gap_model = cast(dict[str, Any], gap_model_raw)
-            last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
-            if last_trigger is not None and event_time <= last_trigger:
-                _LOGGER.debug(
-                    "Ignoring out-of-order runtime trigger for '%s': event_time=%s last_trigger=%s",
-                    automation_entity_id,
-                    event_time.isoformat(),
-                    last_trigger.isoformat(),
-                )
-                return []
+        last_trigger = self._coerce_datetime(automation_state.get("last_trigger"))
+        if last_trigger is not None and event_time <= last_trigger:
+            _LOGGER.debug(
+                "Ignoring out-of-order runtime trigger for '%s': event_time=%s last_trigger=%s",
+                automation_entity_id,
+                event_time.isoformat(),
+                last_trigger.isoformat(),
+            )
+            return []
+
+        automation_state["last_trigger"] = event_time.isoformat()
 
         self._enqueue_runtime_event_store_write(
             automation_entity_id=automation_entity_id,
@@ -234,7 +233,6 @@ class RuntimeHealthMonitor:
         count_bucket_name, count_bucket = self._update_count_model(
             automation_state, event_time
         )
-        self._update_gap_model(automation_state, event_time)
         if runtime_suppressed:
             self._clear_runtime_alert(
                 automation_entity_id, IssueType.RUNTIME_AUTOMATION_OVERACTIVE
@@ -409,11 +407,11 @@ class RuntimeHealthMonitor:
                 bucket_state["current_day"] = target_day.isoformat()
                 bucket_state["current_count"] = 0
 
-            # Seed gap model from last trigger in store
+            # Seed last_trigger from store
             last_epoch = store.get_last_trigger(aid)
             if last_epoch is not None:
                 last_dt = datetime.fromtimestamp(last_epoch, tz=UTC)
-                automation_state["gap_model"]["last_trigger"] = last_dt.isoformat()
+                automation_state["last_trigger"] = last_dt.isoformat()
 
     async def async_rebuild_models_from_store(self) -> None:
         """Run rebuild_models_from_store in an executor thread."""
@@ -527,9 +525,7 @@ class RuntimeHealthMonitor:
                 "buckets": {},
                 "anomaly_streak": 0,
             },
-            "gap_model": {
-                "last_trigger": None,
-            },
+            "last_trigger": None,
             "burst_model": {
                 "recent_triggers": [],
                 "baseline_rate_5m": 0.0,
@@ -695,20 +691,6 @@ class RuntimeHealthMonitor:
                 or state_dirty
             )
         return state_dirty
-
-    def _update_gap_model(
-        self,
-        automation_state: dict[str, Any],
-        event_time: datetime,
-    ) -> None:
-        gap_model_raw = automation_state.setdefault("gap_model", {})
-        if not isinstance(gap_model_raw, dict):
-            gap_model_raw = {}
-            automation_state["gap_model"] = gap_model_raw
-        gap_model = cast(dict[str, Any], gap_model_raw)
-        previous_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
-        if previous_trigger is None or event_time >= previous_trigger:
-            gap_model["last_trigger"] = event_time.isoformat()
 
     def _detect_count_anomaly(
         self,
