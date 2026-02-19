@@ -11,6 +11,7 @@ A Home Assistant custom integration that validates automations to detect state-r
 autodoctor/
 ├── custom_components/autodoctor/    # Main integration code
 │   ├── __init__.py                  # Integration setup & lifecycle
+│   ├── action_walker.py              # Shared recursive action traversal
 │   ├── analyzer.py                  # Automation parsing & extraction
 │   ├── binary_sensor.py             # Integration health sensor
 │   ├── config_flow.py               # Configuration UI
@@ -59,6 +60,7 @@ autodoctor/
 - **`__init__.py`** - Entry point, HA lifecycle hooks, automation extraction
 
 ### Analysis Layer
+- **`action_walker.py`** - Shared recursive action traversal (`walk_automation_actions`) with `visit_action`/`visit_condition` callbacks, handles choose/if/repeat/parallel nesting with depth limits
 - **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions (17 trigger types, 10 condition types, depth-limited recursion)
 - **`validator.py`** - Validates state references and attribute values against knowledge base (conservative mode: only validates whitelisted domains with stable states); also provides `get_entity_suggestion()` for fuzzy entity matching
 - **`service_validator.py`** - Validates service calls against HA service registry (existence, required params, capability-dependent param handling, select/enum option validation)
@@ -219,7 +221,7 @@ Supports all 10 Home Assistant condition types:
 
 **Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters.
 
-**Test Coverage:** 1076 tests passing, ~25,800 lines
+**Test Coverage:** 1086 tests passing, ~25,800 lines
 
 **Core Test Files:**
 - `test_analyzer.py` (103 tests) - Automation parsing (17 trigger types, 10 condition types, depth limits)

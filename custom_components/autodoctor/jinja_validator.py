@@ -235,182 +235,43 @@ class JinjaValidator:
         location_prefix: str = "action",
         _depth: int = 0,
     ) -> list[ValidationIssue]:
-        """Validate templates in actions recursively."""
+        """Validate templates in actions using shared walker."""
+        from .action_walker import walk_automation_actions
+
         issues: list[ValidationIssue] = []
 
-        if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
-            _LOGGER.warning(
-                "Max recursion depth exceeded in %s at %s, stopping validation",
-                auto_id,
-                location_prefix,
-            )
-            return issues
-
-        actions = _ensure_list(actions)
-
-        for idx, action in enumerate(actions):
-            if not isinstance(action, dict):
-                continue
-            action = cast(dict[str, Any], action)
-
-            location = f"{location_prefix}[{idx}]"
-
-            # Check service/action data for templates
+        def _visit_action(action: dict[str, Any], idx: int, location: str) -> None:
             data = action.get("data", {})
             if isinstance(data, dict):
                 issues.extend(
                     self._validate_data_templates(
-                        data,
-                        f"{location}.data",
-                        auto_id,
-                        auto_name,
+                        data, f"{location}.data", auto_id, auto_name,
                     )
                 )
-
-            # Check wait_template
             wait_template = action.get("wait_template")
             if wait_template and isinstance(wait_template, str):
                 issues.extend(
                     self._check_template(
-                        wait_template,
-                        f"{location}.wait_template",
-                        auto_id,
-                        auto_name,
+                        wait_template, f"{location}.wait_template", auto_id, auto_name,
                     )
                 )
 
-            # Check choose blocks
-            if "choose" in action:
-                for opt_idx, option in enumerate(action.get("choose") or []):
-                    if not isinstance(option, dict):
-                        continue
-                    option = cast(dict[str, Any], option)
-
-                    # Validate conditions in option
-                    opt_conditions = _ensure_list(option.get("conditions", []))
-                    for cond_idx, cond in enumerate(opt_conditions):
-                        issues.extend(
-                            self._validate_condition(
-                                cond,
-                                cond_idx,
-                                auto_id,
-                                auto_name,
-                                f"{location}.choose[{opt_idx}].conditions",
-                            )
-                        )
-
-                    # Recurse into sequence
-                    sequence = option.get("sequence", [])
-                    issues.extend(
-                        self._validate_actions(
-                            sequence,
-                            auto_id,
-                            auto_name,
-                            f"{location}.choose[{opt_idx}].sequence",
-                            _depth + 1,
-                        )
-                    )
-
-                # Recurse into default
-                default = action.get("default", [])
-                if default:
-                    issues.extend(
-                        self._validate_actions(
-                            default,
-                            auto_id,
-                            auto_name,
-                            f"{location}.default",
-                            _depth + 1,
-                        )
-                    )
-
-            # Check if/then/else blocks
-            if "if" in action:
-                if_conditions = _ensure_list(action.get("if", []))
-                for cond_idx, cond in enumerate(if_conditions):
-                    issues.extend(
-                        self._validate_condition(
-                            cond,
-                            cond_idx,
-                            auto_id,
-                            auto_name,
-                            f"{location}.if",
-                        )
-                    )
-
-                then_actions = action.get("then", [])
-                issues.extend(
-                    self._validate_actions(
-                        then_actions,
-                        auto_id,
-                        auto_name,
-                        f"{location}.then",
-                        _depth + 1,
-                    )
+        def _visit_condition(
+            condition: dict[str, Any], cond_idx: int, location: str,
+        ) -> None:
+            issues.extend(
+                self._validate_condition(
+                    condition, cond_idx, auto_id, auto_name, location,
                 )
+            )
 
-                else_actions = action.get("else", [])
-                if else_actions:
-                    issues.extend(
-                        self._validate_actions(
-                            else_actions,
-                            auto_id,
-                            auto_name,
-                            f"{location}.else",
-                            _depth + 1,
-                        )
-                    )
-
-            # Check repeat blocks
-            if "repeat" in action:
-                repeat_config = action.get("repeat")
-                if not isinstance(repeat_config, dict):
-                    continue
-                repeat_config = cast(dict[str, Any], repeat_config)
-
-                # Check while/until conditions
-                for cond_key in ("while", "until"):
-                    repeat_conditions = _ensure_list(repeat_config.get(cond_key, []))
-                    for cond_idx, cond in enumerate(repeat_conditions):
-                        issues.extend(
-                            self._validate_condition(
-                                cond,
-                                cond_idx,
-                                auto_id,
-                                auto_name,
-                                f"{location}.repeat.{cond_key}",
-                            )
-                        )
-
-                # Recurse into sequence
-                sequence = repeat_config.get("sequence", [])
-                issues.extend(
-                    self._validate_actions(
-                        sequence,
-                        auto_id,
-                        auto_name,
-                        f"{location}.repeat.sequence",
-                        _depth + 1,
-                    )
-                )
-
-            # Check parallel blocks
-            if "parallel" in action:
-                branches = _ensure_list(action["parallel"])
-                for branch_idx, branch in enumerate(branches):
-                    branch_actions = cast(
-                        list[Any], branch if isinstance(branch, list) else [branch]
-                    )
-                    issues.extend(
-                        self._validate_actions(
-                            branch_actions,
-                            auto_id,
-                            auto_name,
-                            f"{location}.parallel[{branch_idx}]",
-                            _depth + 1,
-                        )
-                    )
-
+        walk_automation_actions(
+            _ensure_list(actions),
+            visit_action=_visit_action,
+            visit_condition=_visit_condition,
+            location_prefix=location_prefix,
+            max_depth=_TEMPLATE_MAX_NESTING_DEPTH + 1,
+        )
         return issues
 
     def _validate_data_templates(
