@@ -22,13 +22,13 @@ from .const import (
     DOMAIN,
 )
 from .models import IssueType, Severity, ValidationIssue
-from .runtime_event_store import AsyncRuntimeEventStore, RuntimeEventStore
+from .runtime_event_store import (
+    AsyncRuntimeEventStore,
+    RuntimeEventStore,
+    classify_time_bucket,
+)
 
 _LOGGER = logging.getLogger(__name__)
-_BUCKET_NIGHT_START_HOUR = 22
-_BUCKET_MORNING_START_HOUR = 5
-_BUCKET_AFTERNOON_START_HOUR = 12
-_BUCKET_EVENING_START_HOUR = 17
 _SPARSE_WARMUP_LOOKBACK_DAYS = 90
 
 
@@ -483,17 +483,7 @@ class RuntimeHealthMonitor:
     @staticmethod
     def classify_time_bucket(timestamp: datetime) -> str:
         """Map timestamp into weekday/weekend x daypart bucket."""
-        day_type = "weekend" if timestamp.weekday() >= 5 else "weekday"
-        hour = timestamp.hour
-        if _BUCKET_MORNING_START_HOUR <= hour < _BUCKET_AFTERNOON_START_HOUR:
-            daypart = "morning"
-        elif _BUCKET_AFTERNOON_START_HOUR <= hour < _BUCKET_EVENING_START_HOUR:
-            daypart = "afternoon"
-        elif _BUCKET_EVENING_START_HOUR <= hour < _BUCKET_NIGHT_START_HOUR:
-            daypart = "evening"
-        else:
-            daypart = "night"
-        return f"{day_type}_{daypart}"
+        return classify_time_bucket(timestamp)
 
     def ingest_trigger_event(
         self,

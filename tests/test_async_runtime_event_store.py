@@ -93,3 +93,11 @@ async def test_async_record_trigger_drops_when_inflight_limit_reached() -> None:
     assert second is False
     assert wrapper.dropped_events == 1
     assert wrapper.pending_jobs == 0
+
+
+def test_classify_time_bucket_is_module_level_function() -> None:
+    """classify_time_bucket should be importable as a standalone module function."""
+    from custom_components.autodoctor.runtime_event_store import classify_time_bucket
+
+    result = classify_time_bucket(datetime(2026, 2, 12, 8, 30, tzinfo=UTC))
+    assert result == "weekday_morning"

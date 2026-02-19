@@ -17,6 +17,21 @@ _BUCKET_AFTERNOON_START_HOUR = 12
 _BUCKET_EVENING_START_HOUR = 17
 
 
+def classify_time_bucket(timestamp: datetime) -> str:
+    """Map timestamp into weekday/weekend x daypart bucket."""
+    day_type = "weekend" if timestamp.weekday() >= 5 else "weekday"
+    hour = timestamp.hour
+    if _BUCKET_MORNING_START_HOUR <= hour < _BUCKET_AFTERNOON_START_HOUR:
+        daypart = "morning"
+    elif _BUCKET_AFTERNOON_START_HOUR <= hour < _BUCKET_EVENING_START_HOUR:
+        daypart = "afternoon"
+    elif _BUCKET_EVENING_START_HOUR <= hour < _BUCKET_NIGHT_START_HOUR:
+        daypart = "evening"
+    else:
+        daypart = "night"
+    return f"{day_type}_{daypart}"
+
+
 @dataclass(frozen=True)
 class ScoreHistoryRow:
     """Persisted runtime score row."""
@@ -618,17 +633,7 @@ class RuntimeEventStore:
 
     @staticmethod
     def _classify_time_bucket(timestamp: datetime) -> str:
-        day_type = "weekend" if timestamp.weekday() >= 5 else "weekday"
-        hour = timestamp.hour
-        if _BUCKET_MORNING_START_HOUR <= hour < _BUCKET_AFTERNOON_START_HOUR:
-            daypart = "morning"
-        elif _BUCKET_AFTERNOON_START_HOUR <= hour < _BUCKET_EVENING_START_HOUR:
-            daypart = "afternoon"
-        elif _BUCKET_EVENING_START_HOUR <= hour < _BUCKET_NIGHT_START_HOUR:
-            daypart = "evening"
-        else:
-            daypart = "night"
-        return f"{day_type}_{daypart}"
+        return classify_time_bucket(timestamp)
 
 
 class AsyncRuntimeEventStore:
