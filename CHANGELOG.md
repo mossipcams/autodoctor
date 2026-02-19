@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.1](https://github.com/mossipcams/autodoctor/compare/v2.28.0...v2.28.1) (2026-02-19)
+
+
+### Code Refactoring
+
+* **runtime:** consolidate to SQLite store and simplify detection models ([#160](https://github.com/mossipcams/autodoctor/issues/160)) ([bdca7e2](https://github.com/mossipcams/autodoctor/commit/bdca7e24f41e063008367d29d13b067e76c295ad))
+
 ## [2.28.0](https://github.com/mossipcams/autodoctor/compare/v2.27.0...v2.28.0) (2026-02-18)
 
 
