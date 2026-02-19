@@ -19,7 +19,6 @@ from custom_components.autodoctor.const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
@@ -159,7 +158,7 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
-        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
+
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
@@ -189,7 +188,7 @@ async def test_options_step_init_rejects_warmup_over_baseline(
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
-        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
+
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
@@ -226,7 +225,7 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 3,
-        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
+
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
@@ -242,18 +241,11 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
     assert result["errors"]["base"] == "baseline_too_short_for_training"
 
 
-def test_options_schema_anomaly_threshold_accepts_log10_scale_values() -> None:
-    """Anomaly threshold range must accept values on the -log10(p) scale (up to 6.0)."""
+def test_options_schema_anomaly_threshold_removed() -> None:
+    """Guard: anomaly_threshold was dead (never read) and removed in v3."""
     schema = OptionsFlowHandler._build_options_schema(defaults={})
-
-    valid = schema({CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 1.3})
-    assert valid[CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD] == 1.3
-
-    valid = schema({CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 3.0})
-    assert valid[CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD] == 3.0
-
-    with pytest.raises(vol.Invalid):
-        schema({CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 7.0})
+    schema_keys = {str(k) for k in schema.schema}
+    assert "runtime_health_anomaly_threshold" not in schema_keys
 
 
 def test_options_schema_runtime_health_hour_ratio_days_range() -> None:
@@ -341,7 +333,6 @@ async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
     assert CONF_RUNTIME_HEALTH_ENABLED in schema.schema
     assert CONF_RUNTIME_HEALTH_BASELINE_DAYS in schema.schema
     assert CONF_RUNTIME_HEALTH_WARMUP_SAMPLES in schema.schema
-    assert CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD in schema.schema
     assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS in schema.schema
 
 
@@ -373,7 +364,6 @@ async def test_options_flow_saves_three_model_runtime_fields(
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 7,
-        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 1.3,
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 0,
         CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 30,
         CONF_RUNTIME_HEALTH_SENSITIVITY: "medium",
@@ -390,9 +380,9 @@ async def test_options_flow_saves_three_model_runtime_fields(
     assert result["data"][CONF_RUNTIME_HEALTH_BURST_MULTIPLIER] == 4.0
 
 
-def test_config_flow_version_is_2() -> None:
-    """Config flow version must be 2 after rollout options removal."""
-    assert ConfigFlow.VERSION == 2
+def test_config_flow_version_is_3() -> None:
+    """Config flow version must be 3 after anomaly_threshold removal."""
+    assert ConfigFlow.VERSION == 3
 
 
 @pytest.mark.asyncio
@@ -447,4 +437,26 @@ async def test_module_level_migrate_entry_exists_and_works(
 
     assert result is True
     assert "runtime_event_store_enabled" not in entry.options
+    assert entry.options[CONF_HISTORY_DAYS] == 14
+
+
+@pytest.mark.asyncio
+async def test_migrate_entry_v2_strips_anomaly_threshold(
+    hass: HomeAssistant,
+) -> None:
+    """Migration from v2 should strip dead anomaly_threshold option."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        options={
+            "runtime_health_anomaly_threshold": 1.3,
+            CONF_HISTORY_DAYS: 14,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await ConfigFlow.async_migrate_entry(hass, entry)
+
+    assert result is True
+    assert "runtime_health_anomaly_threshold" not in entry.options
     assert entry.options[CONF_HISTORY_DAYS] == 14

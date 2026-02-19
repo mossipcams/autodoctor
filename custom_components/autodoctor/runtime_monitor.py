@@ -381,7 +381,6 @@ class RuntimeHealthMonitor:
         baseline_days: int = 30,
         hour_ratio_days: int = 30,
         warmup_samples: int = 14,
-        anomaly_threshold: float = 1.3,
         min_expected_events: int = 1,
         score_ema_samples: int = 5,
         dismissed_threshold_multiplier: float = 1.25,
@@ -406,7 +405,6 @@ class RuntimeHealthMonitor:
         self.baseline_days = baseline_days
         self.hour_ratio_days = max(1, hour_ratio_days)
         self.warmup_samples = warmup_samples
-        self.anomaly_threshold = anomaly_threshold
         self.min_expected_events = min_expected_events
         self.score_ema_samples = max(2, score_ema_samples)
         self._score_ema_alpha = 2.0 / (self.score_ema_samples + 1.0)
@@ -475,11 +473,9 @@ class RuntimeHealthMonitor:
             )
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
-            "anomaly_threshold=%.1f, min_expected_events=%d, "
-            "hour_ratio_days=%d, detector=%s",
+            "min_expected_events=%d, hour_ratio_days=%d, detector=%s",
             baseline_days,
             warmup_samples,
-            anomaly_threshold,
             min_expected_events,
             self.hour_ratio_days,
             type(self._detector).__name__,
