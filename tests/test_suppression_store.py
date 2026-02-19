@@ -417,14 +417,14 @@ async def test_is_suppressed_during_async_load_race(hass: HomeAssistant) -> None
 
 def test_filter_suppressed_issues_importable() -> None:
     """filter_suppressed_issues should be importable from suppression_store module."""
-    from custom_components.autodoctor.suppression_store import filter_suppressed_issues
-
-    # With no store, all issues pass through
     from custom_components.autodoctor.models import (
         IssueType,
         Severity,
         ValidationIssue,
     )
+    from custom_components.autodoctor.suppression_store import filter_suppressed_issues
+
+    # With no store, all issues pass through
 
     issue = ValidationIssue(
         severity=Severity.WARNING,

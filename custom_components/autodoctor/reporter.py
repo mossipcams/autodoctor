@@ -199,4 +199,3 @@ class IssueReporter:
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             except Exception as err:
                 _LOGGER.warning("Failed to delete issue %s: %s", issue_id, err)
-

@@ -460,8 +460,12 @@ def test_runtime_monitor_no_dead_scoring_params() -> None:
 
 def test_source_line_field_removed() -> None:
     """Guard: source_line was never set in production — remove from StateReference and ServiceCall."""
-    assert "source_line" not in {f.name for f in StateReference.__dataclass_fields__.values()}
-    assert "source_line" not in {f.name for f in ServiceCall.__dataclass_fields__.values()}
+    assert "source_line" not in {
+        f.name for f in StateReference.__dataclass_fields__.values()
+    }
+    assert "source_line" not in {
+        f.name for f in ServiceCall.__dataclass_fields__.values()
+    }
 
 
 def test_is_blueprint_instance_field_removed() -> None:

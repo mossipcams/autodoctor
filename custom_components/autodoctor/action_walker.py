@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, cast
 
 
 def walk_automation_actions(
@@ -26,7 +27,7 @@ def walk_automation_actions(
 
 def _ensure_list(value: Any) -> list[Any]:
     if isinstance(value, list):
-        return value
+        return cast(list[Any], value)
     if value is None:
         return []
     return [value]
@@ -54,14 +55,14 @@ def _walk(
     if _depth >= max_depth:
         return
     for idx, action in enumerate(actions):
-        if not isinstance(action, dict):
+        if not isinstance(action, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             continue
         location = f"{location_prefix}[{idx}]"
         visit_action(action, idx, location)
 
         if "choose" in action:
-            options = action.get("choose") or []
-            if isinstance(options, list):
+            options = cast(list[Any], action.get("choose") or [])
+            if isinstance(options, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                 for opt_idx, option in enumerate(options):
                     if isinstance(option, dict):
                         if visit_condition:
@@ -70,7 +71,7 @@ def _walk(
                                 visit_condition,
                                 f"{location}.choose[{opt_idx}].conditions",
                             )
-                        sequence = option.get("sequence") or []
+                        sequence = cast(list[Any], option.get("sequence") or [])
                         _walk(
                             sequence,
                             visit_action=visit_action,
@@ -79,7 +80,7 @@ def _walk(
                             max_depth=max_depth,
                             _depth=_depth + 1,
                         )
-            default = action.get("default") or []
+            default = cast(list[Any], action.get("default") or [])
             if default:
                 _walk(
                     default,
@@ -97,7 +98,7 @@ def _walk(
                     visit_condition,
                     f"{location}.if",
                 )
-            then_actions = action.get("then") or []
+            then_actions = cast(list[Any], action.get("then") or [])
             _walk(
                 then_actions,
                 visit_action=visit_action,
@@ -106,7 +107,7 @@ def _walk(
                 max_depth=max_depth,
                 _depth=_depth + 1,
             )
-            else_actions = action.get("else") or []
+            else_actions = cast(list[Any], action.get("else") or [])
             if else_actions:
                 _walk(
                     else_actions,
@@ -127,7 +128,7 @@ def _walk(
                             visit_condition,
                             f"{location}.repeat.{cond_key}",
                         )
-                sequence = repeat_config.get("sequence") or []
+                sequence = cast(list[Any], repeat_config.get("sequence") or [])
                 _walk(
                     sequence,
                     visit_action=visit_action,
@@ -138,11 +139,14 @@ def _walk(
                 )
 
         if "parallel" in action:
-            branches = action.get("parallel") or []
-            if not isinstance(branches, list):
+            branches = cast(list[Any], action.get("parallel") or [])
+            if not isinstance(branches, list):  # pyright: ignore[reportUnnecessaryIsInstance]
                 branches = [branches]
             for branch_idx, branch in enumerate(branches):
-                branch_actions = branch if isinstance(branch, list) else [branch]
+                branch_actions = cast(
+                    list[Any],
+                    branch if isinstance(branch, list) else [branch],  # pyright: ignore[reportUnnecessaryIsInstance]
+                )
                 _walk(
                     branch_actions,
                     visit_action=visit_action,

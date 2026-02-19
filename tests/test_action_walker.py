@@ -197,9 +197,7 @@ def test_analyzer_extract_service_calls_uses_walk_automation_actions() -> None:
 
     from custom_components.autodoctor.analyzer import AutomationAnalyzer
 
-    source = inspect.getsource(
-        AutomationAnalyzer._extract_service_calls_from_actions
-    )
+    source = inspect.getsource(AutomationAnalyzer._extract_service_calls_from_actions)
     # Should not contain structural recursion keywords anymore
     assert "choose" not in source, (
         "_extract_service_calls_from_actions should delegate to walk_automation_actions"

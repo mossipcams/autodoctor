@@ -140,9 +140,7 @@ class AutomationAnalyzer:
 
         return [str(value)]
 
-    def _normalize_entity_ids(
-        self, value: Any
-    ) -> list[str]:
+    def _normalize_entity_ids(self, value: Any) -> list[str]:
         """Normalize entity_id value(s) to a list of strings."""
         if value is None:
             return []
@@ -1119,7 +1117,10 @@ class AutomationAnalyzer:
         def _visit_action(action: dict[str, Any], idx: int, location: str) -> None:
             refs.extend(
                 self._extract_from_service_call(
-                    action, idx, automation_id, automation_name,
+                    action,
+                    idx,
+                    automation_id,
+                    automation_name,
                 )
             )
             if "wait_template" in action:
@@ -1135,16 +1136,22 @@ class AutomationAnalyzer:
                     )
 
         def _visit_condition(
-            condition: dict[str, Any], cond_idx: int, location: str,
+            condition: dict[str, Any],
+            cond_idx: int,
+            location: str,
         ) -> None:
             refs.extend(
                 self._extract_from_condition(
-                    condition, cond_idx, automation_id, automation_name, location,
+                    condition,
+                    cond_idx,
+                    automation_id,
+                    automation_name,
+                    location,
                 )
             )
 
         walk_automation_actions(
-            actions if isinstance(actions, list) else [actions],
+            actions if isinstance(actions, list) else [actions],  # pyright: ignore[reportUnnecessaryIsInstance]
             visit_action=_visit_action,
             visit_condition=_visit_condition,
             location_prefix="action",
@@ -1221,7 +1228,7 @@ class AutomationAnalyzer:
                 )
 
         walk_automation_actions(
-            actions if isinstance(actions, list) else [actions],
+            actions if isinstance(actions, list) else [actions],  # pyright: ignore[reportUnnecessaryIsInstance]
             visit_action=_visit_action,
             location_prefix=location_prefix,
             max_depth=MAX_RECURSION_DEPTH,

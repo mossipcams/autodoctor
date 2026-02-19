@@ -112,5 +112,3 @@ def get_device_class_states(domain: str) -> set[str] | None:
         Set of valid states, or None if domain is unknown
     """
     return DEVICE_CLASS_STATES.get(domain)
-
-

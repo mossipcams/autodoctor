@@ -219,7 +219,6 @@ async def test_runtime_monitor_suppresses_sparse_stalled_alerts(
         baseline_days=30,
         warmup_samples=5,
         min_expected_events=0,
-
     )
 
     issues = await monitor.validate_automations([_automation("runtime_sparse")])
@@ -435,7 +434,6 @@ async def test_runtime_monitor_does_not_flag_overactive_for_bursty_reminder_base
         now=now,
         score=2.31,
         warmup_samples=3,
-
         min_expected_events=0,
     )
 
@@ -471,7 +469,6 @@ async def test_runtime_monitor_does_not_flag_stalled_for_weekly_reminder_cadence
         now=now,
         score=2.20,
         warmup_samples=3,
-
         min_expected_events=0,
         baseline_days=30,
     )
@@ -546,7 +543,6 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
         now=now,
         score=2.0,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 
@@ -580,7 +576,6 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
         now=now,
         score=2.0,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 
@@ -783,7 +778,6 @@ def test_constructor_logs_config_params(
             hass,
             baseline_days=30,
             warmup_samples=14,
-    
             min_expected_events=1,
         )
 
@@ -1113,7 +1107,6 @@ async def test_validate_automations_does_not_emit_stalled_issues(
         now=now,
         score=2.0,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 
@@ -1143,7 +1136,6 @@ async def test_validate_automations_does_not_emit_overactive_issues(
         now=now,
         score=2.0,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 
@@ -1454,7 +1446,7 @@ async def test_validate_automations_does_not_persist_periodic_model(
             super().__init__(
                 hass,
                 now_factory=lambda: now,
-                        warmup_samples=7,
+                warmup_samples=7,
                 min_expected_events=0,
                 burst_multiplier=999.0,
             )
@@ -1518,7 +1510,7 @@ async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state
             super().__init__(
                 hass,
                 now_factory=lambda: now,
-                        warmup_samples=7,
+                warmup_samples=7,
                 min_expected_events=0,
                 burst_multiplier=999.0,
             )
@@ -1835,7 +1827,6 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_day_type(
         history=history,
         now=now,
         warmup_samples=7,
-
         min_expected_events=0,
     )
     issues = await monitor.validate_automations(
@@ -1862,7 +1853,6 @@ async def test_validate_automations_does_not_emit_stalled_for_day_type(
         history=history,
         now=now,
         warmup_samples=7,
-
         min_expected_events=0,
     )
     issues = await monitor.validate_automations(
@@ -1894,7 +1884,6 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
         history=history,
         now=now,
         warmup_samples=7,
-
         min_expected_events=0,
     )
     issues = await monitor.validate_automations(
@@ -1927,7 +1916,6 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_weekday(
         history=history,
         now=now,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 
@@ -1959,7 +1947,6 @@ async def test_validate_automations_does_not_emit_stalled_for_weekday(
         history=history,
         now=now,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 
@@ -1992,7 +1979,6 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
         history=history,
         now=now,
         warmup_samples=7,
-
         min_expected_events=0,
     )
 

@@ -62,8 +62,10 @@ def test_device_class_states_consistency() -> None:
     """All DEVICE_CLASS_STATES domains have non-empty state sets."""
     assert len(DEVICE_CLASS_STATES) > 0
     for domain, states in DEVICE_CLASS_STATES.items():
-        assert isinstance(domain, str) and domain
-        assert states is not None and len(states) > 0, f"Domain {domain} has no state mapping"
+        assert isinstance(domain, str)
+        assert domain
+        assert states is not None, f"Domain {domain} has no state mapping"
+        assert len(states) > 0, f"Domain {domain} has no state mapping"
 
 
 @given(domain=st.sampled_from(list(STATE_VALIDATION_WHITELIST)))

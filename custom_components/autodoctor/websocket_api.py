@@ -683,7 +683,9 @@ async def websocket_get_validation(
     )
     last_run = data.get("validation_last_run")
 
-    visible_issues, suppressed_count = filter_suppressed_issues(all_issues, suppression_store)
+    visible_issues, suppressed_count = filter_suppressed_issues(
+        all_issues, suppression_store
+    )
 
     issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
     healthy_count = _get_healthy_count(hass, visible_issues)

@@ -95,9 +95,7 @@ class JinjaValidator:
         )
         for idx, trigger in enumerate(triggers):
             if isinstance(trigger, dict):
-                issues.extend(
-                    self._validate_trigger(trigger, idx, auto_id, auto_name)
-                )
+                issues.extend(self._validate_trigger(trigger, idx, auto_id, auto_name))
 
         # Validate conditions
         conditions = _ensure_list(
@@ -114,9 +112,7 @@ class JinjaValidator:
         actions = _ensure_list(
             automation.get("actions") or automation.get("action", [])
         )
-        issues.extend(
-            self._validate_actions(actions, auto_id, auto_name)
-        )
+        issues.extend(self._validate_actions(actions, auto_id, auto_name))
 
         return issues
 
@@ -245,23 +241,35 @@ class JinjaValidator:
             if isinstance(data, dict):
                 issues.extend(
                     self._validate_data_templates(
-                        data, f"{location}.data", auto_id, auto_name,
+                        data,
+                        f"{location}.data",
+                        auto_id,
+                        auto_name,
                     )
                 )
             wait_template = action.get("wait_template")
             if wait_template and isinstance(wait_template, str):
                 issues.extend(
                     self._check_template(
-                        wait_template, f"{location}.wait_template", auto_id, auto_name,
+                        wait_template,
+                        f"{location}.wait_template",
+                        auto_id,
+                        auto_name,
                     )
                 )
 
         def _visit_condition(
-            condition: dict[str, Any], cond_idx: int, location: str,
+            condition: dict[str, Any],
+            cond_idx: int,
+            location: str,
         ) -> None:
             issues.extend(
                 self._validate_condition(
-                    condition, cond_idx, auto_id, auto_name, location,
+                    condition,
+                    cond_idx,
+                    auto_id,
+                    auto_name,
+                    location,
                 )
             )
 

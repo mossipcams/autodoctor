@@ -262,9 +262,7 @@ def test_ingest_trigger_increments_dow_counts(tmp_path: Path) -> None:
     aid = "automation.dow_test"
 
     monitor.ingest_trigger_event(aid, occurred_at=wednesday)
-    monitor.ingest_trigger_event(
-        aid, occurred_at=wednesday + timedelta(minutes=10)
-    )
+    monitor.ingest_trigger_event(aid, occurred_at=wednesday + timedelta(minutes=10))
 
     state = monitor._runtime_state["automations"][aid]
     dow_counts = state.get("dow_counts")

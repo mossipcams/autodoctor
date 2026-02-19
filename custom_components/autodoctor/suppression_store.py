@@ -126,6 +126,8 @@ def filter_suppressed_issues(
     if not suppression_store:
         return list(issues), 0
     visible = [
-        i for i in issues if not suppression_store.is_suppressed(i.get_suppression_key())
+        i
+        for i in issues
+        if not suppression_store.is_suppressed(i.get_suppression_key())
     ]
     return visible, len(issues) - len(visible)

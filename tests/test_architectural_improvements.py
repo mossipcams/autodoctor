@@ -423,10 +423,13 @@ def test_entity_suggestion_methods_delegate_to_shared_function() -> None:
             if "def _suggest_entity(" in line or "def _suggest_target_entity(" in line:
                 in_suggest_method = True
                 continue
-            if in_suggest_method and (line.strip().startswith("def ") or (line.strip() and not line[0].isspace())):
+            if in_suggest_method and (
+                line.strip().startswith("def ")
+                or (line.strip() and not line[0].isspace())
+            ):
                 in_suggest_method = False
             if in_suggest_method and "get_close_matches" in line:
-                assert False, (
+                pytest.fail(
                     f"{filename} has get_close_matches in a suggest method — "
                     "delegate to get_entity_suggestion instead"
                 )
