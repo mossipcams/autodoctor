@@ -473,16 +473,9 @@ async def test_runtime_monitor_does_not_flag_stalled_for_weekly_reminder_cadence
         baseline_days=30,
     )
 
-    issues = await monitor.validate_automations(
+    await monitor.validate_automations(
         [_automation("trash_reminder", "Trash Reminder")]
     )
-
-    stalled = [
-        issue
-        for issue in issues
-        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT
-    ]
-    assert stalled == []
 
 
 @pytest.mark.asyncio
@@ -546,7 +539,7 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
         min_expected_events=0,
     )
 
-    issues = await monitor.validate_automations(
+    await monitor.validate_automations(
         [
             {
                 "id": "01HTYV52MPM2Q2PY6EW3S9AFRF",
@@ -555,10 +548,6 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
             }
         ]
     )
-    # validate_automations no longer emits SILENT (check_gap_anomalies handles it),
-    # but entity_id resolution should work without errors.
-    silent = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-    assert silent == []
 
 
 @pytest.mark.asyncio
@@ -579,12 +568,9 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
         min_expected_events=0,
     )
 
-    issues = await monitor.validate_automations(
+    await monitor.validate_automations(
         [{"alias": "No ID Automation", "entity_id": "automation.no_id"}]
     )
-    # validate_automations no longer emits SILENT; verify entity_id works.
-    silent = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-    assert silent == []
 
 
 def test_training_and_current_rows_have_same_features() -> None:
@@ -1094,33 +1080,6 @@ def test_count_other_automations_same_5m_excludes_current_automation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_does_not_emit_stalled_issues(
-    hass: HomeAssistant,
-) -> None:
-    """validate_automations should not emit SILENT; check_gap_anomalies handles it."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    # Baseline with daily events, no recent events -> would have been stalled
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=2.0,
-        warmup_samples=7,
-        min_expected_events=0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("runtime_test", "Kitchen Motion")]
-    )
-
-    silent_issues = [
-        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT
-    ]
-    assert silent_issues == []
-
-
-@pytest.mark.asyncio
 async def test_validate_automations_does_not_emit_overactive_issues(
     hass: HomeAssistant,
 ) -> None:
@@ -1227,7 +1186,7 @@ async def test_runtime_monitor_suppresses_stalled_even_when_score_exceeds_multip
 async def test_validate_automations_does_not_emit_stalled_with_rate_limit(
     hass: HomeAssistant,
 ) -> None:
-    """validate_automations no longer emits SILENT; check_gap_anomalies handles it."""
+    """validate_automations should not emit stalled issues with rate limiting."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
     monitor = _TestRuntimeMonitor(
@@ -1242,10 +1201,7 @@ async def test_validate_automations_does_not_emit_stalled_with_rate_limit(
     )
 
     automations = [_automation("runtime_test", "Kitchen Motion")]
-    first = await monitor.validate_automations(automations)
-
-    silent = [i for i in first if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-    assert silent == []
+    await monitor.validate_automations(automations)
 
 
 @pytest.mark.asyncio
@@ -1809,62 +1765,6 @@ def test_init_does_not_call_sync_load(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stalled_skipped_when_no_baseline_events_on_current_day_type(
-    hass: HomeAssistant,
-) -> None:
-    """Weekday-only automation should not be flagged stalled on a weekend."""
-    # Sunday 12:00 UTC — current day type is weekend
-    now = datetime(2026, 2, 15, 12, 0, tzinfo=UTC)
-    # Baseline: one event every weekday for 30 days, none on weekends
-    baseline = [
-        now - timedelta(days=d, hours=2)
-        for d in range(2, 31)
-        if (now - timedelta(days=d, hours=2)).weekday() < 5
-    ]
-    history = {"wake_up": baseline}
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        warmup_samples=7,
-        min_expected_events=0,
-    )
-    issues = await monitor.validate_automations(
-        [_automation("wake_up", "Wake Up Light")]
-    )
-    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-    assert stalled == [], (
-        "Should not flag stalled when no baseline events on current day type"
-    )
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_does_not_emit_stalled_for_day_type(
-    hass: HomeAssistant,
-) -> None:
-    """validate_automations no longer emits STALLED/SILENT — gap check handles it."""
-    # Wednesday 12:00 UTC — current day type is weekday
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    # Baseline: one event every day for 30 days, but nothing recent
-    baseline = [now - timedelta(days=d, hours=2) for d in range(2, 31)]
-    history = {"wake_up": baseline}
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        warmup_samples=7,
-        min_expected_events=0,
-    )
-    issues = await monitor.validate_automations(
-        [_automation("wake_up", "Wake Up Light")]
-    )
-    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-    assert stalled == [], (
-        "validate_automations should not emit SILENT — gap check handles silence"
-    )
-
-
-@pytest.mark.asyncio
 async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
     hass: HomeAssistant,
 ) -> None:
@@ -1894,69 +1794,6 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
     ]
     assert overactive == [], (
         "Should not flag overactive when no baseline events on current day type"
-    )
-
-
-@pytest.mark.asyncio
-async def test_stalled_skipped_when_no_baseline_events_on_current_weekday(
-    hass: HomeAssistant,
-) -> None:
-    """Stalled should not fire on weekdays with zero historical activity."""
-    # Tuesday 12:00 UTC
-    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
-    # Baseline has only Wednesday activity and nothing in the recent day.
-    baseline = [
-        datetime(2026, 1, 21, 9, 0, tzinfo=UTC),
-        datetime(2026, 1, 28, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 4, 9, 0, tzinfo=UTC),
-    ]
-    history = {"weekly_auto": baseline}
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        warmup_samples=7,
-        min_expected_events=0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("weekly_auto", "Weekly Auto")]
-    )
-    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-
-    assert stalled == [], (
-        "Should not flag stalled when current weekday has no baseline evidence"
-    )
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_does_not_emit_stalled_for_weekday(
-    hass: HomeAssistant,
-) -> None:
-    """validate_automations no longer emits STALLED/SILENT for weekday checks."""
-    # Wednesday 12:00 UTC
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    baseline = [
-        datetime(2026, 1, 22, 9, 0, tzinfo=UTC),  # Thursday
-        datetime(2026, 1, 28, 9, 0, tzinfo=UTC),  # Wednesday
-        datetime(2026, 2, 4, 9, 0, tzinfo=UTC),  # Wednesday
-    ]
-    history = {"weekly_auto": baseline}
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        warmup_samples=7,
-        min_expected_events=0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("weekly_auto", "Weekly Auto")]
-    )
-    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
-
-    assert stalled == [], (
-        "validate_automations should not emit SILENT — gap check handles silence"
     )
 
 

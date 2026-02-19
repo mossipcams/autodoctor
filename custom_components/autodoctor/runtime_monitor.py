@@ -13,10 +13,9 @@ from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from statistics import fmean, median
-from typing import Any, ClassVar, Protocol, cast
+from typing import Any, Protocol, cast
 
 from .const import (
-    DEFAULT_RUNTIME_HEALTH_GAP_THRESHOLD_MULTIPLIER,
     DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
     DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
     DOMAIN,
@@ -391,7 +390,6 @@ class RuntimeHealthMonitor:
         auto_adapt: bool = True,
         hazard_rate: float = DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
         max_run_length: int = DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
-        gap_threshold_multiplier: float = DEFAULT_RUNTIME_HEALTH_GAP_THRESHOLD_MULTIPLIER,
         runtime_event_store: RuntimeEventStore | None = None,
         async_runtime_event_store: AsyncRuntimeEventStore | None = None,
         now_factory: Any = None,
@@ -418,7 +416,6 @@ class RuntimeHealthMonitor:
         self.auto_adapt = bool(auto_adapt)
         self.hazard_rate = min(1.0, max(1e-6, float(hazard_rate)))
         self.max_run_length = max(2, int(max_run_length))
-        self.gap_threshold_multiplier = max(1.0, float(gap_threshold_multiplier))
         self._runtime_event_store_degraded = False
         self._runtime_event_store_pending_jobs = 0
         self._runtime_event_store_write_failures = 0
@@ -525,13 +522,6 @@ class RuntimeHealthMonitor:
             automation_state, event_time
         )
         self._update_gap_model(automation_state, event_time)
-        dow_counts = automation_state.setdefault("dow_counts", {})
-        dow = event_time.weekday()
-        dow_counts[dow] = dow_counts.get(dow, 0) + 1
-        self._clear_runtime_alert(
-            automation_entity_id,
-            IssueType.RUNTIME_AUTOMATION_SILENT,
-        )
         if runtime_suppressed:
             self._clear_runtime_alert(
                 automation_entity_id, IssueType.RUNTIME_AUTOMATION_OVERACTIVE
@@ -790,113 +780,6 @@ class RuntimeHealthMonitor:
             _LOGGER.warning("Failed initializing runtime event store: %s", err)
             self._runtime_event_store = None
 
-    _BUCKET_DURATION_MINUTES: ClassVar[dict[str, float]] = {
-        "weekday_morning": 7.0 * 60.0,  # 05:00-12:00
-        "weekday_afternoon": 5.0 * 60.0,  # 12:00-17:00
-        "weekday_evening": 5.0 * 60.0,  # 17:00-22:00
-        "weekday_night": 7.0 * 60.0,  # 22:00-05:00
-        "weekend_morning": 7.0 * 60.0,
-        "weekend_afternoon": 5.0 * 60.0,
-        "weekend_evening": 5.0 * 60.0,
-        "weekend_night": 7.0 * 60.0,
-    }
-
-    def check_gap_anomalies(
-        self, *, now: datetime | None = None
-    ) -> list[ValidationIssue]:
-        """Evaluate BOCPD-derived gap thresholds and emit gap anomaly issues."""
-        check_time = now or self._now_factory()
-        issues: list[ValidationIssue] = []
-        suppression_store = self._runtime_suppression_store()
-        automations = self._runtime_state.get("automations", {})
-        if not isinstance(automations, dict):
-            return []
-
-        bucket_name = self.classify_time_bucket(check_time)
-
-        for automation_id, automation_state_raw in cast(
-            dict[str, Any], automations
-        ).items():
-            if not isinstance(automation_state_raw, dict):
-                continue
-            automation_state = cast(dict[str, Any], automation_state_raw)
-            self._roll_count_model_forward(automation_state, now=check_time)
-
-            gap_model = automation_state.get("gap_model", {})
-            if not isinstance(gap_model, dict):
-                continue
-
-            last_trigger = self._coerce_datetime(gap_model.get("last_trigger"))
-            if last_trigger is None:
-                self._clear_runtime_alert(
-                    automation_id, IssueType.RUNTIME_AUTOMATION_SILENT
-                )
-                continue
-
-            # Skip gap check if this automation has never fired on this weekday
-            dow_counts = automation_state.get("dow_counts", {})
-            if dow_counts and check_time.weekday() not in dow_counts:
-                self._clear_runtime_alert(
-                    automation_id, IssueType.RUNTIME_AUTOMATION_SILENT
-                )
-                continue
-
-            # Derive expected gap from BOCPD expected_rate in current bucket
-            count_model = automation_state.get("count_model", {})
-            buckets = (
-                cast(dict[str, Any], count_model.get("buckets", {}))
-                if isinstance(count_model, dict)
-                else {}
-            )
-            bucket_state = buckets.get(bucket_name, {})
-            expected_rate = self._coerce_float(bucket_state.get("expected_rate"), 0.0)
-            if expected_rate <= 0.0:
-                self._clear_runtime_alert(
-                    automation_id, IssueType.RUNTIME_AUTOMATION_SILENT
-                )
-                continue
-
-            bucket_minutes = self._BUCKET_DURATION_MINUTES.get(bucket_name, 6.0 * 60.0)
-            expected_gap = bucket_minutes / expected_rate
-            threshold = expected_gap * self.gap_threshold_multiplier
-            elapsed_minutes = max(
-                0.0, (check_time - last_trigger).total_seconds() / 60.0
-            )
-
-            if elapsed_minutes <= threshold:
-                self._clear_runtime_alert(
-                    automation_id, IssueType.RUNTIME_AUTOMATION_SILENT
-                )
-                continue
-
-            if self._is_runtime_suppressed(automation_id, suppression_store):
-                self._clear_runtime_alert(
-                    automation_id, IssueType.RUNTIME_AUTOMATION_SILENT
-                )
-                continue
-
-            if not self._allow_alert(automation_id, now=check_time):
-                continue
-
-            issue = ValidationIssue(
-                severity=Severity.ERROR,
-                automation_id=automation_id,
-                automation_name=automation_id,
-                entity_id=automation_id,
-                location="runtime.health.gap",
-                message=(
-                    f"Runtime gap anomaly: observed gap {elapsed_minutes:.1f}m "
-                    f"exceeds expected gap {expected_gap:.1f}m "
-                    f"(threshold {threshold:.1f}m)"
-                ),
-                issue_type=IssueType.RUNTIME_AUTOMATION_SILENT,
-                confidence="medium",
-            )
-            self._register_runtime_alert(issue)
-            issues.append(issue)
-
-        return issues
-
     def run_weekly_maintenance(self, *, now: datetime | None = None) -> None:
         """Record maintenance tick; BOCPD path has no periodic bucket promotion."""
         maintenance_time = now or self._now_factory()
@@ -925,11 +808,7 @@ class RuntimeHealthMonitor:
             "adaptation": {
                 "threshold_multiplier": 1.0,
                 "dismissed_count": 0,
-                "gap_threshold_multiplier": 1.0,
-                "gap_confirmation_required": 1,
-                "gap_recovery_events": 0,
             },
-            "dow_counts": {},
         }
 
     def _ensure_automation_state(self, automation_entity_id: str) -> dict[str, Any]:
@@ -1307,7 +1186,6 @@ class RuntimeHealthMonitor:
         if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
             return False
         prefixes = (
-            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_SILENT.value}",
             f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value}",
             f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_BURST.value}",
         )
@@ -1344,19 +1222,6 @@ class RuntimeHealthMonitor:
         adaptation["threshold_multiplier"] = max(
             1.0, current_multiplier * self.dismissed_threshold_multiplier
         )
-        gap_current_multiplier = self._coerce_float(
-            adaptation.get("gap_threshold_multiplier"),
-            adaptation["threshold_multiplier"],
-        )
-        adaptation["gap_threshold_multiplier"] = max(
-            1.0, gap_current_multiplier * self.dismissed_threshold_multiplier
-        )
-        gap_required = max(
-            1,
-            int(self._coerce_float(adaptation.get("gap_confirmation_required"), 1.0)),
-        )
-        adaptation["gap_confirmation_required"] = min(4, gap_required + 1)
-        adaptation["gap_recovery_events"] = 0
 
     def _maybe_auto_adapt(
         self,
@@ -1715,10 +1580,6 @@ class RuntimeHealthMonitor:
                 smoothed_score,
             )
 
-            self._clear_runtime_alert(
-                automation_entity_id,
-                IssueType.RUNTIME_AUTOMATION_SILENT,
-            )
             self._clear_runtime_alert(
                 automation_entity_id,
                 IssueType.RUNTIME_AUTOMATION_OVERACTIVE,

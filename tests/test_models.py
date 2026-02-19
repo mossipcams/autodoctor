@@ -275,7 +275,6 @@ def test_service_call_template_detection() -> None:
         ("SERVICE_MISSING_REQUIRED_PARAM", "service_missing_required_param"),
         ("SERVICE_INVALID_PARAM_TYPE", "service_invalid_param_type"),
         ("SERVICE_UNKNOWN_PARAM", "service_unknown_param"),
-        ("RUNTIME_AUTOMATION_SILENT", "runtime_automation_silent"),
         ("RUNTIME_AUTOMATION_OVERACTIVE", "runtime_automation_overactive"),
         ("RUNTIME_AUTOMATION_BURST", "runtime_automation_burst"),
     ],
@@ -284,7 +283,6 @@ def test_service_call_template_detection() -> None:
         "missing-required-param",
         "invalid-param-type",
         "unknown-param",
-        "runtime-automation-silent",
         "runtime-automation-overactive",
         "runtime-automation-burst",
     ],
@@ -335,12 +333,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 17 members.
+    """Guard: Verify IssueType has exactly 16 members.
 
     This guards against accidental reintroduction of removed types.
-    Count: 6 entity_state + 5 services + 3 templates + 3 runtime = 17 total.
+    Count: 6 entity_state + 5 services + 3 templates + 2 runtime = 16 total.
     """
-    assert len(IssueType) == 17, f"Expected 17 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 16, f"Expected 16 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:
@@ -402,14 +400,16 @@ def test_validation_groups_cover_all_issue_types() -> None:
         "RUNTIME_AUTOMATION_STALLED",
         "RUNTIME_AUTOMATION_GAP",
         "RUNTIME_AUTOMATION_COUNT_ANOMALY",
+        "RUNTIME_AUTOMATION_SILENT",
     ],
-    ids=["stalled", "gap", "count-anomaly"],
+    ids=["stalled", "gap", "count-anomaly", "silent"],
 )
 def test_removed_runtime_issue_types(removed_member: str) -> None:
     """Guard: Prevent re-introduction of runtime issue types merged in v2.28.0.
 
-    STALLED and GAP were merged into RUNTIME_AUTOMATION_SILENT.
-    COUNT_ANOMALY was merged into RUNTIME_AUTOMATION_OVERACTIVE.
+    STALLED and GAP were merged into RUNTIME_AUTOMATION_SILENT (v2.28.0).
+    COUNT_ANOMALY was merged into RUNTIME_AUTOMATION_OVERACTIVE (v2.28.0).
+    SILENT was removed entirely when the gap detector was removed.
     """
     assert not hasattr(IssueType, removed_member), (
         f"IssueType.{removed_member} should have been removed in v2.28.0"
@@ -692,7 +692,6 @@ def test_runtime_group_contains_runtime_issue_types() -> None:
     runtime_group = VALIDATION_GROUPS["runtime_health"]["issue_types"]
     assert runtime_group == frozenset(
         {
-            IssueType.RUNTIME_AUTOMATION_SILENT,
             IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
             IssueType.RUNTIME_AUTOMATION_BURST,
         }

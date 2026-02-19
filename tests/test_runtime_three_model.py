@@ -274,29 +274,9 @@ def test_out_of_order_runtime_events_do_not_backdate_last_trigger(
     assert bucket["current_count"] == 1
 
 
-def test_gap_check_rolls_count_bucket_forward_without_new_live_event(
-    tmp_path: Path,
-) -> None:
-    """Gap checks should finalize day buckets even when no new trigger arrives."""
-    now = datetime(2026, 2, 11, 9, 0, tzinfo=UTC)  # Wednesday
-    monitor = _build_monitor(
-        tmp_path,
-        now,
-        burst_multiplier=999.0,
-        gap_threshold_multiplier=999.0,
-    )
-    aid = "automation.sparse"
-    first_event = datetime(2026, 2, 9, 8, 15, tzinfo=UTC)  # Monday
-
-    monitor.ingest_trigger_event(aid, occurred_at=first_event)
-    monitor.check_gap_anomalies(now=now)
-
-    state = monitor.get_runtime_state()
-    bucket_name = monitor.classify_time_bucket(first_event)
-    bucket = state["automations"][aid]["count_model"]["buckets"][bucket_name]
-    assert bucket["observations"] == [1, 0]
-    assert bucket["current_day"] == now.date().isoformat()
-    assert bucket["current_count"] == 0
+def test_async_backfill_from_recorder_removed(tmp_path: Path) -> None:
+    """async_backfill_from_recorder was removed — replaced by async_bootstrap_from_recorder."""
+    assert not hasattr(RuntimeHealthMonitor, "async_backfill_from_recorder")
 
 
 def test_rebuild_models_from_store_populates_bocpd_from_sqlite(
