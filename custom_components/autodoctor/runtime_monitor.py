@@ -6,20 +6,26 @@ import asyncio
 import contextlib
 import json
 import logging
-import math
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from statistics import fmean, median
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from .const import (
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+    from .suppression_store import SuppressionStore
+
+from .bocpd_detector import (
     DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
     DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
-    DOMAIN,
+    BOCPDDetector,
+    Detector,
 )
+from .const import DOMAIN
 from .models import IssueType, Severity, ValidationIssue
 from .runtime_event_store import (
     AsyncRuntimeEventStore,
@@ -28,342 +34,48 @@ from .runtime_event_store import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# --- Tuning constants (not user-configurable) ---
+
+# Event store write failure logging threshold
+_WRITE_FAILURE_LOG_THRESHOLD = 3
+
+# Bootstrap history minimum horizon (days)
+_BOOTSTRAP_MIN_HISTORY_DAYS = 90
+
+# BOCPD count anomaly detection
+_BOCPD_MIN_OBSERVATIONS = 7
+_BOCPD_WINDOW_SIZE_MIN = 16
+_BOCPD_WINDOW_SIZE_MAX = 1024
+_BOCPD_WINDOW_SIZE_DAILY_SCALE = 30
+_BOCPD_QUANTILE_UPPER_SENTINEL = 10_000
+_BOCPD_PMF_SEARCH_MIN_COUNT = 64
+_BOCPD_PMF_SEARCH_RATE_SCALE = 10.0
+_BOCPD_PMF_SEARCH_HEADROOM = 32
+
+# Sensitivity-tier coverage fractions for credible interval
+_COVERAGE_LOW = 0.99
+_COVERAGE_MEDIUM = 0.95
+_COVERAGE_HIGH = 0.90
+
+# Burst detection
+_BURST_WINDOW_HOURS = 1
+_BURST_SHORT_WINDOW_MINUTES = 5
+_BURST_BASELINE_SEGMENT_COUNT = 11.0
+_BURST_THRESHOLD_FLOOR = 2.0
+_BURST_BASELINE_EMA_DECAY = 0.8
+_BURST_BASELINE_EMA_NEW = 0.2
+_BURST_MIN_RECENT_TRIGGERS = 6
+
+# Validation scoring
+_RECENT_WINDOW_HOURS = 24
+_LOW_FREQUENCY_WARMUP_MINIMUM = 2
+_DEFAULT_MEDIAN_GAP_MINUTES = 60.0
+_MIN_MEDIAN_GAP_MINUTES = 1.0
+_BUCKET_GRANULARITY_MINUTES = 5
+_RECORDER_QUERY_CHUNK_SIZE = 200
+
 _SPARSE_WARMUP_LOOKBACK_DAYS = 90
-
-
-class _Detector(Protocol):
-    """Anomaly detector interface for runtime monitoring."""
-
-    def score_current(
-        self,
-        automation_id: str,
-        train_rows: list[dict[str, float]],
-        window_size: int | None = None,
-    ) -> float:
-        """Train from history rows and return anomaly score for the current row."""
-        ...
-
-
-class _BOCPDDetector:
-    """BOCPD detector using Gamma-Poisson predictive updates.
-
-    The detector maintains a run-length posterior and a bounded history of
-    observations to score the next count with a posterior predictive tail score.
-    """
-
-    def __init__(
-        self,
-        *,
-        hazard_rate: float = DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
-        max_run_length: int = DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
-        prior_alpha: float = 1.0,
-        prior_beta: float = 1.0,
-        count_feature: str = "rolling_24h_count",
-    ) -> None:
-        self.hazard_rate = min(1.0, max(1e-6, float(hazard_rate)))
-        self.max_run_length = max(2, int(max_run_length))
-        self._prior_alpha = max(1e-6, float(prior_alpha))
-        self._prior_beta = max(1e-6, float(prior_beta))
-        self._count_feature = count_feature
-
-    def initial_state(self) -> dict[str, Any]:
-        """Return a default BOCPD bucket state."""
-        return {
-            "run_length_probs": [1.0],
-            "observations": [],
-            "current_day": "",
-            "current_count": 0,
-            "map_run_length": 0,
-            "expected_rate": 0.0,
-        }
-
-    def score_current(
-        self,
-        automation_id: str,
-        train_rows: list[dict[str, float]],
-        window_size: int | None = None,
-    ) -> float:
-        """Return two-sided tail score from BOCPD posterior predictive mass."""
-        if len(train_rows) < 2:
-            return 0.0
-
-        training = train_rows[:-1]
-        if window_size is not None and window_size > 0 and len(training) > window_size:
-            training = training[-window_size:]
-
-        state = self.initial_state()
-        for row in training:
-            self.update_state(state, self._coerce_count(row))
-        current_row = train_rows[-1]
-        current_count = self._coerce_count(current_row)
-        score = self._score_tail_probability(state, current_count)
-        score *= self._context_score_multiplier(
-            state=state,
-            current_row=current_row,
-            current_count=current_count,
-        )
-        _LOGGER.debug(
-            "Scored '%s' with BOCPD: %.3f (current=%d, n=%d)",
-            automation_id,
-            score,
-            current_count,
-            len(training),
-        )
-        return score
-
-    def update_state(self, state: dict[str, Any], observed_count: int) -> None:
-        """Apply one BOCPD update step for a finalized bucket count."""
-        self._ensure_state(state)
-        count = max(0, int(observed_count))
-        effective_hazard = self._effective_hazard(state, count)
-        observations = cast(list[int], state["observations"])
-        previous_probs = cast(list[float], state["run_length_probs"])
-
-        next_probs = [0.0] * (self.max_run_length + 1)
-        for run_length, mass in enumerate(previous_probs):
-            if mass <= 0.0:
-                continue
-            alpha, beta = self._posterior_params(observations, run_length)
-            p = beta / (beta + 1.0)
-            predictive = self._nb_pmf(count, alpha, p)
-            weighted = mass * predictive
-            changepoint_mass = weighted * effective_hazard
-            growth_mass = weighted * (1.0 - effective_hazard)
-            next_probs[0] += changepoint_mass
-            growth_index = min(run_length + 1, self.max_run_length)
-            next_probs[growth_index] += growth_mass
-
-        normalized = self._normalize_probs(next_probs)
-        observations.append(count)
-        if len(observations) > self.max_run_length:
-            del observations[: -self.max_run_length]
-
-        state["run_length_probs"] = normalized
-        state["map_run_length"] = self.map_run_length(state)
-        state["expected_rate"] = self.expected_rate(state)
-
-    def normalize_state(self, state: dict[str, Any]) -> None:
-        """Normalize a BOCPD state payload in-place."""
-        self._ensure_state(state)
-
-    def predictive_pmf_for_count(self, state: dict[str, Any], count: int) -> float:
-        """Return BOCPD posterior predictive PMF for an integer count."""
-        self._ensure_state(state)
-        candidate = max(0, int(count))
-        observations = cast(list[int], state["observations"])
-        probs = cast(list[float], state["run_length_probs"])
-
-        total = 0.0
-        for run_length, mass in enumerate(probs):
-            if mass <= 0.0:
-                continue
-            alpha, beta = self._posterior_params(observations, run_length)
-            p = beta / (beta + 1.0)
-            total += mass * self._nb_pmf(candidate, alpha, p)
-        return max(0.0, float(total))
-
-    def map_run_length(self, state: dict[str, Any]) -> int:
-        """Return MAP run length from a BOCPD state."""
-        self._ensure_state(state)
-        probs = cast(list[float], state["run_length_probs"])
-        return self._map_run_length_from_probs(probs)
-
-    def expected_rate(self, state: dict[str, Any]) -> float:
-        """Return posterior expected count rate from run-length mixture."""
-        self._ensure_state(state)
-        observations = cast(list[int], state["observations"])
-        if not observations:
-            return 0.0
-        probs = cast(list[float], state["run_length_probs"])
-        return self._expected_rate_from(observations, probs)
-
-    def _coerce_count(self, row: dict[str, float]) -> int:
-        value = row.get(self._count_feature, 0.0)
-        try:
-            return max(0, round(float(value)))
-        except (TypeError, ValueError):
-            return 0
-
-    def _score_tail_probability(
-        self, state: dict[str, Any], current_count: int
-    ) -> float:
-        pmf_floor = 1e-300
-        max_score = 80.0
-        pmf_current = self.predictive_pmf_for_count(state, current_count)
-        surprise_score = min(max_score, -math.log10(max(pmf_current, pmf_floor)))
-        if pmf_current <= 0.0:
-            return surprise_score
-
-        upper_limit = max(
-            current_count + 64,
-            round(self.expected_rate(state) * 8.0) + 32,
-            64,
-        )
-        cumulative = 0.0
-        cdf = 0.0
-        for count in range(upper_limit + 1):
-            mass = self.predictive_pmf_for_count(state, count)
-            cumulative += mass
-            if count <= current_count:
-                cdf += mass
-            if cumulative >= 0.999999 and count >= current_count:
-                break
-
-        cdf = min(1.0, max(0.0, cdf))
-        upper_tail = min(1.0, max(0.0, 1.0 - (cdf - pmf_current)))
-        two_sided_p = min(1.0, 2.0 * min(cdf, upper_tail))
-        tail_score = min(max_score, -math.log10(max(two_sided_p, pmf_floor)))
-        if surprise_score > tail_score:
-            tail_score += 0.35 * (surprise_score - tail_score)
-        return max(0.0, min(max_score, float(tail_score)))
-
-    def _effective_hazard(self, state: dict[str, Any], observed_count: int) -> float:
-        """Increase changepoint prior on highly surprising observations."""
-        predictive = self.predictive_pmf_for_count(state, observed_count)
-        surprise = -math.log10(max(predictive, 1e-12))
-        if surprise <= 1.0:
-            return self.hazard_rate
-        boost = min(12.0, (surprise - 1.0) / 2.0)
-        return min(0.60, max(self.hazard_rate, self.hazard_rate * (1.0 + boost)))
-
-    def _context_score_multiplier(
-        self,
-        *,
-        state: dict[str, Any],
-        current_row: dict[str, float],
-        current_count: int,
-    ) -> float:
-        """Apply bounded runtime-context adjustments to BOCPD anomaly score."""
-        expected = max(0.0, self.expected_rate(state))
-        if expected <= 0.0:
-            return 1.0
-
-        deviation = float(current_count) - expected
-        gap_vs_median = max(
-            0.0, self._coerce_numeric(current_row.get("gap_vs_median"), 1.0)
-        )
-        hour_ratio = max(
-            0.0, self._coerce_numeric(current_row.get("hour_ratio_30d"), 1.0)
-        )
-        other_automations = max(
-            0.0,
-            self._coerce_numeric(current_row.get("other_automations_5m"), 0.0),
-        )
-
-        multiplier = 1.0
-        if deviation < 0.0:
-            gap_boost = min(0.40, 0.18 * math.log1p(max(0.0, gap_vs_median - 1.0)))
-            multiplier *= 1.0 + gap_boost
-        elif deviation > 0.0:
-            hour_boost = min(0.35, 0.20 * math.log1p(max(0.0, hour_ratio - 1.0)))
-            multiplier *= 1.0 + hour_boost
-            dampening = min(0.45, 0.14 * math.log1p(other_automations))
-            multiplier *= max(0.55, 1.0 - dampening)
-
-        return max(0.55, min(1.75, multiplier))
-
-    def _posterior_params(
-        self,
-        observations: list[int],
-        run_length: int,
-    ) -> tuple[float, float]:
-        if run_length <= 0 or not observations:
-            return self._prior_alpha, self._prior_beta
-        sample_size = min(run_length, len(observations))
-        segment = observations[-sample_size:]
-        return (
-            self._prior_alpha + float(sum(segment)),
-            self._prior_beta + float(sample_size),
-        )
-
-    def _ensure_state(self, state: dict[str, Any]) -> None:
-        run_length_probs_raw = state.get("run_length_probs")
-        if isinstance(run_length_probs_raw, list):
-            run_length_probs = [
-                max(0.0, float(value))
-                for value in cast(list[Any], run_length_probs_raw)[
-                    : self.max_run_length + 1
-                ]
-            ]
-        else:
-            run_length_probs = [1.0]
-        if not run_length_probs:
-            run_length_probs = [1.0]
-        state["run_length_probs"] = self._normalize_probs(run_length_probs)
-
-        observations_raw = state.get("observations")
-        if isinstance(observations_raw, list):
-            observations = [
-                max(0, round(float(value)))
-                for value in cast(list[Any], observations_raw)[-self.max_run_length :]
-            ]
-        else:
-            observations = []
-        state["observations"] = observations
-        state.setdefault("current_day", "")
-        state["current_count"] = max(
-            0, int(self._coerce_numeric(state.get("current_count"), 0.0))
-        )
-        run_length_probs_state = state["run_length_probs"]
-        state["map_run_length"] = self._map_run_length_from_probs(
-            run_length_probs_state
-        )
-        state["expected_rate"] = self._expected_rate_from(
-            observations,
-            run_length_probs_state,
-        )
-
-    def _normalize_probs(self, values: list[float]) -> list[float]:
-        total = float(sum(values))
-        if not math.isfinite(total) or total <= 0.0:
-            return [1.0]
-        normalized = [max(0.0, value) / total for value in values]
-        while len(normalized) > 1 and normalized[-1] <= 1e-15:
-            normalized.pop()
-        return normalized
-
-    @staticmethod
-    def _coerce_numeric(value: Any, fallback: float) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return fallback
-
-    @staticmethod
-    def _map_run_length_from_probs(probs: list[float]) -> int:
-        if not probs:
-            return 0
-        return int(max(range(len(probs)), key=probs.__getitem__))
-
-    def _expected_rate_from(
-        self,
-        observations: list[int],
-        probs: list[float],
-    ) -> float:
-        if not observations or not probs:
-            return 0.0
-        expected = 0.0
-        for run_length, mass in enumerate(probs):
-            if mass <= 0.0:
-                continue
-            alpha, beta = self._posterior_params(observations, run_length)
-            expected += mass * (alpha / beta)
-        return max(0.0, float(expected))
-
-    @staticmethod
-    def _nb_pmf(count: int, r: float, p: float) -> float:
-        if count < 0:
-            return 0.0
-        if p <= 0.0 or p >= 1.0:
-            return 0.0
-        log_prob = (
-            math.lgamma(count + r)
-            - math.lgamma(count + 1)
-            - math.lgamma(r)
-            + (r * math.log(p))
-            + (count * math.log(1.0 - p))
-        )
-        return math.exp(log_prob)
 
 
 class RuntimeHealthMonitor:
@@ -371,7 +83,7 @@ class RuntimeHealthMonitor:
 
     def __init__(
         self,
-        hass: Any,
+        hass: HomeAssistant,
         *,
         baseline_days: int = 30,
         hour_ratio_days: int = 30,
@@ -381,7 +93,7 @@ class RuntimeHealthMonitor:
         dismissed_threshold_multiplier: float = 1.25,
         cold_start_days: int = 7,
         startup_recovery_minutes: int = 0,
-        detector: _Detector | None = None,
+        detector: Detector | None = None,
         sensitivity: str = "medium",
         burst_multiplier: float = 4.0,
         max_alerts_per_day: int = 10,
@@ -392,7 +104,7 @@ class RuntimeHealthMonitor:
         max_run_length: int = DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
         runtime_event_store: RuntimeEventStore | None = None,
         async_runtime_event_store: AsyncRuntimeEventStore | None = None,
-        now_factory: Any = None,
+        now_factory: Callable[[], datetime] | None = None,
     ) -> None:
         self.hass = hass
         self.baseline_days = baseline_days
@@ -425,11 +137,11 @@ class RuntimeHealthMonitor:
             async_runtime_event_store
         )
         self._runtime_event_store_tasks: set[asyncio.Task[Any]] = set()
-        self._bocpd_count_detector = _BOCPDDetector(
+        self._bocpd_count_detector = BOCPDDetector(
             hazard_rate=self.hazard_rate,
             max_run_length=self.max_run_length,
         )
-        self._detector: _Detector = detector or self._bocpd_count_detector
+        self._detector: Detector = detector or self._bocpd_count_detector
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}
@@ -487,7 +199,7 @@ class RuntimeHealthMonitor:
         automation_entity_id: str,
         *,
         occurred_at: datetime | None = None,
-        suppression_store: Any = None,
+        suppression_store: SuppressionStore | None = None,
     ) -> list[ValidationIssue]:
         """Ingest a live automation_triggered event for runtime model updates."""
         if not automation_entity_id or not automation_entity_id.startswith(
@@ -585,7 +297,13 @@ class RuntimeHealthMonitor:
                 self._runtime_event_store_pending_jobs = int(
                     getattr(async_store, "pending_jobs", 0)
                 )
-                _LOGGER.debug(
+                log_fn = (
+                    _LOGGER.warning
+                    if self._runtime_event_store_write_failures
+                    <= _WRITE_FAILURE_LOG_THRESHOLD
+                    else _LOGGER.debug
+                )
+                log_fn(
                     "Runtime event-store write failed for '%s': %s",
                     automation_entity_id,
                     err,
@@ -604,10 +322,8 @@ class RuntimeHealthMonitor:
             task.add_done_callback(self._runtime_event_store_tasks.discard)
 
     def get_event_store_diagnostics(self) -> dict[str, Any]:
-        """Return runtime event-store rollout diagnostics."""
+        """Return runtime event-store operational diagnostics."""
         return {
-            "enabled": True,
-            "cutover": True,
             "degraded": self._runtime_event_store_degraded,
             "pending_jobs": self._runtime_event_store_pending_jobs,
             "write_failures": self._runtime_event_store_write_failures,
@@ -662,7 +378,7 @@ class RuntimeHealthMonitor:
         if store is None:
             return
         if now is None:
-            now = cast(datetime, self._now_factory())
+            now = self._now_factory()
         target_day = now.date()
         for aid in store.get_automation_ids():
             store.rebuild_daily_summaries(aid)
@@ -733,7 +449,9 @@ class RuntimeHealthMonitor:
             )
             return
         now = self._now_factory()
-        start = now - timedelta(days=max(self.baseline_days, 90))
+        start = now - timedelta(
+            days=max(self.baseline_days, _BOOTSTRAP_MIN_HISTORY_DAYS)
+        )
         history = await self._async_fetch_trigger_history(automation_ids, start, now)
 
         def _import_history() -> None:
@@ -987,7 +705,10 @@ class RuntimeHealthMonitor:
     ) -> list[ValidationIssue]:
         issue_type = IssueType.RUNTIME_AUTOMATION_OVERACTIVE
         observations = bucket_state.get("observations")
-        if not isinstance(observations, list) or len(observations) < 7:
+        if (
+            not isinstance(observations, list)
+            or len(observations) < _BOCPD_MIN_OBSERVATIONS
+        ):
             self._clear_runtime_alert(automation_entity_id, issue_type)
             return []
 
@@ -1029,9 +750,9 @@ class RuntimeHealthMonitor:
         self, bucket_state: dict[str, Any]
     ) -> tuple[int, int]:
         sensitivity_to_coverage = {
-            "low": 0.99,
-            "medium": 0.95,
-            "high": 0.90,
+            "low": _COVERAGE_LOW,
+            "medium": _COVERAGE_MEDIUM,
+            "high": _COVERAGE_HIGH,
         }
         coverage = sensitivity_to_coverage.get(self.sensitivity, 0.95)
         tail = (1.0 - coverage) / 2.0
@@ -1044,11 +765,14 @@ class RuntimeHealthMonitor:
         if q <= 0.0:
             return 0
         if q >= 1.0:
-            return 10_000
+            return _BOCPD_QUANTILE_UPPER_SENTINEL
 
         cumulative = 0.0
         expected = self._bocpd_count_detector.expected_rate(bucket_state)
-        max_count = max(64, round(expected * 10.0) + 32)
+        max_count = max(
+            _BOCPD_PMF_SEARCH_MIN_COUNT,
+            round(expected * _BOCPD_PMF_SEARCH_RATE_SCALE) + _BOCPD_PMF_SEARCH_HEADROOM,
+        )
         for count in range(max_count + 1):
             cumulative += self._bocpd_count_detector.predictive_pmf_for_count(
                 bucket_state, count
@@ -1056,7 +780,7 @@ class RuntimeHealthMonitor:
             if cumulative >= q:
                 return count
 
-        for count in range(max_count + 1, 10_001):
+        for count in range(max_count + 1, _BOCPD_QUANTILE_UPPER_SENTINEL + 1):
             cumulative += self._bocpd_count_detector.predictive_pmf_for_count(
                 bucket_state, count
             )
@@ -1085,19 +809,27 @@ class RuntimeHealthMonitor:
         recent = [
             ts
             for ts in recent_triggers
-            if ts is not None and ts >= (now - timedelta(hours=1))
+            if ts is not None and ts >= (now - timedelta(hours=_BURST_WINDOW_HOURS))
         ]
         recent.append(now)
         recent.sort()
 
-        current_5m_count = sum(1 for ts in recent if ts >= (now - timedelta(minutes=5)))
+        current_5m_count = sum(
+            1
+            for ts in recent
+            if ts >= (now - timedelta(minutes=_BURST_SHORT_WINDOW_MINUTES))
+        )
         baseline_segment_count = sum(
             1
             for ts in recent
-            if (now - timedelta(hours=1)) <= ts < (now - timedelta(minutes=5))
+            if (now - timedelta(hours=_BURST_WINDOW_HOURS))
+            <= ts
+            < (now - timedelta(minutes=_BURST_SHORT_WINDOW_MINUTES))
         )
         baseline_from_history = (
-            baseline_segment_count / 11.0 if baseline_segment_count else 0.0
+            baseline_segment_count / _BURST_BASELINE_SEGMENT_COUNT
+            if baseline_segment_count
+            else 0.0
         )
         previous_baseline = self._coerce_float(burst_model.get("baseline_rate_5m"), 0.0)
         baseline_rate = (
@@ -1105,19 +837,22 @@ class RuntimeHealthMonitor:
             if previous_baseline > 0
             else max(1.0, baseline_from_history if baseline_from_history > 0 else 1.0)
         )
-        threshold = max(2.0, baseline_rate * self.burst_multiplier)
+        threshold = max(_BURST_THRESHOLD_FLOOR, baseline_rate * self.burst_multiplier)
 
         burst_model["recent_triggers"] = [ts.isoformat() for ts in recent]
         if baseline_from_history > 0:
-            burst_model["baseline_rate_5m"] = (0.8 * baseline_rate) + (
-                0.2 * baseline_from_history
-            )
+            burst_model["baseline_rate_5m"] = (
+                _BURST_BASELINE_EMA_DECAY * baseline_rate
+            ) + (_BURST_BASELINE_EMA_NEW * baseline_from_history)
         else:
             burst_model["baseline_rate_5m"] = baseline_rate
 
         if not allow_alerts:
             return []
-        if len(recent) < 6 or float(current_5m_count) < threshold:
+        if (
+            len(recent) < _BURST_MIN_RECENT_TRIGGERS
+            or float(current_5m_count) < threshold
+        ):
             self._clear_runtime_alert(automation_entity_id, issue_type)
             return []
         if not self._allow_alert(automation_entity_id, now=now):
@@ -1181,7 +916,7 @@ class RuntimeHealthMonitor:
     def _is_runtime_suppressed(
         self,
         automation_id: str,
-        suppression_store: Any | None,
+        suppression_store: SuppressionStore | None,
     ) -> bool:
         if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
             return False
@@ -1194,10 +929,13 @@ class RuntimeHealthMonitor:
                 if bool(suppression_store.is_suppressed(prefix)):
                     return True
             except Exception:
+                _LOGGER.debug(
+                    "Suppression check failed for '%s'", prefix, exc_info=True
+                )
                 continue
         return False
 
-    def _runtime_suppression_store(self) -> Any | None:
+    def _runtime_suppression_store(self) -> SuppressionStore | None:
         """Return suppression store from hass domain data when available."""
         hass_data = getattr(self.hass, "data", {})
         data = cast(dict[str, Any], hass_data) if isinstance(hass_data, dict) else {}
@@ -1334,7 +1072,7 @@ class RuntimeHealthMonitor:
             _LOGGER.debug("Runtime health in startup recovery window, skipping scoring")
             return []
 
-        recent_start = now - timedelta(hours=24)
+        recent_start = now - timedelta(hours=_RECENT_WINDOW_HOURS)
         baseline_start = recent_start - timedelta(days=self.baseline_days)
         automation_ids: list[str] = []
         seen_ids: set[str] = set()
@@ -1641,7 +1379,13 @@ class RuntimeHealthMonitor:
 
     @staticmethod
     def _compute_window_size(expected_daily: float) -> int:
-        return max(16, min(1024, int(max(1.0, expected_daily) * 30)))
+        return max(
+            _BOCPD_WINDOW_SIZE_MIN,
+            min(
+                _BOCPD_WINDOW_SIZE_MAX,
+                int(max(1.0, expected_daily) * _BOCPD_WINDOW_SIZE_DAILY_SCALE),
+            ),
+        )
 
     def _effective_warmup_samples(
         self,
@@ -1664,7 +1408,7 @@ class RuntimeHealthMonitor:
         if baseline_days < self.baseline_days:
             return required
         if expected_daily < 1.0:
-            return min(required, 2)
+            return min(required, _LOW_FREQUENCY_WARMUP_MINIMUM)
         return required
 
     @staticmethod
@@ -1678,13 +1422,13 @@ class RuntimeHealthMonitor:
     @staticmethod
     def _median_gap_minutes(events: list[datetime]) -> float:
         if len(events) < 2:
-            return 60.0
+            return _DEFAULT_MEDIAN_GAP_MINUTES
         sorted_events = sorted(events)
         gaps = [
             (sorted_events[idx] - sorted_events[idx - 1]).total_seconds() / 60.0
             for idx in range(1, len(sorted_events))
         ]
-        return max(1.0, float(median(gaps)))
+        return max(_MIN_MEDIAN_GAP_MINUTES, float(median(gaps)))
 
     @staticmethod
     def _build_5m_bucket_index(
@@ -1695,7 +1439,10 @@ class RuntimeHealthMonitor:
         for automation_id, events in all_events_by_automation.items():
             for ts in events:
                 bucket_start = ts.replace(
-                    minute=(ts.minute // 5) * 5, second=0, microsecond=0
+                    minute=(ts.minute // _BUCKET_GRANULARITY_MINUTES)
+                    * _BUCKET_GRANULARITY_MINUTES,
+                    second=0,
+                    microsecond=0,
                 )
                 index[bucket_start].add(automation_id)
         return dict(index)
@@ -1874,7 +1621,7 @@ class RuntimeHealthMonitor:
 
             instance = get_instance(self.hass)
             with instance.get_session() as session:
-                chunk_size = 200
+                chunk_size = _RECORDER_QUERY_CHUNK_SIZE
                 for chunk_start in range(0, len(unique_ids), chunk_size):
                     id_chunk = unique_ids[chunk_start : chunk_start + chunk_size]
                     like_clauses: list[str] = []

@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
+from custom_components.autodoctor.runtime_event_store import (
+    AsyncRuntimeEventStore,
+    RuntimeEventStore,
+)
 
 
 @pytest.fixture
@@ -164,30 +167,6 @@ def test_get_events_respects_time_filters_and_order(
     assert filtered == [times[1].timestamp()]
 
 
-def test_get_events_for_bucket_filters_bucket_and_time(
-    store: RuntimeEventStore,
-) -> None:
-    """get_events_for_bucket should scope results to a single learned bucket."""
-    store.record_trigger("automation.bucketed", datetime(2026, 2, 18, 9, 0, tzinfo=UTC))
-    store.record_trigger(
-        "automation.bucketed",
-        datetime(2026, 2, 18, 13, 0, tzinfo=UTC),
-    )
-    store.record_trigger(
-        "automation.bucketed",
-        datetime(2026, 2, 18, 9, 30, tzinfo=UTC),
-    )
-
-    morning_events = store.get_events_for_bucket(
-        "automation.bucketed",
-        "weekday_morning",
-        after=datetime(2026, 2, 18, 9, 5, tzinfo=UTC),
-    )
-
-    assert len(morning_events) == 1
-    assert morning_events[0] == datetime(2026, 2, 18, 9, 30, tzinfo=UTC).timestamp()
-
-
 def test_get_daily_counts_aggregates_by_date(store: RuntimeEventStore) -> None:
     """get_daily_counts should return per-day trigger totals for an automation."""
     store.record_trigger("automation.daily", datetime(2026, 2, 18, 9, 0, tzinfo=UTC))
@@ -197,26 +176,6 @@ def test_get_daily_counts_aggregates_by_date(store: RuntimeEventStore) -> None:
     counts = store.get_daily_counts("automation.daily")
 
     assert counts == {"2026-02-18": 2, "2026-02-19": 1}
-
-
-def test_get_bucket_counts_aggregates_by_time_bucket(
-    store: RuntimeEventStore,
-) -> None:
-    """get_bucket_counts should return count totals grouped by learned bucket name."""
-    store.record_trigger("automation.buckets", datetime(2026, 2, 18, 9, 0, tzinfo=UTC))
-    store.record_trigger(
-        "automation.buckets",
-        datetime(2026, 2, 18, 9, 30, tzinfo=UTC),
-    )
-    store.record_trigger(
-        "automation.buckets",
-        datetime(2026, 2, 18, 13, 0, tzinfo=UTC),
-    )
-
-    counts = store.get_bucket_counts("automation.buckets")
-
-    assert counts["weekday_morning"] == 2
-    assert counts["weekday_afternoon"] == 1
 
 
 def test_last_trigger_ids_counts_and_has_data(store: RuntimeEventStore) -> None:
@@ -235,19 +194,6 @@ def test_last_trigger_ids_counts_and_has_data(store: RuntimeEventStore) -> None:
     assert store.has_data("automation.one") is True
     assert store.has_data("automation.none") is False
     assert store.get_automation_ids() == ["automation.one", "automation.two"]
-
-
-def test_get_inter_arrival_times_returns_minutes(store: RuntimeEventStore) -> None:
-    """Inter-arrival helper should return positive gap durations in minutes."""
-    store.record_trigger("automation.gaps", datetime(2026, 2, 18, 9, 0, tzinfo=UTC))
-    store.record_trigger("automation.gaps", datetime(2026, 2, 18, 9, 10, tzinfo=UTC))
-    store.record_trigger("automation.gaps", datetime(2026, 2, 18, 9, 45, tzinfo=UTC))
-
-    gaps = store.get_inter_arrival_times(
-        "automation.gaps", time_bucket="weekday_morning"
-    )
-
-    assert gaps == [10.0, 35.0]
 
 
 def test_trim_deletes_rows_older_than_retention_days(store: RuntimeEventStore) -> None:
@@ -410,3 +356,57 @@ def test_rebuild_daily_summaries_recomputes_rollup_rows(
         ("2026-02-18", "weekday_morning", 2),
         ("2026-02-19", "weekday_afternoon", 1),
     ]
+
+
+def test_get_daily_bucket_counts_returns_per_day_counts(
+    store: RuntimeEventStore,
+) -> None:
+    """get_daily_bucket_counts should return day_date -> count from rollup table."""
+    store.record_trigger("automation.dbc", datetime(2026, 2, 18, 9, 0, tzinfo=UTC))
+    store.record_trigger("automation.dbc", datetime(2026, 2, 18, 9, 30, tzinfo=UTC))
+    store.record_trigger("automation.dbc", datetime(2026, 2, 19, 9, 0, tzinfo=UTC))
+    store.record_trigger("automation.dbc", datetime(2026, 2, 19, 14, 0, tzinfo=UTC))
+    store.rebuild_daily_summaries("automation.dbc")
+
+    morning = store.get_daily_bucket_counts("automation.dbc", "weekday_morning")
+    assert morning == {"2026-02-18": 2, "2026-02-19": 1}
+
+    afternoon = store.get_daily_bucket_counts("automation.dbc", "weekday_afternoon")
+    assert afternoon == {"2026-02-19": 1}
+
+    assert store.get_daily_bucket_counts("", "weekday_morning") == {}
+    assert store.get_daily_bucket_counts("automation.dbc", "") == {}
+
+
+def test_async_store_hass_type_annotation_is_not_any() -> None:
+    """Guard: AsyncRuntimeEventStore.__init__ hass param should not be Any."""
+    import inspect
+    from typing import Any
+
+    sig = inspect.signature(AsyncRuntimeEventStore.__init__)
+    hint = sig.parameters["hass"].annotation
+    assert hint is not Any, "hass parameter should use HomeAssistant type, not Any"
+    assert hint != "Any", "hass parameter should use HomeAssistant type, not Any"
+
+
+def test_run_in_executor_func_annotation_is_not_bare_any() -> None:
+    """Guard: _run_in_executor func param should use Callable, not bare Any."""
+    import inspect
+    from typing import Any
+
+    sig = inspect.signature(AsyncRuntimeEventStore._run_in_executor)
+    hint = sig.parameters["func"].annotation
+    assert hint is not Any, "func parameter should use Callable[..., Any], not bare Any"
+    assert hint != "Any", "func parameter should use Callable[..., Any], not bare Any"
+
+
+def test_get_last_score_features_raw_annotation_is_not_any() -> None:
+    """Guard: features_raw local in get_last_score should not be typed Any."""
+    import inspect
+
+    import custom_components.autodoctor.runtime_event_store as mod
+
+    source = inspect.getsource(mod.RuntimeEventStore.get_last_score)
+    assert "features_raw: Any" not in source, (
+        "features_raw should be str | None, not Any"
+    )

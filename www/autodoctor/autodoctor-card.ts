@@ -173,6 +173,7 @@ export class AutodoctorCard extends LitElement {
     } catch (err) {
       if (requestId === this._validationRequestId) {
         console.error("Failed to run validation:", err);
+        this._showToast("Validation failed");
       }
     }
 
@@ -317,9 +318,9 @@ export class AutodoctorCard extends LitElement {
         <div class="header">
           <h2 class="title">${title}</h2>
         </div>
-        <div class="card-content loading-state">
-          <div class="spinner" aria-label="Loading"></div>
-          <span class="loading-text">Checking automations...</span>
+        <div class="card-content loading-state" aria-busy="true">
+          <div class="spinner" aria-hidden="true"></div>
+          <span class="loading-text" aria-live="polite">Checking automations...</span>
         </div>
       </ha-card>
     `;
@@ -467,6 +468,7 @@ export class AutodoctorCard extends LitElement {
       this._showToast("Issue suppressed");
     } catch (err) {
       console.error("Failed to suppress issue:", err);
+      this._showToast("Failed to suppress issue");
     } finally {
       this._suppressionInProgress = false;
     }
@@ -584,7 +586,7 @@ export class AutodoctorCard extends LitElement {
     return 3;
   }
 
-  public getGridOptions() {
+  public getGridOptions(): { columns: number; min_columns: number; rows: string } {
     return {
       columns: 12,
       min_columns: 4,
@@ -593,9 +595,15 @@ export class AutodoctorCard extends LitElement {
   }
 }
 
+declare global {
+  interface Window {
+    customCards?: Array<{ type: string; name: string; description: string; preview: boolean; documentationURL?: string }>;
+  }
+}
+
 // Register card with HA
-(window as any).customCards = (window as any).customCards || [];
-(window as any).customCards.push({
+window.customCards = window.customCards || [];
+window.customCards.push({
   type: "autodoctor-card",
   name: "Autodoctor Card",
   description: "Shows automation health and validation issues",

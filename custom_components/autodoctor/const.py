@@ -1,7 +1,12 @@
 """Constants for Autodoctor."""
 
+from __future__ import annotations
+
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, ClassVar
 
 DOMAIN = "autodoctor"
 
@@ -35,8 +40,6 @@ DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY = 10
 DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW = 5
 DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES = 5
 DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT = True
-DEFAULT_RUNTIME_HEALTH_HAZARD_RATE = 0.05
-DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH = 90
 # Config keys
 CONF_HISTORY_DAYS = "history_days"
 CONF_VALIDATE_ON_RELOAD = "validate_on_reload"
@@ -57,6 +60,48 @@ CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES = (
     "runtime_health_restart_exclusion_minutes"
 )
 CONF_RUNTIME_HEALTH_AUTO_ADAPT = "runtime_health_auto_adapt"
+
+
+@dataclass(frozen=True)
+class RuntimeHealthConfig:
+    """Bundled runtime health monitoring configuration."""
+
+    enabled: bool = DEFAULT_RUNTIME_HEALTH_ENABLED
+    baseline_days: int = DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS
+    warmup_samples: int = DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES
+    min_expected_events: int = DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS
+    hour_ratio_days: int = DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS
+    sensitivity: str = DEFAULT_RUNTIME_HEALTH_SENSITIVITY
+    burst_multiplier: float = DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER
+    max_alerts_per_day: int = DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY
+    smoothing_window: int = DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW
+    restart_exclusion_minutes: int = DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES
+    auto_adapt: bool = DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT
+
+    # Mapping from HA options dict keys to dataclass field names
+    _OPTION_TO_FIELD: ClassVar[dict[str, str]] = {
+        CONF_RUNTIME_HEALTH_ENABLED: "enabled",
+        CONF_RUNTIME_HEALTH_BASELINE_DAYS: "baseline_days",
+        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: "warmup_samples",
+        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: "min_expected_events",
+        CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: "hour_ratio_days",
+        CONF_RUNTIME_HEALTH_SENSITIVITY: "sensitivity",
+        CONF_RUNTIME_HEALTH_BURST_MULTIPLIER: "burst_multiplier",
+        CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY: "max_alerts_per_day",
+        CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW: "smoothing_window",
+        CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES: "restart_exclusion_minutes",
+        CONF_RUNTIME_HEALTH_AUTO_ADAPT: "auto_adapt",
+    }
+
+    @classmethod
+    def from_options(cls, options: Mapping[str, Any]) -> RuntimeHealthConfig:
+        """Create config from Home Assistant options dict."""
+        kwargs: dict[str, Any] = {}
+        for option_key, field_name in cls._OPTION_TO_FIELD.items():
+            if option_key in options:
+                kwargs[field_name] = options[option_key]
+        return cls(**kwargs)
+
 
 # Domains with well-defined, stable state sets suitable for state validation.
 STATE_VALIDATION_WHITELIST: frozenset[str] = frozenset(

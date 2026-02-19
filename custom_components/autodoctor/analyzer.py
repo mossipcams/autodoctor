@@ -9,6 +9,7 @@ from typing import Any, cast
 from .action_walker import walk_automation_actions
 from .const import MAX_RECURSION_DEPTH
 from .models import ServiceCall, StateReference
+from .template_utils import is_template_value
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1195,7 +1196,7 @@ class AutomationAnalyzer:
         def _visit_action(action: dict[str, Any], idx: int, location: str) -> None:
             service = action.get("service") or action.get("action")
             if service and isinstance(service, str):
-                is_template = "{{" in service or "{%" in service
+                is_template = is_template_value(service)
 
                 explicit_data: Any = action.get("data")
                 if isinstance(explicit_data, str):

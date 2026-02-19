@@ -1,4 +1,0 @@
-# file: /Users/matt/Desktop/Projects/autodoctor/custom_components/autodoctor/__init__.py
-# hypothesis_version: 6.151.4
-
-[1000, '_automation_snapshot', 'alias', 'all_issues', 'analyzer', 'autodoctor', 'autodoctor-card.js', 'automation', 'automation_id', 'automation_reloaded', 'binary_sensor', 'card_registered', 'config', 'debounce_task', 'duration_ms', 'entities', 'entity_id', 'entity_state', 'entry', 'group_durations', 'group_issues', 'id', 'issue_types', 'issues', 'jinja_validator', 'knowledge_base', 'learned_states_store', 'lovelace', 'mode', 'module', 'raw_config', 'reporter', 'res_type', 'resources', 'sensor', 'service_validator', 'services', 'storage', 'suppression_store', 'templates', 'timestamp', 'unknown', 'url', 'validate', 'validate_automation', 'validation_groups', 'validation_issues', 'validation_last_run', 'validator', 'www']

@@ -6,10 +6,14 @@ import asyncio
 import json
 import sqlite3
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _BUCKET_NIGHT_START_HOUR = 22
 _BUCKET_MORNING_START_HOUR = 5
@@ -220,28 +224,6 @@ class RuntimeEventStore:
             rows = self._conn.execute(query, params).fetchall()
         return [float(row[0]) for row in rows]
 
-    def get_events_for_bucket(
-        self,
-        automation_id: str,
-        time_bucket: str,
-        after: datetime | None = None,
-    ) -> list[float]:
-        """Return event epochs for one automation and time bucket."""
-        if not automation_id or not time_bucket:
-            return []
-        query = (
-            "SELECT triggered_at FROM trigger_events "
-            "WHERE automation_id = ? AND time_bucket = ?"
-        )
-        params: list[object] = [automation_id, time_bucket]
-        if after is not None:
-            query += " AND triggered_at >= ?"
-            params.append(self._to_utc(after).timestamp())
-        query += " ORDER BY triggered_at ASC"
-        with self._lock:
-            rows = self._conn.execute(query, params).fetchall()
-        return [float(row[0]) for row in rows]
-
     def get_daily_counts(
         self,
         automation_id: str,
@@ -263,26 +245,6 @@ class RuntimeEventStore:
             query += " AND triggered_at <= ?"
             params.append(self._to_utc(before).timestamp())
         query += " GROUP BY day_date ORDER BY day_date ASC"
-        with self._lock:
-            rows = self._conn.execute(query, params).fetchall()
-        return {str(row[0]): int(row[1]) for row in rows}
-
-    def get_bucket_counts(
-        self,
-        automation_id: str,
-        after: datetime | None = None,
-    ) -> dict[str, int]:
-        """Return time_bucket -> count for one automation."""
-        if not automation_id:
-            return {}
-        query = (
-            "SELECT time_bucket, COUNT(*) FROM trigger_events WHERE automation_id = ?"
-        )
-        params: list[object] = [automation_id]
-        if after is not None:
-            query += " AND triggered_at >= ?"
-            params.append(self._to_utc(after).timestamp())
-        query += " GROUP BY time_bucket ORDER BY time_bucket ASC"
         with self._lock:
             rows = self._conn.execute(query, params).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
@@ -331,35 +293,6 @@ class RuntimeEventStore:
                 (automation_id,),
             ).fetchone()
         return row is not None
-
-    def get_inter_arrival_times(
-        self,
-        automation_id: str,
-        time_bucket: str | None = None,
-        after: datetime | None = None,
-    ) -> list[float]:
-        """Return gap durations in minutes between consecutive trigger events."""
-        if not automation_id:
-            return []
-        query = "SELECT triggered_at FROM trigger_events WHERE automation_id = ?"
-        params: list[object] = [automation_id]
-        if time_bucket is not None:
-            query += " AND time_bucket = ?"
-            params.append(time_bucket)
-        if after is not None:
-            query += " AND triggered_at >= ?"
-            params.append(self._to_utc(after).timestamp())
-        query += " ORDER BY triggered_at ASC"
-        with self._lock:
-            rows = self._conn.execute(query, params).fetchall()
-        values = [float(row[0]) for row in rows]
-        if len(values) < 2:
-            return []
-        gaps: list[float] = []
-        for idx in range(1, len(values)):
-            gap_minutes = max(0.0, (values[idx] - values[idx - 1]) / 60.0)
-            gaps.append(gap_minutes)
-        return gaps
 
     def trim(self, retention_days: int = 90, now: datetime | None = None) -> int:
         """Delete trigger rows older than retention cutoff and return deleted count."""
@@ -418,7 +351,7 @@ class RuntimeEventStore:
             ).fetchone()
         if row is None:
             return None
-        features_raw: Any = row[4]
+        features_raw: str | None = row[4]
         parsed_obj: object
         try:
             parsed_obj = json.loads(features_raw) if features_raw else {}
@@ -641,7 +574,7 @@ class AsyncRuntimeEventStore:
 
     def __init__(
         self,
-        hass: Any,
+        hass: HomeAssistant,
         store: RuntimeEventStore,
         *,
         max_in_flight: int = 256,
@@ -654,7 +587,7 @@ class AsyncRuntimeEventStore:
         self.write_failures = 0
         self.dropped_events = 0
 
-    async def _run_in_executor(self, func: Any, *args: Any) -> Any:
+    async def _run_in_executor(self, func: Callable[..., Any], *args: Any) -> Any:
         async with self._semaphore:
             self.pending_jobs += 1
             try:

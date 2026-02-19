@@ -1533,6 +1533,15 @@ def test_auto_vars_parameter_removed() -> None:
     assert "auto_vars" not in sig.parameters
 
 
+def test_is_template_uses_shared_utility() -> None:
+    """Guard: JinjaValidator should delegate to shared template_utils."""
+    import custom_components.autodoctor.jinja_validator as jv
+
+    assert not hasattr(jv, "TEMPLATE_PATTERN"), (
+        "TEMPLATE_PATTERN should be removed; use template_utils.is_template_value"
+    )
+
+
 def test_condition_nesting_19_deep_finds_error() -> None:
     """19-deep condition nesting is under limit; error IS found.
 

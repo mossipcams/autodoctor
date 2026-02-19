@@ -33,6 +33,7 @@ from custom_components.autodoctor.models import (
     Severity,
     ValidationIssue,
 )
+from tests.conftest import make_issue
 
 
 @pytest.fixture
@@ -91,19 +92,6 @@ async def test_one_bad_automation_does_not_crash_all(mock_hass: MagicMock) -> No
     assert isinstance(issues, list)
 
 
-def _make_issue(issue_type: IssueType, severity: Severity) -> ValidationIssue:
-    """Create a minimal ValidationIssue for testing."""
-    return ValidationIssue(
-        issue_type=issue_type,
-        severity=severity,
-        automation_id="automation.test",
-        automation_name="Test",
-        entity_id="sensor.test",
-        location="trigger[0]",
-        message=f"Test issue ({issue_type.value})",
-    )
-
-
 @pytest.fixture
 def grouped_hass(mock_hass: MagicMock) -> MagicMock:
     """Create mock hass pre-configured with all validators for grouped tests.
@@ -145,18 +133,18 @@ async def test_validate_all_with_groups_classification(grouped_hass: MagicMock) 
     - services: SERVICE_NOT_FOUND from service validator
     """
     # Set up entity-state issues from state ref validator
-    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    entity_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
 
     # Set up template issues from jinja validator
-    template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.WARNING)
+    template_issue = make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.WARNING)
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
         template_issue
     ]
 
     # Set up service issues from service validator
-    service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
+    service_issue = make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
     grouped_hass.data[DOMAIN][
         "service_validator"
     ].validate_service_calls.return_value = [service_issue]
@@ -260,12 +248,12 @@ async def test_validate_all_with_groups_status_logic(grouped_hass: MagicMock) ->
     - Groups with no issues -> "pass"
     """
     # entity_state gets an ERROR issue -> status should be "fail"
-    error_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    error_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [error_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
 
     # templates gets a WARNING issue -> status should be "warning"
-    warning_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.WARNING)
+    warning_issue = make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.WARNING)
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
         warning_issue
     ]
@@ -326,7 +314,7 @@ async def test_validate_automation_includes_service_validation(
     all three validator families.
     """
     # Set up a service issue
-    service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
+    service_issue = make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
     grouped_hass.data[DOMAIN][
         "service_validator"
     ].validate_service_calls.return_value = [service_issue]
@@ -363,9 +351,9 @@ async def test_validate_automation_includes_all_families(
     validate_automation service) executes state ref, jinja, and service
     validators.
     """
-    template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.WARNING)
-    service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
-    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    template_issue = make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.WARNING)
+    service_issue = make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
+    entity_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
 
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
         template_issue
@@ -421,7 +409,7 @@ async def test_validate_all_is_thin_wrapper(grouped_hass: MagicMock) -> None:
     and returns the flat all_issues list. This maintains backward compatibility
     with code expecting a simple list of issues.
     """
-    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    entity_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
@@ -1342,7 +1330,7 @@ async def test_run_validators_group_durations_and_mapping(
     from custom_components.autodoctor import _async_run_validators
 
     # Create a real issue that should be classified
-    template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
+    template_issue = make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = [
         template_issue
     ]
@@ -1595,9 +1583,9 @@ async def test_run_validators_all_issues_canonical_order(
     """
     from custom_components.autodoctor import _async_run_validators
 
-    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
-    service_issue = _make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
-    template_issue = _make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
+    entity_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    service_issue = make_issue(IssueType.SERVICE_NOT_FOUND, Severity.ERROR)
+    template_issue = make_issue(IssueType.TEMPLATE_SYNTAX_ERROR, Severity.ERROR)
 
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [entity_issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
@@ -2123,7 +2111,7 @@ async def test_run_validators_includes_runtime_health_stage(
     """Runtime monitor issues should be routed into runtime_health group."""
     from custom_components.autodoctor import _async_run_validators
 
-    runtime_issue = _make_issue(
+    runtime_issue = make_issue(
         IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
         Severity.ERROR,
     )

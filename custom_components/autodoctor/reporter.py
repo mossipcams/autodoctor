@@ -105,11 +105,7 @@ class IssueReporter:
         for issue in issues:
             issues_by_automation[issue.automation_id].append(issue)
 
-            # Still log each issue individually
-            log_method = (
-                _LOGGER.error if issue.severity == Severity.ERROR else _LOGGER.warning
-            )
-            log_method(
+            _LOGGER.debug(
                 "Automation '%s': %s (entity: %s, location: %s)",
                 issue.automation_name,
                 issue.message,

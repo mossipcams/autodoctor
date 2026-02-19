@@ -68,12 +68,13 @@ def test_ensure_list_never_crashes(value: Any) -> None:
 )
 @settings(max_examples=200)
 def test_is_template_never_crashes(text: str) -> None:
-    """Property: _is_template handles any string without crashing.
+    """Property: is_template_value handles any string without crashing.
 
     Tests that arbitrary strings (empty, unicode, special chars) return bool.
     """
-    validator = JinjaValidator(hass=None)
-    result = validator._is_template(text)
+    from custom_components.autodoctor.template_utils import is_template_value
+
+    result = is_template_value(text)
     assert isinstance(result, bool)
 
 
@@ -90,9 +91,10 @@ def test_is_template_detects_jinja_markers(
 
     Tests that {{, {%, or {# anywhere in the string triggers detection.
     """
-    validator = JinjaValidator(hass=None)
+    from custom_components.autodoctor.template_utils import is_template_value
+
     text = prefix + marker + suffix
-    result = validator._is_template(text)
+    result = is_template_value(text)
     assert result is True
 
 

@@ -7,7 +7,6 @@ step-based validation results.
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -43,23 +42,7 @@ from custom_components.autodoctor.websocket_api import (
     websocket_suppress,
     websocket_unsuppress,
 )
-
-
-async def _invoke_command(
-    handler: Any,
-    hass: HomeAssistant,
-    connection: ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Invoke websocket handler by unwrapping decorators until coroutine function."""
-    target = handler
-    while not inspect.iscoroutinefunction(target):
-        wrapped = getattr(target, "__wrapped__", None)
-        if wrapped is None:
-            break
-        target = wrapped
-    assert inspect.iscoroutinefunction(target)
-    await target(hass, connection, msg)
+from tests.conftest import invoke_command, make_issue
 
 
 @pytest.mark.asyncio
@@ -73,6 +56,7 @@ async def test_websocket_api_setup(hass: HomeAssistant) -> None:
         "homeassistant.components.websocket_api.async_register_command"
     ) as mock_register:
         await async_setup_websocket_api(hass)
+        # One call per handler in async_setup_websocket_api; update when adding/removing WS commands
         assert mock_register.call_count == 13
 
 
@@ -152,7 +136,7 @@ async def test_websocket_get_issues_returns_data(hass: HomeAssistant) -> None:
 
     # Access the underlying async function through __wrapped__
     # (the decorators wrap the function)
-    await _invoke_command(websocket_get_issues, hass, connection, msg)
+    await invoke_command(websocket_get_issues, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     call_args = connection.send_result.call_args
@@ -188,7 +172,7 @@ async def test_websocket_get_issues_applies_suppression_filtering_on_read(
     connection.send_result = MagicMock()
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/issues"}
 
-    await _invoke_command(websocket_get_issues, hass, connection, msg)
+    await invoke_command(websocket_get_issues, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert result["issues"] == []
@@ -211,7 +195,7 @@ async def test_websocket_get_validation(hass: HomeAssistant) -> None:
 
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation"}
 
-    await _invoke_command(websocket_get_validation, hass, connection, msg)
+    await invoke_command(websocket_get_validation, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     call_args = connection.send_result.call_args
@@ -249,7 +233,7 @@ async def test_websocket_get_validation_uses_raw_cache_for_suppressed_count(
     connection.send_result = MagicMock()
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation"}
 
-    await _invoke_command(websocket_get_validation, hass, connection, msg)
+    await invoke_command(websocket_get_validation, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert result["issues"] == []
@@ -278,7 +262,7 @@ async def test_websocket_run_validation(hass: HomeAssistant) -> None:
         new_callable=AsyncMock,
         return_value=[],
     ):
-        await _invoke_command(websocket_run_validation, hass, connection, msg)
+        await invoke_command(websocket_run_validation, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     call_args = connection.send_result.call_args
@@ -310,7 +294,7 @@ async def test_websocket_run_validation_handles_error(hass: HomeAssistant) -> No
         new_callable=AsyncMock,
         side_effect=Exception("Validation failed"),
     ):
-        await _invoke_command(websocket_run_validation, hass, connection, msg)
+        await invoke_command(websocket_run_validation, hass, connection, msg)
 
     # Should call send_error, not crash
     connection.send_error.assert_called_once()
@@ -319,34 +303,6 @@ async def test_websocket_run_validation_handles_error(hass: HomeAssistant) -> No
 
 
 # === Fixtures ===
-
-
-def _make_issue(
-    issue_type: IssueType,
-    severity: Severity,
-    entity_id: str = "light.test",
-    automation_id: str = "automation.test",
-) -> ValidationIssue:
-    """Create a test ValidationIssue for testing.
-
-    Args:
-        issue_type: Type of validation issue.
-        severity: Severity level (ERROR, WARNING, INFO).
-        entity_id: Entity ID associated with the issue.
-        automation_id: Automation ID associated with the issue.
-
-    Returns:
-        ValidationIssue instance with provided parameters.
-    """
-    return ValidationIssue(
-        severity=severity,
-        automation_id=automation_id,
-        automation_name="Test",
-        entity_id=entity_id,
-        location="trigger[0]",
-        message=f"Test issue: {issue_type.value}",
-        issue_type=issue_type,
-    )
 
 
 # === Step-Based Validation Commands ===
@@ -360,8 +316,8 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
     validation group (entity_state, services, templates, runtime_health) with status, counts,
     and duration for each group.
     """
-    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
-    template_issue = _make_issue(
+    entity_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    template_issue = make_issue(
         IssueType.TEMPLATE_UNKNOWN_FILTER,
         Severity.WARNING,
         entity_id="sensor.template",
@@ -392,7 +348,7 @@ async def test_websocket_run_validation_steps(hass: HomeAssistant) -> None:
             "timestamp": "2026-01-30T12:00:00+00:00",
         },
     ):
-        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
+        await invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -452,12 +408,8 @@ async def test_websocket_run_validation_steps_with_suppression(
     Verifies that issues marked as suppressed are not included in the
     returned results and that suppressed_count is accurate.
     """
-    issue1 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
-    )
-    issue2 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
-    )
+    issue1 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    issue2 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
 
     # Mock suppression store that suppresses issue1
     suppression_store = MagicMock()
@@ -490,7 +442,7 @@ async def test_websocket_run_validation_steps_with_suppression(
             "timestamp": "2026-01-30T12:00:00+00:00",
         },
     ):
-        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
+        await invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -508,7 +460,7 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     Verifies the command returns previously cached validation group data
     without triggering a new validation run.
     """
-    entity_issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    entity_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
 
     hass.data[DOMAIN] = {
         "suppression_store": None,
@@ -541,7 +493,7 @@ async def test_websocket_get_validation_steps_cached(hass: HomeAssistant) -> Non
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
+    await invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -575,7 +527,7 @@ async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant) 
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
+    await invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -601,12 +553,8 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
     Verifies that the cached steps command filters suppressed issues at
     read time, ensuring suppressed_count is accurate.
     """
-    issue1 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
-    )
-    issue2 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
-    )
+    issue1 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    issue2 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
 
     # Mock suppression store that suppresses issue1
     suppression_store = MagicMock()
@@ -636,7 +584,7 @@ async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
+    await invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -652,12 +600,8 @@ async def test_websocket_get_validation_steps_prefers_raw_groups_for_suppression
     hass: HomeAssistant,
 ) -> None:
     """Cached steps should use raw group cache when available."""
-    issue1 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
-    )
-    issue2 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
-    )
+    issue1 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    issue2 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
     suppression_store = MagicMock()
     suppression_store.is_suppressed = MagicMock(
         side_effect=lambda key: key == issue1.get_suppression_key()
@@ -681,7 +625,7 @@ async def test_websocket_get_validation_steps_prefers_raw_groups_for_suppression
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
 
-    await _invoke_command(websocket_get_validation_steps, hass, connection, msg)
+    await invoke_command(websocket_get_validation_steps, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     g0 = result["groups"][0]
@@ -710,7 +654,7 @@ async def test_websocket_run_validation_steps_error_handling(
         new_callable=AsyncMock,
         side_effect=Exception("Validation failed"),
     ):
-        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
+        await invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     call_args = connection.send_error.call_args
@@ -726,19 +670,19 @@ def test_compute_group_status() -> None:
     """
     # ERROR issues -> "fail"
     issues_with_error = [
-        _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR),
+        make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR),
     ]
     assert _compute_group_status(issues_with_error) == "fail"
 
     # WARNING issues only -> "warning"
     issues_with_warning = [
-        _make_issue(IssueType.TEMPLATE_UNKNOWN_FILTER, Severity.WARNING),
+        make_issue(IssueType.TEMPLATE_UNKNOWN_FILTER, Severity.WARNING),
     ]
     assert _compute_group_status(issues_with_warning) == "warning"
 
     # INFO issues only -> "pass" (INFO does not affect status)
     issues_with_info = [
-        _make_issue(IssueType.ENTITY_REMOVED, Severity.INFO),
+        make_issue(IssueType.ENTITY_REMOVED, Severity.INFO),
     ]
     assert _compute_group_status(issues_with_info) == "pass"
 
@@ -747,8 +691,8 @@ def test_compute_group_status() -> None:
 
     # Mixed ERROR + WARNING -> "fail" (ERROR takes precedence)
     mixed_issues = [
-        _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR),
-        _make_issue(IssueType.TEMPLATE_UNKNOWN_FILTER, Severity.WARNING),
+        make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR),
+        make_issue(IssueType.TEMPLATE_UNKNOWN_FILTER, Severity.WARNING),
     ]
     assert _compute_group_status(mixed_issues) == "fail"
 
@@ -782,7 +726,7 @@ async def test_websocket_suppress_runtime_issue_records_dismissal(
         "issue_type": "runtime_automation_overactive",
     }
 
-    await _invoke_command(websocket_suppress, hass, connection, msg)
+    await invoke_command(websocket_suppress, hass, connection, msg)
 
     suppression_store.async_suppress.assert_called_once_with(
         "automation.runtime_test:automation.runtime_test:runtime_automation_overactive"
@@ -797,7 +741,7 @@ async def test_websocket_suppress_reconciles_visible_issue_cache_and_reporter(
     hass: HomeAssistant,
 ) -> None:
     """Suppressing should update visible issue cache and repairs immediately."""
-    issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
     suppression_store = MagicMock()
     suppression_store.async_suppress = AsyncMock()
     suppression_store.is_suppressed = MagicMock(
@@ -827,7 +771,7 @@ async def test_websocket_suppress_reconciles_visible_issue_cache_and_reporter(
         "issue_type": issue.issue_type.value,
     }
 
-    await _invoke_command(websocket_suppress, hass, connection, msg)
+    await invoke_command(websocket_suppress, hass, connection, msg)
 
     assert hass.data[DOMAIN]["issues"] == []
     assert hass.data[DOMAIN]["validation_issues"] == []
@@ -841,12 +785,8 @@ async def test_websocket_list_suppressions(hass: HomeAssistant) -> None:
     Verifies the command returns all suppressed issues including their
     suppression keys, automation IDs, entity IDs, issue types, and messages.
     """
-    issue1 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
-    )
-    issue2 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b"
-    )
+    issue1 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
+    issue2 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.b")
 
     suppression_store = MagicMock()
     suppression_store.keys = frozenset({issue1.get_suppression_key()})
@@ -859,7 +799,7 @@ async def test_websocket_list_suppressions(hass: HomeAssistant) -> None:
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
-    await _invoke_command(websocket_list_suppressions, hass, connection, msg)
+    await invoke_command(websocket_list_suppressions, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -877,9 +817,7 @@ async def test_websocket_list_suppressions_uses_raw_issue_cache(
     hass: HomeAssistant,
 ) -> None:
     """Suppression metadata should resolve from raw issues when filtered cache is empty."""
-    issue1 = _make_issue(
-        IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a"
-    )
+    issue1 = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR, entity_id="light.a")
 
     suppression_store = MagicMock()
     suppression_store.keys = frozenset({issue1.get_suppression_key()})
@@ -893,7 +831,7 @@ async def test_websocket_list_suppressions_uses_raw_issue_cache(
     connection = MagicMock(spec=ActiveConnection)
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
-    await _invoke_command(websocket_list_suppressions, hass, connection, msg)
+    await invoke_command(websocket_list_suppressions, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert len(result["suppressions"]) == 1
@@ -913,7 +851,7 @@ async def test_websocket_list_suppressions_not_ready(hass: HomeAssistant) -> Non
     connection.send_error = MagicMock()
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/list_suppressions"}
 
-    await _invoke_command(websocket_list_suppressions, hass, connection, msg)
+    await invoke_command(websocket_list_suppressions, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "not_ready"
@@ -938,7 +876,7 @@ async def test_websocket_unsuppress(hass: HomeAssistant) -> None:
     key = "automation.test:light.test:entity_not_found"
     msg: dict[str, Any] = {"id": 1, "type": "autodoctor/unsuppress", "key": key}
 
-    await _invoke_command(websocket_unsuppress, hass, connection, msg)
+    await invoke_command(websocket_unsuppress, hass, connection, msg)
 
     suppression_store.async_unsuppress.assert_called_once_with(key)
     connection.send_result.assert_called_once()
@@ -964,7 +902,7 @@ async def test_websocket_unsuppress_not_ready(hass: HomeAssistant) -> None:
         "key": "some:key:here",
     }
 
-    await _invoke_command(websocket_unsuppress, hass, connection, msg)
+    await invoke_command(websocket_unsuppress, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "not_ready"
@@ -1459,7 +1397,7 @@ async def test_websocket_run_validation_steps_reports_failed_automations(
             },
         },
     ):
-        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
+        await invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     assert result["analyzed_automations"] == 4
@@ -1472,7 +1410,7 @@ async def test_websocket_runtime_health_issue_can_be_suppressed(
     hass: HomeAssistant,
 ) -> None:
     """Runtime health issues should be filtered by existing suppression logic."""
-    runtime_issue = _make_issue(
+    runtime_issue = make_issue(
         IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
         Severity.ERROR,
         entity_id="automation.runtime_test",
@@ -1506,7 +1444,7 @@ async def test_websocket_runtime_health_issue_can_be_suppressed(
             "timestamp": "2026-02-11T12:00:00+00:00",
         },
     ):
-        await _invoke_command(websocket_run_validation_steps, hass, connection, msg)
+        await invoke_command(websocket_run_validation_steps, hass, connection, msg)
 
     result = connection.send_result.call_args[0][1]
     runtime_group = next(g for g in result["groups"] if g["id"] == "runtime_health")
@@ -1544,7 +1482,7 @@ async def test_websocket_fix_preview_returns_proposed_change(
         "suggested_value": "light.living_room",
     }
 
-    await _invoke_command(websocket_fix_preview, hass, connection, msg)
+    await invoke_command(websocket_fix_preview, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -1578,7 +1516,7 @@ async def test_websocket_fix_preview_resolves_config_when_entity_id_differs_from
         "suggested_value": "light.living_room",
     }
 
-    await _invoke_command(websocket_fix_preview, hass, connection, msg)
+    await invoke_command(websocket_fix_preview, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -1624,7 +1562,7 @@ async def test_websocket_fix_apply_resolves_config_when_entity_id_differs_from_i
             "skip_reasons": {},
         },
     ) as mock_validate:
-        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+        await invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -1679,7 +1617,7 @@ async def test_websocket_fix_apply_updates_automation(
             "skip_reasons": {},
         },
     ) as mock_validate:
-        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+        await invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
@@ -1722,7 +1660,7 @@ async def test_websocket_fix_apply_rejects_unexpected_current_value(
         "suggested_value": "light.living_room",
     }
 
-    await _invoke_command(websocket_fix_apply, hass, connection, msg)
+    await invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "fix_not_applicable"
@@ -1755,7 +1693,7 @@ async def test_websocket_fix_apply_rejects_non_persistable_automation_source(
         "suggested_value": "light.kitchen_main",
     }
 
-    await _invoke_command(websocket_fix_apply, hass, connection, msg)
+    await invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args[0][1] == "fix_not_applicable"
@@ -1808,7 +1746,7 @@ async def test_websocket_fix_apply_persists_yaml_and_triggers_reload(
             "skip_reasons": {},
         },
     ):
-        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+        await invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     assert "light.living_room" in yaml_path.read_text(encoding="utf-8")
@@ -1863,7 +1801,7 @@ async def test_websocket_fix_apply_preserves_unicode_in_persisted_yaml(
             "skip_reasons": {},
         },
     ):
-        await _invoke_command(websocket_fix_apply, hass, connection, msg)
+        await invoke_command(websocket_fix_apply, hass, connection, msg)
 
     connection.send_result.assert_called_once()
     written = yaml_path.read_text(encoding="utf-8")
@@ -1920,7 +1858,7 @@ async def test_websocket_fix_undo_loads_snapshot_from_store(
         mock_store.async_save = AsyncMock()
         mock_store_factory.return_value = mock_store
 
-        await _invoke_command(
+        await invoke_command(
             websocket_fix_undo,
             hass,
             connection,
@@ -1970,7 +1908,7 @@ async def test_websocket_fix_undo_reverts_last_applied_fix(
             "skip_reasons": {},
         },
     ) as mock_validate:
-        await _invoke_command(
+        await invoke_command(
             websocket_fix_undo,
             hass,
             connection,
@@ -1997,7 +1935,7 @@ async def test_websocket_fix_undo_rejects_when_no_snapshot(
     connection = MagicMock(spec=ActiveConnection)
     connection.send_error = MagicMock()
 
-    await _invoke_command(
+    await invoke_command(
         websocket_fix_undo, hass, connection, {"id": 8, "type": "autodoctor/fix_undo"}
     )
 
@@ -2012,3 +1950,31 @@ def test_resolve_automation_edit_config_id_returns_none_when_automation_data_mis
     hass.data.pop("automation", None)
 
     assert _resolve_automation_edit_config_id(hass, "automation.test") is None
+
+
+@pytest.mark.asyncio
+async def test_count_automations_entities_mode(hass: HomeAssistant) -> None:
+    """_count_automations should count entities in entity-list mode."""
+    from custom_components.autodoctor.websocket_api import _count_automations
+
+    entity1 = SimpleNamespace(entity_id="automation.one")
+    entity2 = SimpleNamespace(entity_id="automation.two")
+    hass.data["automation"] = SimpleNamespace(entities=[entity1, entity2])
+    assert _count_automations(hass) == 2
+
+
+@pytest.mark.asyncio
+async def test_count_automations_dict_mode(hass: HomeAssistant) -> None:
+    """_count_automations should count configs in dict mode."""
+    from custom_components.autodoctor.websocket_api import _count_automations
+
+    hass.data["automation"] = {"config": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}
+    assert _count_automations(hass) == 3
+
+
+@pytest.mark.asyncio
+async def test_count_automations_no_data(hass: HomeAssistant) -> None:
+    """_count_automations should return 0 when no automation data exists."""
+    from custom_components.autodoctor.websocket_api import _count_automations
+
+    assert _count_automations(hass) == 0

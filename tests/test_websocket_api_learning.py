@@ -1,6 +1,5 @@
 """Tests for WebSocket API learning on suppression."""
 
-import inspect
 from unittest.mock import MagicMock, patch
 
 from homeassistant.core import HomeAssistant
@@ -9,16 +8,7 @@ from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.learned_states_store import LearnedStatesStore
 from custom_components.autodoctor.suppression_store import SuppressionStore
 from custom_components.autodoctor.websocket_api import websocket_suppress
-
-
-async def _invoke_command(handler, hass, connection, msg) -> None:
-    """Invoke websocket command coroutine underneath decorator wrappers."""
-    command = handler
-    while hasattr(command, "__wrapped__") and not inspect.iscoroutinefunction(command):
-        command = command.__wrapped__
-    if not inspect.iscoroutinefunction(command):
-        raise AssertionError("Expected wrapped websocket handler coroutine")
-    await command(hass, connection, msg)
+from tests.conftest import invoke_command
 
 
 async def test_suppress_learns_state_for_invalid_state_issue(
@@ -62,7 +52,7 @@ async def test_suppress_learns_state_for_invalid_state_issue(
         "custom_components.autodoctor.websocket_api.er.async_get",
         return_value=mock_registry,
     ):
-        await _invoke_command(websocket_suppress, hass, connection, msg)
+        await invoke_command(websocket_suppress, hass, connection, msg)
 
     # Verify state was learned
     states = learned_store.get_learned_states("vacuum", "roborock")
@@ -101,7 +91,7 @@ async def test_suppress_does_not_learn_for_non_state_issues(
         "issue_type": "entity_not_found",  # Not a state issue
     }
 
-    await _invoke_command(websocket_suppress, hass, connection, msg)
+    await invoke_command(websocket_suppress, hass, connection, msg)
 
     # Verify no states were learned
     states = learned_store.get_learned_states("vacuum", "roborock")
@@ -135,7 +125,7 @@ async def test_suppress_does_not_learn_without_state_param(hass: HomeAssistant) 
         # No state param provided
     }
 
-    await _invoke_command(websocket_suppress, hass, connection, msg)
+    await invoke_command(websocket_suppress, hass, connection, msg)
 
     # Verify no states were learned
     states = learned_store.get_learned_states("vacuum", "roborock")

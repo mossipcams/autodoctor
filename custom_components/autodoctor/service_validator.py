@@ -7,6 +7,7 @@ from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any, cast
 
 from .models import IssueType, Severity, ValidationIssue
+from .template_utils import is_template_value as _is_template_value
 from .validator import get_entity_suggestion
 
 if TYPE_CHECKING:
@@ -138,11 +139,6 @@ _CAPABILITY_DEPENDENT_PARAMS: dict[str, frozenset[str]] = {
     "water_heater.set_temperature": frozenset({"temperature"}),
     "water_heater.set_operation_mode": frozenset({"operation_mode"}),
 }
-
-
-def _is_template_value(value: Any) -> bool:
-    """Check if a value contains Jinja2 template syntax."""
-    return isinstance(value, str) and ("{{" in value or "{%" in value)
 
 
 class ServiceCallValidator:
@@ -390,7 +386,7 @@ class ServiceCallValidator:
         target = call.target or {}
 
         # If data is a template string (not a dict), skip validation entirely
-        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
+        if not isinstance(data, dict):
             return issues
 
         for field_name, field_schema in fields.items():
@@ -657,7 +653,7 @@ class ServiceCallValidator:
         target = call.target or {}
 
         # If data is a template string (not a dict), skip validation entirely
-        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
+        if not isinstance(data, dict):
             return issues
 
         # If service has no fields defined at all, skip — it may accept
@@ -728,7 +724,7 @@ class ServiceCallValidator:
         data = call.data or {}
 
         # If data is a template string (not a dict), skip validation entirely
-        if not isinstance(data, dict):  # type: ignore[reportUnnecessaryIsInstance]
+        if not isinstance(data, dict):
             return issues
 
         for param_name, value in data.items():

@@ -2086,6 +2086,17 @@ def test_extract_service_call_with_string_target_does_not_crash() -> None:
     assert calls[0].service == "light.turn_on"
 
 
+def test_analyzer_uses_shared_template_detection() -> None:
+    """Guard: analyzer should use template_utils instead of inline template check."""
+    import custom_components.autodoctor.analyzer as analyzer_mod
+    from custom_components.autodoctor.template_utils import is_template_value
+
+    assert hasattr(analyzer_mod, "is_template_value"), (
+        "analyzer should import is_template_value from template_utils"
+    )
+    assert analyzer_mod.is_template_value is is_template_value
+
+
 def test_is_blueprint_instance_parameter_removed() -> None:
     """Guard: is_blueprint_instance was threaded through analyzer but never read."""
     import inspect

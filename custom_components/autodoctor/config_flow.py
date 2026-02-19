@@ -14,38 +14,17 @@ from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
-    CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
-    CONF_RUNTIME_HEALTH_ENABLED,
-    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-    CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-    CONF_RUNTIME_HEALTH_SENSITIVITY,
-    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-    CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
-    DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
-    DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
-    DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
-    DEFAULT_RUNTIME_HEALTH_ENABLED,
-    DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-    DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-    DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-    DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
-    DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-    DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
     DOMAIN,
+    RuntimeHealthConfig,
 )
 
 # Unique ID for single-instance integration
@@ -129,6 +108,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     @staticmethod
     def _build_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
         """Build options schema using provided defaults."""
+        rhc = RuntimeHealthConfig.from_options(dict(defaults))
         return vol.Schema(
             {
                 vol.Optional(
@@ -169,81 +149,48 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 ): bool,
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_ENABLED,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_ENABLED,
-                        DEFAULT_RUNTIME_HEALTH_ENABLED,
-                    ),
+                    "runtime_health_enabled",
+                    default=rhc.enabled,
                 ): bool,
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-                        DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
-                    ),
+                    "runtime_health_baseline_days",
+                    default=rhc.baseline_days,
                 ): vol.All(vol.Coerce(int), vol.Range(min=7, max=365)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-                        DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
-                    ),
+                    "runtime_health_warmup_samples",
+                    default=rhc.warmup_samples,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-                        DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-                    ),
+                    "runtime_health_min_expected_events",
+                    default=rhc.min_expected_events,
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=1000)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-                        DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-                    ),
+                    "runtime_health_hour_ratio_days",
+                    default=rhc.hour_ratio_days,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_SENSITIVITY,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_SENSITIVITY,
-                        DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
-                    ),
+                    "runtime_health_sensitivity",
+                    default=rhc.sensitivity,
                 ): vol.In(["low", "medium", "high"]),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
-                        DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
-                    ),
+                    "runtime_health_burst_multiplier",
+                    default=rhc.burst_multiplier,
                 ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=100.0)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-                        DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-                    ),
+                    "runtime_health_max_alerts_per_day",
+                    default=rhc.max_alerts_per_day,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-                        DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-                    ),
+                    "runtime_health_smoothing_window",
+                    default=rhc.smoothing_window,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-                        DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-                    ),
+                    "runtime_health_restart_exclusion_minutes",
+                    default=rhc.restart_exclusion_minutes,
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_AUTO_ADAPT,
-                        DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
-                    ),
+                    "runtime_health_auto_adapt",
+                    default=rhc.auto_adapt,
                 ): bool,
             }
         )
@@ -253,24 +200,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         """Handle options."""
         if user_input is not None:
-            baseline_days = int(
-                user_input.get(
-                    CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-                    DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
-                )
-            )
-            warmup_samples = int(
-                user_input.get(
-                    CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-                    DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
-                )
-            )
-            runtime_enabled = bool(
-                user_input.get(
-                    CONF_RUNTIME_HEALTH_ENABLED,
-                    DEFAULT_RUNTIME_HEALTH_ENABLED,
-                )
-            )
+            _input_rhc = RuntimeHealthConfig.from_options(user_input)
+            baseline_days = _input_rhc.baseline_days
+            warmup_samples = _input_rhc.warmup_samples
+            runtime_enabled = _input_rhc.enabled
             if warmup_samples > baseline_days:
                 return self.async_show_form(
                     step_id="init",

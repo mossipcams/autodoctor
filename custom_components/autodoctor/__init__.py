@@ -29,39 +29,18 @@ from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
-    CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
-    CONF_RUNTIME_HEALTH_ENABLED,
-    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-    CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-    CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-    CONF_RUNTIME_HEALTH_SENSITIVITY,
-    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-    CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
-    DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
-    DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
-    DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
-    DEFAULT_RUNTIME_HEALTH_ENABLED,
-    DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-    DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-    DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-    DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
-    DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-    DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
     DOMAIN,
     VERSION,
+    RuntimeHealthConfig,
 )
 from .jinja_validator import JinjaValidator
 from .knowledge_base import StateKnowledgeBase
@@ -224,7 +203,7 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 
     # Register as Lovelace resource (storage mode only)
     # In YAML mode, users must manually add the resource
-    lovelace: Any = hass.data.get("lovelace")
+    lovelace: object = hass.data.get("lovelace")
     # Handle both dict (older HA) and object (newer HA) access patterns
     lovelace_mode = cast(
         str | None,
@@ -370,57 +349,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     service_validator = ServiceCallValidator(
         hass, strict_service_validation=strict_service
     )
-    runtime_enabled = options.get(
-        CONF_RUNTIME_HEALTH_ENABLED, DEFAULT_RUNTIME_HEALTH_ENABLED
-    )
+    rhc = RuntimeHealthConfig.from_options(options)
     runtime_monitor = (
         RuntimeHealthMonitor(
             hass,
-            baseline_days=options.get(
-                CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-                DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
-            ),
-            warmup_samples=options.get(
-                CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-                DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
-            ),
-            min_expected_events=options.get(
-                CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-                DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-            ),
-            hour_ratio_days=options.get(
-                CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-                DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
-            ),
-            sensitivity=options.get(
-                CONF_RUNTIME_HEALTH_SENSITIVITY,
-                DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
-            ),
-            burst_multiplier=options.get(
-                CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
-                DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
-            ),
-            max_alerts_per_day=options.get(
-                CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-                DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-            ),
-            smoothing_window=options.get(
-                CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-                DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
-            ),
-            startup_recovery_minutes=options.get(
-                CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-                DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
-            ),
-            auto_adapt=options.get(
-                CONF_RUNTIME_HEALTH_AUTO_ADAPT,
-                DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
-            ),
+            baseline_days=rhc.baseline_days,
+            warmup_samples=rhc.warmup_samples,
+            min_expected_events=rhc.min_expected_events,
+            hour_ratio_days=rhc.hour_ratio_days,
+            sensitivity=rhc.sensitivity,
+            burst_multiplier=rhc.burst_multiplier,
+            max_alerts_per_day=rhc.max_alerts_per_day,
+            smoothing_window=rhc.smoothing_window,
+            startup_recovery_minutes=rhc.restart_exclusion_minutes,
+            auto_adapt=rhc.auto_adapt,
         )
-        if runtime_enabled
+        if rhc.enabled
         else None
     )
-    if runtime_enabled:
+    if rhc.enabled:
         _LOGGER.debug("Runtime health monitoring enabled")
         if runtime_monitor is not None:
             await runtime_monitor.async_init_event_store()
@@ -435,7 +382,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "jinja_validator": jinja_validator,
         "service_validator": service_validator,
         "runtime_monitor": runtime_monitor,
-        "runtime_health_enabled": runtime_enabled,
+        "runtime_health_enabled": rhc.enabled,
         "reporter": reporter,
         "suppression_store": suppression_store,
         "learned_states_store": learned_states_store,
@@ -479,7 +426,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await knowledge_base.async_load_history()
     _LOGGER.info("State knowledge base loaded")
 
-    if runtime_enabled and runtime_monitor is not None:
+    if rhc.enabled and runtime_monitor is not None:
         try:
             await runtime_monitor.async_bootstrap_from_recorder(
                 _get_automation_configs(hass)
@@ -500,7 +447,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Invalidate entity cache when entities are added/removed/renamed
     @callback
     def _handle_entity_registry_change(_: Event) -> None:
-        validator.invalidate_entity_cache()
+        try:
+            validator.invalidate_entity_cache()
+        except Exception:
+            _LOGGER.debug("Entity registry change handler failed", exc_info=True)
 
     unsub_entity_reg = hass.bus.async_listen(
         er.EVENT_ENTITY_REGISTRY_UPDATED,  # pyright: ignore[reportArgumentType]
@@ -514,8 +464,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entity_id = payload.get("entity_id")
         if not isinstance(entity_id, str) or not entity_id.startswith("zone."):
             return
-        if hasattr(knowledge_base, "invalidate_location_caches"):
-            knowledge_base.invalidate_location_caches()
+        try:
+            if hasattr(knowledge_base, "invalidate_location_caches"):
+                knowledge_base.invalidate_location_caches()
+        except Exception:
+            _LOGGER.debug("Zone state change handler failed", exc_info=True)
 
     unsub_zone_state = hass.bus.async_listen(
         cast(str, EVENT_STATE_CHANGED),
@@ -525,8 +478,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     @callback
     def _handle_area_registry_change(_: Event) -> None:
-        if hasattr(knowledge_base, "invalidate_location_caches"):
-            knowledge_base.invalidate_location_caches()
+        try:
+            if hasattr(knowledge_base, "invalidate_location_caches"):
+                knowledge_base.invalidate_location_caches()
+        except Exception:
+            _LOGGER.debug("Area registry change handler failed", exc_info=True)
 
     unsub_area_registry = hass.bus.async_listen(
         ar.EVENT_AREA_REGISTRY_UPDATED,  # pyright: ignore[reportArgumentType]
@@ -534,7 +490,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data[DOMAIN]["unsub_area_registry_listener"] = unsub_area_registry
 
-    if runtime_enabled and runtime_monitor is not None:
+    if rhc.enabled and runtime_monitor is not None:
 
         @callback
         def _handle_runtime_trigger(event: Event) -> None:
@@ -544,12 +500,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "automation."
             ):
                 return
-            suppression_store = hass.data.get(DOMAIN, {}).get("suppression_store")
-            runtime_monitor.ingest_trigger_event(
-                entity_id,
-                occurred_at=event.time_fired,
-                suppression_store=suppression_store,
-            )
+            try:
+                suppression_store = hass.data.get(DOMAIN, {}).get("suppression_store")
+                runtime_monitor.ingest_trigger_event(
+                    entity_id,
+                    occurred_at=event.time_fired,
+                    suppression_store=suppression_store,
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "Runtime trigger ingest failed for '%s'",
+                    entity_id,
+                    exc_info=True,
+                )
 
         unsub_runtime_trigger = hass.bus.async_listen(
             "automation_triggered",
@@ -846,6 +809,7 @@ async def _async_run_validators(
                     auto_name,
                     auto_id,
                     err,
+                    exc_info=True,
                 )
                 continue
     else:
