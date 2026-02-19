@@ -1526,6 +1526,13 @@ def test_condition_nesting_22_deep_stops_at_depth_limit() -> None:
     assert not any(i.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR for i in issues)
 
 
+def test_auto_vars_parameter_removed() -> None:
+    """Guard: auto_vars was never consumed -- _check_template ignored it."""
+    assert not hasattr(JinjaValidator, "_extract_automation_variables")
+    sig = inspect.signature(JinjaValidator._check_template)
+    assert "auto_vars" not in sig.parameters
+
+
 def test_condition_nesting_19_deep_finds_error() -> None:
     """19-deep condition nesting is under limit; error IS found.
 

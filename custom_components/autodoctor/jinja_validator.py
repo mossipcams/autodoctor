@@ -89,10 +89,6 @@ class JinjaValidator:
         """Validate all templates in a single automation."""
         issues: list[ValidationIssue] = []
 
-        # Extract automation-level variables (from variables: section or blueprint inputs)
-        # These are injected into the template context at runtime
-        auto_vars = self._extract_automation_variables(automation)
-
         # Validate triggers
         triggers = _ensure_list(
             automation.get("triggers") or automation.get("trigger", [])
@@ -100,7 +96,7 @@ class JinjaValidator:
         for idx, trigger in enumerate(triggers):
             if isinstance(trigger, dict):
                 issues.extend(
-                    self._validate_trigger(trigger, idx, auto_id, auto_name, auto_vars)
+                    self._validate_trigger(trigger, idx, auto_id, auto_name)
                 )
 
         # Validate conditions
@@ -110,7 +106,7 @@ class JinjaValidator:
         for idx, condition in enumerate(conditions):
             issues.extend(
                 self._validate_condition(
-                    condition, idx, auto_id, auto_name, "condition", auto_vars=auto_vars
+                    condition, idx, auto_id, auto_name, "condition"
                 )
             )
 
@@ -119,27 +115,10 @@ class JinjaValidator:
             automation.get("actions") or automation.get("action", [])
         )
         issues.extend(
-            self._validate_actions(actions, auto_id, auto_name, auto_vars=auto_vars)
+            self._validate_actions(actions, auto_id, auto_name)
         )
 
         return issues
-
-    def _extract_automation_variables(self, automation: dict[str, Any]) -> set[str]:
-        """Extract variable names defined at the automation level.
-
-        Collects variables from the automation's 'variables' section.
-        These are injected into the template context at runtime and are
-        available to all templates in the automation (triggers, conditions,
-        actions). Blueprint-based automations use this section to expose
-        blueprint input values as template variables.
-        """
-        auto_vars: set[str] = set()
-
-        variables = automation.get("variables")
-        if isinstance(variables, dict):
-            auto_vars.update(variables.keys())
-
-        return auto_vars
 
     def _validate_trigger(
         self,
@@ -147,7 +126,6 @@ class JinjaValidator:
         index: int,
         auto_id: str,
         auto_name: str,
-        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in a trigger."""
         issues: list[ValidationIssue] = []
@@ -161,7 +139,6 @@ class JinjaValidator:
                     f"trigger[{index}].value_template",
                     auto_id,
                     auto_name,
-                    auto_vars=auto_vars,
                 )
             )
 
@@ -179,7 +156,6 @@ class JinjaValidator:
                         f"trigger[{index}].{field_name}",
                         auto_id,
                         auto_name,
-                        auto_vars=auto_vars,
                     )
                 )
 
@@ -193,7 +169,6 @@ class JinjaValidator:
         auto_name: str,
         location_prefix: str,
         _depth: int = 0,
-        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in a condition."""
         issues: list[ValidationIssue] = []
@@ -215,7 +190,6 @@ class JinjaValidator:
                         f"{location_prefix}[{index}]",
                         auto_id,
                         auto_name,
-                        auto_vars=auto_vars,
                     )
                 )
             return issues
@@ -233,7 +207,6 @@ class JinjaValidator:
                     f"{location_prefix}[{index}].value_template",
                     auto_id,
                     auto_name,
-                    auto_vars=auto_vars,
                 )
             )
 
@@ -249,7 +222,6 @@ class JinjaValidator:
                         auto_name,
                         f"{location_prefix}[{index}].{key}",
                         _depth + 1,
-                        auto_vars=auto_vars,
                     )
                 )
 
@@ -262,7 +234,6 @@ class JinjaValidator:
         auto_name: str,
         location_prefix: str = "action",
         _depth: int = 0,
-        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in actions recursively."""
         issues: list[ValidationIssue] = []
@@ -277,25 +248,12 @@ class JinjaValidator:
 
         actions = _ensure_list(actions)
 
-        # Accumulate variables across the action sequence.
-        # In HA, a variables: action makes those names available to all
-        # subsequent actions in the same sequence.
-        accumulated_vars: set[str] = set(auto_vars) if auto_vars else set()
-
         for idx, action in enumerate(actions):
             if not isinstance(action, dict):
                 continue
             action = cast(dict[str, Any], action)
 
             location = f"{location_prefix}[{idx}]"
-
-            # Collect variables defined at this action level and add to
-            # accumulated scope so later actions in the sequence can see them
-            action_variables = action.get("variables")
-            if isinstance(action_variables, dict):
-                accumulated_vars = accumulated_vars | set(action_variables.keys())
-
-            action_level_vars = accumulated_vars
 
             # Check service/action data for templates
             data = action.get("data", {})
@@ -306,7 +264,6 @@ class JinjaValidator:
                         f"{location}.data",
                         auto_id,
                         auto_name,
-                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -319,7 +276,6 @@ class JinjaValidator:
                         f"{location}.wait_template",
                         auto_id,
                         auto_name,
-                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -340,7 +296,6 @@ class JinjaValidator:
                                 auto_id,
                                 auto_name,
                                 f"{location}.choose[{opt_idx}].conditions",
-                                auto_vars=action_level_vars,
                             )
                         )
 
@@ -353,7 +308,6 @@ class JinjaValidator:
                             auto_name,
                             f"{location}.choose[{opt_idx}].sequence",
                             _depth + 1,
-                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -367,7 +321,6 @@ class JinjaValidator:
                             auto_name,
                             f"{location}.default",
                             _depth + 1,
-                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -382,7 +335,6 @@ class JinjaValidator:
                             auto_id,
                             auto_name,
                             f"{location}.if",
-                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -394,7 +346,6 @@ class JinjaValidator:
                         auto_name,
                         f"{location}.then",
                         _depth + 1,
-                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -407,7 +358,6 @@ class JinjaValidator:
                             auto_name,
                             f"{location}.else",
                             _depth + 1,
-                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -429,7 +379,6 @@ class JinjaValidator:
                                 auto_id,
                                 auto_name,
                                 f"{location}.repeat.{cond_key}",
-                                auto_vars=action_level_vars,
                             )
                         )
 
@@ -442,7 +391,6 @@ class JinjaValidator:
                         auto_name,
                         f"{location}.repeat.sequence",
                         _depth + 1,
-                        auto_vars=action_level_vars,
                     )
                 )
 
@@ -460,7 +408,6 @@ class JinjaValidator:
                             auto_name,
                             f"{location}.parallel[{branch_idx}]",
                             _depth + 1,
-                            auto_vars=action_level_vars,
                         )
                     )
 
@@ -472,7 +419,6 @@ class JinjaValidator:
         location: str,
         auto_id: str,
         auto_name: str,
-        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in action data fields."""
         issues: list[ValidationIssue] = []
@@ -485,7 +431,6 @@ class JinjaValidator:
                         f"{location}.{key}",
                         auto_id,
                         auto_name,
-                        auto_vars=auto_vars,
                     )
                 )
             elif isinstance(value, dict):
@@ -495,7 +440,6 @@ class JinjaValidator:
                         f"{location}.{key}",
                         auto_id,
                         auto_name,
-                        auto_vars=auto_vars,
                     )
                 )
             elif isinstance(value, list):
@@ -507,7 +451,6 @@ class JinjaValidator:
                                 f"{location}.{key}[{idx}]",
                                 auto_id,
                                 auto_name,
-                                auto_vars=auto_vars,
                             )
                         )
                     elif isinstance(item, dict):
@@ -517,7 +460,6 @@ class JinjaValidator:
                                 f"{location}.{key}[{idx}]",
                                 auto_id,
                                 auto_name,
-                                auto_vars=auto_vars,
                             )
                         )
 
@@ -586,7 +528,6 @@ class JinjaValidator:
         location: str,
         auto_id: str,
         auto_name: str,
-        auto_vars: set[str] | None = None,
     ) -> list[ValidationIssue]:
         """Check a template for syntax errors and semantic issues.
 
