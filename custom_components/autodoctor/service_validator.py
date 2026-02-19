@@ -7,6 +7,7 @@ from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any, cast
 
 from .models import IssueType, Severity, ValidationIssue
+from .validator import get_entity_suggestion
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -995,7 +996,7 @@ class ServiceCallValidator:
         """Suggest a correction for an invalid entity ID in target."""
         if "." not in invalid:
             return None
-        domain, name = invalid.split(".", 1)
+        domain = invalid.split(".", 1)[0]
         same_domain = [
             s.entity_id
             for s in self.hass.states.async_all()
@@ -1003,9 +1004,7 @@ class ServiceCallValidator:
         ]
         if not same_domain:
             return None
-        names = {eid.split(".", 1)[1]: eid for eid in same_domain}
-        matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
-        return names[matches[0]] if matches else None
+        return get_entity_suggestion(invalid, same_domain)
 
     def _suggest_param(self, invalid: str, valid_params: list[str]) -> str | None:
         """Suggest a correction for an unknown parameter name."""
