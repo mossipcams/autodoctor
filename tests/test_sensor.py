@@ -171,7 +171,7 @@ async def test_runtime_health_sensor_reports_active_runtime_alerts(
             entity_id="automation.hallway",
             location="runtime.health.count",
             message="Count anomaly",
-            issue_type=IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY,
+            issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
         ),
     ]
     hass.data[DOMAIN] = {"runtime_monitor": mock_runtime_monitor}

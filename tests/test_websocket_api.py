@@ -779,13 +779,13 @@ async def test_websocket_suppress_runtime_issue_records_dismissal(
         "type": "autodoctor/suppress",
         "automation_id": "automation.runtime_test",
         "entity_id": "automation.runtime_test",
-        "issue_type": "runtime_automation_gap",
+        "issue_type": "runtime_automation_silent",
     }
 
     await _invoke_command(websocket_suppress, hass, connection, msg)
 
     suppression_store.async_suppress.assert_called_once_with(
-        "automation.runtime_test:automation.runtime_test:runtime_automation_gap"
+        "automation.runtime_test:automation.runtime_test:runtime_automation_silent"
     )
     runtime_monitor.record_issue_dismissed.assert_called_once_with(
         "automation.runtime_test"
@@ -1305,7 +1305,7 @@ def test_format_issues_with_fixes_resolves_edit_url_when_entity_id_differs_from_
         entity_id="automation.runtime_test_auto",
         location="trigger[0]",
         message="Runtime issue",
-        issue_type=IssueType.RUNTIME_AUTOMATION_STALLED,
+        issue_type=IssueType.RUNTIME_AUTOMATION_SILENT,
     )
 
     entity = MagicMock()
@@ -1473,7 +1473,7 @@ async def test_websocket_runtime_health_issue_can_be_suppressed(
 ) -> None:
     """Runtime health issues should be filtered by existing suppression logic."""
     runtime_issue = _make_issue(
-        IssueType.RUNTIME_AUTOMATION_STALLED,
+        IssueType.RUNTIME_AUTOMATION_SILENT,
         Severity.ERROR,
         entity_id="automation.runtime_test",
     )

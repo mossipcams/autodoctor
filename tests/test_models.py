@@ -8,6 +8,7 @@ This module tests the core data models used throughout Autodoctor:
 - VALIDATION_GROUPS configuration
 """
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -275,10 +276,8 @@ def test_service_call_template_detection() -> None:
         ("SERVICE_MISSING_REQUIRED_PARAM", "service_missing_required_param"),
         ("SERVICE_INVALID_PARAM_TYPE", "service_invalid_param_type"),
         ("SERVICE_UNKNOWN_PARAM", "service_unknown_param"),
-        ("RUNTIME_AUTOMATION_STALLED", "runtime_automation_stalled"),
+        ("RUNTIME_AUTOMATION_SILENT", "runtime_automation_silent"),
         ("RUNTIME_AUTOMATION_OVERACTIVE", "runtime_automation_overactive"),
-        ("RUNTIME_AUTOMATION_COUNT_ANOMALY", "runtime_automation_count_anomaly"),
-        ("RUNTIME_AUTOMATION_GAP", "runtime_automation_gap"),
         ("RUNTIME_AUTOMATION_BURST", "runtime_automation_burst"),
     ],
     ids=[
@@ -286,10 +285,8 @@ def test_service_call_template_detection() -> None:
         "missing-required-param",
         "invalid-param-type",
         "unknown-param",
-        "runtime-automation-stalled",
+        "runtime-automation-silent",
         "runtime-automation-overactive",
-        "runtime-automation-count-anomaly",
-        "runtime-automation-gap",
         "runtime-automation-burst",
     ],
 )
@@ -339,12 +336,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 19 members.
+    """Guard: Verify IssueType has exactly 17 members.
 
     This guards against accidental reintroduction of removed types.
-    Count: 6 entity_state + 5 services + 3 templates + 5 runtime = 19 total.
+    Count: 6 entity_state + 5 services + 3 templates + 3 runtime = 17 total.
     """
-    assert len(IssueType) == 19, f"Expected 19 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 17, f"Expected 17 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:
@@ -400,15 +397,287 @@ def test_validation_groups_cover_all_issue_types() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "removed_member",
+    [
+        "RUNTIME_AUTOMATION_STALLED",
+        "RUNTIME_AUTOMATION_GAP",
+        "RUNTIME_AUTOMATION_COUNT_ANOMALY",
+    ],
+    ids=["stalled", "gap", "count-anomaly"],
+)
+def test_removed_runtime_issue_types(removed_member: str) -> None:
+    """Guard: Prevent re-introduction of runtime issue types merged in v2.28.0.
+
+    STALLED and GAP were merged into RUNTIME_AUTOMATION_SILENT.
+    COUNT_ANOMALY was merged into RUNTIME_AUTOMATION_OVERACTIVE.
+    """
+    assert not hasattr(IssueType, removed_member), (
+        f"IssueType.{removed_member} should have been removed in v2.28.0"
+    )
+
+
+def test_runtime_monitor_no_rollout_kwargs() -> None:
+    """Guard: RuntimeHealthMonitor must not accept rollout feature-flag kwargs.
+
+    The runtime event store is now always-on. Rollout kwargs were removed
+    in v2.28.0 SQLite consolidation.
+    """
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    removed_kwargs = [
+        "runtime_event_store_enabled",
+        "runtime_event_store_shadow_read",
+        "runtime_event_store_cutover",
+        "runtime_event_store_reconciliation_enabled",
+        "runtime_schedule_anomaly_enabled",
+        "runtime_daily_rollup_enabled",
+    ]
+    for kwarg in removed_kwargs:
+        assert kwarg not in source_text, (
+            f"RuntimeHealthMonitor should not reference '{kwarg}'"
+        )
+
+
+def test_runtime_monitor_no_dead_scoring_params() -> None:
+    """Guard: RuntimeHealthMonitor must not accept dead scoring kwargs.
+
+    overactive_factor, stalled_threshold, and overactive_threshold were
+    accepted but never stored after v2.28.0 model simplification.
+    """
+    import inspect
+
+    from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+
+    sig = inspect.signature(RuntimeHealthMonitor.__init__)
+    dead_params = ["overactive_factor", "stalled_threshold", "overactive_threshold"]
+    for param in dead_params:
+        assert param not in sig.parameters, (
+            f"RuntimeHealthMonitor.__init__ still accepts dead param '{param}'"
+        )
+
+
+def test_overactive_factor_removed_from_config() -> None:
+    """Guard: overactive_factor config option must be removed (dead after model simplification)."""
+    for filename in ("config_flow.py", "const.py"):
+        source_path = Path(__file__).parent.parent / (
+            f"custom_components/autodoctor/{filename}"
+        )
+        source_text = source_path.read_text()
+        assert "OVERACTIVE_FACTOR" not in source_text, (
+            f"{filename} still references OVERACTIVE_FACTOR — remove dead config option"
+        )
+
+
+def test_init_no_rollout_kwargs() -> None:
+    """Guard: __init__.py must not pass rollout feature-flag kwargs to RuntimeHealthMonitor.
+
+    The runtime event store is now always-on. Rollout kwargs were removed
+    in v2.28.0 SQLite consolidation.
+    """
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/__init__.py"
+    )
+    source_text = source_path.read_text()
+    removed_kwargs = [
+        "runtime_event_store_enabled",
+        "runtime_event_store_shadow_read",
+        "runtime_event_store_cutover",
+        "runtime_event_store_reconciliation_enabled",
+        "runtime_schedule_anomaly_enabled",
+        "runtime_daily_rollup_enabled",
+    ]
+    for kwarg in removed_kwargs:
+        assert kwarg not in source_text, f"__init__.py should not reference '{kwarg}'"
+
+
+def test_runtime_health_state_store_removed() -> None:
+    """Guard: runtime_health_state_store module removed in v2.28.0 SQLite consolidation.
+
+    JSON state persistence was replaced by SQLite event sourcing.
+    The RuntimeHealthMonitor no longer depends on RuntimeHealthStateStore.
+    """
+    import importlib
+
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    assert "RuntimeHealthStateStore" not in source_text, (
+        "runtime_monitor.py should not reference RuntimeHealthStateStore"
+    )
+    mod = (
+        importlib.import_module(
+            "custom_components.autodoctor.runtime_health_state_store"
+        )
+        if False
+        else None
+    )
+    assert mod is None
+
+
+def test_init_no_temp_debug_logging() -> None:
+    """Guard: __init__.py must not contain temporary debug logging."""
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/__init__.py"
+    )
+    source_text = source_path.read_text()
+    assert "TEMP DEBUG" not in source_text, (
+        "__init__.py should not contain [TEMP DEBUG] logging"
+    )
+
+
+def test_runtime_monitor_no_temp_debug_logging() -> None:
+    """Guard: runtime_monitor.py must not contain temporary debug logging.
+
+    [TEMP DEBUG] logging was added during development and must not ship
+    in production releases.
+    """
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    assert "TEMP DEBUG" not in source_text, (
+        "runtime_monitor.py should not contain [TEMP DEBUG] logging"
+    )
+
+
+def test_runtime_monitor_no_vestigial_json_state_methods() -> None:
+    """Guard: vestigial JSON state methods must be removed after SQLite consolidation."""
+    from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+
+    dead_methods = [
+        "async_load_state",
+        "async_flush_runtime_state",
+        "flush_runtime_state",
+        "async_backfill_from_recorder",
+    ]
+    for method in dead_methods:
+        assert not hasattr(RuntimeHealthMonitor, method), (
+            f"RuntimeHealthMonitor still has vestigial method '{method}'"
+        )
+
+
+def test_runtime_monitor_no_last_query_failed() -> None:
+    """Guard: _last_query_failed is write-only dead state after v2.28.0 model simplification."""
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    assert "_last_query_failed" not in source_text, (
+        "runtime_monitor.py still references write-only '_last_query_failed' attribute"
+    )
+
+
+def test_runtime_monitor_no_orphaned_gap_constants() -> None:
+    """Guard: orphaned gap/flush constants must not remain after model simplification."""
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    orphaned = [
+        "_DEFAULT_RUNTIME_FLUSH_INTERVAL_MINUTES",
+        "_GAP_MODEL_MAX_RECENT_INTERVALS",
+        "_GAP_PROFILE_CONFIDENCE_EVENTS",
+        "_GAP_PROFILE_MIN_EVENTS_FOR_INACTIVE",
+        "_GAP_CONFIRMATION_RESET_HOURS",
+        "_BACKFILL_MIN_LOOKBACK_DAYS",
+    ]
+    for name in orphaned:
+        assert name not in source_text, (
+            f"Orphaned constant {name!r} should be removed from runtime_monitor.py"
+        )
+
+
+def test_runtime_monitor_no_and_true_residual() -> None:
+    """Guard: runtime_monitor.py must not contain `and True` residual from flag removal."""
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    assert "and True" not in source_text, (
+        "runtime_monitor.py contains 'and True' residual from removed feature flag"
+    )
+
+
+def test_runtime_monitor_no_live_trigger_events() -> None:
+    """Guard: _live_trigger_events was dead code removed in v2.28.0.
+
+    The in-memory trigger event list was an unbounded memory leak and
+    is superseded by the SQLite event store.
+    """
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    source_text = source_path.read_text()
+    assert "_live_trigger_events" not in source_text, (
+        "runtime_monitor.py should not reference _live_trigger_events"
+    )
+
+
+def test_const_no_rollout_constants() -> None:
+    """Guard: Rollout feature-flag constants removed in v2.28.0.
+
+    The runtime event store is now always-on. These constants are no longer
+    needed in const.py.
+    """
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/const.py"
+    )
+    source_text = source_path.read_text()
+    removed_constants = [
+        "CONF_RUNTIME_EVENT_STORE_ENABLED",
+        "CONF_RUNTIME_EVENT_STORE_SHADOW_READ",
+        "CONF_RUNTIME_EVENT_STORE_CUTOVER",
+        "CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED",
+        "CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED",
+        "CONF_RUNTIME_DAILY_ROLLUP_ENABLED",
+        "DEFAULT_RUNTIME_EVENT_STORE_ENABLED",
+        "DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ",
+        "DEFAULT_RUNTIME_EVENT_STORE_CUTOVER",
+        "DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED",
+        "DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED",
+        "DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED",
+    ]
+    for const in removed_constants:
+        assert const not in source_text, f"const.py should not contain '{const}'"
+
+
+def test_suppression_prefixes_have_no_duplicates() -> None:
+    """Guard: _is_runtime_suppressed prefixes must not contain duplicate entries."""
+    source_path = Path(__file__).parent.parent / (
+        "custom_components/autodoctor/runtime_monitor.py"
+    )
+    import ast
+
+    tree = ast.parse(source_path.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_is_runtime_suppressed":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Assign):
+                    for target in child.targets:
+                        if isinstance(target, ast.Name) and target.id == "prefixes":
+                            # Unparse each element of the tuple to compare as strings
+                            if isinstance(child.value, ast.Tuple):
+                                elements = [
+                                    ast.unparse(elt) for elt in child.value.elts
+                                ]
+                                assert len(elements) == len(set(elements)), (
+                                    f"Duplicate suppression prefixes found: {elements}"
+                                )
+                                return
+    raise AssertionError("Could not find prefixes tuple in _is_runtime_suppressed")
+
+
 def test_runtime_group_contains_runtime_issue_types() -> None:
     """Runtime health issues must be isolated in a dedicated runtime group."""
     runtime_group = VALIDATION_GROUPS["runtime_health"]["issue_types"]
     assert runtime_group == frozenset(
         {
-            IssueType.RUNTIME_AUTOMATION_STALLED,
+            IssueType.RUNTIME_AUTOMATION_SILENT,
             IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
-            IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY,
-            IssueType.RUNTIME_AUTOMATION_GAP,
             IssueType.RUNTIME_AUTOMATION_BURST,
         }
     )

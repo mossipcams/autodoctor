@@ -984,10 +984,8 @@ async def websocket_suppress(
     await _async_reconcile_visible_issues(hass)
 
     runtime_issue_types = {
-        IssueType.RUNTIME_AUTOMATION_STALLED.value,
+        IssueType.RUNTIME_AUTOMATION_SILENT.value,
         IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value,
-        IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY.value,
-        IssueType.RUNTIME_AUTOMATION_GAP.value,
         IssueType.RUNTIME_AUTOMATION_BURST.value,
     }
     if msg["issue_type"] in runtime_issue_types:

@@ -29,11 +29,6 @@ from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_CUTOVER,
-    CONF_RUNTIME_EVENT_STORE_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -42,23 +37,16 @@ from .const import (
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     CONF_RUNTIME_HEALTH_SENSITIVITY,
     CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-    CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
-    DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
-    DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
-    DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
-    DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-    DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -67,12 +55,10 @@ from .const import (
     DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
     DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
-    DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
@@ -503,10 +489,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
                 DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
             ),
-            overactive_factor=options.get(
-                CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
-                DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
-            ),
             hour_ratio_days=options.get(
                 CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
                 DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
@@ -534,30 +516,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             auto_adapt=options.get(
                 CONF_RUNTIME_HEALTH_AUTO_ADAPT,
                 DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
-            ),
-            runtime_event_store_enabled=options.get(
-                CONF_RUNTIME_EVENT_STORE_ENABLED,
-                DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
-            ),
-            runtime_event_store_shadow_read=options.get(
-                CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
-                DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
-            ),
-            runtime_event_store_cutover=options.get(
-                CONF_RUNTIME_EVENT_STORE_CUTOVER,
-                DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
-            ),
-            runtime_event_store_reconciliation_enabled=options.get(
-                CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-                DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-            ),
-            runtime_schedule_anomaly_enabled=options.get(
-                CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
-                DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
-            ),
-            runtime_daily_rollup_enabled=options.get(
-                CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
-                DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
             ),
         )
         if runtime_enabled
@@ -625,15 +583,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if runtime_enabled and runtime_monitor is not None:
         try:
-            await runtime_monitor.async_load_state()
-        except Exception as err:
-            _LOGGER.warning("Runtime state load failed during setup: %s", err)
-        try:
-            await runtime_monitor.async_backfill_from_recorder(
+            await runtime_monitor.async_bootstrap_from_recorder(
                 _get_automation_configs(hass)
             )
         except Exception as err:
-            _LOGGER.warning("Runtime history backfill failed during setup: %s", err)
+            _LOGGER.warning("Runtime recorder bootstrap failed: %s", err)
+        try:
+            await runtime_monitor.async_rebuild_models_from_store()
+        except Exception as err:
+            _LOGGER.warning("Runtime model rebuild failed during setup: %s", err)
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
@@ -682,36 +640,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         @callback
         def _handle_runtime_trigger(event: Event) -> None:
-            # TEMPORARY DEBUG: trace event arrival
-            _LOGGER.debug(
-                "[TEMP DEBUG] automation_triggered event received: data=%s",
-                event.data,
-            )
             payload = event.data if isinstance(event.data, dict) else {}
             entity_id = payload.get("entity_id")
             if not isinstance(entity_id, str) or not entity_id.startswith(
                 "automation."
             ):
-                # TEMPORARY DEBUG: trace filtered-out events
-                _LOGGER.debug(
-                    "[TEMP DEBUG] Event filtered out: entity_id=%r", entity_id
-                )
                 return
             suppression_store = hass.data.get(DOMAIN, {}).get("suppression_store")
-            # TEMPORARY DEBUG: trace dispatch to monitor
-            _LOGGER.debug(
-                "[TEMP DEBUG] Dispatching to ingest_trigger_event: entity_id=%s time=%s",
-                entity_id,
-                event.time_fired,
-            )
             runtime_monitor.ingest_trigger_event(
                 entity_id,
                 occurred_at=event.time_fired,
                 suppression_store=suppression_store,
             )
 
-        # TEMPORARY DEBUG: confirm listener registration
-        _LOGGER.debug("[TEMP DEBUG] Registering automation_triggered listener")
         unsub_runtime_trigger = hass.bus.async_listen(
             "automation_triggered",
             _handle_runtime_trigger,
@@ -773,14 +714,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             unsub_runtime_gap()
 
         runtime_monitor = data.get("runtime_monitor")
-        if runtime_monitor is not None and hasattr(
-            runtime_monitor, "async_flush_runtime_state"
-        ):
-            try:
-                await runtime_monitor.async_flush_runtime_state()
-            except Exception as err:
-                _LOGGER.debug("Failed to flush runtime state during unload: %s", err)
-
         if runtime_monitor is not None and hasattr(
             runtime_monitor, "async_close_event_store"
         ):
