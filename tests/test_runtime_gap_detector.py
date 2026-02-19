@@ -77,6 +77,19 @@ def test_runtime_issue_types_constant_removed() -> None:
     )
 
 
+def test_gap_model_removed_from_automation_state() -> None:
+    """gap_model was only used by gap detector and should be removed."""
+    state = RuntimeHealthMonitor._empty_automation_state()
+    assert "gap_model" not in state, "gap_model should have been removed"
+
+
+def test_update_gap_model_method_removed() -> None:
+    """_update_gap_model was only used by gap detector and should be removed."""
+    assert not hasattr(RuntimeHealthMonitor, "_update_gap_model"), (
+        "_update_gap_model should have been removed"
+    )
+
+
 def test_record_issue_dismissed_does_not_write_gap_keys() -> None:
     """record_issue_dismissed should not write gap-related adaptation keys."""
     from unittest.mock import MagicMock

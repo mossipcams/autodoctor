@@ -264,8 +264,8 @@ def test_out_of_order_runtime_events_do_not_backdate_last_trigger(
     monitor.ingest_trigger_event(aid, occurred_at=older)
 
     state = monitor.get_runtime_state()
-    gap_last_trigger = state["automations"][aid]["gap_model"]["last_trigger"]
-    assert gap_last_trigger == newer.isoformat()
+    last_trigger = state["automations"][aid]["last_trigger"]
+    assert last_trigger == newer.isoformat()
 
     bucket = state["automations"][aid]["count_model"]["buckets"][
         monitor.classify_time_bucket(newer)
@@ -306,8 +306,8 @@ def test_rebuild_models_from_store_populates_bocpd_from_sqlite(
     assert bucket["current_day"] == now.date().isoformat()
     assert bucket["current_count"] == 0
 
-    # Gap model should have last_trigger seeded from store
-    last_trigger = state["automations"][aid]["gap_model"]["last_trigger"]
+    # last_trigger should be seeded from store
+    last_trigger = state["automations"][aid]["last_trigger"]
     assert last_trigger is not None
 
 

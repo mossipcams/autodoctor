@@ -623,6 +623,9 @@ def _setup_reload_listener(
     return hass.bus.async_listen("automation_reloaded", _handle_automation_reload)
 
 
+_MAINTENANCE_INTERVAL_DAYS = 7
+
+
 def _setup_periodic_scan_listener(
     hass: HomeAssistant, interval_hours: int
 ) -> Callable[[], None]:
@@ -634,6 +637,30 @@ def _setup_periodic_scan_listener(
             await async_validate_all(hass)
         except Exception as err:
             _LOGGER.warning("Periodic validation scan failed: %s", err)
+
+        # Run weekly maintenance if due
+        data = hass.data.get(DOMAIN, {})
+        runtime_monitor = data.get("runtime_monitor")
+        if runtime_monitor is not None:
+            try:
+                state = runtime_monitor.get_runtime_state()
+                last_maintenance = state.get("last_weekly_maintenance")
+                run_maintenance = False
+                if last_maintenance is None:
+                    run_maintenance = True
+                else:
+                    last_dt = datetime.fromisoformat(last_maintenance)
+                    if datetime.now(UTC) - last_dt >= timedelta(
+                        days=_MAINTENANCE_INTERVAL_DAYS
+                    ):
+                        run_maintenance = True
+                if run_maintenance:
+                    _LOGGER.debug("Running weekly maintenance")
+                    await hass.async_add_executor_job(
+                        runtime_monitor.run_weekly_maintenance
+                    )
+            except Exception as err:
+                _LOGGER.debug("Weekly maintenance check failed: %s", err)
 
     return async_track_time_interval(
         hass,
