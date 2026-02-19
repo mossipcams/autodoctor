@@ -1640,14 +1640,6 @@ async def test_async_setup() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_load_state_method_removed() -> None:
-    """Guard: RuntimeHealthMonitor.async_load_state was removed in v2.28.0."""
-    from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
-
-    assert not hasattr(RuntimeHealthMonitor, "async_load_state")
-
-
-@pytest.mark.asyncio
 async def test_unload_entry_does_not_call_async_flush_runtime_state() -> None:
     """async_unload_entry should NOT call async_flush_runtime_state (removed in v2.28.0)."""
     from custom_components.autodoctor import async_unload_entry
@@ -2358,6 +2350,18 @@ async def test_validate_all_loads_history() -> None:
         await async_validate_all_with_groups(mock_hass)
 
     mock_kb.async_load_history.assert_called_once()
+
+
+def test_validate_automation_schema_requires_automation_id() -> None:
+    """validate_automation service schema must require automation_id."""
+    import voluptuous as vol
+
+    from custom_components.autodoctor import SERVICE_VALIDATE_AUTOMATION_SCHEMA
+
+    with pytest.raises(vol.error.MultipleInvalid):
+        SERVICE_VALIDATE_AUTOMATION_SCHEMA({})
+    result = SERVICE_VALIDATE_AUTOMATION_SCHEMA({"automation_id": "automation.test"})
+    assert result["automation_id"] == "automation.test"
 
 
 @pytest.mark.asyncio
@@ -3428,3 +3432,29 @@ async def test_unload_entry_closes_runtime_event_store() -> None:
     result = await async_unload_entry(hass, entry)
     assert result is True
     mock_monitor.async_close_event_store.assert_awaited_once()
+
+
+async def test_unload_entry_closes_event_store_on_platform_failure() -> None:
+    """Event store must be closed even when platform unloading fails."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    mock_monitor = MagicMock()
+    mock_monitor.async_close_event_store = AsyncMock()
+    mock_unsub = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_runtime_trigger_listener": mock_unsub,
+            "runtime_monitor": mock_monitor,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is False
+    mock_monitor.async_close_event_store.assert_awaited_once()
+    mock_unsub.assert_called_once()

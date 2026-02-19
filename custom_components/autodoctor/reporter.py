@@ -58,6 +58,11 @@ class IssueReporter:
             "IssueReporter initialized, has_issue_registry=%s", has_issue_registry
         )
 
+    @property
+    def active_issues(self) -> frozenset[str]:
+        """Return the set of currently active issue IDs."""
+        return self._active_issues
+
     def _automation_issue_id(self, automation_id: str) -> str:
         """Generate a unique issue ID for an automation."""
         return automation_id.replace(".", "_")
@@ -194,13 +199,3 @@ class IssueReporter:
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             except Exception as err:
                 _LOGGER.warning("Failed to delete issue %s: %s", issue_id, err)
-
-    def clear_all_issues(self) -> None:
-        """Clear all issues."""
-        # Take snapshot of current issues before clearing
-        issues_to_clear = self._active_issues
-        for issue_id in issues_to_clear:
-            # Note: ir.async_delete_issue is synchronous despite the name
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-        # Atomic assignment
-        self._active_issues = frozenset()

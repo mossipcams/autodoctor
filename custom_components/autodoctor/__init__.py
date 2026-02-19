@@ -75,7 +75,7 @@ from .models import (
 from .reporter import IssueReporter
 from .runtime_monitor import RuntimeHealthMonitor
 from .service_validator import ServiceCallValidator
-from .suppression_store import SuppressionStore
+from .suppression_store import SuppressionStore, filter_suppressed_issues
 from .validator import ValidationEngine
 from .websocket_api import async_setup_websocket_api
 
@@ -90,6 +90,12 @@ CARD_URL_BASE = "/autodoctor/autodoctor-card.js"
 SERVICE_VALIDATE_SCHEMA = vol.Schema(
     {
         vol.Optional("automation_id"): cv.entity_id,
+    }
+)
+
+SERVICE_VALIDATE_AUTOMATION_SCHEMA = vol.Schema(
+    {
+        vol.Required("automation_id"): cv.entity_id,
     }
 )
 
@@ -161,24 +167,6 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
     return []
 
 
-def _filter_suppressed_issues(
-    issues: list[ValidationIssue],
-    suppression_store: SuppressionStore | None,
-) -> tuple[list[ValidationIssue], int]:
-    """Return visible issues and suppressed count for the given issue list."""
-    if not suppression_store:
-        return list(issues), 0
-
-    visible: list[ValidationIssue] = []
-    suppressed_count = 0
-    for issue in issues:
-        if suppression_store.is_suppressed(issue.get_suppression_key()):
-            suppressed_count += 1
-            continue
-        visible.append(issue)
-    return visible, suppressed_count
-
-
 def _filter_group_issues_for_suppressions(
     group_issues: dict[str, list[ValidationIssue]],
     suppression_store: SuppressionStore | None,
@@ -189,7 +177,7 @@ def _filter_group_issues_for_suppressions(
     }
     total_suppressed = 0
     for gid in VALIDATION_GROUP_ORDER:
-        visible, suppressed_count = _filter_suppressed_issues(
+        visible, suppressed_count = filter_suppressed_issues(
             group_issues.get(gid, []),
             suppression_store,
         )
@@ -240,8 +228,8 @@ async def _async_reconcile_runtime_alert_surfaces(
         ),
     )
     merged_raw_issues = _replace_runtime_issues(existing_raw_issues, runtime_alerts)
-    visible_issues, _ = _filter_suppressed_issues(merged_raw_issues, suppression_store)
-    visible_runtime_issues, _ = _filter_suppressed_issues(
+    visible_issues, _ = filter_suppressed_issues(merged_raw_issues, suppression_store)
+    visible_runtime_issues, _ = filter_suppressed_issues(
         runtime_alerts, suppression_store
     )
 
@@ -681,56 +669,43 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    # Always clean up resources regardless of unload_ok to prevent leaks
+    data = hass.data.get(DOMAIN, {})
+
+    # Cancel pending debounce task
+    debounce_task = data.get("debounce_task")
+    if debounce_task is not None and not debounce_task.done():
+        debounce_task.cancel()
+
+    # Remove event listeners
+    for key in (
+        "unsub_reload_listener",
+        "unsub_periodic_scan_listener",
+        "unsub_entity_registry_listener",
+        "unsub_zone_state_listener",
+        "unsub_area_registry_listener",
+        "unsub_runtime_trigger_listener",
+        "unsub_runtime_gap_listener",
+    ):
+        unsub = data.get(key)
+        if unsub is not None:
+            unsub()
+
+    runtime_monitor = data.get("runtime_monitor")
+    if runtime_monitor is not None and hasattr(
+        runtime_monitor, "async_close_event_store"
+    ):
+        try:
+            await runtime_monitor.async_close_event_store()
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to close runtime event store during unload: %s",
+                err,
+            )
+
     if unload_ok:
-        data = hass.data.get(DOMAIN, {})
-
-        # Cancel pending debounce task
-        debounce_task = data.get("debounce_task")
-        if debounce_task is not None and not debounce_task.done():
-            debounce_task.cancel()
-
-        # Remove event listeners
-        unsub_reload = data.get("unsub_reload_listener")
-        if unsub_reload is not None:
-            unsub_reload()
-
-        unsub_periodic = data.get("unsub_periodic_scan_listener")
-        if unsub_periodic is not None:
-            unsub_periodic()
-
-        unsub_entity_reg = data.get("unsub_entity_registry_listener")
-        if unsub_entity_reg is not None:
-            unsub_entity_reg()
-
-        unsub_zone_state = data.get("unsub_zone_state_listener")
-        if unsub_zone_state is not None:
-            unsub_zone_state()
-
-        unsub_area_registry = data.get("unsub_area_registry_listener")
-        if unsub_area_registry is not None:
-            unsub_area_registry()
-
-        unsub_runtime_trigger = data.get("unsub_runtime_trigger_listener")
-        if unsub_runtime_trigger is not None:
-            unsub_runtime_trigger()
-
-        unsub_runtime_gap = data.get("unsub_runtime_gap_listener")
-        if unsub_runtime_gap is not None:
-            unsub_runtime_gap()
-
-        runtime_monitor = data.get("runtime_monitor")
-        if runtime_monitor is not None and hasattr(
-            runtime_monitor, "async_close_event_store"
-        ):
-            try:
-                await runtime_monitor.async_close_event_store()
-            except Exception as err:
-                _LOGGER.debug(
-                    "Failed to close runtime event store during unload: %s",
-                    err,
-                )
-
-        # Unregister services
+        # Unregister services and clear data only on successful unload
         hass.services.async_remove(DOMAIN, "validate")
         hass.services.async_remove(DOMAIN, "validate_automation")
         hass.services.async_remove(DOMAIN, "refresh_knowledge_base")
@@ -863,7 +838,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN,
         "validate_automation",
         handle_validate,
-        schema=SERVICE_VALIDATE_SCHEMA,
+        schema=SERVICE_VALIDATE_AUTOMATION_SCHEMA,
     )
     async_register_admin_service(
         hass,
@@ -1214,7 +1189,7 @@ async def async_validate_automation(
 
     result = await _async_run_validators(hass, [automation])
     suppression_store: SuppressionStore | None = data.get("suppression_store")
-    visible_current_issues, _ = _filter_suppressed_issues(
+    visible_current_issues, _ = filter_suppressed_issues(
         result["all_issues"],
         suppression_store,
     )

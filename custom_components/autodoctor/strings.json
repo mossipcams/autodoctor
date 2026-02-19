@@ -36,6 +36,25 @@
           "runtime_health_smoothing_window": "Runtime smoothing window",
           "runtime_health_restart_exclusion_minutes": "Runtime restart exclusion (minutes)",
           "runtime_health_auto_adapt": "Runtime auto-adapt baselines"
+        },
+        "data_description": {
+          "history_days": "Number of days of state history to analyze",
+          "validate_on_reload": "Run validation automatically whenever automations are reloaded",
+          "debounce_seconds": "Wait this many seconds after reload before validating (prevents multiple rapid validations)",
+          "periodic_scan_interval_hours": "Run a background validation scan every N hours and publish issues to Repairs",
+          "strict_template_validation": "Flag template expressions that reference undefined variables or use risky patterns",
+          "strict_service_validation": "Flag service calls with unrecognized target fields or missing required parameters",
+          "runtime_health_enabled": "Track automation trigger behavior over time and detect runtime anomalies",
+          "runtime_health_baseline_days": "Days of recorder history used to build runtime behavior baseline",
+          "runtime_health_warmup_samples": "Minimum active baseline days needed before ML anomaly detection starts",
+          "runtime_health_min_expected_events": "Minimum expected daily trigger count needed to evaluate stalling",
+          "runtime_health_hour_ratio_days": "Days used to compute current-hour activity ratio against historical same-hour behavior",
+          "runtime_health_sensitivity": "Sensitivity profile for count anomaly confidence intervals (low, medium, high)",
+          "runtime_health_burst_multiplier": "Multiplier over learned 5-minute baseline rate required to classify a burst",
+          "runtime_health_max_alerts_per_day": "Maximum runtime alerts emitted per automation per day",
+          "runtime_health_smoothing_window": "Number of consecutive anomalies before auto-adapt can reset the baseline",
+          "runtime_health_restart_exclusion_minutes": "Minutes to suppress runtime scoring after startup/restart",
+          "runtime_health_auto_adapt": "Automatically reset count baselines after persistent anomalies"
         }
       }
     }
@@ -48,6 +67,44 @@
     "automation_issues": {
       "title": "{automation} ({count} issues)",
       "description": "The following issues were found:\n\n{issues}"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "autodoctor_issues": {
+        "name": "Autodoctor Issues"
+      }
+    },
+    "binary_sensor": {
+      "autodoctor_ok": {
+        "name": "Autodoctor OK"
+      }
+    }
+  },
+  "services": {
+    "validate": {
+      "name": "Validate Automations",
+      "description": "Run validation on all automations or a specific one.",
+      "fields": {
+        "automation_id": {
+          "name": "Automation ID",
+          "description": "Optional: specific automation to validate. Leave empty to validate all."
+        }
+      }
+    },
+    "validate_automation": {
+      "name": "Validate Specific Automation",
+      "description": "Run validation on a specific automation.",
+      "fields": {
+        "automation_id": {
+          "name": "Automation ID",
+          "description": "The automation to validate."
+        }
+      }
+    },
+    "refresh_knowledge_base": {
+      "name": "Refresh Knowledge Base",
+      "description": "Rebuild the state knowledge base from recorder history and entity schemas."
     }
   }
 }

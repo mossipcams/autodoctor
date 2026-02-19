@@ -408,6 +408,33 @@ def test_websocket_api_imports_from_validator_not_fix_engine() -> None:
     )
 
 
+def test_entity_suggestion_methods_delegate_to_shared_function() -> None:
+    """Guard: _suggest_entity and _suggest_target_entity must delegate to get_entity_suggestion."""
+    from pathlib import Path
+
+    base = Path(__file__).parent.parent / "custom_components" / "autodoctor"
+    for filename in ("validator.py", "service_validator.py"):
+        source = (base / filename).read_text()
+        # The private methods should not call get_close_matches directly
+        # — they should delegate to get_entity_suggestion
+        lines = source.split("\n")
+        in_suggest_method = False
+        for line in lines:
+            if "def _suggest_entity(" in line or "def _suggest_target_entity(" in line:
+                in_suggest_method = True
+                continue
+            if in_suggest_method and (
+                line.strip().startswith("def ")
+                or (line.strip() and not line[0].isspace())
+            ):
+                in_suggest_method = False
+            if in_suggest_method and "get_close_matches" in line:
+                pytest.fail(
+                    f"{filename} has get_close_matches in a suggest method — "
+                    "delegate to get_entity_suggestion instead"
+                )
+
+
 @pytest.mark.asyncio
 async def test_async_load_history_times_out_on_slow_recorder() -> None:
     """Guard: Verify async_load_history has internal timeout for slow recorder.

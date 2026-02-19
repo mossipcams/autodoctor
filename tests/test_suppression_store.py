@@ -413,3 +413,41 @@ async def test_is_suppressed_during_async_load_race(hass: HomeAssistant) -> None
     # Results should be consistent (all True or a mix during brief window)
     # At least some should be True since the key exists before and after load
     assert any(check_results), "Key should be suppressed at least sometimes"
+
+
+def test_filter_suppressed_issues_importable() -> None:
+    """filter_suppressed_issues should be importable from suppression_store module."""
+    from custom_components.autodoctor.models import (
+        IssueType,
+        Severity,
+        ValidationIssue,
+    )
+    from custom_components.autodoctor.suppression_store import filter_suppressed_issues
+
+    # With no store, all issues pass through
+
+    issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.foo",
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+        message="not found",
+        location="trigger[0]",
+    )
+    visible, suppressed = filter_suppressed_issues([issue], None)
+    assert visible == [issue]
+    assert suppressed == 0
+
+
+def test_no_duplicate_filter_in_init_or_websocket_api() -> None:
+    """Guard: suppression filtering must use the shared filter_suppressed_issues function."""
+    from pathlib import Path
+
+    base = Path(__file__).parent.parent / "custom_components" / "autodoctor"
+    for filename in ("__init__.py", "websocket_api.py"):
+        source = (base / filename).read_text()
+        assert "def _filter_suppressed" not in source, (
+            f"{filename} still defines its own _filter_suppressed — "
+            "use filter_suppressed_issues from suppression_store instead"
+        )

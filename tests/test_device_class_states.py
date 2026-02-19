@@ -3,7 +3,7 @@
 import pytest
 
 from custom_components.autodoctor.device_class_states import (
-    get_all_known_domains,
+    DEVICE_CLASS_STATES,
     get_device_class_states,
 )
 
@@ -76,15 +76,11 @@ def test_unknown_domain_returns_none() -> None:
     assert states is None
 
 
-def test_get_all_known_domains() -> None:
-    """Test retrieval of all domains with predefined state mappings.
+def test_get_all_known_domains_removed() -> None:
+    """Guard: get_all_known_domains was never called from production — use DEVICE_CLASS_STATES directly."""
+    import custom_components.autodoctor.device_class_states as dcs
 
-    This is used by the validation engine to determine which domains can
-    be validated using hardcoded state lists versus requiring entity
-    history lookup. Critical domains like binary_sensor, lock, and person
-    must be present.
-    """
-    domains = get_all_known_domains()
-    assert "binary_sensor" in domains
-    assert "lock" in domains
-    assert "person" in domains
+    assert not hasattr(dcs, "get_all_known_domains")
+    assert "binary_sensor" in DEVICE_CLASS_STATES
+    assert "lock" in DEVICE_CLASS_STATES
+    assert "person" in DEVICE_CLASS_STATES

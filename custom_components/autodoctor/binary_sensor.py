@@ -56,7 +56,7 @@ class ValidationOkSensor(BinarySensorEntity):
         data = self.hass.data.get(DOMAIN, {})
         reporter = data.get("reporter")
         if reporter:
-            return len(reporter._active_issues) > 0
+            return len(reporter.active_issues) > 0
         return False
 
 

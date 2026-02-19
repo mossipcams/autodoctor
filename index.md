@@ -2,7 +2,7 @@
 
 A Home Assistant custom integration that validates automations to detect state-related issues before they cause silent failures.
 
-**Version:** 2.13.3
+**Version:** 2.28.3
 **Requirements:** Home Assistant 2024.1+, Python 3.12+
 
 ## Directory Structure
@@ -11,6 +11,7 @@ A Home Assistant custom integration that validates automations to detect state-r
 autodoctor/
 ├── custom_components/autodoctor/    # Main integration code
 │   ├── __init__.py                  # Integration setup & lifecycle
+│   ├── action_walker.py              # Shared recursive action traversal
 │   ├── analyzer.py                  # Automation parsing & extraction
 │   ├── binary_sensor.py             # Integration health sensor
 │   ├── config_flow.py               # Configuration UI
@@ -23,7 +24,7 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── runtime_event_store.py       # Runtime event/score SQLite storage
-│   ├── runtime_monitor.py           # River-based runtime health monitoring
+│   ├── runtime_monitor.py           # BOCPD-based runtime health monitoring
 │   ├── sensor.py                    # Issue count sensor
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── service_validator.py         # Service call validation
@@ -37,7 +38,9 @@ autodoctor/
 │   ├── services.yaml                # Service definitions
 │   └── strings.json                 # UI strings
 ├── scripts/                         # Utility scripts
-│   └── extract_ha_states.py         # Extract valid states from HA source
+│   ├── extract_ha_states.py         # Extract valid states from HA source
+│   ├── pre_pr_checks.sh             # Pre-PR validation gate
+│   └── runtime_gap_backtest.py      # Backtest gap detection on historical data
 ├── tests/                           # Test suite
 ├── docs/plans/                      # Design documents
 └── www/autodoctor/                  # Frontend source (TypeScript)
@@ -46,6 +49,7 @@ autodoctor/
     ├── autodoc-issue-group.ts       # Issue group sub-component
     ├── autodoc-pipeline.ts          # Validation pipeline sub-component
     ├── autodoc-suppressions.ts      # Suppressions management sub-component
+    ├── badges.ts                    # Error/warning/healthy badge components
     ├── types.ts                     # Shared TypeScript interfaces
     └── styles.ts                    # Shared CSS design tokens & styles
 ```
@@ -56,7 +60,8 @@ autodoctor/
 - **`__init__.py`** - Entry point, HA lifecycle hooks, automation extraction
 
 ### Analysis Layer
-- **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions (21 trigger types, 10 condition types, depth-limited recursion)
+- **`action_walker.py`** - Shared recursive action traversal (`walk_automation_actions`) with `visit_action`/`visit_condition` callbacks, handles choose/if/repeat/parallel nesting with depth limits
+- **`analyzer.py`** - Parses automation configs, extracts state references from triggers/conditions/actions (17 trigger types, 10 condition types, depth-limited recursion)
 - **`validator.py`** - Validates state references and attribute values against knowledge base (conservative mode: only validates whitelisted domains with stable states); also provides `get_entity_suggestion()` for fuzzy entity matching
 - **`service_validator.py`** - Validates service calls against HA service registry (existence, required params, capability-dependent param handling, select/enum option validation)
 - **`ha_catalog.py`** - Dataclass-based registry of HA's Jinja2 filters and tests (101 filters, 23 tests). Single source of truth for filter/test name recognition.
@@ -67,12 +72,12 @@ autodoctor/
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 ### Data Models
-- **`models.py`** - Core structures: `Severity`, `IssueType`, `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
+- **`models.py`** - Core structures: `Severity`, `IssueType` (17 members), `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
-- **`runtime_event_store.py`** - Local SQLite runtime event and score history store (trigger events, backfill metadata, score telemetry)
-- **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types)
+- **`runtime_event_store.py`** - Local SQLite runtime event and score history store (trigger events, backfill metadata, score telemetry); exports shared `classify_time_bucket()` utility
+- **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types); exports shared `filter_suppressed_issues()` utility
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
 - **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection with BOCPD (opt-in)
@@ -82,8 +87,8 @@ autodoctor/
 - **`binary_sensor.py`** - Integration health status
 
 ### Configuration
-- **`config_flow.py`** - Single-instance setup, options for history lookback, debounce delay, strict validation modes
-- **`const.py`** - Domain, version, configuration keys, `STATE_VALIDATION_WHITELIST`, `MAX_RECURSION_DEPTH`, strict validation flags
+- **`config_flow.py`** - Single-instance setup, options for history lookback, debounce delay, strict validation modes, runtime health settings
+- **`const.py`** - Domain, version, configuration keys, `STATE_VALIDATION_WHITELIST`, `MAX_RECURSION_DEPTH`, strict validation flags, runtime health defaults
 
 ## WebSocket API
 
@@ -99,6 +104,9 @@ autodoctor/
 | `autodoctor/validation/steps` | Get cached per-group validation results |
 | `autodoctor/list_suppressions` | List all suppressed issues with metadata |
 | `autodoctor/unsuppress` | Remove a single suppression by key |
+| `autodoctor/fix_preview` | Preview whether a safe scalar replacement can be applied |
+| `autodoctor/fix_apply` | Apply a guarded scalar replacement to automation config (admin only) |
+| `autodoctor/fix_undo` | Undo a previously applied fix |
 
 ## Services
 
@@ -113,8 +121,20 @@ autodoctor/
 | History lookback | 30 days | How far back to check recorder history for valid states |
 | Validate on reload | ON | Auto-validate when automations are reloaded |
 | Debounce delay | 5s | Delay before running validation after config changes |
+| Periodic scan interval | 4 hours | How often to run periodic background scans |
 | **Strict template validation** | OFF | Enable warnings for unknown Jinja2 filters/tests (disable if using custom components) |
 | **Strict service validation** | OFF | Enable warnings for unknown service parameters (may flag valid capability-dependent params) |
+| **Runtime health enabled** | OFF | Enable runtime trigger-behavior anomaly detection |
+| Runtime health baseline days | 30 | Days of history for runtime baseline |
+| Runtime health warmup samples | 3 | Minimum samples before alerting |
+| Runtime health min expected events | 0 | Minimum expected events threshold |
+| Runtime health hour ratio days | 30 | Days for hourly ratio calculation |
+| Runtime health sensitivity | medium | Alert sensitivity level (low/medium/high) |
+| Runtime health burst multiplier | 4.0 | Multiplier for burst detection |
+| Runtime health max alerts per day | 10 | Rate limit for daily alerts |
+| Runtime health smoothing window | 5 | EMA smoothing window for score computation |
+| Runtime health restart exclusion | 5 min | Minutes after HA restart to suppress alerts |
+| Runtime health auto-adapt | ON | Automatically adapt baseline from learned behavior |
 
 **Validation Philosophy**: Autodoctor defaults to high-confidence validations to minimize false positives. Strict modes are opt-in for users who want more comprehensive checking and are willing to manage occasional false positives.
 
@@ -169,6 +189,15 @@ Validates Jinja2 template syntax and filter/test usage. Entity validation is han
 - Recursively walks nested action structures (choose, if/then/else, repeat, parallel) with depth limiting
 - **Removed in v2.14.0**: Entity existence, state validity, attribute existence, and registry reference checks (were a duplicate code path generating false positives)
 
+### 4. Runtime Health Monitoring (`runtime_monitor.py`)
+Opt-in anomaly detection for automation trigger behavior using BOCPD (Bayesian Online Changepoint Detection).
+
+| Check | Severity | Description |
+|-------|----------|-------------|
+| Automation silent | WARNING | Automation stopped triggering during its usual active period |
+| Automation overactive | WARNING | Automation triggering significantly more than baseline |
+| Automation burst | WARNING | Sudden burst of triggers in a short time window |
+
 ## Trigger Type Coverage
 
 Supports all 17 Home Assistant trigger types:
@@ -190,45 +219,61 @@ Supports all 10 Home Assistant condition types:
 
 ## Test Files
 
-**Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
+**Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters.
 
-**Test Coverage:** 1065 tests passing, ~15,600 lines
+**Test Coverage:** 1086 tests passing, ~25,800 lines
 
 **Core Test Files:**
-- `test_analyzer.py` (99 tests) - Automation parsing (21 trigger types, 10 condition types, depth limits)
-- `test_validator.py` (39 tests) - State validation engine
-- `test_knowledge_base.py` (52 tests) - Multi-source state truth (device classes, learned states, capabilities, history)
-- `test_service_validator.py` (40 tests, 78 parameterized cases) - Service call validation
-- `test_jinja_validator.py` (60 tests) - Jinja2 template syntax and semantics
-- `test_init.py` (38 tests) - Integration lifecycle and orchestration
-- `test_websocket_api.py` (20 tests) - WebSocket API commands
-- `test_models.py` (16 tests, 28 parameterized cases) - Data models and enum validation
-- `test_ha_catalog.py` (19 tests, 50 parameterized cases) - HA Jinja2 catalog completeness
-- `test_architectural_improvements.py` (16 tests) - Guard tests for architectural decisions (with "Guard:" docstrings)
-- `test_reporter.py` (4 tests) - Issue reporting to repair registry
-- `test_learned_states_store.py` (14 tests) - Learned state persistence, domain/integration isolation, unicode, concurrency
-- `test_entity_suggestion.py` (4 tests, 8 parameterized cases) - Fuzzy entity matching
-- `test_device_class_states.py` (8 tests) - Device class default states
+- `test_analyzer.py` (103 tests) - Automation parsing (17 trigger types, 10 condition types, depth limits)
+- `test_validator.py` (46 tests) - State validation engine
+- `test_knowledge_base.py` (75 tests) - Multi-source state truth (device classes, learned states, capabilities, history)
+- `test_service_validator.py` (121 tests) - Service call validation
+- `test_jinja_validator.py` (62 tests) - Jinja2 template syntax and semantics
+- `test_init.py` (87 tests) - Integration lifecycle and orchestration
+- `test_websocket_api.py` (55 tests) - WebSocket API commands
+- `test_models.py` (34 tests) - Data models and enum validation
+- `test_ha_catalog.py` (14 tests) - HA Jinja2 catalog completeness
+- `test_architectural_improvements.py` (21 tests) - Guard tests for architectural decisions
+- `test_reporter.py` (22 tests) - Issue reporting to repair registry
+- `test_learned_states_store.py` (15 tests) - Learned state persistence, domain/integration isolation, unicode, concurrency
+- `test_entity_suggestion.py` (4 tests) - Fuzzy entity matching
+- `test_device_class_states.py` (3 tests) - Device class default states
 - `test_websocket_api_learning.py` (3 tests) - State learning on suppression
-- `test_suppression_store.py` (10 tests) - Orphan cleanup, async_clear_all (CRITICAL), data verification, edge cases, concurrency
-- `test_config_flow.py` (6 tests) - Configuration UI flow
-- `test_sensor.py` (6 tests) - Issue count sensor platform
-- `test_binary_sensor.py` (5 tests) - Health status sensor platform
-- `test_defect_regressions.py` (4 tests) - P0/P1 defect regression tests (hass.data update, template data crash, required param skip, entity cache recovery)
-- `test_attribute_value_validation.py` (11 tests) - Attribute value validation (analyzer extraction, validator checks, edge cases)
+- `test_suppression_store.py` (14 tests) - Orphan cleanup, async_clear_all, data verification, edge cases, concurrency
+- `test_config_flow.py` (20 tests) - Configuration UI flow
+- `test_sensor.py` (8 tests) - Issue count sensor platform
+- `test_binary_sensor.py` (6 tests) - Health status sensor platform
+- `test_defect_regressions.py` (7 tests) - P0/P1 defect regression tests
+- `test_attribute_value_validation.py` (19 tests) - Attribute value validation (analyzer extraction, validator checks, edge cases)
+
+**Runtime Health Test Files:**
+- `test_runtime_monitor.py` (69 tests) - Runtime health monitor: scoring, gap/count/burst detection, alert lifecycle
+- `test_runtime_bocpd.py` (14 tests) - BOCPD detector: changepoint detection, convergence, edge cases
+- `test_runtime_gap_detector.py` (11 tests) - Gap detection: time bucketing, threshold scaling, day-type handling
+- `test_runtime_three_model.py` (13 tests) - Three-model integration: count+gap+burst interaction, auto-adapt, suppression
+- `test_runtime_event_store.py` (17 tests) - SQLite event store: schema, read/write, migration, score history
+- `test_async_runtime_event_store.py` (4 tests) - Async event store wrapper: executor delegation, saturation
+- `test_runtime_alert_rate_limit.py` (3 tests) - Alert rate limiting
+- `test_runtime_burst_detector.py` (2 tests) - Burst detection logic
+- `test_runtime_gap_backtest_script.py` (1 test) - Gap backtest script validation
+- `test_runtime_gap_replay.py` (1 test) - Gap replay edge cases
 
 **Property-Based Test Files (Hypothesis fuzzing, 200 examples each):**
-- `test_property_based.py` (8 tests) - Analyzer/service-validator functions: automation extraction, template parsing, state normalization
-- `test_property_based_validator.py` (12 tests) - Validator/device-class/domain-attribute pure functions: entity suggestions, state lookups, attribute mappings
-- `test_property_based_jinja.py` (9 tests) - Jinja validator pure functions: template validation, nested action structures, variable extraction
-- `test_property_based_remaining.py` (12 tests) - Reporter, websocket_api, knowledge_base, and models pure functions: issue formatting, status computation, domain extraction
-- `test_property_based_stores.py` (16 tests) - LearnedStatesStore and SuppressionStore: hierarchical isolation, key parsing, orphan cleanup, unicode handling
-- `test_property_based_analyzer_advanced.py` (11 tests) - Advanced analyzer patterns: filter chains, nested control flow, registry functions, parallel actions, multiline templates
+- `test_property_based.py` (8 tests) - Analyzer/service-validator functions
+- `test_property_based_validator.py` (12 tests) - Validator/device-class/domain-attribute pure functions
+- `test_property_based_jinja.py` (8 tests) - Jinja validator pure functions
+- `test_property_based_remaining.py` (12 tests) - Reporter, websocket_api, knowledge_base, and models pure functions
+
+**Other:**
+- `test_card_edit_link.py` (1 test) - Frontend card edit link validation
+- `test_environment.py` (1 test) - Test environment sanity checks
 - `conftest.py` - Shared fixtures (all type-annotated)
 
 ## Scripts
 
 - `scripts/extract_ha_states.py` - Extract valid states from Home Assistant source code
+- `scripts/pre_pr_checks.sh` - Pre-PR validation gate (formatting, built-card drift)
+- `scripts/runtime_gap_backtest.py` - Backtest gap detection parameters on historical trigger data
 
 ## Validation Narrowing (v2.7.0 -- v2.14.0)
 
@@ -241,7 +286,7 @@ Autodoctor has undergone validation scope narrowing to reduce false positives an
 - Basic service parameter type checking (number/boolean/text validation unreliable due to YAML coercion)
 - Filter argument count validation (CatalogEntry simplified to name/kind/source/category only)
 - `for_each` template variable extraction (produced false positives)
-- **Template entity validation (v2.14.0)**: Entity existence, state validity, attribute existence, and registry reference checks removed from `jinja_validator.py` -- these were a duplicate code path also covered by `validator.py` via the analyzer, and generated false positives. 7 TEMPLATE_* IssueType members removed (14 remain). Cross-family dedup machinery removed.
+- **Template entity validation (v2.14.0)**: Entity existence, state validity, attribute existence, and registry reference checks removed from `jinja_validator.py` -- these were a duplicate code path also covered by `validator.py` via the analyzer, and generated false positives. 7 TEMPLATE_* IssueType members removed (17 remain: 14 static + 3 runtime). Cross-family dedup machinery removed.
 
 **Conservative State Validation:**
 - State validation now only applies to domains with stable, well-defined states
@@ -259,7 +304,3 @@ Autodoctor has undergone validation scope narrowing to reduce false positives an
 
 **Suppression Auto-Cleanup (v2.14.0):**
 - Suppressions referencing removed IssueType members are automatically cleaned on load
-
-### Rationale
-
-Better to miss some issues than generate noise and reduce trust. Focus on deterministic, high-confidence validations. Users can opt into stricter checking if they prefer comprehensive coverage over precision.

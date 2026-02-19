@@ -7,14 +7,11 @@ import contextlib
 import json
 import logging
 import math
-import sqlite3
-import threading
 from collections import defaultdict
 from collections.abc import Iterable
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
-from pathlib import Path
 from statistics import fmean, median
 from typing import Any, ClassVar, Protocol, cast
 
@@ -25,14 +22,13 @@ from .const import (
     DOMAIN,
 )
 from .models import IssueType, Severity, ValidationIssue
-from .runtime_event_store import AsyncRuntimeEventStore, RuntimeEventStore
+from .runtime_event_store import (
+    AsyncRuntimeEventStore,
+    RuntimeEventStore,
+    classify_time_bucket,
+)
 
 _LOGGER = logging.getLogger(__name__)
-_TELEMETRY_RETENTION_DAYS = 90
-_BUCKET_NIGHT_START_HOUR = 22
-_BUCKET_MORNING_START_HOUR = 5
-_BUCKET_AFTERNOON_START_HOUR = 12
-_BUCKET_EVENING_START_HOUR = 17
 _SPARSE_WARMUP_LOOKBACK_DAYS = 90
 
 
@@ -386,7 +382,6 @@ class RuntimeHealthMonitor:
         dismissed_threshold_multiplier: float = 1.25,
         cold_start_days: int = 7,
         startup_recovery_minutes: int = 0,
-        telemetry_db_path: str | None = None,
         detector: _Detector | None = None,
         sensitivity: str = "medium",
         burst_multiplier: float = 4.0,
@@ -441,14 +436,6 @@ class RuntimeHealthMonitor:
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}
-        self._telemetry_table_ensured = False
-        self._telemetry_lock = threading.Lock()
-        default_db_path = None
-        if telemetry_db_path:
-            default_db_path = telemetry_db_path
-        elif hasattr(hass, "config") and hasattr(hass.config, "path"):
-            default_db_path = hass.config.path("autodoctor_runtime_health.sqlite")
-        self._telemetry_db_path = default_db_path
         self._last_run_stats: dict[str, int] = {}
         self._runtime_state: dict[str, Any] = {
             "schema_version": 2,
@@ -496,17 +483,7 @@ class RuntimeHealthMonitor:
     @staticmethod
     def classify_time_bucket(timestamp: datetime) -> str:
         """Map timestamp into weekday/weekend x daypart bucket."""
-        day_type = "weekend" if timestamp.weekday() >= 5 else "weekday"
-        hour = timestamp.hour
-        if _BUCKET_MORNING_START_HOUR <= hour < _BUCKET_AFTERNOON_START_HOUR:
-            daypart = "morning"
-        elif _BUCKET_AFTERNOON_START_HOUR <= hour < _BUCKET_EVENING_START_HOUR:
-            daypart = "afternoon"
-        elif _BUCKET_EVENING_START_HOUR <= hour < _BUCKET_NIGHT_START_HOUR:
-            daypart = "evening"
-        else:
-            daypart = "night"
-        return f"{day_type}_{daypart}"
+        return classify_time_bucket(timestamp)
 
     def ingest_trigger_event(
         self,
@@ -1711,17 +1688,6 @@ class RuntimeHealthMonitor:
             smoothed_score = self._smoothed_score(
                 automation_entity_id, score, persisted_ema=prefetched_ema
             )
-            telemetry_ok = await self.hass.async_add_executor_job(
-                partial(
-                    self._log_score_telemetry,
-                    automation_id=automation_entity_id,
-                    score=smoothed_score,
-                    now=now,
-                    features=current_row,
-                )
-            )
-            if not telemetry_ok:
-                stats["telemetry_write_failed"] += 1
             if self._runtime_event_store is not None:
                 try:
                     await self.hass.async_add_executor_job(
@@ -1816,23 +1782,6 @@ class RuntimeHealthMonitor:
     def _compute_window_size(expected_daily: float) -> int:
         return max(16, min(1024, int(max(1.0, expected_daily) * 30)))
 
-    @staticmethod
-    def _percentile(values: list[int], quantile: float) -> float:
-        """Return linear-interpolated percentile for an integer sample."""
-        if not values:
-            return 0.0
-        q = min(1.0, max(0.0, float(quantile)))
-        ordered = sorted(values)
-        if len(ordered) == 1:
-            return float(ordered[0])
-        position = q * float(len(ordered) - 1)
-        lower = math.floor(position)
-        upper = math.ceil(position)
-        if lower == upper:
-            return float(ordered[lower])
-        weight = position - float(lower)
-        return float((1.0 - weight) * ordered[lower] + (weight * ordered[upper]))
-
     def _effective_warmup_samples(
         self,
         *,
@@ -1856,56 +1805,6 @@ class RuntimeHealthMonitor:
         if expected_daily < 1.0:
             return min(required, 2)
         return required
-
-    def _log_score_telemetry(
-        self,
-        *,
-        automation_id: str,
-        score: float,
-        now: datetime,
-        features: dict[str, float],
-    ) -> bool:
-        if not self._telemetry_db_path:
-            return True
-
-        db_path = Path(self._telemetry_db_path)
-        try:
-            with sqlite3.connect(db_path) as conn:
-                with self._telemetry_lock:
-                    if not self._telemetry_table_ensured:
-                        conn.execute(
-                            """
-                            CREATE TABLE IF NOT EXISTS runtime_health_scores (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                ts TEXT NOT NULL,
-                                automation_id TEXT NOT NULL,
-                                score REAL NOT NULL,
-                                features_json TEXT NOT NULL
-                            )
-                            """
-                        )
-                        self._telemetry_table_ensured = True
-                conn.execute(
-                    """
-                    INSERT INTO runtime_health_scores (ts, automation_id, score, features_json)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        now.isoformat(),
-                        automation_id,
-                        float(score),
-                        json.dumps(features, separators=(",", ":")),
-                    ),
-                )
-                cutoff = (now - timedelta(days=_TELEMETRY_RETENTION_DAYS)).isoformat()
-                conn.execute(
-                    "DELETE FROM runtime_health_scores WHERE ts < ?",
-                    (cutoff,),
-                )
-            return True
-        except Exception as err:
-            _LOGGER.debug("Failed writing runtime score telemetry: %s", err)
-            return False
 
     @staticmethod
     def _count_events_in_range(

@@ -158,7 +158,6 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
-
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
@@ -188,7 +187,6 @@ async def test_options_step_init_rejects_warmup_over_baseline(
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
-
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
@@ -225,7 +223,6 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 3,
-
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 

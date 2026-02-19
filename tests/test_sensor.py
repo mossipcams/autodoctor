@@ -120,7 +120,7 @@ async def test_extra_state_attributes_with_issues(hass: HomeAssistant) -> None:
     sensor = ValidationIssuesSensor(hass, entry)
 
     mock_reporter = MagicMock()
-    mock_reporter._active_issues = frozenset({"issue_1", "issue_2"})
+    mock_reporter.active_issues = frozenset({"issue_1", "issue_2"})
     hass.data[DOMAIN] = {"reporter": mock_reporter}
 
     attrs = sensor.extra_state_attributes

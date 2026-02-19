@@ -51,7 +51,6 @@ class StateReference:
     expected_state: str | None
     expected_attribute: str | None
     location: str  # e.g., "trigger[0].to", "condition[1].state"
-    source_line: int | None = None
     transition_from: str | None = None
     # Type of reference: direct entity, group, device, area, or integration
     reference_type: str = "direct"
@@ -128,8 +127,6 @@ class ServiceCall:
     target: dict[str, Any] | None = None
     data: dict[str, Any] | None = None
     is_template: bool = False
-    is_blueprint_instance: bool = False
-    source_line: int | None = None
 
 
 # Validation group definitions: maps group ID to label and member IssueTypes.

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .models import IssueType
+
+if TYPE_CHECKING:
+    from .models import ValidationIssue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,3 +116,18 @@ class SuppressionStore:
     def count(self) -> int:
         """Return number of suppressions."""
         return len(self._suppressions)
+
+
+def filter_suppressed_issues(
+    issues: list[ValidationIssue],
+    suppression_store: SuppressionStore | None,
+) -> tuple[list[ValidationIssue], int]:
+    """Return visible issues and suppressed count."""
+    if not suppression_store:
+        return list(issues), 0
+    visible = [
+        i
+        for i in issues
+        if not suppression_store.is_suppressed(i.get_suppression_key())
+    ]
+    return visible, len(issues) - len(visible)

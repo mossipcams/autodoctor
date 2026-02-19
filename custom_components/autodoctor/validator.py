@@ -374,17 +374,12 @@ class ValidationEngine:
             return None
 
         self._ensure_entity_cache()
-        domain, name = invalid.split(".", 1)
-
+        domain = invalid.split(".", 1)[0]
         same_domain = self._entity_cache.get(domain, [])  # pyright: ignore[reportOptionalMemberAccess]
         if not same_domain:
             return None
 
-        # Match on name portion only with higher threshold
-        names = {eid.split(".", 1)[1]: eid for eid in same_domain}
-        matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
-
-        return names[matches[0]] if matches else None
+        return get_entity_suggestion(invalid, same_domain)
 
     def _suggest_attribute(self, invalid: str, valid_attrs: list[str]) -> str | None:
         """Suggest a correction for an invalid attribute."""

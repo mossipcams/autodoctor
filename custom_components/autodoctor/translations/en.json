@@ -3,11 +3,11 @@
     "step": {
       "user": {
         "title": "Autodoctor",
-        "description": "Set up automation validation to detect state-related issues before they cause failures."
+        "description": "Set up automation validation to detect state-related issues."
       }
     },
     "abort": {
-      "single_instance_allowed": "Only a single instance of Autodoctor is allowed."
+      "single_instance_allowed": "Only a single instance is allowed."
     }
   },
   "options": {
@@ -17,18 +17,18 @@
     },
     "step": {
       "init": {
-        "title": "Autodoctor Options",
+        "title": "Options",
         "data": {
-          "history_days": "History lookback period (days)",
-          "validate_on_reload": "Automatically validate when automations are reloaded",
-          "debounce_seconds": "Debounce delay before validation (seconds)",
+          "history_days": "History lookback (days)",
+          "validate_on_reload": "Validate on automation reload",
+          "debounce_seconds": "Debounce delay (seconds)",
           "periodic_scan_interval_hours": "Periodic scan interval (hours)",
           "strict_template_validation": "Strict template validation",
           "strict_service_validation": "Strict service validation",
           "runtime_health_enabled": "Enable runtime health monitoring (ML)",
           "runtime_health_baseline_days": "Runtime baseline history (days)",
           "runtime_health_warmup_samples": "Runtime warmup samples",
-          "runtime_health_min_expected_events": "Runtime minimum expected events/day",
+          "runtime_health_min_expected_events": "Runtime min expected events/day",
           "runtime_health_hour_ratio_days": "Runtime hour-ratio lookback (days)",
           "runtime_health_sensitivity": "Runtime sensitivity",
           "runtime_health_burst_multiplier": "Runtime burst multiplier",
@@ -62,7 +62,7 @@
   "issues": {
     "validation_issue": {
       "title": "Automation Issue: {automation}",
-      "description": "**Entity:** `{entity}`\n\n**Problem:** {message}\n\n**Suggested fix:** {suggestion}\n\n**Valid states:** {valid_states}"
+      "description": "**Entity:** {entity}\n\n**Issue:** {message}\n\n**Suggestion:** {suggestion}\n\n**Valid states:** {valid_states}"
     },
     "automation_issues": {
       "title": "{automation} ({count} issues)",
@@ -92,13 +92,13 @@
         }
       }
     },
-    "simulate": {
-      "name": "Verify Outcomes",
-      "description": "Verify that automation actions are reachable.",
+    "validate_automation": {
+      "name": "Validate Specific Automation",
+      "description": "Run validation on a specific automation.",
       "fields": {
         "automation_id": {
           "name": "Automation ID",
-          "description": "Optional: specific automation to verify. Leave empty to verify all."
+          "description": "The automation to validate."
         }
       }
     },

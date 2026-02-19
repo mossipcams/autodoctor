@@ -1271,39 +1271,6 @@ async def test_none_placeholder_entity_id_is_validated_as_missing(
         service="light.turn_on",
         location="action[0]",
         target={"entity_id": "none"},
-        is_blueprint_instance=True,
-    )
-
-    issues = validator.validate_service_calls([call])
-    target_issues = [
-        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
-    ]
-    assert len(target_issues) == 1
-    assert target_issues[0].entity_id == "none"
-
-
-async def test_none_placeholder_entity_id_non_blueprint_is_validated(
-    hass: HomeAssistant,
-) -> None:
-    """Non-blueprint literal entity_id='none' should still be validated."""
-
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
-
-    validator = ServiceCallValidator(hass)
-    validator._service_descriptions = {
-        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
-    }
-
-    call = ServiceCall(
-        automation_id="automation.test",
-        automation_name="Test",
-        service="light.turn_on",
-        location="action[0]",
-        target={"entity_id": "none"},
-        is_blueprint_instance=False,
     )
 
     issues = validator.validate_service_calls([call])

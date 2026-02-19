@@ -144,43 +144,6 @@ def test_check_template_strict_never_crashes(template: str) -> None:
 
 
 # ============================================================================
-# JinjaValidator._extract_automation_variables tests
-# ============================================================================
-
-
-@given(
-    automation=st.fixed_dictionaries(
-        {},
-        optional={
-            "variables": st.one_of(
-                st.none(),
-                st.dictionaries(
-                    st.text(max_size=20), st.text(max_size=50), max_size=10
-                ),
-                st.text(max_size=50),  # Wrong type
-                st.integers(),  # Wrong type
-                st.lists(st.text(max_size=20), max_size=5),  # Wrong type
-            ),
-        },
-    )
-)
-@settings(max_examples=200)
-def test_extract_automation_variables_never_crashes(automation: dict[str, Any]) -> None:
-    """Property: _extract_automation_variables handles any automation dict without crashing.
-
-    Tests that:
-    - Dict with variables dict returns set of keys
-    - Dict with None/missing variables returns empty set
-    - Dict with wrong-typed variables returns empty set
-    - Never raises exceptions
-    """
-    validator = JinjaValidator(hass=None)
-    result = validator._extract_automation_variables(automation)
-    assert isinstance(result, set)
-    assert all(isinstance(var, str) for var in result)
-
-
-# ============================================================================
 # JinjaValidator.validate_automations tests - main entry point
 # ============================================================================
 

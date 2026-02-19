@@ -62,7 +62,7 @@ class ValidationIssuesSensor(SensorEntity):
         reporter = data.get("reporter")
         if reporter:
             # Backward compatibility fallback for older in-memory shape.
-            return len(reporter._active_issues)
+            return len(reporter.active_issues)
         return 0
 
     @property
@@ -74,7 +74,7 @@ class ValidationIssuesSensor(SensorEntity):
         attrs: dict[str, Any] = {}
         if reporter:
             # Take snapshot - frozenset is immutable so this is safe
-            issues = reporter._active_issues
+            issues = reporter.active_issues
             attrs["issue_ids"] = list(issues)
 
         if runtime_monitor:

@@ -36,7 +36,6 @@ def test_state_reference_creation() -> None:
         expected_state="home",
         expected_attribute=None,
         location="trigger[0].to",
-        source_line=10,
     )
     assert ref.automation_id == "automation.welcome_home"
     assert ref.expected_state == "home"
@@ -457,6 +456,23 @@ def test_runtime_monitor_no_dead_scoring_params() -> None:
         assert param not in sig.parameters, (
             f"RuntimeHealthMonitor.__init__ still accepts dead param '{param}'"
         )
+
+
+def test_source_line_field_removed() -> None:
+    """Guard: source_line was never set in production — remove from StateReference and ServiceCall."""
+    assert "source_line" not in {
+        f.name for f in StateReference.__dataclass_fields__.values()
+    }
+    assert "source_line" not in {
+        f.name for f in ServiceCall.__dataclass_fields__.values()
+    }
+
+
+def test_is_blueprint_instance_field_removed() -> None:
+    """Guard: is_blueprint_instance was threaded through analyzer but never read in production."""
+    assert "is_blueprint_instance" not in {
+        f.name for f in ServiceCall.__dataclass_fields__.values()
+    }
 
 
 def test_overactive_factor_removed_from_config() -> None:
