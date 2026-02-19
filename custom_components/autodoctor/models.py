@@ -123,8 +123,8 @@ class ServiceCall:
     automation_name: str
     service: str
     location: str
-    target: dict[str, Any] | None = None
-    data: dict[str, Any] | None = None
+    target: dict[str, Any] | str | None = None
+    data: dict[str, Any] | str | None = None
     is_template: bool = False
 
 

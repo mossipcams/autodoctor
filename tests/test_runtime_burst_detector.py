@@ -3,32 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from unittest.mock import MagicMock
 
 from custom_components.autodoctor.models import IssueType, Severity
-from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+from tests.conftest import build_runtime_monitor
 
 
-def _build_monitor(
-    tmp_path: Path, now: datetime, **kwargs: object
-) -> RuntimeHealthMonitor:
-    hass = MagicMock()
-    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
-    return RuntimeHealthMonitor(
-        hass,
-        now_factory=lambda: now,
-        warmup_samples=0,
-        min_expected_events=0,
-        **kwargs,
-    )
-
-
-def test_burst_detector_emits_immediate_critical_issue(tmp_path: Path) -> None:
+def test_burst_detector_emits_immediate_critical_issue() -> None:
     """Rapid trigger spikes should emit immediate burst runtime issues."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(
-        tmp_path,
+    monitor = build_runtime_monitor(
         now,
         burst_multiplier=2.0,
         max_alerts_per_day=20,
@@ -61,11 +44,10 @@ def test_burst_detector_emits_immediate_critical_issue(tmp_path: Path) -> None:
     assert "5m" in burst_issues[0].message
 
 
-def test_burst_alert_clears_after_quiet_period(tmp_path: Path) -> None:
+def test_burst_alert_clears_after_quiet_period() -> None:
     """Active burst alerts should clear after traffic returns to normal."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(
-        tmp_path,
+    monitor = build_runtime_monitor(
         now,
         burst_multiplier=2.0,
         max_alerts_per_day=20,

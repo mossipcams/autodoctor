@@ -373,8 +373,8 @@ def test_get_event_store_diagnostics_returns_runtime_store_state(
 
     diag = monitor.get_event_store_diagnostics()
 
-    assert diag["enabled"] is True
-    assert diag["cutover"] is True  # Always-on after v2.28.0
+    assert "enabled" not in diag  # Removed: hardcoded rollout vestige
+    assert "cutover" not in diag  # Removed: hardcoded rollout vestige
     assert diag["degraded"] is True
     assert diag["pending_jobs"] == 5
     assert diag["write_failures"] == 3
@@ -608,9 +608,9 @@ def test_training_and_current_rows_have_same_features() -> None:
 
 def test_bocpd_detector_scores_tail_events_higher_than_normal() -> None:
     """BOCPD detector should assign higher scores to tail events."""
-    from custom_components.autodoctor.runtime_monitor import _BOCPDDetector
+    from custom_components.autodoctor.runtime_monitor import BOCPDDetector
 
-    detector = _BOCPDDetector()
+    detector = BOCPDDetector()
 
     def _row(count_24h: float) -> dict[str, float]:
         return {
@@ -638,10 +638,10 @@ def test_runtime_monitor_defaults_to_bocpd_detector(
     hass: HomeAssistant,
 ) -> None:
     """Runtime monitor should default to BOCPD detector."""
-    from custom_components.autodoctor.runtime_monitor import _BOCPDDetector
+    from custom_components.autodoctor.runtime_monitor import BOCPDDetector
 
     monitor = RuntimeHealthMonitor(hass)
-    assert isinstance(monitor._detector, _BOCPDDetector)
+    assert isinstance(monitor._detector, BOCPDDetector)
 
 
 def test_runtime_monitor_shares_single_bocpd_instance_when_no_custom_detector(
@@ -1236,7 +1236,7 @@ async def test_validate_automations_does_not_emit_overactive_with_rate_limit(
 
 
 def test_fixed_score_detector_accepts_window_size_kwarg() -> None:
-    """Test detector must accept window_size to match the _Detector protocol."""
+    """Test detector must accept window_size to match the Detector protocol."""
     detector = _FixedScoreDetector(0.5)
     rows = [{"rolling_24h_count": 1.0}] * 3
     score = detector.score_current("auto.test", rows, window_size=32)
@@ -1852,3 +1852,139 @@ async def test_validate_automations_does_not_use_recorder_path(
         [_automation("runtime_test", "Kitchen")]
     )
     assert issues == []
+
+
+@pytest.mark.parametrize(
+    ("automation_dict", "expected"),
+    [
+        ({"entity_id": "automation.kitchen"}, "automation.kitchen"),
+        ({"__entity_id": "automation.living_room"}, "automation.living_room"),
+        ({"id": "motion_trigger"}, "automation.motion_trigger"),
+        ({"id": "automation.already_prefixed"}, "automation.already_prefixed"),
+        ({}, None),
+        ({"id": ""}, None),
+        ({"entity_id": "not_automation_prefix"}, None),
+        ({"entity_id": None, "id": "fallback"}, "automation.fallback"),
+    ],
+)
+def test_resolve_automation_entity_id_edge_cases(
+    automation_dict: dict, expected: str | None
+) -> None:
+    """_resolve_automation_entity_id should handle all key/prefix combinations."""
+    result = RuntimeHealthMonitor._resolve_automation_entity_id(automation_dict)
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_advance_count_bucket_to_day_branches(hass: HomeAssistant) -> None:
+    """_advance_count_bucket_to_day should handle init, same-day, and multi-day advance."""
+    from datetime import date
+
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(hass, now_factory=lambda: now)
+
+    # Branch 1: current_day is None → initializes and returns True
+    bucket_state: dict = {"current_count": 5}
+    result = monitor._advance_count_bucket_to_day(
+        bucket_name="weekday_morning",
+        bucket_state=bucket_state,
+        target_day=date(2026, 2, 18),
+    )
+    assert result is True
+    assert bucket_state["current_day"] == "2026-02-18"
+    assert bucket_state["current_count"] == 5
+
+    # Branch 2: current_day >= target_day → returns False
+    result = monitor._advance_count_bucket_to_day(
+        bucket_name="weekday_morning",
+        bucket_state=bucket_state,
+        target_day=date(2026, 2, 18),
+    )
+    assert result is False
+
+    # Branch 3: advance by one day
+    bucket_state2: dict = {"current_day": "2026-02-18", "current_count": 3}
+    result = monitor._advance_count_bucket_to_day(
+        bucket_name="weekday_morning",
+        bucket_state=bucket_state2,
+        target_day=date(2026, 2, 19),
+    )
+    assert result is True
+    assert bucket_state2["current_day"] == "2026-02-19"
+    assert bucket_state2["current_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_detect_burst_anomaly_fires_on_high_5m_count(
+    hass: HomeAssistant,
+) -> None:
+    """_detect_burst_anomaly should return issues when 5m window exceeds burst threshold."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(hass, now_factory=lambda: now, burst_multiplier=2.0)
+
+    # Build burst state: 10 triggers in the last hour (baseline ≈ 0.9/5m)
+    # plus 6 triggers in the last 5 minutes → should exceed threshold
+    recent_triggers = []
+    for i in range(10):
+        recent_triggers.append((now - timedelta(minutes=30 + i)).isoformat())
+    for i in range(6):
+        recent_triggers.append((now - timedelta(seconds=60 * i + 10)).isoformat())
+
+    automation_state: dict = {
+        "burst_model": {
+            "recent_triggers": recent_triggers,
+            "baseline_rate_5m": 1.0,
+        },
+    }
+
+    issues = monitor._detect_burst_anomaly(
+        automation_entity_id="automation.burst_test",
+        automation_state=automation_state,
+        now=now,
+    )
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_BURST
+
+    # No-alert branch: allow_alerts=False
+    issues = monitor._detect_burst_anomaly(
+        automation_entity_id="automation.burst_test",
+        automation_state=automation_state,
+        now=now,
+        allow_alerts=False,
+    )
+    assert issues == []
+
+    # Sub-threshold: few triggers should not fire
+    calm_state: dict = {
+        "burst_model": {
+            "recent_triggers": [(now - timedelta(minutes=10)).isoformat()],
+            "baseline_rate_5m": 0.0,
+        },
+    }
+    issues = monitor._detect_burst_anomaly(
+        automation_entity_id="automation.calm",
+        automation_state=calm_state,
+        now=now,
+    )
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_record_issue_dismissed_increases_threshold_multiplier(
+    hass: HomeAssistant,
+) -> None:
+    """record_issue_dismissed should bump dismissed_count and threshold_multiplier."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass, now_factory=lambda: now, dismissed_threshold_multiplier=1.25
+    )
+
+    monitor.record_issue_dismissed("automation.test")
+    state = monitor._runtime_state["automations"]["automation.test"]
+    adaptation = state["adaptation"]
+    assert adaptation["dismissed_count"] == 1
+    assert adaptation["threshold_multiplier"] == pytest.approx(1.25)
+
+    monitor.record_issue_dismissed("automation.test")
+    assert adaptation["dismissed_count"] == 2
+    assert adaptation["threshold_multiplier"] == pytest.approx(1.25 * 1.25)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING, Any, cast
 
 import jinja2.nodes as nodes
@@ -12,14 +11,12 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from .ha_catalog import get_known_filters, get_known_tests
 from .models import IssueType, Severity, ValidationIssue
+from .template_utils import is_template_value
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
-
-# Pattern to detect if a string contains Jinja2 template syntax
-TEMPLATE_PATTERN = re.compile(r"\{[{%#]")
 
 # Maximum nesting depth for template condition/action traversal.
 # Intentionally lower than const.MAX_RECURSION_DEPTH (50) because templates
@@ -336,7 +333,7 @@ class JinjaValidator:
 
     def _is_template(self, value: str) -> bool:
         """Check if a string contains Jinja2 template syntax."""
-        return bool(TEMPLATE_PATTERN.search(value))
+        return is_template_value(value)
 
     def _check_ast_semantics(
         self,

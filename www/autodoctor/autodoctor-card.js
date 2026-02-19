@@ -1059,6 +1059,16 @@ function renderBadges(counts, onNavigate, activeView) {
     const inSuppressions = activeView === "suppressions";
     const goToIssues = inSuppressions ? () => onNavigate?.("issues") : A;
     const navStyle = inSuppressions ? "cursor: pointer;" : "";
+    const navRole = inSuppressions ? "button" : A;
+    const navTabindex = inSuppressions ? "0" : A;
+    const navKeydown = inSuppressions
+        ? (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onNavigate?.("issues");
+            }
+        }
+        : A;
     return b `
     <div class="badges-row">
       ${counts.errors > 0
@@ -1066,7 +1076,10 @@ function renderBadges(counts, onNavigate, activeView) {
             class="badge badge-error"
             title="${counts.errors} error${counts.errors !== 1 ? "s" : ""}"
             style=${navStyle}
+            role=${navRole}
+            tabindex=${navTabindex}
             @click=${goToIssues}
+            @keydown=${navKeydown}
           >
             <span class="badge-icon" aria-hidden="true">\u2715</span>
             <span class="badge-count">${counts.errors}</span>
@@ -1077,7 +1090,10 @@ function renderBadges(counts, onNavigate, activeView) {
             class="badge badge-warning"
             title="${counts.warnings} warning${counts.warnings !== 1 ? "s" : ""}"
             style=${navStyle}
+            role=${navRole}
+            tabindex=${navTabindex}
             @click=${goToIssues}
+            @keydown=${navKeydown}
           >
             <span class="badge-icon" aria-hidden="true">!</span>
             <span class="badge-count">${counts.warnings}</span>
@@ -1088,7 +1104,10 @@ function renderBadges(counts, onNavigate, activeView) {
             class="badge badge-healthy"
             title="${counts.healthy} healthy"
             style=${navStyle}
+            role=${navRole}
+            tabindex=${navTabindex}
             @click=${goToIssues}
+            @keydown=${navKeydown}
           >
             <span class="badge-icon" aria-hidden="true">\u2713</span>
             <span class="badge-count">${counts.healthy}</span>
@@ -1478,21 +1497,36 @@ let AutodocSuppressions = class AutodocSuppressions extends i {
         this._loading = true;
         this._error = null;
         this._confirmingClearAll = false;
+        this._fetchRequestId = 0;
     }
     connectedCallback() {
         super.connectedCallback();
         this._fetchSuppressions();
     }
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._confirmTimeout) {
+            clearTimeout(this._confirmTimeout);
+            this._confirmTimeout = undefined;
+        }
+        // Increment request ID to discard in-flight responses
+        this._fetchRequestId++;
+    }
     async _fetchSuppressions() {
+        const requestId = ++this._fetchRequestId;
         this._loading = true;
         this._error = null;
         try {
             const resp = await this.hass.callWS({
                 type: "autodoctor/list_suppressions",
             });
+            if (requestId !== this._fetchRequestId)
+                return;
             this._suppressions = resp.suppressions;
         }
         catch (err) {
+            if (requestId !== this._fetchRequestId)
+                return;
             console.error("Failed to fetch suppressions:", err);
             this._error = "Failed to load suppressions";
         }
@@ -1920,6 +1954,7 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
         catch (err) {
             if (requestId === this._validationRequestId) {
                 console.error("Failed to run validation:", err);
+                this._showToast("Validation failed");
             }
         }
         // Only clear running flag if this is still the latest request
@@ -2034,9 +2069,9 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
         <div class="header">
           <h2 class="title">${title}</h2>
         </div>
-        <div class="card-content loading-state">
-          <div class="spinner" aria-label="Loading"></div>
-          <span class="loading-text">Checking automations...</span>
+        <div class="card-content loading-state" aria-busy="true">
+          <div class="spinner" aria-hidden="true"></div>
+          <span class="loading-text" aria-live="polite">Checking automations...</span>
         </div>
       </ha-card>
     `;
@@ -2163,6 +2198,7 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
         }
         catch (err) {
             console.error("Failed to suppress issue:", err);
+            this._showToast("Failed to suppress issue");
         }
         finally {
             this._suppressionInProgress = false;

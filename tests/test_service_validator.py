@@ -17,6 +17,12 @@ from homeassistant.core import ServiceCall as HAServiceCall
 from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 from custom_components.autodoctor.service_validator import ServiceCallValidator
 
+# Shared no-op service handler for all registration tests
+
+
+async def _noop_service_handler(call: HAServiceCall) -> None:
+    pass
+
 
 async def test_service_validator_initialization(hass: HomeAssistant) -> None:
     """Test that ServiceCallValidator can be initialized with HomeAssistant instance."""
@@ -59,10 +65,7 @@ async def test_validate_service_exists_no_issues(hass: HomeAssistant) -> None:
     in Home Assistant.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
 
@@ -104,10 +107,7 @@ async def test_validate_skips_templated_service(hass: HomeAssistant) -> None:
 async def test_validate_tracks_skip_reasons(hass: HomeAssistant) -> None:
     """Validator should expose skip-reason telemetry for skipped calls."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     # Keep descriptions unavailable for the non-templated call.
@@ -145,10 +145,7 @@ async def test_validate_missing_required_param(hass: HomeAssistant) -> None:
     an ERROR-level issue should be reported.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
 
@@ -197,10 +194,7 @@ async def test_validate_missing_required_param_in_target(hass: HomeAssistant) ->
     it should satisfy the required parameter check.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -268,10 +262,7 @@ async def test_validate_skips_required_check_when_data_is_templated(
     even though its runtime value is unknown.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -315,10 +306,7 @@ async def test_validate_unknown_param(hass: HomeAssistant) -> None:
     service schema should produce WARNING-level issues with fuzzy suggestions.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
@@ -362,10 +350,7 @@ async def test_validate_unknown_param_skips_no_fields(hass: HomeAssistant) -> No
     This prevents false positives for services with dynamic or undocumented schemas.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -400,10 +385,7 @@ async def test_validate_invalid_param_type_number(hass: HomeAssistant) -> None:
     in number fields.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -442,10 +424,7 @@ async def test_validate_valid_param_type_number(hass: HomeAssistant) -> None:
     Verifies correct number types pass validation without issues.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -484,10 +463,7 @@ async def test_validate_invalid_param_type_boolean(hass: HomeAssistant) -> None:
     This test verifies no issues are raised for string values in boolean fields.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -529,10 +505,7 @@ async def test_validate_skips_type_check_for_templated_values(
     runtime value is unknown.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -571,10 +544,7 @@ async def test_validate_select_option_valid(hass: HomeAssistant) -> None:
     option list without producing issues.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -613,10 +583,7 @@ async def test_validate_select_option_invalid(hass: HomeAssistant) -> None:
     when values are not in the option list.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -658,10 +625,7 @@ async def test_validate_no_description_available(hass: HomeAssistant) -> None:
     should be checked. No parameter validation should occur.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {}  # No descriptions loaded
@@ -697,10 +661,7 @@ async def test_validate_all_checks_combined(hass: HomeAssistant) -> None:
     missing required params, unknown params, and invalid select options.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
@@ -757,10 +718,7 @@ async def test_validate_list_parameter_with_valid_options(hass: HomeAssistant) -
     compared against the string 'config' instead of validating each list item.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("auto_backup", "backup", test_service)
+    hass.services.async_register("auto_backup", "backup", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -815,10 +773,7 @@ async def test_validate_capability_dependent_light_params(hass: HomeAssistant) -
     in service descriptions.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     # Simulate incomplete service description (common in HA)
@@ -868,10 +823,7 @@ async def test_unknown_param_not_flagged_without_strict_mode(
     be ignored to prevent false positives.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("test", "service", test_service)
+    hass.services.async_register("test", "service", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -973,10 +925,7 @@ async def test_capability_dependent_params_not_flagged(
     """
     domain, svc = service.split(".", 1)
 
-    async def test_service_handler(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register(domain, svc, test_service_handler)
+    hass.services.async_register(domain, svc, _noop_service_handler)
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
@@ -1018,12 +967,9 @@ async def test_service_not_found_fuzzy_suggestion(hass: HomeAssistant) -> None:
     should suggest the closest match to help users fix typos.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_off", test_service)
-    hass.services.async_register("light", "turn_on", test_service)
-    hass.services.async_register("light", "toggle", test_service)
+    hass.services.async_register("light", "turn_off", _noop_service_handler)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
+    hass.services.async_register("light", "toggle", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
 
@@ -1080,11 +1026,8 @@ async def test_service_not_found_no_suggestion_no_close_match(
     no fuzzy match should be suggested.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_off", test_service)
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_off", _noop_service_handler)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
 
@@ -1112,10 +1055,7 @@ async def test_unknown_target_key_flagged(hass: HomeAssistant) -> None:
     Other keys (like typos) should produce warnings with fuzzy suggestions.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
@@ -1159,10 +1099,7 @@ async def test_valid_target_keys_not_flagged(hass: HomeAssistant) -> None:
     not produce unknown parameter warnings.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
     validator._service_descriptions = {
@@ -1225,10 +1162,7 @@ async def test_template_entity_id_skips_validation(hass: HomeAssistant) -> None:
     Mutation test: Kills AddNot on 'if "{{" in entity_id' check.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1255,10 +1189,7 @@ async def test_none_placeholder_entity_id_is_validated_as_missing(
 ) -> None:
     """Blueprint entity_id='none' placeholder should be validated as missing."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1290,10 +1221,7 @@ async def test_non_template_entity_validated(hass: HomeAssistant) -> None:
     Mutation test: Contrast test for SV-01, kills AddNot on template check.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1326,10 +1254,7 @@ async def test_existing_target_entity_no_issue(hass: HomeAssistant) -> None:
     Mutation test: Kills Is->IsNot on 'hass.states.get(entity_id) is None'.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
     hass.states.async_set("light.kitchen", "on")
 
     validator = ServiceCallValidator(hass)
@@ -1363,10 +1288,7 @@ async def test_multiple_nonexistent_entities_all_produce_issues(
     Mutation test: Kills ReplaceContinueWithBreak on entity_id loop.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1395,10 +1317,7 @@ async def test_nonexistent_entity_id_in_data_produces_target_issue(
 ) -> None:
     """Entity IDs in data should also be validated as service targets."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1427,10 +1346,7 @@ async def test_nonexistent_device_and_area_ids_produce_target_issues(
 ) -> None:
     """Missing device_id/area_id in target should produce service target issues."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("homeassistant", "toggle", test_service)
+    hass.services.async_register("homeassistant", "toggle", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1462,10 +1378,7 @@ async def test_template_device_and_area_ids_skip_target_validation(
 ) -> None:
     """Templated device/area targets should be skipped (not statically knowable)."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("homeassistant", "toggle", test_service)
+    hass.services.async_register("homeassistant", "toggle", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1492,10 +1405,7 @@ async def test_invalid_target_entity_id_type_reports_issue(
 ) -> None:
     """Non-string entity_id target values should produce type issues."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1524,10 +1434,7 @@ async def test_invalid_target_device_id_list_item_type_reports_issue(
 ) -> None:
     """Non-string device_id list items should produce type issues."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("homeassistant", "toggle", test_service)
+    hass.services.async_register("homeassistant", "toggle", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1556,10 +1463,7 @@ async def test_non_mapping_target_reports_invalid_type_issue(
 ) -> None:
     """Non-mapping target payloads should be reported, not silently skipped."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1588,10 +1492,7 @@ async def test_non_template_non_mapping_data_reports_invalid_type_issue(
 ) -> None:
     """Non-mapping data payloads should be reported unless templated."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1620,10 +1521,7 @@ async def test_conflicting_entity_id_between_data_and_target_reports_issue(
 ) -> None:
     """Conflicting data/target entity_id values should be flagged."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
     hass.states.async_set("light.kitchen", "on")
     hass.states.async_set("light.bedroom", "on")
 
@@ -1657,10 +1555,7 @@ async def test_matching_entity_id_between_data_and_target_no_conflict_issue(
 ) -> None:
     """Matching data/target entity_id values should not be flagged."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
     hass.states.async_set("light.kitchen", "on")
 
     validator = ServiceCallValidator(hass)
@@ -1692,10 +1587,7 @@ async def test_conflicting_device_id_between_data_and_target_reports_issue(
 ) -> None:
     """Conflicting data/target device_id values should be flagged."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("homeassistant", "toggle", test_service)
+    hass.services.async_register("homeassistant", "toggle", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1727,10 +1619,9 @@ async def test_input_datetime_conflicting_datetime_and_date_reports_issue(
 ) -> None:
     """input_datetime.set_datetime should flag conflicting time payload modes."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("input_datetime", "set_datetime", test_service)
+    hass.services.async_register(
+        "input_datetime", "set_datetime", _noop_service_handler
+    )
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1771,10 +1662,9 @@ async def test_input_datetime_date_and_time_allowed_no_conflict_issue(
 ) -> None:
     """input_datetime.set_datetime should allow date+time together."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("input_datetime", "set_datetime", test_service)
+    hass.services.async_register(
+        "input_datetime", "set_datetime", _noop_service_handler
+    )
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1813,10 +1703,7 @@ async def test_climate_set_temperature_conflicting_single_and_range_reports_issu
 ) -> None:
     """climate.set_temperature should flag mixed single+range setpoint payloads."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("climate", "set_temperature", test_service)
+    hass.services.async_register("climate", "set_temperature", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1858,10 +1745,7 @@ async def test_climate_set_temperature_range_only_allowed_no_conflict_issue(
 ) -> None:
     """climate.set_temperature should allow range-only setpoint payloads."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("climate", "set_temperature", test_service)
+    hass.services.async_register("climate", "set_temperature", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1899,10 +1783,7 @@ async def test_media_player_play_media_missing_type_reports_issue(
 ) -> None:
     """media_player.play_media should require media_content_type with media_content_id."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("media_player", "play_media", test_service)
+    hass.services.async_register("media_player", "play_media", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1939,10 +1820,7 @@ async def test_media_player_play_media_with_id_and_type_no_issue(
 ) -> None:
     """media_player.play_media with id+type should not trigger semantic issues."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("media_player", "play_media", test_service)
+    hass.services.async_register("media_player", "play_media", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -1982,10 +1860,7 @@ async def test_remote_send_command_aux_params_without_command_reports_issue(
 ) -> None:
     """remote.send_command should require command when aux params are present."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("remote", "send_command", test_service)
+    hass.services.async_register("remote", "send_command", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2025,10 +1900,7 @@ async def test_remote_send_command_with_command_no_semantic_issue(
 ) -> None:
     """remote.send_command with command should not trigger aux-param rule."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("remote", "send_command", test_service)
+    hass.services.async_register("remote", "send_command", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2067,10 +1939,7 @@ async def test_tts_speak_empty_message_reports_issue(
 ) -> None:
     """tts.speak should flag empty message payloads."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("tts", "speak", test_service)
+    hass.services.async_register("tts", "speak", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2109,10 +1978,7 @@ async def test_tts_speak_non_empty_message_no_issue(
 ) -> None:
     """tts.speak with non-empty message should not trigger semantic issue."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("tts", "speak", test_service)
+    hass.services.async_register("tts", "speak", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2151,10 +2017,7 @@ async def test_remote_send_command_empty_string_command_reports_issue(
 ) -> None:
     """remote.send_command should flag empty string command values."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("remote", "send_command", test_service)
+    hass.services.async_register("remote", "send_command", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2192,10 +2055,7 @@ async def test_remote_send_command_empty_list_command_reports_issue(
 ) -> None:
     """remote.send_command should flag empty list command values."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("remote", "send_command", test_service)
+    hass.services.async_register("remote", "send_command", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2233,10 +2093,7 @@ async def test_media_player_play_media_empty_content_id_reports_issue(
 ) -> None:
     """media_player.play_media should flag empty media_content_id values."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("media_player", "play_media", test_service)
+    hass.services.async_register("media_player", "play_media", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2274,10 +2131,7 @@ async def test_media_player_play_media_empty_content_type_reports_issue(
 ) -> None:
     """media_player.play_media should flag empty media_content_type values."""
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("media_player", "play_media", test_service)
+    hass.services.async_register("media_player", "play_media", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
     validator._service_descriptions = {
@@ -2319,10 +2173,7 @@ async def test_multiple_required_fields_all_checked(hass: HomeAssistant) -> None
     Mutation test: Kills ReplaceContinueWithBreak on _validate_required_params loop.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
     hass.states.async_set("light.kitchen", "on")
 
     validator = ServiceCallValidator(hass)
@@ -2363,10 +2214,7 @@ async def test_multiple_unknown_params_all_checked(hass: HomeAssistant) -> None:
     Mutation test: Kills ReplaceContinueWithBreak on _validate_unknown_params loop.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("light", "turn_on", test_service)
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
     hass.states.async_set("light.kitchen", "on")
 
     validator = ServiceCallValidator(hass, strict_service_validation=True)
@@ -2517,10 +2365,7 @@ async def test_validate_required_param_from_inline_params(
     SERVICE_MISSING_REQUIRED_PARAM after the analyzer merges them.
     """
 
-    async def test_service(call: HAServiceCall) -> None:
-        pass
-
-    hass.services.async_register("notify", "mobile_app_phone", test_service)
+    hass.services.async_register("notify", "mobile_app_phone", _noop_service_handler)
 
     validator = ServiceCallValidator(hass)
 

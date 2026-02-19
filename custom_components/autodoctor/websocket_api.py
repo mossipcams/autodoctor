@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterator
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -71,6 +72,22 @@ def _raw_config_get(raw_config: Any, key: str) -> Any:
     return getattr(raw_config, key, None)
 
 
+def _iter_automation_configs(
+    entities: Any,
+) -> Iterator[tuple[Any, dict[str, Any], str | None, str | None]]:
+    """Yield (entity, raw_config_dict, config_id, entity_id) for each automation entity."""
+    for entity in cast(list[Any], entities):
+        raw_config = getattr(entity, "raw_config", None)
+        if not isinstance(raw_config, dict):
+            continue
+        config = cast(dict[str, Any], raw_config)
+        config_id_raw = config.get("id")
+        config_id = config_id_raw if isinstance(config_id_raw, str) else None
+        entity_id = getattr(entity, "entity_id", None)
+        entity_id = entity_id if isinstance(entity_id, str) else None
+        yield entity, config, config_id, entity_id
+
+
 def _resolve_automation_edit_config_id(
     hass: HomeAssistant, automation_entity_id: str
 ) -> str | None:
@@ -129,19 +146,16 @@ def _resolve_automation_edit_config_id(
     if entities is None:
         return None
 
-    for entity in cast(list[Any], entities):
-        raw_config = getattr(entity, "raw_config", None)
-        config_file = _raw_config_get(raw_config, "__config_file__")
+    for _entity, config, config_id, entity_id in _iter_automation_configs(entities):
+        config_file = config.get("__config_file__")
         if isinstance(config_file, str):
             # Explicit source file — skip non-automations.yaml sources
             if Path(config_file).name != AUTOMATION_CONFIG_PATH:
                 continue
 
-        config_id = _raw_config_get(raw_config, "id")
-        entity_id = getattr(entity, "entity_id", None)
-        if isinstance(config_id, str) and config_id == short_id:
+        if config_id and config_id == short_id:
             return config_id
-        if isinstance(entity_id, str) and entity_id == automation_entity_id:
+        if entity_id and entity_id == automation_entity_id:
             if isinstance(config_id, str) and config_id:
                 return config_id
             return short_id
@@ -270,18 +284,22 @@ def _format_issues_with_fixes(
     return issues_with_fixes
 
 
+def _count_automations(hass: HomeAssistant) -> int:
+    """Count total automations from either entity-list or dict-mode data."""
+    automation_data = hass.data.get("automation")
+    if not automation_data:
+        return 0
+    if hasattr(automation_data, "entities"):
+        return len(list(automation_data.entities))
+    if isinstance(automation_data, dict):
+        return len(automation_data.get("config", []))
+    return 0
+
+
 def _get_healthy_count(hass: HomeAssistant, issues: list[ValidationIssue]) -> int:
     """Calculate healthy automation count."""
-    automation_data = hass.data.get("automation")
-    total_automations = 0
-    if automation_data:
-        if hasattr(automation_data, "entities"):
-            total_automations = len(list(automation_data.entities))
-        elif isinstance(automation_data, dict):
-            total_automations = len(automation_data.get("config", []))
-
     automations_with_issues = len({i.automation_id for i in issues})
-    return max(0, total_automations - automations_with_issues)
+    return max(0, _count_automations(hass) - automations_with_issues)
 
 
 _LOCATION_SEGMENT_RE = re.compile(r"^([a-zA-Z_]+)(?:\[(\d+)\])?$")
@@ -361,19 +379,13 @@ def _find_automation_config(
 
     entities = getattr(automation_data, "entities", None)
     if entities is not None:
-        for entity in cast(list[Any], entities):
-            raw_config = getattr(entity, "raw_config", None)
-            if not isinstance(raw_config, dict):
-                continue
-            config = cast(dict[str, Any], raw_config)
-            config_id = config.get("id")
-            if isinstance(config_id, str) and config_id == short_id:
+        for _entity, config, config_id, entity_id in _iter_automation_configs(entities):
+            if config_id and config_id == short_id:
                 return config
             config_entity_id = config.get("__entity_id")
             if isinstance(config_entity_id, str) and config_entity_id == automation_id:
                 return config
-            entity_id = getattr(entity, "entity_id", None)
-            if isinstance(entity_id, str) and entity_id == automation_id:
+            if entity_id and entity_id == automation_id:
                 return config
     return None
 
@@ -740,7 +752,7 @@ async def websocket_run_validation(
             },
         )
     except Exception as err:
-        _LOGGER.exception("Error in websocket_run_validation: %s", err)
+        _LOGGER.exception("Error in websocket_run_validation")
         connection.send_error(
             msg["id"], "validation_failed", f"Validation error: {err}"
         )
@@ -820,7 +832,7 @@ async def websocket_run_validation_steps(
             },
         )
     except Exception as err:
-        _LOGGER.exception("Error in websocket_run_validation_steps: %s", err)
+        _LOGGER.exception("Error in websocket_run_validation_steps")
         connection.send_error(
             msg["id"], "validation_failed", f"Validation error: {err}"
         )

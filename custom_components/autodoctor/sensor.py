@@ -140,8 +140,6 @@ class RuntimeHealthAlertsSensor(SensorEntity):
         }
         if hasattr(runtime_monitor, "get_event_store_diagnostics"):
             store_diag = runtime_monitor.get_event_store_diagnostics()
-            attrs["runtime_event_store_enabled"] = store_diag["enabled"]
-            attrs["runtime_event_store_cutover"] = store_diag["cutover"]
             attrs["runtime_event_store_degraded"] = store_diag["degraded"]
             attrs["runtime_event_store_pending_jobs"] = store_diag["pending_jobs"]
             attrs["runtime_event_store_write_failures"] = store_diag["write_failures"]

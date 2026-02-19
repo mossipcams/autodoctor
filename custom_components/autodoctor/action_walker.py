@@ -80,8 +80,8 @@ def _walk(
                             max_depth=max_depth,
                             _depth=_depth + 1,
                         )
-            default = cast(list[Any], action.get("default") or [])
-            if default:
+            default = action.get("default") or cast(list[Any], [])
+            if isinstance(default, list) and default:
                 _walk(
                     default,
                     visit_action=visit_action,
@@ -98,7 +98,9 @@ def _walk(
                     visit_condition,
                     f"{location}.if",
                 )
-            then_actions = cast(list[Any], action.get("then") or [])
+            then_actions = action.get("then") or cast(list[Any], [])
+            if not isinstance(then_actions, list):
+                then_actions = []
             _walk(
                 then_actions,
                 visit_action=visit_action,
@@ -107,8 +109,8 @@ def _walk(
                 max_depth=max_depth,
                 _depth=_depth + 1,
             )
-            else_actions = cast(list[Any], action.get("else") or [])
-            if else_actions:
+            else_actions = action.get("else") or cast(list[Any], [])
+            if isinstance(else_actions, list) and else_actions:
                 _walk(
                     else_actions,
                     visit_action=visit_action,

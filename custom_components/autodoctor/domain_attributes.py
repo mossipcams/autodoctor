@@ -7,6 +7,8 @@ not internal Python properties (is_on, is_closed, native_value, native_unit_of_m
 
 from __future__ import annotations
 
+from typing import overload
+
 # Standard attributes supported by each domain
 DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     "light": [
@@ -169,6 +171,14 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "supported_features",
     ],
 }
+
+
+@overload
+def get_domain_attributes(domain: None = None) -> dict[str, list[str]]: ...
+
+
+@overload
+def get_domain_attributes(domain: str) -> list[str]: ...
 
 
 def get_domain_attributes(

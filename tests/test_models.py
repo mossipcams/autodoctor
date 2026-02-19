@@ -524,14 +524,10 @@ def test_runtime_health_state_store_removed() -> None:
     assert "RuntimeHealthStateStore" not in source_text, (
         "runtime_monitor.py should not reference RuntimeHealthStateStore"
     )
-    mod = (
+    with pytest.raises(ModuleNotFoundError):
         importlib.import_module(
             "custom_components.autodoctor.runtime_health_state_store"
         )
-        if False
-        else None
-    )
-    assert mod is None
 
 
 def test_init_no_temp_debug_logging() -> None:

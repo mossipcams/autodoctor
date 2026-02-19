@@ -1,11 +1,16 @@
 """Pytest configuration for Autodoctor tests."""
 
+import inspect
 import sys
 from collections.abc import Generator
+from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
+from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
 
 # Import fixtures from pytest-homeassistant-custom-component
 pytest_plugins = ["pytest_homeassistant_custom_component"]
@@ -48,3 +53,55 @@ def mock_recorder() -> Generator[MagicMock, None, None]:
     with patch("custom_components.autodoctor.knowledge_base.get_instance") as mock:
         mock.return_value = MagicMock()
         yield mock
+
+
+def build_runtime_monitor(now: datetime, **kwargs: object) -> RuntimeHealthMonitor:
+    """Create a RuntimeHealthMonitor with sensible test defaults."""
+    hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
+    return RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        warmup_samples=0,
+        min_expected_events=0,
+        **kwargs,
+    )
+
+
+def make_issue(
+    issue_type: IssueType,
+    severity: Severity,
+    *,
+    automation_id: str = "automation.test",
+    automation_name: str = "Test",
+    entity_id: str = "light.test",
+    location: str = "trigger[0]",
+    message: str | None = None,
+) -> ValidationIssue:
+    """Create a minimal ValidationIssue for testing."""
+    return ValidationIssue(
+        issue_type=issue_type,
+        severity=severity,
+        automation_id=automation_id,
+        automation_name=automation_name,
+        entity_id=entity_id,
+        location=location,
+        message=message or f"Test issue: {issue_type.value}",
+    )
+
+
+async def invoke_command(
+    handler: Any,
+    hass: Any,
+    connection: Any,
+    msg: dict[str, Any],
+) -> None:
+    """Invoke websocket handler by unwrapping decorators until coroutine function."""
+    target = handler
+    while not inspect.iscoroutinefunction(target):
+        wrapped = getattr(target, "__wrapped__", None)
+        if wrapped is None:
+            break
+        target = wrapped
+    assert inspect.iscoroutinefunction(target)
+    await target(hass, connection, msg)

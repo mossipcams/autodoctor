@@ -605,3 +605,189 @@ def test_init_cleans_up_entity_registry_listener_on_unload() -> None:
             break
     else:
         pytest.fail("async_unload_entry function not found")
+
+
+def test_runtime_monitor_no_bare_any_types() -> None:
+    """Guard: key RuntimeHealthMonitor parameters should use concrete types, not bare Any."""
+    import inspect
+
+    from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+
+    init_hints = inspect.get_annotations(RuntimeHealthMonitor.__init__)
+    for param in ("hass", "now_factory"):
+        assert init_hints.get(param) != "Any", (
+            f"RuntimeHealthMonitor.__init__ '{param}' should not be typed as bare Any"
+        )
+
+    for method_name in ("ingest_trigger_event", "_is_runtime_suppressed"):
+        method = getattr(RuntimeHealthMonitor, method_name)
+        hints = inspect.get_annotations(method)
+        annotation = str(hints.get("suppression_store", ""))
+        assert "Any" not in annotation, (
+            f"{method_name} 'suppression_store' should not use Any: got {annotation}"
+        )
+
+
+def test_init_lovelace_not_typed_as_any() -> None:
+    """Guard: lovelace variable in __init__.py should use 'object', not 'Any'."""
+    import custom_components.autodoctor.__init__ as init_mod
+
+    with open(init_mod.__file__) as f:
+        source = f.read()
+
+    assert "lovelace: Any" not in source, (
+        "__init__.py should type 'lovelace' as 'object' instead of 'Any'"
+    )
+
+
+def test_no_stale_type_ignore_comments() -> None:
+    """Guard: stale type: ignore comments should be removed."""
+    from pathlib import Path
+
+    sv_path = Path(
+        __import__(
+            "custom_components.autodoctor.service_validator",
+            fromlist=["service_validator"],
+        ).__file__
+    )
+    assert "reportUnnecessaryIsInstance" not in sv_path.read_text(), (
+        "service_validator.py still has stale # type: ignore[reportUnnecessaryIsInstance]"
+    )
+
+    thc_path = Path(__file__).parent / "test_ha_catalog.py"
+    assert "# type: ignore[arg-type]" not in thc_path.read_text(), (
+        "test_ha_catalog.py still has stale # type: ignore[arg-type]"
+    )
+
+
+def test_get_domain_attributes_has_overloads() -> None:
+    """Guard: get_domain_attributes should have @overload signatures."""
+    from typing import get_overloads
+
+    from custom_components.autodoctor.domain_attributes import get_domain_attributes
+
+    overloads = get_overloads(get_domain_attributes)
+    assert len(overloads) >= 2, (
+        "get_domain_attributes should have at least 2 @overload signatures"
+    )
+
+
+def test_websocket_exception_logging_no_duplicate_message() -> None:
+    """Guard: _LOGGER.exception calls should not duplicate err in format args.
+
+    _LOGGER.exception already captures the traceback. Passing err as %s duplicates
+    the message in log output.
+    """
+    from pathlib import Path
+
+    ws_path = Path(
+        __import__(
+            "custom_components.autodoctor.websocket_api", fromlist=["websocket_api"]
+        ).__file__
+    )
+    source = ws_path.read_text()
+    assert (
+        '_LOGGER.exception("Error in websocket_run_validation: %s", err)' not in source
+    ), "websocket_api.py should not duplicate exception message in _LOGGER.exception"
+
+
+def test_event_callbacks_have_try_except() -> None:
+    """Guard: event bus callbacks in __init__.py should be wrapped in try/except."""
+    import custom_components.autodoctor.__init__ as init_mod
+
+    with open(init_mod.__file__) as f:
+        source = f.read()
+
+    for callback_name in (
+        "_handle_runtime_trigger",
+        "_handle_entity_registry_change",
+        "_handle_zone_state_change",
+        "_handle_area_registry_change",
+    ):
+        # Find the callback definition and check it contains try/except
+        start = source.find(f"def {callback_name}(")
+        assert start != -1, f"{callback_name} not found in __init__.py"
+        # Get the next ~500 chars to check for try block
+        snippet = source[start : start + 500]
+        assert "try:" in snippet, (
+            f"{callback_name} should have a try/except wrapper to prevent event bus propagation"
+        )
+
+
+def test_websocket_api_has_iter_automation_configs_helper() -> None:
+    """Guard: websocket_api.py should use _iter_automation_configs to reduce traversal duplication."""
+    import custom_components.autodoctor.websocket_api as ws_mod
+
+    assert hasattr(ws_mod, "_iter_automation_configs"), (
+        "websocket_api.py should have an _iter_automation_configs helper"
+    )
+
+
+def test_runtime_health_config_has_eleven_fields() -> None:
+    """Guard: RuntimeHealthConfig dataclass must bundle all 11 runtime health settings."""
+    from dataclasses import fields
+
+    from custom_components.autodoctor.const import RuntimeHealthConfig
+
+    field_names = {f.name for f in fields(RuntimeHealthConfig)}
+    assert field_names == {
+        "enabled",
+        "baseline_days",
+        "warmup_samples",
+        "min_expected_events",
+        "hour_ratio_days",
+        "sensitivity",
+        "burst_multiplier",
+        "max_alerts_per_day",
+        "smoothing_window",
+        "restart_exclusion_minutes",
+        "auto_adapt",
+    }
+
+
+def test_runtime_health_config_from_options() -> None:
+    """RuntimeHealthConfig.from_options reads HA option keys and falls back to defaults."""
+    from custom_components.autodoctor.const import RuntimeHealthConfig
+
+    # Empty options → all defaults
+    cfg = RuntimeHealthConfig.from_options({})
+    assert cfg == RuntimeHealthConfig()
+
+    # Override a subset
+    cfg = RuntimeHealthConfig.from_options(
+        {"runtime_health_baseline_days": 7, "runtime_health_sensitivity": "high"}
+    )
+    assert cfg.baseline_days == 7
+    assert cfg.sensitivity == "high"
+    # Rest stays default
+    assert cfg.warmup_samples == 3
+
+
+def test_config_flow_imports_runtime_health_config() -> None:
+    """Guard: config_flow.py should import RuntimeHealthConfig, not individual constants."""
+    import ast
+    from pathlib import Path
+
+    src = Path("custom_components/autodoctor/config_flow.py").read_text()
+    tree = ast.parse(src)
+    imported_names: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.endswith("const")
+        ):
+            for alias in node.names:
+                imported_names.add(alias.name)
+
+    assert "RuntimeHealthConfig" in imported_names, (
+        "config_flow.py should import RuntimeHealthConfig from const"
+    )
+    # Should NOT import the individual runtime health constants
+    for name in imported_names:
+        assert not name.startswith("CONF_RUNTIME_HEALTH_"), (
+            f"config_flow.py should not import {name}; use RuntimeHealthConfig instead"
+        )
+        assert not name.startswith("DEFAULT_RUNTIME_HEALTH_"), (
+            f"config_flow.py should not import {name}; use RuntimeHealthConfig instead"
+        )

@@ -193,8 +193,6 @@ async def test_runtime_health_sensor_exposes_event_store_diagnostics(
     mock_runtime_monitor = MagicMock()
     mock_runtime_monitor.get_active_runtime_alerts.return_value = []
     mock_runtime_monitor.get_event_store_diagnostics.return_value = {
-        "enabled": True,
-        "cutover": False,
         "degraded": True,
         "pending_jobs": 3,
         "write_failures": 2,
@@ -203,8 +201,8 @@ async def test_runtime_health_sensor_exposes_event_store_diagnostics(
     hass.data[DOMAIN] = {"runtime_monitor": mock_runtime_monitor}
 
     attrs = sensor.extra_state_attributes
-    assert attrs["runtime_event_store_enabled"] is True
-    assert attrs["runtime_event_store_cutover"] is False
+    assert "runtime_event_store_enabled" not in attrs
+    assert "runtime_event_store_cutover" not in attrs
     assert attrs["runtime_event_store_degraded"] is True
     assert attrs["runtime_event_store_pending_jobs"] == 3
     assert attrs["runtime_event_store_write_failures"] == 2

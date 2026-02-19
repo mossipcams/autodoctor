@@ -19,6 +19,16 @@ export function renderBadges(
   const inSuppressions = activeView === "suppressions";
   const goToIssues = inSuppressions ? () => onNavigate?.("issues") : nothing;
   const navStyle = inSuppressions ? "cursor: pointer;" : "";
+  const navRole = inSuppressions ? "button" : nothing;
+  const navTabindex = inSuppressions ? "0" : nothing;
+  const navKeydown = inSuppressions
+    ? (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onNavigate?.("issues");
+        }
+      }
+    : nothing;
 
   return html`
     <div class="badges-row">
@@ -27,7 +37,10 @@ export function renderBadges(
             class="badge badge-error"
             title="${counts.errors} error${counts.errors !== 1 ? "s" : ""}"
             style=${navStyle}
+            role=${navRole}
+            tabindex=${navTabindex}
             @click=${goToIssues}
+            @keydown=${navKeydown}
           >
             <span class="badge-icon" aria-hidden="true">\u2715</span>
             <span class="badge-count">${counts.errors}</span>
@@ -38,7 +51,10 @@ export function renderBadges(
             class="badge badge-warning"
             title="${counts.warnings} warning${counts.warnings !== 1 ? "s" : ""}"
             style=${navStyle}
+            role=${navRole}
+            tabindex=${navTabindex}
             @click=${goToIssues}
+            @keydown=${navKeydown}
           >
             <span class="badge-icon" aria-hidden="true">!</span>
             <span class="badge-count">${counts.warnings}</span>
@@ -49,7 +65,10 @@ export function renderBadges(
             class="badge badge-healthy"
             title="${counts.healthy} healthy"
             style=${navStyle}
+            role=${navRole}
+            tabindex=${navTabindex}
             @click=${goToIssues}
+            @keydown=${navKeydown}
           >
             <span class="badge-icon" aria-hidden="true">\u2713</span>
             <span class="badge-count">${counts.healthy}</span>

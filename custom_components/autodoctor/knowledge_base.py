@@ -273,6 +273,9 @@ class StateKnowledgeBase:
             return set()
 
     def get_valid_states(self, entity_id: str) -> set[str] | None:
+        # Note: This method reads/writes _cache without _lock. This is safe because
+        # dict operations are atomic in CPython's GIL, and async_load_history (which
+        # also writes _cache) runs in the same event loop thread.
         """Get valid states for an entity.
 
         Args:

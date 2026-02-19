@@ -4,24 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock
 
-from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
-
-
-def _build_monitor(
-    tmp_path: Path, now: datetime, **kwargs: object
-) -> RuntimeHealthMonitor:
-    hass = MagicMock()
-    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
-    return RuntimeHealthMonitor(
-        hass,
-        now_factory=lambda: now,
-        warmup_samples=0,
-        min_expected_events=0,
-        burst_multiplier=999.0,
-        **kwargs,
-    )
+from tests.conftest import build_runtime_monitor
 
 
 def test_catch_up_replays_days_in_chronological_order(tmp_path: Path) -> None:
@@ -43,7 +27,7 @@ def test_catch_up_replays_days_in_chronological_order(tmp_path: Path) -> None:
     store.rebuild_daily_summaries(automation_id)
 
     now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(tmp_path, now)
+    monitor = build_runtime_monitor(now, burst_multiplier=999.0)
 
     automation_state = monitor._ensure_automation_state(automation_id)
     bucket_state = monitor._ensure_count_bucket_state(

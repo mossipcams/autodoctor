@@ -23,28 +23,10 @@ from custom_components.autodoctor.models import (
     IssueType,
     ServiceCall,
     Severity,
-    ValidationIssue,
 )
 from custom_components.autodoctor.service_validator import ServiceCallValidator
 from custom_components.autodoctor.validator import ValidationEngine
-
-
-def _make_issue(
-    issue_type: IssueType,
-    severity: Severity,
-    automation_id: str = "automation.test",
-    entity_id: str = "light.test",
-) -> ValidationIssue:
-    """Create a minimal ValidationIssue for testing."""
-    return ValidationIssue(
-        severity=severity,
-        automation_id=automation_id,
-        automation_name="Test",
-        entity_id=entity_id,
-        location="trigger[0]",
-        message=f"Test issue: {issue_type.value}",
-        issue_type=issue_type,
-    )
+from tests.conftest import make_issue
 
 
 @pytest.fixture
@@ -83,7 +65,7 @@ async def test_validate_automation_updates_hass_data(grouped_hass: MagicMock) ->
     fresh data. This requires hass.data to be updated with the new issues
     and timestamp. Without this, the frontend shows stale results.
     """
-    issue = _make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [issue]
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []

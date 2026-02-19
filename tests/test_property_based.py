@@ -13,7 +13,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
-from custom_components.autodoctor.service_validator import _is_template_value
+from custom_components.autodoctor.template_utils import is_template_value
 from custom_components.autodoctor.validator import get_entity_suggestion
 
 # ============================================================================
@@ -282,5 +282,5 @@ def test_is_template_value_never_crashes(value: Any) -> None:
 
     Tests text, int, bool, None, list, binary. Should return bool without raising.
     """
-    result = _is_template_value(value)
+    result = is_template_value(value)
     assert isinstance(result, bool)

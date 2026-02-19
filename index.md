@@ -22,13 +22,15 @@ autodoctor/
 │   ├── jinja_validator.py           # Jinja2 template validation
 │   ├── knowledge_base.py            # Valid state knowledge
 │   ├── models.py                    # Core data structures
+│   ├── bocpd_detector.py            # Pure BOCPD statistical anomaly detector
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── runtime_event_store.py       # Runtime event/score SQLite storage
-│   ├── runtime_monitor.py           # BOCPD-based runtime health monitoring
+│   ├── runtime_monitor.py           # Runtime health monitoring (uses bocpd_detector)
 │   ├── sensor.py                    # Issue count sensor
 │   ├── learned_states_store.py      # User-learned state persistence
 │   ├── service_validator.py         # Service call validation
 │   ├── suppression_store.py         # Dismissed issue persistence
+│   ├── template_utils.py            # Shared Jinja2 template detection
 │   ├── validator.py                 # State reference validation
 │   ├── websocket_api.py             # Frontend communication
 │   ├── www/                         # Frontend assets
@@ -80,7 +82,8 @@ autodoctor/
 - **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types); exports shared `filter_suppressed_issues()` utility
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
-- **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection with BOCPD (opt-in)
+- **`bocpd_detector.py`** - Pure statistical BOCPD anomaly detector (no HA dependencies)
+- **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection using bocpd_detector (opt-in)
 
 ### Sensors
 - **`sensor.py`** - Active validation issue count

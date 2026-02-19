@@ -13,21 +13,35 @@ export class AutodocSuppressions extends LitElement {
   @state() private _confirmingClearAll = false;
 
   private _confirmTimeout?: ReturnType<typeof setTimeout>;
+  private _fetchRequestId = 0;
 
   connectedCallback(): void {
     super.connectedCallback();
     this._fetchSuppressions();
   }
 
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this._confirmTimeout) {
+      clearTimeout(this._confirmTimeout);
+      this._confirmTimeout = undefined;
+    }
+    // Increment request ID to discard in-flight responses
+    this._fetchRequestId++;
+  }
+
   private async _fetchSuppressions(): Promise<void> {
+    const requestId = ++this._fetchRequestId;
     this._loading = true;
     this._error = null;
     try {
       const resp = await this.hass.callWS<SuppressionsResponse>({
         type: "autodoctor/list_suppressions",
       });
+      if (requestId !== this._fetchRequestId) return;
       this._suppressions = resp.suppressions;
     } catch (err) {
+      if (requestId !== this._fetchRequestId) return;
       console.error("Failed to fetch suppressions:", err);
       this._error = "Failed to load suppressions";
     }

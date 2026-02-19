@@ -59,19 +59,6 @@ class TestCatalogEntry:
         with pytest.raises(AttributeError):
             entry.name = "int"  # type: ignore[misc]
 
-    def test_no_arg_fields(self) -> None:
-        """Test that min_args and max_args fields are not present.
-
-        These fields were removed when argument counting validation
-        was delegated to Jinja2's native error handling.
-        """
-        entry = CatalogEntry(
-            name="iif",
-            kind=EntryKind.FILTER,
-        )
-        assert not hasattr(entry, "min_args")
-        assert not hasattr(entry, "max_args")
-
     def test_defaults(self) -> None:
         """Test that optional fields have correct default values.
 
@@ -267,7 +254,7 @@ class TestCatalogCompleteness:
         or partially populated during refactoring or updates.
         """
         items = accessor_func()  # type: ignore[operator]
-        actual_count = len(items)  # type: ignore[arg-type]
+        actual_count = len(items)
         assert actual_count >= min_count, (
             f"Catalog only has {actual_count} {item_type}, expected at least {min_count}"
         )

@@ -3,48 +3,30 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.autodoctor import const
-from custom_components.autodoctor.runtime_monitor import (
-    RuntimeHealthMonitor,
-    _BOCPDDetector,
+from custom_components.autodoctor.bocpd_detector import (
+    DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
+    DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
+    BOCPDDetector,
 )
-
-
-def _build_monitor(
-    tmp_path: Path,
-    now: datetime,
-    **kwargs: object,
-) -> RuntimeHealthMonitor:
-    hass = MagicMock()
-    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
-    return RuntimeHealthMonitor(
-        hass,
-        now_factory=lambda: now,
-        warmup_samples=0,
-        min_expected_events=0,
-        **kwargs,
-    )
+from tests.conftest import build_runtime_monitor
 
 
 def test_bocpd_constants_exist() -> None:
-    """BOCPD tuning defaults should exist in constants module."""
-    assert isinstance(const.DEFAULT_RUNTIME_HEALTH_HAZARD_RATE, float)
-    assert const.DEFAULT_RUNTIME_HEALTH_HAZARD_RATE > 0.0
+    """BOCPD tuning defaults should exist in bocpd_detector module."""
+    assert isinstance(DEFAULT_RUNTIME_HEALTH_HAZARD_RATE, float)
+    assert DEFAULT_RUNTIME_HEALTH_HAZARD_RATE > 0.0
 
-    assert isinstance(const.DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH, int)
-    assert const.DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH >= 8
+    assert isinstance(DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH, int)
+    assert DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH >= 8
 
 
-def test_runtime_monitor_accepts_bocpd_config(tmp_path: Path) -> None:
+def test_runtime_monitor_accepts_bocpd_config() -> None:
     """Runtime monitor should accept explicit BOCPD runtime tuning."""
     now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(
-        tmp_path,
+    monitor = build_runtime_monitor(
         now,
         hazard_rate=0.08,
         max_run_length=64,
@@ -56,7 +38,7 @@ def test_runtime_monitor_accepts_bocpd_config(tmp_path: Path) -> None:
 
 def test_bocpd_nb_predictive_returns_valid_pmf() -> None:
     """Predictive PMF should be non-negative and approximately normalized."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     state = detector.initial_state()
     for observed in [2, 3, 2, 4, 3, 3]:
         detector.update_state(state, observed)
@@ -68,7 +50,7 @@ def test_bocpd_nb_predictive_returns_valid_pmf() -> None:
 
 def test_bocpd_update_cold_start_produces_valid_run_length_dist() -> None:
     """Cold-start update should produce a normalized run-length distribution."""
-    detector = _BOCPDDetector(hazard_rate=0.1, max_run_length=32)
+    detector = BOCPDDetector(hazard_rate=0.1, max_run_length=32)
     state = detector.initial_state()
 
     detector.update_state(state, 4)
@@ -84,7 +66,7 @@ def test_bocpd_update_cold_start_produces_valid_run_length_dist() -> None:
 
 def test_bocpd_run_length_probs_normalized_after_multiple_updates() -> None:
     """Posterior run-length distribution should stay normalized over time."""
-    detector = _BOCPDDetector(hazard_rate=0.07, max_run_length=24)
+    detector = BOCPDDetector(hazard_rate=0.07, max_run_length=24)
     state = detector.initial_state()
 
     for observed in [1, 2, 0, 1, 3, 2, 1, 2, 1, 0, 2]:
@@ -96,7 +78,7 @@ def test_bocpd_run_length_probs_normalized_after_multiple_updates() -> None:
 
 def test_bocpd_truncates_at_max_run_length() -> None:
     """Run-length posterior and retained observations should respect truncation."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=4)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=4)
     state = detector.initial_state()
 
     for _ in range(30):
@@ -109,7 +91,7 @@ def test_bocpd_truncates_at_max_run_length() -> None:
 
 def test_bocpd_detects_rate_shift() -> None:
     """Tail count should score higher than in-regime count for same baseline."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
 
     def _row(count_24h: float) -> dict[str, float]:
         return {
@@ -132,7 +114,7 @@ def test_bocpd_detects_rate_shift() -> None:
 
 def test_bocpd_expected_rate_approximates_mean_in_stable_regime() -> None:
     """Expected rate should converge near the empirical mean in stable data."""
-    detector = _BOCPDDetector(hazard_rate=0.03, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.03, max_run_length=64)
     state = detector.initial_state()
 
     stable_counts = [5, 4, 6, 5, 5, 4, 6, 5] * 6
@@ -144,8 +126,8 @@ def test_bocpd_expected_rate_approximates_mean_in_stable_regime() -> None:
 
 
 def test_bocpd_score_current_implements_detector_protocol() -> None:
-    """Detector should provide score_current compatible with _Detector protocol."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=32)
+    """Detector should provide score_current compatible with Detector protocol."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=32)
     rows = [{"rolling_24h_count": float(value)} for value in [1, 2, 2, 3, 1, 2]]
 
     score = detector.score_current("automation.protocol", rows, window_size=16)
@@ -173,7 +155,7 @@ def _feature_row(
 
 def test_bocpd_context_gap_signal_amplifies_stalled_score() -> None:
     """Large gap-vs-median should increase anomaly confidence for stalls."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     baseline = [_feature_row(6.0 + float(i % 2)) for i in range(28)]
 
     score_small_gap = detector.score_current(
@@ -190,7 +172,7 @@ def test_bocpd_context_gap_signal_amplifies_stalled_score() -> None:
 
 def test_bocpd_context_hour_ratio_amplifies_overactive_score() -> None:
     """High same-hour ratio should raise confidence for overactive anomalies."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     baseline = [_feature_row(7.0 + float(i % 2)) for i in range(28)]
 
     score_typical_hour = detector.score_current(
@@ -207,7 +189,7 @@ def test_bocpd_context_hour_ratio_amplifies_overactive_score() -> None:
 
 def test_bocpd_context_global_activity_dampens_overactive_score() -> None:
     """Broad cross-automation activity should dampen overactive confidence."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     baseline = [_feature_row(7.0 + float(i % 2)) for i in range(28)]
 
     score_isolated = detector.score_current(
@@ -224,7 +206,7 @@ def test_bocpd_context_global_activity_dampens_overactive_score() -> None:
 
 def test_bocpd_changepoint_mass_increases_for_surprising_observation() -> None:
     """Highly surprising counts should increase changepoint posterior mass."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     state = detector.initial_state()
     for observed in [5] * 32:
         detector.update_state(state, observed)
@@ -236,7 +218,7 @@ def test_bocpd_changepoint_mass_increases_for_surprising_observation() -> None:
 
 def test_bocpd_extreme_scores_are_monotonic_for_larger_deviations() -> None:
     """Larger overactive deviations should produce larger anomaly scores."""
-    detector = _BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     baseline = [_feature_row(20.0 + float(i % 2)) for i in range(40)]
 
     score_100 = detector.score_current(
