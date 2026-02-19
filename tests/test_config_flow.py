@@ -424,3 +424,27 @@ async def test_migrate_entry_v1_strips_removed_options(
     for key in removed_keys:
         assert key not in entry.options, f"Removed key {key!r} still in options"
     assert entry.options[CONF_HISTORY_DAYS] == 14
+
+
+@pytest.mark.asyncio
+async def test_module_level_migrate_entry_exists_and_works(
+    hass: HomeAssistant,
+) -> None:
+    """HA requires async_migrate_entry as a module-level function in __init__.py."""
+    from custom_components.autodoctor import async_migrate_entry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
+        options={
+            "runtime_event_store_enabled": True,
+            CONF_HISTORY_DAYS: 14,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await async_migrate_entry(hass, entry)
+
+    assert result is True
+    assert "runtime_event_store_enabled" not in entry.options
+    assert entry.options[CONF_HISTORY_DAYS] == 14
