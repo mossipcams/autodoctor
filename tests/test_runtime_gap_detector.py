@@ -253,3 +253,78 @@ def test_gap_threshold_uses_correct_per_bucket_duration(tmp_path: Path) -> None:
 
     assert len(issues_a) == 1, "Afternoon (5h bucket) should alert at 280m elapsed"
     assert len(issues_m) == 0, "Morning (7h bucket) should NOT alert at 280m elapsed"
+
+
+def test_ingest_trigger_increments_dow_counts(tmp_path: Path) -> None:
+    """ingest_trigger_event should track per-day-of-week firing counts."""
+    # Wednesday = weekday 2
+    wednesday = datetime(2026, 2, 18, 10, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, wednesday, max_alerts_per_day=20)
+    aid = "automation.dow_test"
+
+    monitor.ingest_trigger_event(aid, occurred_at=wednesday)
+    monitor.ingest_trigger_event(
+        aid, occurred_at=wednesday + timedelta(minutes=10)
+    )
+
+    state = monitor._runtime_state["automations"][aid]
+    dow_counts = state.get("dow_counts")
+    assert dow_counts is not None, "dow_counts should exist in automation state"
+    assert dow_counts.get(2, 0) == 2, "Wednesday (dow=2) should have 2 events"
+    assert dow_counts.get(0, 0) == 0, "Monday should have 0 events"
+
+
+def test_gap_check_skips_day_with_no_historical_activity(tmp_path: Path) -> None:
+    """Gap check should not flag an automation on a day-of-week it has never fired."""
+    # Wednesday = dow 2; set up automation that only fires Mon/Fri
+    wednesday_3am = datetime(2026, 2, 18, 3, 0, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, wednesday_3am, max_alerts_per_day=20)
+    aid = "automation.weekday_sporadic"
+
+    automation_state = monitor._ensure_automation_state(aid)
+    # Simulate historical Mon(0) and Fri(4) triggers only
+    automation_state["dow_counts"] = {0: 10, 4: 8}
+    automation_state["gap_model"]["last_trigger"] = (
+        wednesday_3am - timedelta(hours=48)
+    ).isoformat()
+
+    # Give it a nonzero expected_rate so the existing rate check doesn't skip it
+    count_model = automation_state["count_model"]
+    bucket_state = monitor._ensure_count_bucket_state(count_model, "weekday_night")
+    for _ in range(10):
+        monitor._bocpd_count_detector.update_state(bucket_state, 5)
+    bucket_state["current_day"] = wednesday_3am.date().isoformat()
+    bucket_state["current_count"] = 0
+
+    gap_issues = monitor.check_gap_anomalies(now=wednesday_3am)
+
+    assert gap_issues == [], (
+        "Should not flag gap on Wednesday when automation only fires Mon/Fri"
+    )
+
+
+def test_gap_check_still_flags_on_active_dow(tmp_path: Path) -> None:
+    """Gap check should still flag when automation has history on current dow."""
+    # Wednesday = dow 2; automation fires on Wed
+    wednesday_morning = datetime(2026, 2, 18, 9, 30, tzinfo=UTC)
+    monitor = _build_monitor(tmp_path, wednesday_morning, max_alerts_per_day=20)
+    aid = "automation.active_wed"
+
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["dow_counts"] = {2: 15}  # fires on Wednesdays
+    automation_state["gap_model"]["last_trigger"] = (
+        wednesday_morning - timedelta(hours=8)
+    ).isoformat()
+
+    count_model = automation_state["count_model"]
+    bucket_state = monitor._ensure_count_bucket_state(count_model, "weekday_morning")
+    for _ in range(10):
+        monitor._bocpd_count_detector.update_state(bucket_state, 5)
+    bucket_state["current_day"] = wednesday_morning.date().isoformat()
+    bucket_state["current_count"] = 0
+
+    gap_issues = monitor.check_gap_anomalies(now=wednesday_morning)
+
+    assert len(gap_issues) == 1, (
+        "Should flag gap on Wednesday when automation has Wednesday history"
+    )

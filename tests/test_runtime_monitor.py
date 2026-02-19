@@ -220,7 +220,7 @@ async def test_runtime_monitor_suppresses_sparse_stalled_alerts(
         baseline_days=30,
         warmup_samples=5,
         min_expected_events=0,
-        anomaly_threshold=1.3,
+
     )
 
     issues = await monitor.validate_automations([_automation("runtime_sparse")])
@@ -446,7 +446,7 @@ async def test_runtime_monitor_does_not_flag_overactive_for_bursty_reminder_base
         now=now,
         score=2.31,
         warmup_samples=3,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -482,7 +482,7 @@ async def test_runtime_monitor_does_not_flag_stalled_for_weekly_reminder_cadence
         now=now,
         score=2.20,
         warmup_samples=3,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
         baseline_days=30,
     )
@@ -557,7 +557,7 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
         now=now,
         score=2.0,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -591,7 +591,7 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
         now=now,
         score=2.0,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -680,14 +680,6 @@ def test_runtime_monitor_shares_single_bocpd_instance_when_no_custom_detector(
     """Default detector and count detector should be the same BOCPD instance."""
     monitor = RuntimeHealthMonitor(hass)
     assert monitor._detector is monitor._bocpd_count_detector
-
-
-def test_runtime_monitor_default_anomaly_threshold_matches_log10_scale(
-    hass: HomeAssistant,
-) -> None:
-    """Default anomaly_threshold should remain calibrated to log10 tail scale."""
-    monitor = RuntimeHealthMonitor(hass)
-    assert monitor.anomaly_threshold == 1.3
 
 
 @pytest.mark.asyncio
@@ -802,13 +794,12 @@ def test_constructor_logs_config_params(
             hass,
             baseline_days=30,
             warmup_samples=14,
-            anomaly_threshold=1.3,
+    
             min_expected_events=1,
         )
 
     assert "baseline_days=30" in caplog.text
     assert "warmup_samples=14" in caplog.text
-    assert "anomaly_threshold=1.3" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1133,7 +1124,7 @@ async def test_validate_automations_does_not_emit_stalled_issues(
         now=now,
         score=2.0,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -1163,7 +1154,7 @@ async def test_validate_automations_does_not_emit_overactive_issues(
         now=now,
         score=2.0,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -2115,7 +2106,7 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_day_type(
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
     issues = await monitor.validate_automations(
@@ -2142,7 +2133,7 @@ async def test_validate_automations_does_not_emit_stalled_for_day_type(
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
     issues = await monitor.validate_automations(
@@ -2174,7 +2165,7 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
     issues = await monitor.validate_automations(
@@ -2207,7 +2198,7 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_weekday(
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -2239,7 +2230,7 @@ async def test_validate_automations_does_not_emit_stalled_for_weekday(
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 
@@ -2272,7 +2263,7 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
         history=history,
         now=now,
         warmup_samples=7,
-        anomaly_threshold=1.3,
+
         min_expected_events=0,
     )
 

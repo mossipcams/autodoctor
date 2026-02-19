@@ -19,7 +19,6 @@ from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
-    DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
     DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
@@ -119,11 +118,6 @@ def test_runtime_health_hour_ratio_default_and_key() -> None:
     """Guard: hour-ratio lookback option should keep stable key/default."""
     assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS == "runtime_health_hour_ratio_days"
     assert DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS == 30
-
-
-def test_runtime_health_anomaly_threshold_default_matches_log10_scale() -> None:
-    """Guard: Default anomaly threshold must be calibrated for -log10(p) scale."""
-    assert DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD == 1.3
 
 
 def test_runtime_health_manifest_has_no_external_ml_dependency() -> None:

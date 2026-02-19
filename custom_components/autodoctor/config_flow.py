@@ -14,7 +14,6 @@ from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
@@ -32,7 +31,6 @@ from .const import (
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
-    DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
     DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
@@ -59,7 +57,7 @@ _RUNTIME_HEALTH_MIN_TRAINING_ROWS = 1
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Autodoctor."""
 
-    VERSION = 2
+    VERSION = 3
 
     _V1_REMOVED_KEYS = frozenset(
         {
@@ -70,6 +68,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "runtime_schedule_anomaly_enabled",
             "runtime_daily_rollup_enabled",
             "runtime_health_overactive_factor",
+        }
+    )
+
+    _V2_REMOVED_KEYS = frozenset(
+        {
+            "runtime_health_anomaly_threshold",
         }
     )
 
@@ -84,6 +88,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
             hass.config_entries.async_update_entry(
                 entry, options=new_options, version=2
+            )
+        if entry.version < 3:
+            new_options = {
+                k: v for k, v in entry.options.items() if k not in cls._V2_REMOVED_KEYS
+            }
+            hass.config_entries.async_update_entry(
+                entry, options=new_options, version=3
             )
         return True
 
@@ -178,13 +189,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
-                vol.Optional(
-                    CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
-                        DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
-                    ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=6.0)),
                 vol.Optional(
                     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
                     default=defaults.get(
