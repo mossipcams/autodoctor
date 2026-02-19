@@ -58,6 +58,11 @@ class IssueReporter:
             "IssueReporter initialized, has_issue_registry=%s", has_issue_registry
         )
 
+    @property
+    def active_issues(self) -> frozenset[str]:
+        """Return the set of currently active issue IDs."""
+        return self._active_issues
+
     def _automation_issue_id(self, automation_id: str) -> str:
         """Generate a unique issue ID for an automation."""
         return automation_id.replace(".", "_")

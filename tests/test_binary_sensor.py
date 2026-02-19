@@ -60,7 +60,7 @@ async def test_is_on_with_active_issues(hass: HomeAssistant) -> None:
     sensor = ValidationOkSensor(hass, entry)
 
     mock_reporter = MagicMock()
-    mock_reporter._active_issues = frozenset({"issue1", "issue2"})
+    mock_reporter.active_issues = frozenset({"issue1", "issue2"})
     hass.data[DOMAIN] = {"reporter": mock_reporter}
 
     assert sensor.is_on is True
@@ -77,7 +77,7 @@ async def test_is_on_no_issues(hass: HomeAssistant) -> None:
     sensor = ValidationOkSensor(hass, entry)
 
     mock_reporter = MagicMock()
-    mock_reporter._active_issues = frozenset()
+    mock_reporter.active_issues = frozenset()
     hass.data[DOMAIN] = {"reporter": mock_reporter}
 
     assert sensor.is_on is False

@@ -306,6 +306,13 @@ def test_clear_resolved_issues_logs_orphan_count(
 # --- Quick task 015: Coverage improvements for reporter.py ---
 
 
+def test_active_issues_property(hass: HomeAssistant) -> None:
+    """active_issues should expose _active_issues via a public property."""
+    reporter = IssueReporter(hass)
+    assert hasattr(reporter, "active_issues")
+    assert reporter.active_issues == frozenset()
+
+
 def test_clear_all_issues_removed() -> None:
     """Guard: clear_all_issues was never called from production code."""
     assert not hasattr(IssueReporter, "clear_all_issues")
