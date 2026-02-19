@@ -306,19 +306,9 @@ def test_clear_resolved_issues_logs_orphan_count(
 # --- Quick task 015: Coverage improvements for reporter.py ---
 
 
-@pytest.mark.asyncio
-async def test_clear_all_issues(hass: HomeAssistant) -> None:
-    """Test clear_all_issues removes all active issues from registry."""
-    reporter = IssueReporter(hass)
-    reporter._active_issues = frozenset({"issue_a", "issue_b"})
-
-    with patch(
-        "custom_components.autodoctor.reporter.ir.async_delete_issue"
-    ) as mock_delete:
-        reporter.clear_all_issues()
-
-    assert reporter._active_issues == frozenset()
-    assert mock_delete.call_count == 2
+def test_clear_all_issues_removed() -> None:
+    """Guard: clear_all_issues was never called from production code."""
+    assert not hasattr(IssueReporter, "clear_all_issues")
 
 
 @pytest.mark.asyncio

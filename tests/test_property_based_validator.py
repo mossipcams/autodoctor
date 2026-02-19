@@ -17,7 +17,7 @@ from hypothesis import strategies as st
 
 from custom_components.autodoctor.const import STATE_VALIDATION_WHITELIST
 from custom_components.autodoctor.device_class_states import (
-    get_all_known_domains,
+    DEVICE_CLASS_STATES,
     get_device_class_states,
 )
 from custom_components.autodoctor.domain_attributes import get_domain_attributes
@@ -47,14 +47,10 @@ def test_get_device_class_states_never_crashes(domain: str) -> None:
         assert all(isinstance(state, str) and state for state in result)
 
 
-@given(domain=st.sampled_from(list(get_all_known_domains())))
+@given(domain=st.sampled_from(list(DEVICE_CLASS_STATES.keys())))
 @settings(max_examples=200)
 def test_get_device_class_states_known_domains_return_states(domain: str) -> None:
-    """Property: all known domains return non-None, non-empty state sets.
-
-    Tests that every domain returned by get_all_known_domains() has a
-    meaningful state set with at least one state string.
-    """
+    """Property: all known domains return non-None, non-empty state sets."""
     result = get_device_class_states(domain)
     assert result is not None
     assert isinstance(result, set)
@@ -62,23 +58,12 @@ def test_get_device_class_states_known_domains_return_states(domain: str) -> Non
     assert all(isinstance(state, str) and state for state in result)
 
 
-def test_get_all_known_domains_consistency() -> None:
-    """Property: get_all_known_domains returns non-empty set with consistent mappings.
-
-    Tests that:
-    1. Function returns a non-empty set
-    2. All elements are non-empty strings
-    3. Every domain in the set has a corresponding get_device_class_states() entry
-    """
-    domains = get_all_known_domains()
-    assert isinstance(domains, set)
-    assert len(domains) > 0
-    assert all(isinstance(domain, str) and domain for domain in domains)
-
-    # Consistency check: every domain should have a state mapping
-    for domain in domains:
-        states = get_device_class_states(domain)
-        assert states is not None, f"Domain {domain} has no state mapping"
+def test_device_class_states_consistency() -> None:
+    """All DEVICE_CLASS_STATES domains have non-empty state sets."""
+    assert len(DEVICE_CLASS_STATES) > 0
+    for domain, states in DEVICE_CLASS_STATES.items():
+        assert isinstance(domain, str) and domain
+        assert states is not None and len(states) > 0, f"Domain {domain} has no state mapping"
 
 
 @given(domain=st.sampled_from(list(STATE_VALIDATION_WHITELIST)))

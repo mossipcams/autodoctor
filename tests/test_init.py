@@ -2360,6 +2360,18 @@ async def test_validate_all_loads_history() -> None:
     mock_kb.async_load_history.assert_called_once()
 
 
+def test_validate_automation_schema_requires_automation_id() -> None:
+    """validate_automation service schema must require automation_id."""
+    import voluptuous as vol
+
+    from custom_components.autodoctor import SERVICE_VALIDATE_AUTOMATION_SCHEMA
+
+    with pytest.raises(vol.error.MultipleInvalid):
+        SERVICE_VALIDATE_AUTOMATION_SCHEMA({})
+    result = SERVICE_VALIDATE_AUTOMATION_SCHEMA({"automation_id": "automation.test"})
+    assert result["automation_id"] == "automation.test"
+
+
 @pytest.mark.asyncio
 async def test_validate_automation_missing_validators() -> None:
     """Test async_validate_automation with missing validators."""

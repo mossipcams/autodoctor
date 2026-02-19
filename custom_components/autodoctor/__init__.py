@@ -93,6 +93,12 @@ SERVICE_VALIDATE_SCHEMA = vol.Schema(
     }
 )
 
+SERVICE_VALIDATE_AUTOMATION_SCHEMA = vol.Schema(
+    {
+        vol.Required("automation_id"): cv.entity_id,
+    }
+)
+
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 
@@ -863,7 +869,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN,
         "validate_automation",
         handle_validate,
-        schema=SERVICE_VALIDATE_SCHEMA,
+        schema=SERVICE_VALIDATE_AUTOMATION_SCHEMA,
     )
     async_register_admin_service(
         hass,

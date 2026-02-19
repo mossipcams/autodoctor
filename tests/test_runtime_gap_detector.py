@@ -18,7 +18,6 @@ def _build_monitor(
     return RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
         warmup_samples=0,
         min_expected_events=0,
         burst_multiplier=999.0,

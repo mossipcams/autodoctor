@@ -195,12 +195,3 @@ class IssueReporter:
             except Exception as err:
                 _LOGGER.warning("Failed to delete issue %s: %s", issue_id, err)
 
-    def clear_all_issues(self) -> None:
-        """Clear all issues."""
-        # Take snapshot of current issues before clearing
-        issues_to_clear = self._active_issues
-        for issue_id in issues_to_clear:
-            # Note: ir.async_delete_issue is synchronous despite the name
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-        # Atomic assignment
-        self._active_issues = frozenset()

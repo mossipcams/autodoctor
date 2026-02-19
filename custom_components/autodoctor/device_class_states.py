@@ -114,10 +114,3 @@ def get_device_class_states(domain: str) -> set[str] | None:
     return DEVICE_CLASS_STATES.get(domain)
 
 
-def get_all_known_domains() -> set[str]:
-    """Get all domains with known state mappings.
-
-    Returns:
-        Set of domain names
-    """
-    return set(DEVICE_CLASS_STATES.keys())

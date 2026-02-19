@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -242,7 +241,6 @@ async def test_async_init_event_store_creates_store_off_event_loop(
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
     )
     # Override the db path to our tmp location
     monitor._runtime_event_store_db_path = db_path
@@ -269,7 +267,6 @@ async def test_ingest_trigger_event_dual_writes_to_runtime_event_store(
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
     )
 
     mock_async_store = AsyncMock()
@@ -294,7 +291,6 @@ async def test_ingest_trigger_event_marks_degraded_when_store_drops_event(
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
     )
 
     mock_async_store = AsyncMock()
@@ -317,7 +313,6 @@ async def test_async_close_event_store_drains_tasks_and_closes_connection(
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
     )
 
     mock_store = MagicMock()
@@ -376,7 +371,6 @@ def test_get_event_store_diagnostics_returns_runtime_store_state(
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
     )
     monitor._runtime_event_store_degraded = True
     monitor._runtime_event_store_pending_jobs = 5
@@ -1298,118 +1292,18 @@ async def test_validate_automations_does_not_emit_overactive_with_rate_limit(
     assert overactive == []
 
 
-@pytest.mark.asyncio
-async def test_runtime_monitor_logs_scores_to_sqlite(
-    hass: HomeAssistant, tmp_path
-) -> None:
-    """Every scored automation should write telemetry row with score and features."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-    db_path = tmp_path / "runtime_scores.sqlite"
-
-    monitor = _TestRuntimeMonitor(
+def test_legacy_sqlite_telemetry_internals_removed() -> None:
+    """Legacy telemetry internals were removed — RuntimeEventStore handles persistence."""
+    assert not hasattr(RuntimeHealthMonitor, "_log_score_telemetry")
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
         hass,
-        history=history,
-        now=now,
-        score=0.72,
-        warmup_samples=7,
-        min_expected_events=0,
-        telemetry_db_path=str(db_path),
+        detector=_FixedScoreDetector(0.5),
+        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
     )
-
-    await monitor.validate_automations([_automation("runtime_test", "Kitchen Motion")])
-
-    conn = sqlite3.connect(db_path)
-    try:
-        row = conn.execute(
-            "SELECT automation_id, score, features_json FROM runtime_health_scores"
-        ).fetchone()
-    finally:
-        conn.close()
-
-    assert row is not None
-    assert row[0] == "automation.runtime_test"
-    assert row[1] == pytest.approx(0.72)
-    assert "rolling_24h_count" in json.loads(row[2])
-
-
-@pytest.mark.asyncio
-async def test_telemetry_write_offloaded_to_executor(
-    hass: HomeAssistant, tmp_path
-) -> None:
-    """Telemetry SQLite writes must run in executor to avoid blocking the event loop."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-    db_path = tmp_path / "runtime_scores.sqlite"
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=0.72,
-        warmup_samples=7,
-        min_expected_events=0,
-        telemetry_db_path=str(db_path),
-    )
-
-    with patch.object(
-        hass, "async_add_executor_job", wraps=hass.async_add_executor_job
-    ) as spy:
-        await monitor.validate_automations(
-            [_automation("runtime_test", "Kitchen Motion")]
-        )
-        telemetry_calls = [
-            c for c in spy.call_args_list if "_log_score_telemetry" in str(c.args[0])
-        ]
-        assert len(telemetry_calls) > 0, (
-            "Telemetry write must be offloaded via async_add_executor_job"
-        )
-
-
-@pytest.mark.asyncio
-async def test_telemetry_create_table_runs_only_once(
-    hass: HomeAssistant, tmp_path
-) -> None:
-    """CREATE TABLE DDL should execute only once, not on every telemetry write."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {
-        "runtime_a": [now - timedelta(days=d, hours=2) for d in range(2, 31)],
-        "runtime_b": [now - timedelta(days=d, hours=3) for d in range(2, 31)],
-    }
-    db_path = tmp_path / "runtime_scores.sqlite"
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=0.5,
-        warmup_samples=7,
-        min_expected_events=0,
-        telemetry_db_path=str(db_path),
-    )
-
-    await monitor.validate_automations(
-        [_automation("runtime_a", "Auto A"), _automation("runtime_b", "Auto B")]
-    )
-
-    assert monitor._telemetry_table_ensured is True
-
-    # Run again — should still be True from first pass, not re-created
-    call_count_before = 0
-    conn = sqlite3.connect(db_path)
-    try:
-        # Count rows to verify both automations wrote telemetry
-        call_count_before = conn.execute(
-            "SELECT COUNT(*) FROM runtime_health_scores"
-        ).fetchone()[0]
-    finally:
-        conn.close()
-    assert call_count_before == 2
-
-    await monitor.validate_automations(
-        [_automation("runtime_a", "Auto A"), _automation("runtime_b", "Auto B")]
-    )
-    assert monitor._telemetry_table_ensured is True
+    assert not hasattr(monitor, "_telemetry_table_ensured")
+    assert not hasattr(monitor, "_telemetry_lock")
+    assert not hasattr(monitor, "_telemetry_db_path")
 
 
 def test_fixed_score_detector_accepts_window_size_kwarg() -> None:
@@ -1437,7 +1331,6 @@ def test_smoothed_score_bootstraps_from_persisted_ema(tmp_path: Path) -> None:
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
         runtime_event_store=store,
     )
 
@@ -1461,7 +1354,6 @@ def test_smoothed_score_accepts_prefetched_persisted_ema(tmp_path: Path) -> None
     monitor = RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        telemetry_db_path=None,
     )
 
     ema = monitor._smoothed_score("automation.prefetched", 0.8, persisted_ema=0.4)
@@ -1471,120 +1363,17 @@ def test_smoothed_score_accepts_prefetched_persisted_ema(tmp_path: Path) -> None
     assert ema == pytest.approx(0.5333333333, rel=1e-3)
 
 
-def test_telemetry_table_ensured_flag_protected_by_lock() -> None:
-    """RuntimeHealthMonitor should have a threading.Lock for telemetry table creation."""
-    import threading
-
+def test_telemetry_lock_and_db_path_removed() -> None:
+    """Legacy telemetry lock, db_path, and table_ensured were removed with _log_score_telemetry."""
     hass = MagicMock()
     monitor = RuntimeHealthMonitor(
         hass,
         detector=_FixedScoreDetector(0.5),
         now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
     )
-    assert hasattr(monitor, "_telemetry_lock")
-    assert isinstance(monitor._telemetry_lock, type(threading.Lock()))
-
-
-def test_telemetry_table_creation_acquires_lock(tmp_path) -> None:
-    """The _telemetry_table_ensured check/set must be protected by _telemetry_lock."""
-
-    hass = MagicMock()
-    db_path = tmp_path / "runtime_scores.sqlite"
-    monitor = RuntimeHealthMonitor(
-        hass,
-        detector=_FixedScoreDetector(0.5),
-        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
-        telemetry_db_path=str(db_path),
-    )
-
-    acquired_count = 0
-    original_lock = monitor._telemetry_lock
-
-    class _TrackingLock:
-        def __enter__(self) -> _TrackingLock:
-            nonlocal acquired_count
-            acquired_count += 1
-            original_lock.acquire()
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            original_lock.release()
-
-    monitor._telemetry_lock = _TrackingLock()  # type: ignore[assignment]
-
-    monitor._log_score_telemetry(
-        automation_id="automation.test",
-        score=0.5,
-        now=datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
-        features={"a": 1.0},
-    )
-    assert acquired_count >= 1, (
-        "_telemetry_lock must be acquired during telemetry write"
-    )
-
-
-def test_telemetry_deletes_rows_older_than_retention_days(tmp_path) -> None:
-    """Telemetry writes should delete rows older than the retention period."""
-    hass = MagicMock()
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    db_path = tmp_path / "runtime_scores.sqlite"
-
-    monitor = RuntimeHealthMonitor(
-        hass,
-        detector=_FixedScoreDetector(0.5),
-        now_factory=lambda: now,
-        telemetry_db_path=str(db_path),
-    )
-
-    # Pre-populate DB with old and recent rows
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS runtime_health_scores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts TEXT NOT NULL,
-            automation_id TEXT NOT NULL,
-            score REAL NOT NULL,
-            features_json TEXT NOT NULL
-        )
-        """
-    )
-    old_ts = (now - timedelta(days=100)).isoformat()
-    recent_ts = (now - timedelta(days=10)).isoformat()
-    conn.execute(
-        "INSERT INTO runtime_health_scores (ts, automation_id, score, features_json) VALUES (?, ?, ?, ?)",
-        (old_ts, "automation.old", 0.5, "{}"),
-    )
-    conn.execute(
-        "INSERT INTO runtime_health_scores (ts, automation_id, score, features_json) VALUES (?, ?, ?, ?)",
-        (recent_ts, "automation.recent", 0.6, "{}"),
-    )
-    conn.commit()
-    conn.close()
-
-    # Mark table as already ensured since we created it manually
-    monitor._telemetry_table_ensured = True
-
-    # Write a new telemetry row, which should trigger cleanup
-    monitor._log_score_telemetry(
-        automation_id="automation.test",
-        score=0.7,
-        now=now,
-        features={"a": 1.0},
-    )
-
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute(
-        "SELECT automation_id FROM runtime_health_scores ORDER BY automation_id"
-    ).fetchall()
-    conn.close()
-
-    automation_ids = [r[0] for r in rows]
-    assert "automation.old" not in automation_ids, (
-        "Rows older than 90 days should be deleted"
-    )
-    assert "automation.recent" in automation_ids
-    assert "automation.test" in automation_ids
+    assert not hasattr(monitor, "_telemetry_lock")
+    assert not hasattr(monitor, "_telemetry_db_path")
+    assert not hasattr(monitor, "_telemetry_table_ensured")
 
 
 def test_build_feature_row_uses_precomputed_median_gap() -> None:
@@ -1697,8 +1486,7 @@ async def test_validate_automations_does_not_persist_periodic_model(
             super().__init__(
                 hass,
                 now_factory=lambda: now,
-                telemetry_db_path=None,
-                warmup_samples=7,
+                        warmup_samples=7,
                 min_expected_events=0,
                 burst_multiplier=999.0,
             )
@@ -1762,8 +1550,7 @@ async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state
             super().__init__(
                 hass,
                 now_factory=lambda: now,
-                telemetry_db_path=None,
-                warmup_samples=7,
+                        warmup_samples=7,
                 min_expected_events=0,
                 burst_multiplier=999.0,
             )
@@ -1867,7 +1654,6 @@ def test_catch_up_count_model_replays_missing_finalized_days(
     now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
     monitor = RuntimeHealthMonitor(
         hass=MagicMock(),
-        telemetry_db_path=None,
         now_factory=lambda: now,
     )
 
@@ -1980,11 +1766,11 @@ async def test_validate_automations_builds_and_passes_bucket_index(
         assert isinstance(call_kwargs["bucket_index"], dict)
 
 
-def test_telemetry_retention_days_constant_exists() -> None:
-    """Module should expose a _TELEMETRY_RETENTION_DAYS constant set to 90."""
-    from custom_components.autodoctor.runtime_monitor import _TELEMETRY_RETENTION_DAYS
-
-    assert _TELEMETRY_RETENTION_DAYS == 90
+def test_legacy_telemetry_removed() -> None:
+    """Legacy _log_score_telemetry was removed — score persistence handled by RuntimeEventStore."""
+    assert not hasattr(RuntimeHealthMonitor, "_log_score_telemetry"), (
+        "_log_score_telemetry is dead code — RuntimeEventStore.record_score handles persistence"
+    )
 
 
 def test_dismissed_multiplier_removed() -> None:
@@ -2024,6 +1810,11 @@ def test_score_current_logs_debug_on_type_error_fallback(
     assert score == pytest.approx(0.42)
     assert "TypeError" in caplog.text
     assert "auto.test" in caplog.text
+
+
+def test_percentile_removed() -> None:
+    """_percentile was removed — zero references in codebase."""
+    assert not hasattr(RuntimeHealthMonitor, "_percentile")
 
 
 def test_legacy_row_builders_removed() -> None:
