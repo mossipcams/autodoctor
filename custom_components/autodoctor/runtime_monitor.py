@@ -552,6 +552,9 @@ class RuntimeHealthMonitor:
             automation_state, event_time
         )
         self._update_gap_model(automation_state, event_time)
+        dow_counts = automation_state.setdefault("dow_counts", {})
+        dow = event_time.weekday()
+        dow_counts[dow] = dow_counts.get(dow, 0) + 1
         self._clear_runtime_alert(
             automation_entity_id,
             IssueType.RUNTIME_AUTOMATION_SILENT,
@@ -857,6 +860,14 @@ class RuntimeHealthMonitor:
                 )
                 continue
 
+            # Skip gap check if this automation has never fired on this weekday
+            dow_counts = automation_state.get("dow_counts", {})
+            if dow_counts and check_time.weekday() not in dow_counts:
+                self._clear_runtime_alert(
+                    automation_id, IssueType.RUNTIME_AUTOMATION_SILENT
+                )
+                continue
+
             # Derive expected gap from BOCPD expected_rate in current bucket
             count_model = automation_state.get("count_model", {})
             buckets = (
@@ -945,6 +956,7 @@ class RuntimeHealthMonitor:
                 "gap_confirmation_required": 1,
                 "gap_recovery_events": 0,
             },
+            "dow_counts": {},
         }
 
     def _ensure_automation_state(self, automation_entity_id: str) -> dict[str, Any]:
