@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.3](https://github.com/mossipcams/autodoctor/compare/v2.28.2...v2.28.3) (2026-02-19)
+
+
+### Bug Fixes
+
+* **runtime:** skip gap check on days-of-week with no historical activity ([#164](https://github.com/mossipcams/autodoctor/issues/164)) ([4092643](https://github.com/mossipcams/autodoctor/commit/40926438ef3793920f7c0f6bd6d2222d345873e7))
+
 ## [2.28.2](https://github.com/mossipcams/autodoctor/compare/v2.28.1...v2.28.2) (2026-02-19)
 
 
