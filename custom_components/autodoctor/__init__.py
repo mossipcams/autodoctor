@@ -186,100 +186,6 @@ def _filter_group_issues_for_suppressions(
     return visible_group_issues, total_suppressed
 
 
-_RUNTIME_ISSUE_TYPES = cast(
-    frozenset[IssueType],
-    VALIDATION_GROUPS["runtime_health"]["issue_types"],
-)
-
-
-def _replace_runtime_issues(
-    existing_issues: list[ValidationIssue],
-    runtime_issues: list[ValidationIssue],
-) -> list[ValidationIssue]:
-    """Return issue list with runtime-health issue types replaced by current alerts."""
-    merged = [
-        issue
-        for issue in existing_issues
-        if issue.issue_type not in _RUNTIME_ISSUE_TYPES
-    ]
-    merged.extend(runtime_issues)
-    return merged
-
-
-async def _async_reconcile_runtime_alert_surfaces(
-    hass: HomeAssistant,
-    runtime_monitor: RuntimeHealthMonitor,
-) -> None:
-    """Sync runtime alerts into cached validation state and reporter output."""
-    data = hass.data.get(DOMAIN, {})
-    if not isinstance(data, dict):
-        return
-    domain_data = cast(dict[str, Any], data)
-
-    suppression_store = cast(
-        SuppressionStore | None, domain_data.get("suppression_store")
-    )
-    runtime_alerts = runtime_monitor.get_active_runtime_alerts()
-    existing_raw_issues = cast(
-        list[ValidationIssue],
-        domain_data.get(
-            "validation_issues_raw",
-            domain_data.get("validation_issues", domain_data.get("issues", [])),
-        ),
-    )
-    merged_raw_issues = _replace_runtime_issues(existing_raw_issues, runtime_alerts)
-    visible_issues, _ = filter_suppressed_issues(merged_raw_issues, suppression_store)
-    visible_runtime_issues, _ = filter_suppressed_issues(
-        runtime_alerts, suppression_store
-    )
-
-    domain_data.update(
-        {
-            "issues": visible_issues,
-            "validation_issues": visible_issues,
-            "validation_issues_raw": merged_raw_issues,
-        }
-    )
-
-    validation_groups_raw = cast(
-        dict[str, Any] | None, domain_data.get("validation_groups_raw")
-    )
-    if isinstance(validation_groups_raw, dict):
-        runtime_group_raw = cast(
-            dict[str, Any] | None, validation_groups_raw.get("runtime_health")
-        )
-        duration_ms = (
-            int(runtime_group_raw.get("duration_ms", 0))
-            if isinstance(runtime_group_raw, dict)
-            else 0
-        )
-        validation_groups_raw["runtime_health"] = {
-            "issues": runtime_alerts,
-            "duration_ms": duration_ms,
-        }
-
-    validation_groups_visible = cast(
-        dict[str, Any] | None, domain_data.get("validation_groups")
-    )
-    if isinstance(validation_groups_visible, dict):
-        runtime_group_visible = cast(
-            dict[str, Any] | None, validation_groups_visible.get("runtime_health")
-        )
-        duration_ms = (
-            int(runtime_group_visible.get("duration_ms", 0))
-            if isinstance(runtime_group_visible, dict)
-            else 0
-        )
-        validation_groups_visible["runtime_health"] = {
-            "issues": visible_runtime_issues,
-            "duration_ms": duration_ms,
-        }
-
-    reporter = domain_data.get("reporter")
-    if reporter is not None and hasattr(reporter, "async_report_issues"):
-        await reporter.async_report_issues(visible_issues)
-
-
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate config entry from an older version.
 
@@ -551,7 +457,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_zone_state_listener": None,
         "unsub_area_registry_listener": None,
         "unsub_runtime_trigger_listener": None,
-        "unsub_runtime_gap_listener": None,
     }
 
     if validate_on_reload:
@@ -651,9 +556,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _handle_runtime_trigger,
         )
         hass.data[DOMAIN]["unsub_runtime_trigger_listener"] = unsub_runtime_trigger
-        hass.data[DOMAIN]["unsub_runtime_gap_listener"] = (
-            _setup_runtime_gap_check_listener(hass, runtime_monitor)
-        )
 
     # Listen for options updates to reload the integration
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -686,7 +588,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_zone_state_listener",
         "unsub_area_registry_listener",
         "unsub_runtime_trigger_listener",
-        "unsub_runtime_gap_listener",
     ):
         unsub = data.get(key)
         if unsub is not None:
@@ -775,36 +676,6 @@ def _setup_periodic_scan_listener(
         hass,
         _handle_periodic_scan,
         timedelta(hours=interval_hours),
-    )
-
-
-def _setup_runtime_gap_check_listener(
-    hass: HomeAssistant,
-    runtime_monitor: RuntimeHealthMonitor,
-) -> Callable[[], None]:
-    """Set up hourly runtime gap anomaly checks."""
-
-    async def _handle_runtime_gap_check(_: datetime) -> None:
-        started = time.monotonic()
-        _LOGGER.debug("Runtime gap check started")
-        try:
-            gap_issues = runtime_monitor.check_gap_anomalies()
-            await _async_reconcile_runtime_alert_surfaces(hass, runtime_monitor)
-            elapsed_ms = round((time.monotonic() - started) * 1000)
-            _LOGGER.debug(
-                "Runtime gap check finished: issues=%d duration_ms=%d",
-                len(gap_issues),
-                elapsed_ms,
-            )
-            if gap_issues:
-                _LOGGER.debug("Runtime gap check emitted %d issues", len(gap_issues))
-        except Exception as err:
-            _LOGGER.warning("Runtime gap check failed: %s", err)
-
-    return async_track_time_interval(
-        hass,
-        _handle_runtime_gap_check,
-        timedelta(hours=1),
     )
 
 

@@ -36,7 +36,6 @@ class IssueType(StrEnum):
     SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
     SERVICE_UNKNOWN_PARAM = "service_unknown_param"
     SERVICE_TARGET_NOT_FOUND = "service_target_not_found"
-    RUNTIME_AUTOMATION_SILENT = "runtime_automation_silent"
     RUNTIME_AUTOMATION_OVERACTIVE = "runtime_automation_overactive"
     RUNTIME_AUTOMATION_BURST = "runtime_automation_burst"
 
@@ -171,7 +170,6 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
         "label": "Runtime Health",
         "issue_types": frozenset(
             {
-                IssueType.RUNTIME_AUTOMATION_SILENT,
                 IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
                 IssueType.RUNTIME_AUTOMATION_BURST,
             }

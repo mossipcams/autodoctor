@@ -39,9 +39,6 @@ def test_bocpd_constants_exist() -> None:
     assert isinstance(const.DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH, int)
     assert const.DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH >= 8
 
-    assert isinstance(const.DEFAULT_RUNTIME_HEALTH_GAP_THRESHOLD_MULTIPLIER, float)
-    assert const.DEFAULT_RUNTIME_HEALTH_GAP_THRESHOLD_MULTIPLIER > 1.0
-
 
 def test_runtime_monitor_accepts_bocpd_config(tmp_path: Path) -> None:
     """Runtime monitor should accept explicit BOCPD runtime tuning."""
@@ -51,12 +48,10 @@ def test_runtime_monitor_accepts_bocpd_config(tmp_path: Path) -> None:
         now,
         hazard_rate=0.08,
         max_run_length=64,
-        gap_threshold_multiplier=1.8,
     )
 
     assert monitor.hazard_rate == 0.08
     assert monitor.max_run_length == 64
-    assert monitor.gap_threshold_multiplier == 1.8
 
 
 def test_bocpd_nb_predictive_returns_valid_pmf() -> None:
