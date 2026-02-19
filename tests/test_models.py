@@ -464,6 +464,13 @@ def test_source_line_field_removed() -> None:
     assert "source_line" not in {f.name for f in ServiceCall.__dataclass_fields__.values()}
 
 
+def test_is_blueprint_instance_field_removed() -> None:
+    """Guard: is_blueprint_instance was threaded through analyzer but never read in production."""
+    assert "is_blueprint_instance" not in {
+        f.name for f in ServiceCall.__dataclass_fields__.values()
+    }
+
+
 def test_overactive_factor_removed_from_config() -> None:
     """Guard: overactive_factor config option must be removed (dead after model simplification)."""
     for filename in ("config_flow.py", "const.py"):

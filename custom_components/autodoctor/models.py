@@ -127,7 +127,6 @@ class ServiceCall:
     target: dict[str, Any] | None = None
     data: dict[str, Any] | None = None
     is_template: bool = False
-    is_blueprint_instance: bool = False
 
 
 # Validation group definitions: maps group ID to label and member IssueTypes.

@@ -140,7 +140,7 @@ class AutomationAnalyzer:
         return [str(value)]
 
     def _normalize_entity_ids(
-        self, value: Any, is_blueprint_instance: bool = False
+        self, value: Any
     ) -> list[str]:
         """Normalize entity_id value(s) to a list of strings."""
         if value is None:
@@ -154,7 +154,6 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract all state references from an automation."""
         refs: list[StateReference] = []
-        is_blueprint_instance = "use_blueprint" in automation
 
         automation_id = f"automation.{automation.get('id', 'unknown')}"
         automation_name = automation.get("alias", automation_id)
@@ -171,7 +170,6 @@ class AutomationAnalyzer:
                     idx,
                     automation_id,
                     automation_name,
-                    is_blueprint_instance=is_blueprint_instance,
                 )
             )
 
@@ -187,7 +185,6 @@ class AutomationAnalyzer:
                     idx,
                     automation_id,
                     automation_name,
-                    is_blueprint_instance=is_blueprint_instance,
                 )
             )
 
@@ -201,7 +198,6 @@ class AutomationAnalyzer:
                 actions,
                 automation_id,
                 automation_name,
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
 
@@ -213,7 +209,6 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
-        is_blueprint_instance: bool = False,
     ) -> list[StateReference]:
         """Extract state references from a trigger."""
         refs: list[StateReference] = []
@@ -234,7 +229,6 @@ class AutomationAnalyzer:
         if platform == "state":
             entity_ids = self._normalize_entity_ids(
                 trigger.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
 
             to_states = self._normalize_states(trigger.get("to"))
@@ -269,7 +263,6 @@ class AutomationAnalyzer:
         elif platform == "numeric_state":
             entity_ids = self._normalize_entity_ids(
                 trigger.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
 
             attribute = trigger.get("attribute")
@@ -297,7 +290,6 @@ class AutomationAnalyzer:
         elif platform == "zone":
             entity_ids = self._normalize_entity_ids(
                 trigger.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
             zone_id = trigger.get("zone")
 
@@ -343,7 +335,6 @@ class AutomationAnalyzer:
         elif platform == "calendar":
             entity_ids = self._normalize_entity_ids(
                 trigger.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
 
             for entity_id in entity_ids:
@@ -516,7 +507,6 @@ class AutomationAnalyzer:
         automation_id: str,
         automation_name: str,
         location_prefix: str = "condition",
-        is_blueprint_instance: bool = False,
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
@@ -548,7 +538,6 @@ class AutomationAnalyzer:
         if is_state_condition:
             entity_ids = self._normalize_entity_ids(
                 condition.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
 
             states = self._normalize_states(condition.get("state"))
@@ -581,7 +570,6 @@ class AutomationAnalyzer:
         elif cond_type == "numeric_state":
             entity_ids = self._normalize_entity_ids(
                 condition.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
             attribute = condition.get("attribute")
             value_template = condition.get("value_template")
@@ -613,7 +601,6 @@ class AutomationAnalyzer:
         elif cond_type == "zone":
             entity_ids = self._normalize_entity_ids(
                 condition.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
             zone_id = condition.get("zone")
 
@@ -725,7 +712,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             f"{location_prefix}[{index}].{cond_type}",
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -943,7 +929,6 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
-        is_blueprint_instance: bool = False,
     ) -> list[StateReference]:
         """Extract entity references from service calls.
 
@@ -989,7 +974,6 @@ class AutomationAnalyzer:
         # Check inline/data/target entity_id
         entity_ids = self._normalize_entity_ids(
             action.get("entity_id"),
-            is_blueprint_instance=is_blueprint_instance,
         )
 
         # Check data.entity_id
@@ -998,7 +982,6 @@ class AutomationAnalyzer:
         entity_ids.extend(
             self._normalize_entity_ids(
                 data.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
 
@@ -1010,7 +993,6 @@ class AutomationAnalyzer:
         entity_ids.extend(
             self._normalize_entity_ids(
                 target.get("entity_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
 
@@ -1018,34 +1000,28 @@ class AutomationAnalyzer:
         # Some services still accept these in data for legacy syntax.
         device_ids = self._normalize_entity_ids(
             action.get("device_id"),
-            is_blueprint_instance=is_blueprint_instance,
         )
         device_ids.extend(
             self._normalize_entity_ids(
                 data.get("device_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
         device_ids.extend(
             self._normalize_entity_ids(
                 target.get("device_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
         area_ids = self._normalize_entity_ids(
             action.get("area_id"),
-            is_blueprint_instance=is_blueprint_instance,
         )
         area_ids.extend(
             self._normalize_entity_ids(
                 data.get("area_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
         area_ids.extend(
             self._normalize_entity_ids(
                 target.get("area_id"),
-                is_blueprint_instance=is_blueprint_instance,
             )
         )
 
@@ -1135,7 +1111,6 @@ class AutomationAnalyzer:
         automation_id: str,
         automation_name: str,
         _depth: int = 0,
-        is_blueprint_instance: bool = False,
     ) -> list[StateReference]:
         """Recursively extract state references from actions."""
         if _depth >= MAX_RECURSION_DEPTH:
@@ -1162,7 +1137,6 @@ class AutomationAnalyzer:
                     idx,
                     automation_id,
                     automation_name,
-                    is_blueprint_instance=is_blueprint_instance,
                 )
             )
 
@@ -1185,7 +1159,6 @@ class AutomationAnalyzer:
                                 automation_id,
                                 automation_name,
                                 f"action[{idx}].choose[{opt_idx}].conditions",
-                                is_blueprint_instance=is_blueprint_instance,
                             )
                         )
 
@@ -1197,7 +1170,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -1209,7 +1181,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -1227,7 +1198,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             f"action[{idx}].if",
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -1240,7 +1210,6 @@ class AutomationAnalyzer:
                         automation_id,
                         automation_name,
                         _depth + 1,
-                        is_blueprint_instance=is_blueprint_instance,
                     )
                 )
                 if else_actions:
@@ -1250,7 +1219,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -1271,7 +1239,6 @@ class AutomationAnalyzer:
                                 automation_id,
                                 automation_name,
                                 f"action[{idx}].repeat.while",
-                                is_blueprint_instance=is_blueprint_instance,
                             )
                         )
 
@@ -1287,7 +1254,6 @@ class AutomationAnalyzer:
                                 automation_id,
                                 automation_name,
                                 f"action[{idx}].repeat.until",
-                                is_blueprint_instance=is_blueprint_instance,
                             )
                         )
 
@@ -1301,7 +1267,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -1333,7 +1298,6 @@ class AutomationAnalyzer:
                             automation_id,
                             automation_name,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     )
 
@@ -1342,7 +1306,6 @@ class AutomationAnalyzer:
     def extract_service_calls(self, automation: dict[str, Any]) -> list[ServiceCall]:
         """Extract all service calls from automation actions."""
         service_calls: list[ServiceCall] = []
-        is_blueprint_instance = "use_blueprint" in automation
         actions = cast(
             list[dict[str, Any]],
             automation.get("actions") or automation.get("action") or [],
@@ -1359,7 +1322,6 @@ class AutomationAnalyzer:
             automation_name,
             "action",
             service_calls,
-            is_blueprint_instance=is_blueprint_instance,
         )
         return service_calls
 
@@ -1371,7 +1333,6 @@ class AutomationAnalyzer:
         location_prefix: str,
         service_calls: list[ServiceCall],
         _depth: int = 0,
-        is_blueprint_instance: bool = False,
     ) -> None:
         """Recursively extract service calls from a list of actions."""
         if _depth >= MAX_RECURSION_DEPTH:
@@ -1426,7 +1387,6 @@ class AutomationAnalyzer:
                         target=action.get("target"),
                         data=merged_data,
                         is_template=is_template,
-                        is_blueprint_instance=is_blueprint_instance,
                     )
                 )
 
@@ -1444,7 +1404,6 @@ class AutomationAnalyzer:
                                 f"{location}.choose[{opt_idx}].sequence",
                                 service_calls,
                                 _depth + 1,
-                                is_blueprint_instance=is_blueprint_instance,
                             )
 
                 # Default branch
@@ -1457,7 +1416,6 @@ class AutomationAnalyzer:
                         f"{location}.default",
                         service_calls,
                         _depth + 1,
-                        is_blueprint_instance=is_blueprint_instance,
                     )
 
             # If/then/else
@@ -1470,7 +1428,6 @@ class AutomationAnalyzer:
                     f"{location}.then",
                     service_calls,
                     _depth + 1,
-                    is_blueprint_instance=is_blueprint_instance,
                 )
                 else_actions = action.get("else", [])
                 if else_actions:
@@ -1481,7 +1438,6 @@ class AutomationAnalyzer:
                         f"{location}.else",
                         service_calls,
                         _depth + 1,
-                        is_blueprint_instance=is_blueprint_instance,
                     )
 
             # Repeat
@@ -1497,7 +1453,6 @@ class AutomationAnalyzer:
                         f"{location}.repeat.sequence",
                         service_calls,
                         _depth + 1,
-                        is_blueprint_instance=is_blueprint_instance,
                     )
 
             # Parallel
@@ -1514,7 +1469,6 @@ class AutomationAnalyzer:
                             f"{location}.parallel",
                             service_calls,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )
                     elif isinstance(branch, dict):
                         self._extract_service_calls_from_actions(
@@ -1524,5 +1478,4 @@ class AutomationAnalyzer:
                             f"{location}.parallel",
                             service_calls,
                             _depth + 1,
-                            is_blueprint_instance=is_blueprint_instance,
                         )

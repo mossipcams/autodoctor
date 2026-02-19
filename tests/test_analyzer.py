@@ -2086,35 +2086,22 @@ def test_extract_service_call_with_string_target_does_not_crash() -> None:
     assert calls[0].service == "light.turn_on"
 
 
-def test_extract_service_calls_marks_blueprint_instances() -> None:
-    """Service calls from blueprint automations should be marked as blueprint."""
-    automation = {
-        "id": "blueprint_call",
-        "alias": "Blueprint Call",
-        "use_blueprint": {"path": "example/test.yaml", "input": {}},
-        "action": [{"service": "light.turn_on"}],
-    }
+def test_is_blueprint_instance_parameter_removed() -> None:
+    """Guard: is_blueprint_instance was threaded through analyzer but never read."""
+    import inspect
 
     analyzer = AutomationAnalyzer()
-    calls = analyzer.extract_service_calls(automation)
-
-    assert len(calls) == 1
-    assert calls[0].is_blueprint_instance is True
-
-
-def test_extract_service_calls_non_blueprint_not_marked() -> None:
-    """Service calls from regular automations should not be marked blueprint."""
-    automation = {
-        "id": "regular_call",
-        "alias": "Regular Call",
-        "action": [{"service": "light.turn_on"}],
-    }
-
-    analyzer = AutomationAnalyzer()
-    calls = analyzer.extract_service_calls(automation)
-
-    assert len(calls) == 1
-    assert calls[0].is_blueprint_instance is False
+    for name in (
+        "_normalize_entity_ids",
+        "_extract_from_trigger",
+        "_extract_from_condition",
+        "_extract_from_actions",
+        "_extract_service_calls_from_actions",
+    ):
+        sig = inspect.signature(getattr(analyzer, name))
+        assert "is_blueprint_instance" not in sig.parameters, (
+            f"{name} still accepts is_blueprint_instance"
+        )
 
 
 def test_extract_scene_turn_on() -> None:
