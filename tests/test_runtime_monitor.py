@@ -1988,3 +1988,32 @@ async def test_record_issue_dismissed_increases_threshold_multiplier(
     monitor.record_issue_dismissed("automation.test")
     assert adaptation["dismissed_count"] == 2
     assert adaptation["threshold_multiplier"] == pytest.approx(1.25 * 1.25)
+
+
+def test_run_weekly_maintenance_trims_old_events(tmp_path: Path) -> None:
+    """Weekly maintenance should trim events older than 90 days from the store."""
+    from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
+
+    now = datetime(2026, 2, 19, 12, 0, tzinfo=UTC)
+    db_path = tmp_path / "autodoctor_runtime.db"
+    store = RuntimeEventStore(db_path)
+    store.ensure_schema(target_version=1)
+
+    # Insert an old event (120 days ago) and a recent one (10 days ago)
+    store.record_trigger("automation.old", now - timedelta(days=120))
+    store.record_trigger("automation.recent", now - timedelta(days=10))
+
+    hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        warmup_samples=0,
+        min_expected_events=0,
+        runtime_event_store=store,
+    )
+    monitor.run_weekly_maintenance(now=now)
+
+    assert store.count_events("automation.old") == 0
+    assert store.count_events("automation.recent") == 1
+    store.close()

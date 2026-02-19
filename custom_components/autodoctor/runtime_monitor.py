@@ -74,6 +74,7 @@ _DEFAULT_MEDIAN_GAP_MINUTES = 60.0
 _MIN_MEDIAN_GAP_MINUTES = 1.0
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
+_TRIM_RETENTION_DAYS = 90
 
 _SPARSE_WARMUP_LOOKBACK_DAYS = 90
 
@@ -499,9 +500,24 @@ class RuntimeHealthMonitor:
             self._runtime_event_store = None
 
     def run_weekly_maintenance(self, *, now: datetime | None = None) -> None:
-        """Record maintenance tick; BOCPD path has no periodic bucket promotion."""
+        """Record maintenance tick and trim old events from the store."""
         maintenance_time = now or self._now_factory()
         self._runtime_state["last_weekly_maintenance"] = maintenance_time.isoformat()
+        if self._runtime_event_store is not None:
+            try:
+                deleted = self._runtime_event_store.trim(
+                    retention_days=_TRIM_RETENTION_DAYS, now=maintenance_time
+                )
+                if deleted > 0:
+                    _LOGGER.info(
+                        "Weekly maintenance: trimmed %d events older than %d days",
+                        deleted,
+                        _TRIM_RETENTION_DAYS,
+                    )
+            except Exception:
+                _LOGGER.debug(
+                    "Weekly maintenance: failed to trim event store", exc_info=True
+                )
 
     @staticmethod
     def _empty_automation_state() -> dict[str, Any]:
