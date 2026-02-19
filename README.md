@@ -28,7 +28,7 @@ Hours later you discover:
 - **One-Click Fixes** -- Preview and apply suggested fixes directly from the dashboard card
 - **State Learning** -- Learns valid states when you dismiss false positives
 - **Issue Suppression** -- Dismiss false positives globally (card, Repairs, sensors) with full management UI
-- **Runtime Health Monitoring** -- Detects stalled, overactive, bursty, and gap anomalies in automation trigger patterns using Bayesian changepoint detection
+- **Runtime Health Monitoring** -- Detects silent, overactive, and burst anomalies in automation trigger patterns using Bayesian changepoint detection
 - **Validation Pipeline UI** -- Animated step-by-step validation progress in the dashboard card
 - **Periodic Scanning** -- Configurable background re-validation interval
 
@@ -114,10 +114,7 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 | Enable runtime health monitoring | No | Turn on trigger-behavior anomaly detection |
 | Baseline history (days) | 30 | Recorder history window for building behavior baselines |
 | Warmup samples | 3 | Minimum active baseline days before scoring starts |
-| Anomaly threshold | 1.3 | Score threshold (-log10 p-value) for generating issues |
-| Min expected events/day | 0 | Minimum daily baseline activity required for stalled checks |
-| Overactive factor | 3.0 | Trigger count multiplier over baseline for overactive detection |
-| Hour-ratio lookback (days) | 30 | Lookback window for same-hour activity ratio features |
+| Min expected events/day | 0 | Minimum daily baseline activity required for gap checks |
 | Sensitivity | medium | Overall sensitivity (low/medium/high) |
 | Burst multiplier | 4.0 | Short-window trigger rate multiplier for burst detection |
 | Max alerts/day | 10 | Per-automation alert cap to limit noise |
@@ -170,23 +167,21 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 
 When enabled, Autodoctor monitors automation trigger patterns in real time and detects behavioral anomalies using **Bayesian Online Changepoint Detection (BOCPD)** with a Gamma-Poisson conjugate model. Models are seeded from recorder history on first enable and persisted across restarts.
 
-Runtime monitoring detects five types of anomalies:
+Runtime monitoring detects three types of anomalies:
 
 | Issue | Description |
 |-------|-------------|
-| **Stalled** | An automation that normally fires has stopped triggering |
-| **Overactive** | Trigger rate is abnormally high versus baseline |
-| **Count anomaly** | Daily trigger count is statistically unusual (BOCPD posterior) |
-| **Gap** | Unusually long silence between triggers for a regularly-firing automation |
+| **Silent** | An automation that normally fires has gone unusually long without triggering |
+| **Overactive** | Daily trigger count is statistically unusual versus the BOCPD-estimated baseline |
 | **Burst** | Short-window trigger spike exceeding the burst multiplier |
 
 Key behaviors:
 - **Time-bucket awareness** -- Models are segmented by weekday/weekend and morning/afternoon/evening/night to account for natural schedule variation
-- **Recorder backfill** -- On first enable, seeds models from existing recorder history so detection starts immediately rather than waiting for a full baseline window
+- **Recorder bootstrap** -- On first enable, bulk-imports trigger history from the recorder into SQLite so detection starts immediately rather than waiting for a full baseline window
 - **Restart exclusion** -- Ignores triggers shortly after HA restarts to avoid false positives from startup activity
 - **Alert caps** -- Per-automation and global daily alert limits prevent alert fatigue
 - **Auto-adapt** -- Baselines automatically adjust as automation patterns evolve
-- **State persistence** -- BOCPD model state is saved to disk and survives restarts
+- **State persistence** -- Trigger events are stored in a local SQLite database; BOCPD models are rebuilt from this store on startup
 
 Practical guidance:
 - Use baseline windows of 21-30 days for stable scoring

@@ -9,9 +9,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.autodoctor import const
-from custom_components.autodoctor.runtime_health_state_store import (
-    RuntimeHealthStateStore,
-)
 from custom_components.autodoctor.runtime_monitor import (
     RuntimeHealthMonitor,
     _BOCPDDetector,
@@ -25,11 +22,9 @@ def _build_monitor(
 ) -> RuntimeHealthMonitor:
     hass = MagicMock()
     hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
-    store = RuntimeHealthStateStore(path=tmp_path / "runtime_bocpd_state.json")
     return RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
-        runtime_state_store=store,
         telemetry_db_path=None,
         warmup_samples=0,
         min_expected_events=0,

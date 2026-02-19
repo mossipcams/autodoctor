@@ -12,17 +12,13 @@ import pytest
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.autodoctor.config_flow import ConfigFlow, OptionsFlowHandler
 from custom_components.autodoctor.const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_CUTOVER,
-    CONF_RUNTIME_EVENT_STORE_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -31,15 +27,14 @@ from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     CONF_RUNTIME_HEALTH_SENSITIVITY,
     CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-    CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
+    DOMAIN,
 )
 
 
@@ -166,7 +161,6 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
         CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
-        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
     }
 
     result = await handler.async_step_init(user_input=user_input)
@@ -197,7 +191,6 @@ async def test_options_step_init_rejects_warmup_over_baseline(
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
         CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
-        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
     }
 
     with patch.object(
@@ -235,7 +228,6 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 3,
         CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 0.8,
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
-        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
     }
 
     with patch.object(
@@ -275,27 +267,24 @@ def test_options_schema_runtime_health_hour_ratio_days_range() -> None:
         schema({CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 0})
 
 
-def test_options_schema_runtime_event_store_flags_present() -> None:
-    """Runtime event-store rollout flags should be configurable in options schema."""
+def test_options_schema_rollout_flags_removed() -> None:
+    """Guard: Rollout flags removed in v2.28.0 SQLite consolidation.
+
+    The runtime event store is now always-on. Shadow-read, cutover,
+    reconciliation, schedule-anomaly, and daily-rollup flags are gone.
+    """
     schema = OptionsFlowHandler._build_options_schema(defaults={})
-
-    validated = schema(
-        {
-            CONF_RUNTIME_EVENT_STORE_ENABLED: True,
-            CONF_RUNTIME_EVENT_STORE_SHADOW_READ: True,
-            CONF_RUNTIME_EVENT_STORE_CUTOVER: False,
-            CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED: True,
-            CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED: False,
-            CONF_RUNTIME_DAILY_ROLLUP_ENABLED: True,
-        }
-    )
-
-    assert validated[CONF_RUNTIME_EVENT_STORE_ENABLED] is True
-    assert validated[CONF_RUNTIME_EVENT_STORE_SHADOW_READ] is True
-    assert validated[CONF_RUNTIME_EVENT_STORE_CUTOVER] is False
-    assert validated[CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED] is True
-    assert validated[CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED] is False
-    assert validated[CONF_RUNTIME_DAILY_ROLLUP_ENABLED] is True
+    schema_keys = {str(k) for k in schema.schema}
+    removed = {
+        "runtime_event_store_enabled",
+        "runtime_event_store_shadow_read",
+        "runtime_event_store_cutover",
+        "runtime_event_store_reconciliation_enabled",
+        "runtime_schedule_anomaly_enabled",
+        "runtime_daily_rollup_enabled",
+    }
+    found = removed & schema_keys
+    assert not found, f"Rollout flags should be removed from options schema: {found}"
 
 
 # ===== CFG-01/CFG-02 Fix Tests =====
@@ -386,7 +375,6 @@ async def test_options_flow_saves_three_model_runtime_fields(
         CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 7,
         CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD: 1.3,
         CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 0,
-        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR: 3.0,
         CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 30,
         CONF_RUNTIME_HEALTH_SENSITIVITY: "medium",
         CONF_RUNTIME_HEALTH_BURST_MULTIPLIER: 4.0,
@@ -400,3 +388,39 @@ async def test_options_flow_saves_three_model_runtime_fields(
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_RUNTIME_HEALTH_SENSITIVITY] == "medium"
     assert result["data"][CONF_RUNTIME_HEALTH_BURST_MULTIPLIER] == 4.0
+
+
+def test_config_flow_version_is_2() -> None:
+    """Config flow version must be 2 after rollout options removal."""
+    assert ConfigFlow.VERSION == 2
+
+
+@pytest.mark.asyncio
+async def test_migrate_entry_v1_strips_removed_options(
+    hass: HomeAssistant,
+) -> None:
+    """Migration from v1 should strip removed rollout option keys."""
+    removed_keys = [
+        "runtime_event_store_enabled",
+        "runtime_event_store_shadow_read",
+        "runtime_event_store_cutover",
+        "runtime_event_store_reconciliation_enabled",
+        "runtime_schedule_anomaly_enabled",
+        "runtime_daily_rollup_enabled",
+        "runtime_health_overactive_factor",
+    ]
+    old_options = dict.fromkeys(removed_keys, False)
+    old_options[CONF_HISTORY_DAYS] = 14
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
+        options=old_options,
+    )
+    entry.add_to_hass(hass)
+
+    result = await ConfigFlow.async_migrate_entry(hass, entry)
+
+    assert result is True
+    for key in removed_keys:
+        assert key not in entry.options, f"Removed key {key!r} still in options"
+    assert entry.options[CONF_HISTORY_DAYS] == 14

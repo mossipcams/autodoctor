@@ -22,7 +22,6 @@ autodoctor/
 │   ├── knowledge_base.py            # Valid state knowledge
 │   ├── models.py                    # Core data structures
 │   ├── reporter.py                  # Issue output & repairs
-│   ├── runtime_health_state_store.py # Runtime health model state persistence
 │   ├── runtime_event_store.py       # Runtime event/score SQLite storage
 │   ├── runtime_monitor.py           # River-based runtime health monitoring
 │   ├── sensor.py                    # Issue count sensor
@@ -72,12 +71,11 @@ autodoctor/
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
-- **`runtime_health_state_store.py`** - JSON-backed storage for runtime three-model state (count/gap/burst baselines and alert counters)
 - **`runtime_event_store.py`** - Local SQLite runtime event and score history store (trigger events, backfill metadata, score telemetry)
 - **`suppression_store.py`** - Thread-safe storage of dismissed issues (auto-cleans orphaned suppressions referencing removed issue types)
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
-- **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection with River (opt-in)
+- **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection with BOCPD (opt-in)
 
 ### Sensors
 - **`sensor.py`** - Active validation issue count
@@ -194,7 +192,7 @@ Supports all 10 Home Assistant condition types:
 
 **Test Suite Quality:** All test files fully type-annotated (460+ test functions with `-> None` return types and typed parameters). Comprehensive docstrings explain what each test validates and why it matters. See `.planning/test-refactor-summary.md` for details.
 
-**Test Coverage:** 693 tests passing (2 skipped stubs), ~15,600 lines
+**Test Coverage:** 1065 tests passing, ~15,600 lines
 
 **Core Test Files:**
 - `test_analyzer.py` (99 tests) - Automation parsing (21 trigger types, 10 condition types, depth limits)

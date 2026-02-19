@@ -1640,72 +1640,21 @@ async def test_async_setup() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_calls_async_load_state() -> None:
-    """async_setup_entry should call runtime_monitor.async_load_state during setup."""
-    from custom_components.autodoctor import async_setup_entry
+async def test_async_load_state_method_removed() -> None:
+    """Guard: RuntimeHealthMonitor.async_load_state was removed in v2.28.0."""
+    from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
 
-    hass = MagicMock()
-    hass.data = {}
-    hass.bus = MagicMock()
-    hass.bus.async_listen_once = MagicMock()
-    hass.bus.async_listen = MagicMock()
-    hass.config_entries = MagicMock()
-    hass.config_entries.async_forward_entry_setups = AsyncMock()
-    hass.services = MagicMock()
-    hass.services.async_register = MagicMock()
-
-    entry = MagicMock()
-    entry.options = {
-        "runtime_health_enabled": True,
-    }
-    entry.add_update_listener = MagicMock(return_value=None)
-    entry.async_on_unload = MagicMock()
-
-    mock_monitor = MagicMock()
-    mock_monitor.async_load_state = AsyncMock()
-    mock_monitor.async_init_event_store = AsyncMock()
-    mock_monitor.async_backfill_from_recorder = AsyncMock()
-
-    with (
-        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
-        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
-        patch(
-            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
-        ),
-        patch(
-            "custom_components.autodoctor.async_setup_websocket_api",
-            new_callable=AsyncMock,
-        ),
-        patch(
-            "custom_components.autodoctor.RuntimeHealthMonitor",
-            return_value=mock_monitor,
-        ),
-        patch(
-            "custom_components.autodoctor.async_track_time_interval",
-            return_value=MagicMock(),
-        ),
-    ):
-        mock_suppression = AsyncMock()
-        mock_suppression.async_load = AsyncMock()
-        mock_suppression_cls.return_value = mock_suppression
-
-        mock_learned = AsyncMock()
-        mock_learned.async_load = AsyncMock()
-        mock_learned_cls.return_value = mock_learned
-
-        await async_setup_entry(hass, entry)
-        mock_monitor.async_load_state.assert_called_once()
+    assert not hasattr(RuntimeHealthMonitor, "async_load_state")
 
 
 @pytest.mark.asyncio
-async def test_unload_entry_calls_async_flush_runtime_state() -> None:
-    """async_unload_entry should call async_flush_runtime_state on runtime_monitor."""
+async def test_unload_entry_does_not_call_async_flush_runtime_state() -> None:
+    """async_unload_entry should NOT call async_flush_runtime_state (removed in v2.28.0)."""
     from custom_components.autodoctor import async_unload_entry
 
     hass = MagicMock()
     entry = MagicMock()
-    mock_monitor = MagicMock()
-    mock_monitor.async_flush_runtime_state = AsyncMock()
+    mock_monitor = MagicMock(spec=[])
 
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
     hass.services.async_remove = MagicMock()
@@ -1720,7 +1669,6 @@ async def test_unload_entry_calls_async_flush_runtime_state() -> None:
 
     result = await async_unload_entry(hass, entry)
     assert result is True
-    mock_monitor.async_flush_runtime_state.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -2000,17 +1948,18 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert mock_runtime_cls.call_args.kwargs["smoothing_window"] == 4
     assert mock_runtime_cls.call_args.kwargs["startup_recovery_minutes"] == 7
     assert mock_runtime_cls.call_args.kwargs["auto_adapt"] is False
-    assert mock_runtime_cls.call_args.kwargs["runtime_event_store_enabled"] is True
-    assert mock_runtime_cls.call_args.kwargs["runtime_event_store_shadow_read"] is True
-    assert mock_runtime_cls.call_args.kwargs["runtime_event_store_cutover"] is False
-    assert (
-        mock_runtime_cls.call_args.kwargs["runtime_event_store_reconciliation_enabled"]
-        is True
-    )
-    assert (
-        mock_runtime_cls.call_args.kwargs["runtime_schedule_anomaly_enabled"] is False
-    )
-    assert mock_runtime_cls.call_args.kwargs["runtime_daily_rollup_enabled"] is True
+    # Rollout kwargs removed in v2.28.0 SQLite consolidation
+    for removed_kwarg in (
+        "runtime_event_store_enabled",
+        "runtime_event_store_shadow_read",
+        "runtime_event_store_cutover",
+        "runtime_event_store_reconciliation_enabled",
+        "runtime_schedule_anomaly_enabled",
+        "runtime_daily_rollup_enabled",
+    ):
+        assert removed_kwarg not in mock_runtime_cls.call_args.kwargs, (
+            f"Rollout kwarg '{removed_kwarg}' should not be passed to RuntimeHealthMonitor"
+        )
     # Event store init must happen asynchronously after construction
     mock_runtime_cls.return_value.async_init_event_store.assert_awaited_once()
 
@@ -2185,7 +2134,7 @@ async def test_run_validators_includes_runtime_health_stage(
     from custom_components.autodoctor import _async_run_validators
 
     runtime_issue = _make_issue(
-        IssueType.RUNTIME_AUTOMATION_STALLED,
+        IssueType.RUNTIME_AUTOMATION_SILENT,
         Severity.ERROR,
     )
     runtime_monitor = MagicMock()
@@ -2207,7 +2156,7 @@ async def test_run_validators_includes_runtime_health_stage(
     )
 
     assert runtime_issue in result["group_issues"]["runtime_health"]
-    assert result["all_issues"][-1].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+    assert result["all_issues"][-1].issue_type == IssueType.RUNTIME_AUTOMATION_SILENT
 
 
 @pytest.mark.asyncio
@@ -3038,8 +2987,8 @@ async def test_async_setup_entry_registers_runtime_trigger_listener_and_ingests_
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_runs_runtime_backfill_on_startup() -> None:
-    """Runtime-enabled setup should backfill runtime monitor state from recorder."""
+async def test_async_setup_entry_runs_runtime_rebuild_from_store() -> None:
+    """Runtime-enabled setup should rebuild models from SQLite event store."""
     from custom_components.autodoctor import async_setup_entry
 
     hass = MagicMock()
@@ -3091,13 +3040,13 @@ async def test_async_setup_entry_runs_runtime_backfill_on_startup() -> None:
 
         mock_runtime = mock_runtime_cls.return_value
         mock_runtime.async_init_event_store = AsyncMock()
-        mock_runtime.async_backfill_from_recorder = AsyncMock(return_value=2)
+        mock_runtime.async_bootstrap_from_recorder = AsyncMock()
+        mock_runtime.async_rebuild_models_from_store = AsyncMock()
 
         await async_setup_entry(hass, entry)
 
-    mock_runtime.async_backfill_from_recorder.assert_awaited_once_with(
-        automation_configs
-    )
+    mock_runtime.async_bootstrap_from_recorder.assert_awaited_once()
+    mock_runtime.async_rebuild_models_from_store.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -3257,7 +3206,7 @@ async def test_setup_runtime_gap_listener_reconciles_cached_runtime_issues() -> 
         message="Entity missing",
     )
     stale_runtime_issue = ValidationIssue(
-        issue_type=IssueType.RUNTIME_AUTOMATION_GAP,
+        issue_type=IssueType.RUNTIME_AUTOMATION_SILENT,
         severity=Severity.ERROR,
         automation_id="automation.old_runtime",
         automation_name="Old Runtime",
@@ -3266,7 +3215,7 @@ async def test_setup_runtime_gap_listener_reconciles_cached_runtime_issues() -> 
         message="Old runtime alert",
     )
     active_runtime_issue = ValidationIssue(
-        issue_type=IssueType.RUNTIME_AUTOMATION_GAP,
+        issue_type=IssueType.RUNTIME_AUTOMATION_SILENT,
         severity=Severity.ERROR,
         automation_id="automation.new_runtime",
         automation_name="New Runtime",
@@ -3462,7 +3411,6 @@ async def test_unload_entry_closes_runtime_event_store() -> None:
     hass = MagicMock()
     entry = MagicMock()
     mock_monitor = MagicMock()
-    mock_monitor.async_flush_runtime_state = AsyncMock()
     mock_monitor.async_close_event_store = AsyncMock()
 
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)

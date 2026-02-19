@@ -116,7 +116,7 @@ async def test_runtime_health_problem_sensor_reflects_runtime_alerts(
         entity_id="automation.runtime",
         location="runtime.health.gap",
         message="Gap anomaly",
-        issue_type=IssueType.RUNTIME_AUTOMATION_GAP,
+        issue_type=IssueType.RUNTIME_AUTOMATION_SILENT,
     )
     mock_runtime_monitor = MagicMock()
     mock_runtime_monitor.get_active_runtime_alerts.return_value = [runtime_issue]

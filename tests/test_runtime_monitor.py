@@ -69,6 +69,15 @@ class _TestRuntimeMonitor(RuntimeHealthMonitor):
             for automation_id in automation_ids
         }
 
+    async def _async_fetch_trigger_history_from_store(
+        self,
+        *,
+        automation_ids: list[str],
+        start: datetime,
+        end: datetime,
+    ) -> dict[str, list[datetime]]:
+        return await self._async_fetch_trigger_history(automation_ids, start, end)
+
 
 def _automation(automation_id: str, name: str = "Test Automation") -> dict[str, str]:
     return {"id": automation_id, "alias": name}
@@ -115,16 +124,25 @@ async def test_runtime_monitor_extends_lookback_for_sparse_warmup(
     fetch_calls: list[tuple[datetime, datetime, tuple[str, ...]]] = []
 
     class _TrackingRuntimeMonitor(_TestRuntimeMonitor):
-        async def _async_fetch_trigger_history(
+        async def _async_fetch_trigger_history_from_store(
             self,
+            *,
             automation_ids: list[str],
             start: datetime,
             end: datetime,
         ) -> dict[str, list[datetime]]:
             fetch_calls.append((start, end, tuple(automation_ids)))
-            return await super()._async_fetch_trigger_history(
-                automation_ids, start, end
-            )
+            return {
+                automation_id: [
+                    ts
+                    for ts in self._history.get(
+                        automation_id,
+                        self._history.get(automation_id.replace("automation.", ""), []),
+                    )
+                    if start <= ts <= end
+                ]
+                for automation_id in automation_ids
+            }
 
     monitor = _TrackingRuntimeMonitor(
         hass,
@@ -225,7 +243,6 @@ async def test_async_init_event_store_creates_store_off_event_loop(
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=True,
     )
     # Override the db path to our tmp location
     monitor._runtime_event_store_db_path = db_path
@@ -253,7 +270,6 @@ async def test_ingest_trigger_event_dual_writes_to_runtime_event_store(
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=True,
     )
 
     mock_async_store = AsyncMock()
@@ -279,7 +295,6 @@ async def test_ingest_trigger_event_marks_degraded_when_store_drops_event(
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=True,
     )
 
     mock_async_store = AsyncMock()
@@ -303,7 +318,6 @@ async def test_async_close_event_store_drains_tasks_and_closes_connection(
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=True,
     )
 
     mock_store = MagicMock()
@@ -324,305 +338,34 @@ async def test_async_close_event_store_drains_tasks_and_closes_connection(
     assert len(monitor._runtime_event_store_tasks) == 0
 
 
-@pytest.mark.asyncio
-async def test_backfill_from_recorder_dual_writes_runtime_event_store(
-    hass: HomeAssistant,
-) -> None:
-    """Recorder backfill should seed both runtime models and local runtime store."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {
-        "automation.runtime_backfill": [
-            now - timedelta(days=2),
-            now - timedelta(days=1),
-        ]
-    }
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        runtime_event_store_enabled=True,
-    )
-
-    mock_async_store = AsyncMock()
-    mock_async_store.async_record_trigger = AsyncMock(return_value=True)
-    monitor._async_runtime_event_store = mock_async_store
-    monitor._runtime_event_store = MagicMock()
-
-    seeded = await monitor.async_backfill_from_recorder(
-        [_automation("runtime_backfill")],
-        now=now,
-    )
-
-    assert seeded == 1
-    assert mock_async_store.async_record_trigger.await_count == 2
-    # Success metadata should be batched
-    batch_calls = monitor._runtime_event_store.set_metadata_batch.call_args_list
-    success_written = any(
-        call.args[0].get("backfill_status:automation.runtime_backfill") == "success"
-        for call in batch_calls
-    )
-    assert success_written
+def test_async_backfill_from_recorder_removed() -> None:
+    """async_backfill_from_recorder was removed — replaced by async_bootstrap_from_recorder."""
+    assert not hasattr(RuntimeHealthMonitor, "async_backfill_from_recorder")
 
 
 @pytest.mark.asyncio
-async def test_backfill_metadata_calls_use_executor(
+async def test_validate_automations_always_uses_event_store(
     hass: HomeAssistant,
 ) -> None:
-    """Backfill metadata reads/writes should go through async_add_executor_job."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {
-        "automation.runtime_backfill_exec": [
-            now - timedelta(days=2),
-            now - timedelta(days=1),
-        ]
-    }
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        runtime_event_store_enabled=True,
-    )
-
-    mock_async_store = AsyncMock()
-    mock_async_store.async_record_trigger = AsyncMock(return_value=True)
-    monitor._async_runtime_event_store = mock_async_store
-    mock_store = MagicMock()
-    mock_store.get_metadata.return_value = None
-    monitor._runtime_event_store = mock_store
-
-    original_add_executor_job = hass.async_add_executor_job
-    executor_funcs: list[object] = []
-
-    async def tracking_executor(func, *args):
-        executor_funcs.append(func)
-        return await original_add_executor_job(func, *args)
-
-    with patch.object(hass, "async_add_executor_job", side_effect=tracking_executor):
-        await monitor.async_backfill_from_recorder(
-            [_automation("runtime_backfill_exec")],
-            now=now,
-        )
-
-    # set_metadata_batch should have been dispatched via executor (batched writes)
-    assert mock_store.set_metadata_batch in executor_funcs or any(
-        hasattr(f, "func") and f.func == mock_store.set_metadata_batch
-        for f in executor_funcs
-    )
-
-
-@pytest.mark.asyncio
-async def test_reconciliation_replays_recorder_range_into_runtime_store(
-    hass: HomeAssistant,
-) -> None:
-    """Reconciliation should import recorder events since last persisted timestamp."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {
-        "automation.reconcile": [
-            now - timedelta(minutes=20),
-            now - timedelta(minutes=5),
-        ]
-    }
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        runtime_event_store_enabled=True,
-        runtime_event_store_reconciliation_enabled=True,
-    )
-    mock_store = MagicMock()
-    mock_store.get_metadata.return_value = str((now - timedelta(hours=1)).timestamp())
-    mock_store.set_metadata = MagicMock()
-    monitor._runtime_event_store = mock_store
-
-    mock_async_store = AsyncMock()
-    mock_async_store.async_record_trigger = AsyncMock(return_value=True)
-    monitor._async_runtime_event_store = mock_async_store
-
-    imported = await monitor.async_reconcile_event_store_from_recorder(
-        [_automation("reconcile")],
-        now=now,
-    )
-
-    assert imported == 2
-    assert mock_async_store.async_record_trigger.await_count == 2
-    # Reconciliation metadata should be batched
-    batch_calls = mock_store.set_metadata_batch.call_args_list
-    ts_written = any(
-        call.args[0].get("ingestion:last_persisted_ts") == str(now.timestamp())
-        for call in batch_calls
-    )
-    assert ts_written
-
-
-@pytest.mark.asyncio
-async def test_reconciliation_metadata_calls_use_executor(
-    hass: HomeAssistant,
-) -> None:
-    """Reconciliation metadata reads/writes should go through async_add_executor_job."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {
-        "automation.reconcile_exec": [
-            now - timedelta(minutes=20),
-            now - timedelta(minutes=5),
-        ]
-    }
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        runtime_event_store_enabled=True,
-        runtime_event_store_reconciliation_enabled=True,
-    )
-    mock_store = MagicMock()
-    mock_store.get_metadata.return_value = str((now - timedelta(hours=1)).timestamp())
-    monitor._runtime_event_store = mock_store
-
-    mock_async_store = AsyncMock()
-    mock_async_store.async_record_trigger = AsyncMock(return_value=True)
-    monitor._async_runtime_event_store = mock_async_store
-
-    original_add_executor_job = hass.async_add_executor_job
-    executor_funcs: list[object] = []
-
-    async def tracking_executor(func, *args):
-        executor_funcs.append(func)
-        return await original_add_executor_job(func, *args)
-
-    with patch.object(hass, "async_add_executor_job", side_effect=tracking_executor):
-        await monitor.async_reconcile_event_store_from_recorder(
-            [_automation("reconcile_exec")],
-            now=now,
-        )
-
-    assert mock_store.get_metadata in executor_funcs
-    assert mock_store.set_metadata_batch in executor_funcs
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_collects_shadow_read_parity_stats(
-    hass: HomeAssistant,
-) -> None:
-    """Shadow-read mode should collect parity stats without affecting decisions."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {
-        "automation.shadow": [
-            now - timedelta(days=days_back, hours=2) for days_back in range(2, 35)
-        ]
-    }
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=0.0,
-        warmup_samples=3,
-        min_expected_events=0,
-        runtime_event_store_enabled=True,
-        runtime_event_store_shadow_read=True,
-    )
-
-    mock_async_store = AsyncMock()
-
-    async def _get_events(
-        automation_id: str,
-        after: datetime | None = None,
-        before: datetime | None = None,
-    ) -> list[float]:
-        events = history.get(automation_id, [])
-        return [
-            ts.timestamp()
-            for ts in events
-            if (after is None or ts >= after) and (before is None or ts <= before)
-        ]
-
-    mock_async_store.async_get_events = AsyncMock(side_effect=_get_events)
-    monitor._async_runtime_event_store = mock_async_store
-
-    issues = await monitor.validate_automations([_automation("shadow", "Shadow")])
-    stats = monitor.get_last_run_stats()
-
-    assert issues == []
-    assert stats["runtime_store_shadow_sampled"] == 1
-    assert stats["runtime_store_shadow_parity_ok"] == 1
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_uses_event_store_when_cutover_enabled(
-    hass: HomeAssistant,
-) -> None:
-    """Cutover mode should read history from local runtime event store, not recorder."""
+    """validate_automations should always read history from event store."""
     now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
     history = {
         "automation.cutover": [
             now - timedelta(days=days_back, hours=2) for days_back in range(2, 35)
         ]
     }
-    recorder_calls = 0
-
-    class _CutoverMonitor(_TestRuntimeMonitor):
-        async def _async_fetch_trigger_history(
-            self,
-            automation_ids: list[str],
-            start: datetime,
-            end: datetime,
-        ) -> dict[str, list[datetime]]:
-            nonlocal recorder_calls
-            recorder_calls += 1
-            return await super()._async_fetch_trigger_history(
-                automation_ids, start, end
-            )
-
-    monitor = _CutoverMonitor(
+    monitor = _TestRuntimeMonitor(
         hass,
         history=history,
         now=now,
         score=0.0,
         warmup_samples=3,
         min_expected_events=0,
-        runtime_event_store_enabled=True,
-        runtime_event_store_cutover=True,
     )
-
-    async def _get_events(
-        automation_id: str,
-        after: datetime | None = None,
-        before: datetime | None = None,
-    ) -> list[float]:
-        events = history.get(automation_id, [])
-        return [
-            ts.timestamp()
-            for ts in events
-            if (after is None or ts >= after) and (before is None or ts <= before)
-        ]
-
-    mock_async_store = AsyncMock()
-    mock_async_store.async_get_events = AsyncMock(side_effect=_get_events)
-    monitor._async_runtime_event_store = mock_async_store
 
     issues = await monitor.validate_automations([_automation("cutover", "Cutover")])
 
     assert issues == []
-    assert recorder_calls == 0
-    assert mock_async_store.async_get_events.await_count > 0
-
-
-def test_runtime_event_store_rollback_guard_disables_cutover_after_two_bad_cycles(
-    hass: HomeAssistant,
-) -> None:
-    """Cutover should auto-disable when parity stays below rollback threshold."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    monitor = RuntimeHealthMonitor(
-        hass,
-        now_factory=lambda: now,
-        telemetry_db_path=None,
-        runtime_event_store_enabled=True,
-        runtime_event_store_cutover=True,
-    )
-
-    monitor._apply_runtime_event_store_rollback_guard(sampled=100, parity_ok=90)
-    assert monitor._runtime_event_store_cutover is True
-
-    monitor._apply_runtime_event_store_rollback_guard(sampled=100, parity_ok=90)
-    assert monitor._runtime_event_store_cutover is False
 
 
 def test_get_event_store_diagnostics_returns_runtime_store_state(
@@ -634,8 +377,6 @@ def test_get_event_store_diagnostics_returns_runtime_store_state(
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=True,
-        runtime_event_store_cutover=False,
     )
     monitor._runtime_event_store_degraded = True
     monitor._runtime_event_store_pending_jobs = 5
@@ -645,7 +386,7 @@ def test_get_event_store_diagnostics_returns_runtime_store_state(
     diag = monitor.get_event_store_diagnostics()
 
     assert diag["enabled"] is True
-    assert diag["cutover"] is False
+    assert diag["cutover"] is True  # Always-on after v2.28.0
     assert diag["degraded"] is True
     assert diag["pending_jobs"] == 5
     assert diag["write_failures"] == 3
@@ -707,7 +448,6 @@ async def test_runtime_monitor_does_not_flag_overactive_for_bursty_reminder_base
         warmup_samples=3,
         anomaly_threshold=1.3,
         min_expected_events=0,
-        overactive_factor=3.0,
     )
 
     issues = await monitor.validate_automations(
@@ -754,174 +494,9 @@ async def test_runtime_monitor_does_not_flag_stalled_for_weekly_reminder_cadence
     stalled = [
         issue
         for issue in issues
-        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT
     ]
     assert stalled == []
-
-
-@pytest.mark.asyncio
-async def test_runtime_monitor_flags_stalled_automation(hass: HomeAssistant) -> None:
-    """Automation with expected activity but no recent triggers should be flagged."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        warmup_samples=7,
-        anomaly_threshold=1.3,
-        min_expected_events=0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("runtime_test", "Kitchen Motion")]
-    )
-    assert len(issues) == 1
-    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    assert issues[0].automation_id == "automation.runtime_test"
-    assert any(
-        i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-        and i.automation_id == "automation.runtime_test"
-        for i in monitor.get_active_runtime_alerts()
-    )
-
-
-@pytest.mark.asyncio
-async def test_runtime_monitor_flags_overactive_automation(hass: HomeAssistant) -> None:
-    """Automation with extreme recent activity vs baseline should be flagged."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
-    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
-    history = {"runtime_test": baseline + burst}
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        warmup_samples=7,
-        anomaly_threshold=1.3,
-        min_expected_events=0,
-        overactive_factor=3.0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("runtime_test", "Hallway Lights")]
-    )
-    assert len(issues) == 1
-    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-    assert issues[0].automation_id == "automation.runtime_test"
-    assert any(
-        i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-        and i.automation_id == "automation.runtime_test"
-        for i in monitor.get_active_runtime_alerts()
-    )
-
-
-@pytest.mark.asyncio
-async def test_runtime_monitor_flags_overactive_for_extreme_reminder_burst(
-    hass: HomeAssistant,
-) -> None:
-    """Reminder-like baselines should still alert on truly extreme bursts."""
-    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
-    daily_counts = [
-        0,
-        0,
-        6,
-        0,
-        0,
-        10,
-        0,
-        0,
-        5,
-        0,
-        0,
-        8,
-        0,
-        0,
-        7,
-        0,
-        0,
-        5,
-        0,
-        0,
-        9,
-        0,
-        0,
-        6,
-        0,
-        0,
-        4,
-        0,
-        0,
-        9,
-    ]
-    history_events: list[datetime] = []
-    for days_back, day_count in enumerate(daily_counts, start=2):
-        day = now - timedelta(days=days_back, hours=2)
-        for minute in range(day_count):
-            history_events.append(day + timedelta(minutes=minute * 5))
-    for minute in range(30):
-        history_events.append(now - timedelta(hours=2, minutes=minute * 2))
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history={"garage_door": history_events},
-        now=now,
-        score=2.80,
-        warmup_samples=3,
-        anomaly_threshold=1.3,
-        min_expected_events=0,
-        overactive_factor=3.0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("garage_door", "Garage Door")]
-    )
-
-    overactive = [
-        issue
-        for issue in issues
-        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-    ]
-    assert len(overactive) == 1
-
-
-@pytest.mark.asyncio
-async def test_runtime_monitor_flags_stalled_when_weekly_reminder_misses_cadence(
-    hass: HomeAssistant,
-) -> None:
-    """Cadence-aware stalled logic should still fire when silence is far too long."""
-    now = datetime(2026, 2, 19, 12, 0, tzinfo=UTC)  # Thursday
-    history = {
-        "trash_reminder": [
-            datetime(2026, 1, 15, 10, 0, tzinfo=UTC),  # Thursday
-            datetime(2026, 1, 22, 10, 0, tzinfo=UTC),  # Thursday
-            datetime(2026, 1, 29, 10, 0, tzinfo=UTC),  # Thursday
-            datetime(2026, 2, 5, 10, 0, tzinfo=UTC),  # Thursday
-        ]
-    }
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=2.25,
-        warmup_samples=3,
-        anomaly_threshold=1.3,
-        min_expected_events=0,
-        baseline_days=40,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("trash_reminder", "Trash Reminder")]
-    )
-
-    stalled = [
-        issue
-        for issue in issues
-        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    ]
-    assert len(stalled) == 1
 
 
 @pytest.mark.asyncio
@@ -995,9 +570,10 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
             }
         ]
     )
-    assert len(issues) == 1
-    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    assert issues[0].automation_id == "automation.kitchen_motion"
+    # validate_automations no longer emits SILENT (check_gap_anomalies handles it),
+    # but entity_id resolution should work without errors.
+    silent = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
+    assert silent == []
 
 
 @pytest.mark.asyncio
@@ -1022,9 +598,9 @@ async def test_runtime_monitor_analyzes_automation_without_id_when_entity_id_pre
     issues = await monitor.validate_automations(
         [{"alias": "No ID Automation", "entity_id": "automation.no_id"}]
     )
-    assert len(issues) == 1
-    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    assert issues[0].automation_id == "automation.no_id"
+    # validate_automations no longer emits SILENT; verify entity_id works.
+    silent = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
+    assert silent == []
 
 
 def test_training_and_current_rows_have_same_features() -> None:
@@ -1228,7 +804,6 @@ def test_constructor_logs_config_params(
             warmup_samples=14,
             anomaly_threshold=1.3,
             min_expected_events=1,
-            overactive_factor=3.0,
         )
 
     assert "baseline_days=30" in caplog.text
@@ -1253,22 +828,22 @@ async def test_validate_automations_logs_entry(
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_records_recorder_query_failure_stat(
+async def test_validate_automations_handles_missing_event_store(
     hass: HomeAssistant,
 ) -> None:
-    """Recorder fetch failures should be reflected in run stats."""
+    """validate_automations should return empty when event store is unavailable."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    monitor = RuntimeHealthMonitor(
+    monitor = _TestRuntimeMonitor(
         hass,
-        detector=_FixedScoreDetector(0.0),
-        now_factory=lambda: now,
+        history={},
+        now=now,
     )
-    hass.async_add_executor_job = AsyncMock(side_effect=RuntimeError("db unavailable"))
 
-    await monitor.validate_automations([_automation("runtime_test", "Runtime Test")])
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Runtime Test")]
+    )
 
-    stats = monitor.get_last_run_stats()
-    assert stats["recorder_query_failed"] == 1
+    assert issues == []
 
 
 @pytest.mark.asyncio
@@ -1545,12 +1120,12 @@ def test_count_other_automations_same_5m_excludes_current_automation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_logs_stalled_detection(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+async def test_validate_automations_does_not_emit_stalled_issues(
+    hass: HomeAssistant,
 ) -> None:
-    """Should log at INFO level when a stalled automation is detected."""
+    """validate_automations should not emit SILENT; check_gap_anomalies handles it."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    # Baseline with daily events, no recent events -> stalled
+    # Baseline with daily events, no recent events -> would have been stalled
     history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
     monitor = _TestRuntimeMonitor(
         hass,
@@ -1562,23 +1137,21 @@ async def test_validate_automations_logs_stalled_detection(
         min_expected_events=0,
     )
 
-    with caplog.at_level(
-        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-    ):
-        issues = await monitor.validate_automations(
-            [_automation("runtime_test", "Kitchen Motion")]
-        )
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Kitchen Motion")]
+    )
 
-    assert len(issues) == 1
-    assert "Stalled: 'Kitchen Motion'" in caplog.text
-    assert "0 triggers in 24h" in caplog.text
+    silent_issues = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT
+    ]
+    assert silent_issues == []
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_logs_overactive_detection(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+async def test_validate_automations_does_not_emit_overactive_issues(
+    hass: HomeAssistant,
 ) -> None:
-    """Should log at INFO level when an overactive automation is detected."""
+    """validate_automations should not emit OVERACTIVE; _detect_count_anomaly handles it."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
     burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
@@ -1592,19 +1165,16 @@ async def test_validate_automations_logs_overactive_detection(
         warmup_samples=7,
         anomaly_threshold=1.3,
         min_expected_events=0,
-        overactive_factor=3.0,
     )
 
-    with caplog.at_level(
-        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-    ):
-        issues = await monitor.validate_automations(
-            [_automation("runtime_test", "Hallway Lights")]
-        )
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
 
-    assert len(issues) == 1
-    assert "Overactive: 'Hallway Lights'" in caplog.text
-    assert "20 triggers in 24h" in caplog.text
+    overactive_issues = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive_issues == []
 
 
 @pytest.mark.asyncio
@@ -1626,35 +1196,6 @@ async def test_runtime_monitor_skips_during_startup_recovery(
 
 
 @pytest.mark.asyncio
-async def test_runtime_monitor_uses_separate_thresholds(
-    hass: HomeAssistant,
-) -> None:
-    """Overactive should use its own threshold independent from stalled threshold."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
-    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
-    history = {"runtime_test": baseline + burst}
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=1.5,
-        warmup_samples=7,
-        min_expected_events=0,
-        overactive_factor=3.0,
-        stalled_threshold=2.0,
-        overactive_threshold=1.0,
-    )
-
-    issues = await monitor.validate_automations(
-        [_automation("runtime_test", "Hallway Lights")]
-    )
-    assert len(issues) == 1
-    assert issues[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-
-
-@pytest.mark.asyncio
 async def test_runtime_monitor_raises_threshold_when_runtime_issue_previously_suppressed(
     hass: HomeAssistant,
 ) -> None:
@@ -1673,7 +1214,6 @@ async def test_runtime_monitor_raises_threshold_when_runtime_issue_previously_su
         score=1.5,
         warmup_samples=7,
         min_expected_events=0,
-        stalled_threshold=1.3,
         dismissed_threshold_multiplier=1.25,
     )
 
@@ -1702,7 +1242,6 @@ async def test_runtime_monitor_suppresses_stalled_even_when_score_exceeds_multip
         score=2.5,
         warmup_samples=7,
         min_expected_events=0,
-        stalled_threshold=1.3,
         dismissed_threshold_multiplier=1.25,
     )
 
@@ -1713,10 +1252,10 @@ async def test_runtime_monitor_suppresses_stalled_even_when_score_exceeds_multip
 
 
 @pytest.mark.asyncio
-async def test_stalled_respects_per_automation_rate_limit(
+async def test_validate_automations_does_not_emit_stalled_with_rate_limit(
     hass: HomeAssistant,
 ) -> None:
-    """Stalled alerts should honor per-automation daily caps."""
+    """validate_automations no longer emits SILENT; check_gap_anomalies handles it."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
     monitor = _TestRuntimeMonitor(
@@ -1732,20 +1271,16 @@ async def test_stalled_respects_per_automation_rate_limit(
 
     automations = [_automation("runtime_test", "Kitchen Motion")]
     first = await monitor.validate_automations(automations)
-    second = await monitor.validate_automations(automations)
 
-    assert len(first) == 1
-    assert first[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    assert len(second) == 1
-    assert second[0].issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    assert second[0].automation_id == first[0].automation_id
+    silent = [i for i in first if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
+    assert silent == []
 
 
 @pytest.mark.asyncio
-async def test_overactive_respects_global_rate_limit(
+async def test_validate_automations_does_not_emit_overactive_with_rate_limit(
     hass: HomeAssistant,
 ) -> None:
-    """Overactive alerts should honor global daily caps."""
+    """validate_automations no longer emits OVERACTIVE; _detect_count_anomaly handles it."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
     burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
@@ -1760,17 +1295,16 @@ async def test_overactive_respects_global_rate_limit(
         score=2.5,
         warmup_samples=7,
         min_expected_events=0,
-        overactive_factor=3.0,
         max_alerts_per_day=10,
         global_alert_cap_per_day=1,
     )
 
     first = await monitor.validate_automations([_automation("runtime_a", "A")])
-    second = await monitor.validate_automations([_automation("runtime_b", "B")])
 
-    assert len(first) == 1
-    assert first[0].issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-    assert second == []
+    overactive = [
+        i for i in first if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
 
 
 @pytest.mark.asyncio
@@ -1913,7 +1447,6 @@ def test_smoothed_score_bootstraps_from_persisted_ema(tmp_path: Path) -> None:
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=True,
         runtime_event_store=store,
     )
 
@@ -1938,7 +1471,6 @@ def test_smoothed_score_accepts_prefetched_persisted_ema(tmp_path: Path) -> None
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_event_store_enabled=False,
     )
 
     ema = monitor._smoothed_score("automation.prefetched", 0.8, persisted_ema=0.4)
@@ -1946,83 +1478,6 @@ def test_smoothed_score_accepts_prefetched_persisted_ema(tmp_path: Path) -> None
     # score_ema_samples defaults to 5 => alpha = 2/6 ~= 0.3333
     # seeded ema: 0.4, then update with 0.8 => 0.5333
     assert ema == pytest.approx(0.5333333333, rel=1e-3)
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_prefetches_persisted_ema_via_executor(
-    hass: HomeAssistant,
-    tmp_path: Path,
-) -> None:
-    """validate_automations should fetch persisted EMA via executor, not blocking."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-    store = RuntimeEventStore(tmp_path / "autodoctor_runtime.db")
-    store.ensure_schema(target_version=1)
-    store.record_score(
-        "automation.runtime_test",
-        scored_at=now - timedelta(hours=1),
-        score=0.4,
-        ema_score=0.4,
-        features={"x": 1.0},
-    )
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=0.72,
-        warmup_samples=7,
-        min_expected_events=0,
-        telemetry_db_path=None,
-        runtime_event_store_enabled=True,
-        runtime_event_store=store,
-    )
-
-    original_add_executor_job = hass.async_add_executor_job
-    executor_funcs: list[object] = []
-
-    async def tracking_executor(func, *args):
-        executor_funcs.append(func)
-        return await original_add_executor_job(func, *args)
-
-    with patch.object(hass, "async_add_executor_job", side_effect=tracking_executor):
-        await monitor.validate_automations(
-            [_automation("runtime_test", "Kitchen Motion")]
-        )
-    store.close()
-
-    assert store.get_last_score in executor_funcs
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_persists_score_history_to_runtime_event_store(
-    hass: HomeAssistant,
-    tmp_path: Path,
-) -> None:
-    """Scored automations should persist score rows to runtime store history."""
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-    store = RuntimeEventStore(tmp_path / "autodoctor_runtime.db")
-    store.ensure_schema(target_version=1)
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=0.72,
-        warmup_samples=7,
-        min_expected_events=0,
-        telemetry_db_path=None,
-        runtime_event_store_enabled=True,
-        runtime_event_store=store,
-    )
-
-    await monitor.validate_automations([_automation("runtime_test", "Kitchen Motion")])
-    persisted = store.get_last_score("automation.runtime_test")
-    store.close()
-
-    assert persisted is not None
-    assert persisted.score == pytest.approx(0.72)
 
 
 def test_telemetry_table_ensured_flag_protected_by_lock() -> None:
@@ -2234,29 +1689,23 @@ async def test_validate_automations_precomputes_median_gap(
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_persists_bocpd_state_for_live_models(
+async def test_validate_automations_does_not_persist_periodic_model(
     hass: HomeAssistant,
     tmp_path,
 ) -> None:
-    """Periodic BOCPD scoring should persist dedicated periodic model state."""
-    from custom_components.autodoctor.runtime_health_state_store import (
-        RuntimeHealthStateStore,
-    )
-
+    """validate_automations should not populate periodic_model (removed)."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     history = {
         "automation.runtime_test": [
             now - timedelta(days=days_back, hours=2) for days_back in range(2, 40)
         ]
     }
-    store = RuntimeHealthStateStore(hass, path=tmp_path / "runtime_state.json")
 
     class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
         def __init__(self) -> None:
             super().__init__(
                 hass,
                 now_factory=lambda: now,
-                runtime_state_store=store,
                 telemetry_db_path=None,
                 warmup_samples=7,
                 min_expected_events=0,
@@ -2276,17 +1725,23 @@ async def test_validate_automations_persists_bocpd_state_for_live_models(
                 for automation_id in automation_ids
             }
 
+        async def _async_fetch_trigger_history_from_store(
+            self,
+            *,
+            automation_ids: list[str],
+            start: datetime,
+            end: datetime,
+        ) -> dict[str, list[datetime]]:
+            return await self._async_fetch_trigger_history(automation_ids, start, end)
+
     monitor = _HistoryRuntimeMonitor()
     await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
     await hass.async_block_till_done()
 
-    persisted = store.load()
-    periodic_model = persisted["automations"]["automation.runtime_test"][
-        "periodic_model"
-    ]
-    assert periodic_model["observations"], "BOCPD observations should be persisted"
-    assert sum(periodic_model["run_length_probs"]) == pytest.approx(1.0)
-    assert periodic_model["expected_rate"] > 0.0
+    state = monitor.get_runtime_state()
+    automations = state.get("automations", {})
+    automation_state = automations.get("automation.runtime_test", {})
+    assert "periodic_model" not in automation_state
 
 
 @pytest.mark.asyncio
@@ -2295,10 +1750,6 @@ async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state
     tmp_path,
 ) -> None:
     """Periodic scoring should not mutate daypart live bucket expected-rate semantics."""
-    from custom_components.autodoctor.runtime_health_state_store import (
-        RuntimeHealthStateStore,
-    )
-
     now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
     aid = "automation.runtime_mix_units"
     history_events: list[datetime] = []
@@ -2314,14 +1765,12 @@ async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state
             ]
         )
     history = {aid: history_events}
-    store = RuntimeHealthStateStore(hass, path=tmp_path / "runtime_state.json")
 
     class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
         def __init__(self) -> None:
             super().__init__(
                 hass,
                 now_factory=lambda: now,
-                runtime_state_store=store,
                 telemetry_db_path=None,
                 warmup_samples=7,
                 min_expected_events=0,
@@ -2340,6 +1789,15 @@ async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state
                 ]
                 for automation_id in automation_ids
             }
+
+        async def _async_fetch_trigger_history_from_store(
+            self,
+            *,
+            automation_ids: list[str],
+            start: datetime,
+            end: datetime,
+        ) -> dict[str, list[datetime]]:
+            return await self._async_fetch_trigger_history(automation_ids, start, end)
 
     monitor = _HistoryRuntimeMonitor()
 
@@ -2388,114 +1846,9 @@ def test_build_5m_bucket_index_groups_events_correctly() -> None:
     assert "automation.b" not in index.get(bucket_key_1205, set())
 
 
-@pytest.mark.parametrize(
-    ("automation_id", "timestamps", "expected_schedule_type"),
-    [
-        (
-            "automation.periodic_profile",
-            [
-                datetime(2026, 2, 10, 6, 0, tzinfo=UTC) + timedelta(hours=idx)
-                for idx in range(24)
-            ],
-            "periodic",
-        ),
-        (
-            "automation.scheduled_profile",
-            [
-                datetime(2026, 2, 1, 7, 0, tzinfo=UTC) + timedelta(days=day)
-                for day in range(10)
-            ]
-            + [
-                datetime(2026, 2, 1, 19, 0, tzinfo=UTC) + timedelta(days=day)
-                for day in range(10)
-            ],
-            "scheduled",
-        ),
-        (
-            "automation.clustered_profile",
-            [
-                datetime(2026, 2, 1, 8, 0, tzinfo=UTC)
-                + timedelta(days=day, minutes=offset)
-                for day in range(8)
-                for offset in (0, 10, 20)
-            ],
-            "clustered",
-        ),
-        (
-            "automation.event_driven_profile",
-            [
-                datetime(2026, 2, 10, 0, 0, tzinfo=UTC),
-                datetime(2026, 2, 10, 3, 0, tzinfo=UTC),
-                datetime(2026, 2, 10, 3, 37, tzinfo=UTC),
-                datetime(2026, 2, 10, 11, 12, tzinfo=UTC),
-                datetime(2026, 2, 11, 0, 5, tzinfo=UTC),
-                datetime(2026, 2, 11, 6, 48, tzinfo=UTC),
-                datetime(2026, 2, 12, 2, 17, tzinfo=UTC),
-            ],
-            "event_driven",
-        ),
-    ],
-)
-def test_build_profile_classifies_schedule_type(
-    tmp_path: Path,
-    automation_id: str,
-    timestamps: list[datetime],
-    expected_schedule_type: str,
-) -> None:
-    """build_profile should classify schedule type from runtime event-store history."""
-    store = RuntimeEventStore(tmp_path / "runtime_profile.db")
-    store.ensure_schema(target_version=1)
-    store.bulk_import(automation_id, timestamps)
-
-    monitor = RuntimeHealthMonitor(
-        hass=MagicMock(),
-        telemetry_db_path=None,
-        now_factory=lambda: datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
-    )
-    profile = monitor.build_profile(
-        store=store,
-        automation_id=automation_id,
-        now=datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
-    )
-
-    store.close()
-    assert profile.schedule_type == expected_schedule_type
-
-
-def test_build_profile_returns_per_bucket_expected_gaps(tmp_path: Path) -> None:
-    """build_profile should compute per-bucket expected gaps from bucket inter-arrivals."""
-    automation_id = "automation.bucket_profile"
-    store = RuntimeEventStore(tmp_path / "runtime_profile_gap.db")
-    store.ensure_schema(target_version=1)
-
-    timestamps = [
-        datetime(2026, 2, 16, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 16, 9, 30, tzinfo=UTC),
-        datetime(2026, 2, 16, 10, 0, tzinfo=UTC),
-        datetime(2026, 2, 17, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 17, 9, 30, tzinfo=UTC),
-        datetime(2026, 2, 17, 10, 0, tzinfo=UTC),
-        datetime(2026, 2, 16, 13, 0, tzinfo=UTC),
-        datetime(2026, 2, 16, 15, 0, tzinfo=UTC),
-        datetime(2026, 2, 17, 13, 0, tzinfo=UTC),
-        datetime(2026, 2, 17, 15, 0, tzinfo=UTC),
-    ]
-    store.bulk_import(automation_id, timestamps)
-
-    monitor = RuntimeHealthMonitor(
-        hass=MagicMock(),
-        telemetry_db_path=None,
-        now_factory=lambda: datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
-    )
-    profile = monitor.build_profile(
-        store=store,
-        automation_id=automation_id,
-        now=datetime(2026, 2, 18, 12, 0, tzinfo=UTC),
-    )
-
-    store.close()
-    assert profile.per_bucket_expected_gap["weekday_morning"] == pytest.approx(30.0)
-    assert profile.per_bucket_expected_gap["weekday_afternoon"] == pytest.approx(120.0)
+def test_build_profile_removed() -> None:
+    """build_profile and AutomationProfile were removed — BOCPD handles profiling."""
+    assert not hasattr(RuntimeHealthMonitor, "build_profile")
 
 
 def test_catch_up_count_model_replays_missing_finalized_days(
@@ -2643,59 +1996,9 @@ def test_telemetry_retention_days_constant_exists() -> None:
     assert _TELEMETRY_RETENTION_DAYS == 90
 
 
-def test_dismissed_multiplier_accepts_suppression_store_parameter() -> None:
-    """_dismissed_multiplier should accept an explicit suppression_store parameter."""
-    hass = MagicMock()
-    hass.data = {}  # No store in hass.data
-
-    suppression_store = MagicMock()
-    suppression_store.is_suppressed = MagicMock(return_value=True)
-
-    monitor = RuntimeHealthMonitor(
-        hass,
-        detector=_FixedScoreDetector(0.5),
-        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
-        dismissed_threshold_multiplier=1.5,
-    )
-
-    # When passing suppression_store directly, it should be used instead of hass.data lookup
-    result = monitor._dismissed_multiplier(
-        "automation.test", suppression_store=suppression_store
-    )
-    assert result == 1.5
-    suppression_store.is_suppressed.assert_called()
-
-
-@pytest.mark.asyncio
-async def test_validate_automations_passes_suppression_store_to_dismissed_multiplier(
-    hass: HomeAssistant,
-) -> None:
-    """validate_automations should extract store once and pass it to _dismissed_multiplier."""
-    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
-    history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
-
-    suppression_store = MagicMock()
-    suppression_store.is_suppressed = MagicMock(return_value=False)
-    hass.data["autodoctor"] = {"suppression_store": suppression_store}
-
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history=history,
-        now=now,
-        score=2.0,
-        warmup_samples=7,
-        min_expected_events=0,
-    )
-
-    with patch.object(
-        monitor, "_dismissed_multiplier", wraps=monitor._dismissed_multiplier
-    ) as spy:
-        await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
-        assert spy.call_count == 1
-        # Verify suppression_store was passed as keyword argument
-        call_kwargs = spy.call_args[1]
-        assert "suppression_store" in call_kwargs
-        assert call_kwargs["suppression_store"] is suppression_store
+def test_dismissed_multiplier_removed() -> None:
+    """_dismissed_multiplier was removed — STALLED/OVERACTIVE detection deleted."""
+    assert not hasattr(RuntimeHealthMonitor, "_dismissed_multiplier")
 
 
 def test_score_current_logs_debug_on_type_error_fallback(
@@ -2764,143 +2067,28 @@ def test_init_does_not_call_sync_load(hass: HomeAssistant) -> None:
         hass,
         history={},
         now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
-        runtime_state_store=mock_store,
     )
     mock_store.load.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_async_load_state_populates_runtime_state(
-    hass: HomeAssistant,
-) -> None:
-    """async_load_state should populate _runtime_state from the state store."""
-    mock_store = MagicMock()
-
-    async def _async_load():
-        return {
-            "schema_version": 2,
-            "automations": {"automation.test": {"count_model": {"buckets": {}}}},
-            "alerts": {"date": "", "global_count": 0},
-        }
-
-    mock_store.async_load = _async_load
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history={},
-        now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
-        runtime_state_store=mock_store,
-    )
-    await monitor.async_load_state()
-    state = monitor.get_runtime_state()
-    assert "automation.test" in state["automations"]
+def test_async_load_state_removed() -> None:
+    """async_load_state was removed — JSON state persistence deleted."""
+    assert not hasattr(RuntimeHealthMonitor, "async_load_state")
 
 
-@pytest.mark.asyncio
-async def test_async_flush_runtime_state_persists_to_disk(
-    hass: HomeAssistant,
-    tmp_path,
-) -> None:
-    """async_flush_runtime_state should await async_save on the store."""
-    from custom_components.autodoctor.runtime_health_state_store import (
-        RuntimeHealthStateStore,
-    )
-
-    state_path = tmp_path / "runtime_state.json"
-
-    async def _run_in_executor(func, *args):
-        return func(*args)
-
-    hass.async_add_executor_job = _run_in_executor
-    store = RuntimeHealthStateStore(hass, path=state_path)
-    monitor = _TestRuntimeMonitor(
-        hass,
-        history={},
-        now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
-        runtime_state_store=store,
-    )
-    await monitor.async_flush_runtime_state()
-    assert state_path.exists()
+def test_async_flush_runtime_state_removed() -> None:
+    """async_flush_runtime_state was removed — JSON state persistence deleted."""
+    assert not hasattr(RuntimeHealthMonitor, "async_flush_runtime_state")
 
 
-def test_persist_runtime_state_uses_fire_and_forget(
-    hass: HomeAssistant,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """_persist_runtime_state should use thread-safe create_task scheduling."""
-    mock_store = MagicMock()
-    mock_store.async_save = AsyncMock()
-    created_tasks: list[object] = []
-    original_create_task = hass.create_task
-    original_async_create_task = hass.async_create_task
-    hass.create_task = lambda coro, *a, **kw: created_tasks.append(coro)
-    hass.async_create_task = MagicMock(
-        side_effect=AssertionError("async_create_task should not be used")
-    )
-    try:
-        monitor = _TestRuntimeMonitor(
-            hass,
-            history={},
-            now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
-            runtime_state_store=mock_store,
-        )
-        with caplog.at_level(logging.DEBUG):
-            monitor._persist_runtime_state()
-        assert len(created_tasks) == 1, (
-            "Expected _persist_runtime_state to call create_task once"
-        )
-        assert "Runtime state save scheduled" in caplog.text
-        assert "reason=persist" in caplog.text
-        assert "scheduler=create_task" in caplog.text
-        assert "thread_id=" in caplog.text
-    finally:
-        for coro in created_tasks:
-            close = getattr(coro, "close", None)
-            if callable(close):
-                close()
-        hass.create_task = original_create_task
-        hass.async_create_task = original_async_create_task
+def test_persist_runtime_state_removed() -> None:
+    """_persist_runtime_state was removed — JSON state persistence deleted."""
+    assert not hasattr(RuntimeHealthMonitor, "_persist_runtime_state")
 
 
-def test_maybe_flush_runtime_state_uses_fire_and_forget(
-    hass: HomeAssistant,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """_maybe_flush_runtime_state should use thread-safe create_task when due."""
-    mock_store = MagicMock()
-    mock_store.async_save = AsyncMock()
-    created_tasks: list[object] = []
-    original_create_task = hass.create_task
-    original_async_create_task = hass.async_create_task
-    hass.create_task = lambda coro, *a, **kw: created_tasks.append(coro)
-    hass.async_create_task = MagicMock(
-        side_effect=AssertionError("async_create_task should not be used")
-    )
-    try:
-        now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-        monitor = _TestRuntimeMonitor(
-            hass,
-            history={},
-            now=now,
-            runtime_state_store=mock_store,
-        )
-        # Force flush by advancing past the interval
-        future = now + timedelta(minutes=20)
-        with caplog.at_level(logging.DEBUG):
-            monitor._maybe_flush_runtime_state(future)
-        assert len(created_tasks) == 1, (
-            "Expected _maybe_flush_runtime_state to call create_task once"
-        )
-        assert "Runtime state save scheduled" in caplog.text
-        assert "reason=periodic_flush" in caplog.text
-        assert "scheduler=create_task" in caplog.text
-        assert "thread_id=" in caplog.text
-    finally:
-        for coro in created_tasks:
-            close = getattr(coro, "close", None)
-            if callable(close):
-                close()
-        hass.create_task = original_create_task
-        hass.async_create_task = original_async_create_task
+def test_maybe_flush_runtime_state_removed() -> None:
+    """_maybe_flush_runtime_state was removed — JSON state persistence deleted."""
+    assert not hasattr(RuntimeHealthMonitor, "_maybe_flush_runtime_state")
 
 
 def test_bucket_expected_rate_removed() -> None:
@@ -2933,19 +2121,17 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_day_type(
     issues = await monitor.validate_automations(
         [_automation("wake_up", "Wake Up Light")]
     )
-    stalled = [
-        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    ]
+    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
     assert stalled == [], (
         "Should not flag stalled when no baseline events on current day type"
     )
 
 
 @pytest.mark.asyncio
-async def test_stalled_still_flags_when_baseline_events_on_current_day_type(
+async def test_validate_automations_does_not_emit_stalled_for_day_type(
     hass: HomeAssistant,
 ) -> None:
-    """Stalled should still fire when baseline has events on the current day type."""
+    """validate_automations no longer emits STALLED/SILENT — gap check handles it."""
     # Wednesday 12:00 UTC — current day type is weekday
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     # Baseline: one event every day for 30 days, but nothing recent
@@ -2962,11 +2148,9 @@ async def test_stalled_still_flags_when_baseline_events_on_current_day_type(
     issues = await monitor.validate_automations(
         [_automation("wake_up", "Wake Up Light")]
     )
-    stalled = [
-        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    ]
-    assert len(stalled) == 1, (
-        "Should flag stalled when baseline has events on current day type"
+    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
+    assert stalled == [], (
+        "validate_automations should not emit SILENT — gap check handles silence"
     )
 
 
@@ -2992,7 +2176,6 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
         warmup_samples=7,
         anomaly_threshold=1.3,
         min_expected_events=0,
-        overactive_factor=3.0,
     )
     issues = await monitor.validate_automations(
         [_automation("weekend_auto", "Weekend Party Lights")]
@@ -3031,9 +2214,7 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_weekday(
     issues = await monitor.validate_automations(
         [_automation("weekly_auto", "Weekly Auto")]
     )
-    stalled = [
-        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    ]
+    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
 
     assert stalled == [], (
         "Should not flag stalled when current weekday has no baseline evidence"
@@ -3041,10 +2222,10 @@ async def test_stalled_skipped_when_no_baseline_events_on_current_weekday(
 
 
 @pytest.mark.asyncio
-async def test_stalled_flags_when_baseline_events_exist_on_current_weekday(
+async def test_validate_automations_does_not_emit_stalled_for_weekday(
     hass: HomeAssistant,
 ) -> None:
-    """Stalled should still fire when current weekday is historically active."""
+    """validate_automations no longer emits STALLED/SILENT for weekday checks."""
     # Wednesday 12:00 UTC
     now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
     baseline = [
@@ -3065,11 +2246,11 @@ async def test_stalled_flags_when_baseline_events_exist_on_current_weekday(
     issues = await monitor.validate_automations(
         [_automation("weekly_auto", "Weekly Auto")]
     )
-    stalled = [
-        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_STALLED
-    ]
+    stalled = [i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_SILENT]
 
-    assert len(stalled) == 1
+    assert stalled == [], (
+        "validate_automations should not emit SILENT — gap check handles silence"
+    )
 
 
 @pytest.mark.asyncio
@@ -3093,7 +2274,6 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
         warmup_samples=7,
         anomaly_threshold=1.3,
         min_expected_events=0,
-        overactive_factor=3.0,
     )
 
     issues = await monitor.validate_automations(
@@ -3109,10 +2289,10 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
 
 
 @pytest.mark.asyncio
-async def test_validate_automations_skips_recorder_query_in_cutover_mode(
+async def test_validate_automations_does_not_use_recorder_path(
     hass: HomeAssistant,
 ) -> None:
-    """validate_automations should not call _async_fetch_trigger_history when cutover is on."""
+    """validate_automations should always use event store, never recorder."""
     now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
     history = {"runtime_test": [now - timedelta(days=d, hours=2) for d in range(2, 31)]}
 
@@ -3123,23 +2303,9 @@ async def test_validate_automations_skips_recorder_query_in_cutover_mode(
         score=0.5,
         warmup_samples=7,
         min_expected_events=0,
-        runtime_event_store_cutover=True,
     )
 
-    # Provide a mock async event store so the cutover branch is taken
-    mock_async_store = MagicMock()
-
-    async def _mock_get_events(aid, start, end):
-        ts_list = history.get(aid, history.get(aid.replace("automation.", ""), []))
-        return [ts.timestamp() for ts in ts_list if start <= ts <= end]
-
-    mock_async_store.async_get_events = _mock_get_events
-    monitor._async_runtime_event_store = mock_async_store
-
-    with patch.object(
-        monitor,
-        "_async_fetch_trigger_history",
-        wraps=monitor._async_fetch_trigger_history,
-    ) as recorder_spy:
-        await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
-        recorder_spy.assert_not_called()
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Kitchen")]
+    )
+    assert issues == []

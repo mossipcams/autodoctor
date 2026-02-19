@@ -8,17 +8,12 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 
 from .const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_CUTOVER,
-    CONF_RUNTIME_EVENT_STORE_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-    CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
     CONF_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -27,23 +22,16 @@ from .const import (
     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     CONF_RUNTIME_HEALTH_SENSITIVITY,
     CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
-    CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
-    DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
-    DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
-    DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
-    DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-    DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
     DEFAULT_RUNTIME_HEALTH_ANOMALY_THRESHOLD,
     DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
     DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS,
@@ -52,12 +40,10 @@ from .const import (
     DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
     DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
     DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     DEFAULT_RUNTIME_HEALTH_SENSITIVITY,
     DEFAULT_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
-    DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
@@ -73,7 +59,33 @@ _RUNTIME_HEALTH_MIN_TRAINING_ROWS = 1
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Autodoctor."""
 
-    VERSION = 1
+    VERSION = 2
+
+    _V1_REMOVED_KEYS = frozenset(
+        {
+            "runtime_event_store_enabled",
+            "runtime_event_store_shadow_read",
+            "runtime_event_store_cutover",
+            "runtime_event_store_reconciliation_enabled",
+            "runtime_schedule_anomaly_enabled",
+            "runtime_daily_rollup_enabled",
+            "runtime_health_overactive_factor",
+        }
+    )
+
+    @classmethod
+    async def async_migrate_entry(
+        cls, hass: HomeAssistant, entry: config_entries.ConfigEntry
+    ) -> bool:
+        """Migrate config entry from an older version."""
+        if entry.version < 2:
+            new_options = {
+                k: v for k, v in entry.options.items() if k not in cls._V1_REMOVED_KEYS
+            }
+            hass.config_entries.async_update_entry(
+                entry, options=new_options, version=2
+            )
+        return True
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -181,13 +193,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=1000)),
                 vol.Optional(
-                    CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
-                    default=defaults.get(
-                        CONF_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
-                        DEFAULT_RUNTIME_HEALTH_OVERACTIVE_FACTOR,
-                    ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=100.0)),
-                vol.Optional(
                     CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
                     default=defaults.get(
                         CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
@@ -234,48 +239,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=defaults.get(
                         CONF_RUNTIME_HEALTH_AUTO_ADAPT,
                         DEFAULT_RUNTIME_HEALTH_AUTO_ADAPT,
-                    ),
-                ): bool,
-                vol.Optional(
-                    CONF_RUNTIME_EVENT_STORE_ENABLED,
-                    default=defaults.get(
-                        CONF_RUNTIME_EVENT_STORE_ENABLED,
-                        DEFAULT_RUNTIME_EVENT_STORE_ENABLED,
-                    ),
-                ): bool,
-                vol.Optional(
-                    CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
-                    default=defaults.get(
-                        CONF_RUNTIME_EVENT_STORE_SHADOW_READ,
-                        DEFAULT_RUNTIME_EVENT_STORE_SHADOW_READ,
-                    ),
-                ): bool,
-                vol.Optional(
-                    CONF_RUNTIME_EVENT_STORE_CUTOVER,
-                    default=defaults.get(
-                        CONF_RUNTIME_EVENT_STORE_CUTOVER,
-                        DEFAULT_RUNTIME_EVENT_STORE_CUTOVER,
-                    ),
-                ): bool,
-                vol.Optional(
-                    CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-                    default=defaults.get(
-                        CONF_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-                        DEFAULT_RUNTIME_EVENT_STORE_RECONCILIATION_ENABLED,
-                    ),
-                ): bool,
-                vol.Optional(
-                    CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
-                    default=defaults.get(
-                        CONF_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
-                        DEFAULT_RUNTIME_SCHEDULE_ANOMALY_ENABLED,
-                    ),
-                ): bool,
-                vol.Optional(
-                    CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
-                    default=defaults.get(
-                        CONF_RUNTIME_DAILY_ROLLUP_ENABLED,
-                        DEFAULT_RUNTIME_DAILY_ROLLUP_ENABLED,
                     ),
                 ): bool,
             }

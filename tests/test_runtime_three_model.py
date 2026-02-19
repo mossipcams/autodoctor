@@ -9,9 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from custom_components.autodoctor.models import IssueType
-from custom_components.autodoctor.runtime_health_state_store import (
-    RuntimeHealthStateStore,
-)
+from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
 from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
 
 
@@ -20,12 +18,15 @@ def _build_monitor(
 ) -> RuntimeHealthMonitor:
     hass = MagicMock()
     hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
-    store = RuntimeHealthStateStore(path=tmp_path / "runtime_state.json")
+
+    async def _mock_executor(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _mock_executor
     return RuntimeHealthMonitor(
         hass,
         now_factory=lambda: now,
         telemetry_db_path=None,
-        runtime_state_store=store,
         warmup_samples=0,
         min_expected_events=0,
         **kwargs,
@@ -107,7 +108,7 @@ def test_count_anomaly_emits_runtime_issue_with_expected_range_metadata(
     count_issues = [
         issue
         for issue in emitted
-        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
     assert count_issues, "Expected at least one count anomaly issue"
     assert "expected range" in count_issues[0].message.lower()
@@ -147,7 +148,7 @@ def test_count_alert_clears_when_observation_returns_to_expected_range(
     assert emitted
     assert any(
         issue.automation_id == aid
-        and issue.issue_type == IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
+        and issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
         for issue in monitor.get_active_runtime_alerts()
     )
 
@@ -163,7 +164,7 @@ def test_count_alert_clears_when_observation_returns_to_expected_range(
     assert all(
         not (
             issue.automation_id == aid
-            and issue.issue_type == IssueType.RUNTIME_AUTOMATION_COUNT_ANOMALY
+            and issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
         )
         for issue in monitor.get_active_runtime_alerts()
     )
@@ -199,17 +200,9 @@ def test_weekly_maintenance_is_noop_with_bocpd(tmp_path: Path) -> None:
     assert "use_negative_binomial" not in after_bucket
 
 
-def test_record_issue_dismissed_increases_threshold_multiplier(tmp_path: Path) -> None:
-    """Dismissals should increase learned threshold multiplier for adaptation loop."""
-    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(tmp_path, now, dismissed_threshold_multiplier=1.5)
-    aid = "automation.dismissed"
-
-    assert monitor._dismissed_multiplier(aid) == pytest.approx(1.0)
-    monitor.record_issue_dismissed(aid)
-    assert monitor._dismissed_multiplier(aid) == pytest.approx(1.5)
-    monitor.record_issue_dismissed(aid)
-    assert monitor._dismissed_multiplier(aid) == pytest.approx(2.25)
+def test_dismissed_multiplier_removed() -> None:
+    """_dismissed_multiplier was removed — STALLED/OVERACTIVE detection deleted."""
+    assert not hasattr(RuntimeHealthMonitor, "_dismissed_multiplier")
 
 
 def test_auto_adapt_resets_bucket_after_persistent_count_anomalies(
@@ -287,55 +280,9 @@ def test_out_of_order_runtime_events_do_not_backdate_last_trigger(
     assert bucket["current_count"] == 1
 
 
-@pytest.mark.asyncio
-async def test_backfill_from_recorder_seeds_three_models_from_history(
-    tmp_path: Path,
-) -> None:
-    """Backfill should seed count/gap/burst models when runtime state starts empty."""
-    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
-
-    history: dict[str, list[datetime]] = {
-        "automation.kitchen": [
-            now - timedelta(days=3, hours=2),
-            now - timedelta(days=2, hours=2),
-            now - timedelta(days=1, minutes=45),
-            now - timedelta(days=1, minutes=25),
-            now - timedelta(days=1, minutes=5),
-        ],
-        "automation.hallway": [
-            now - timedelta(days=6, hours=1),
-            now - timedelta(days=5, hours=1),
-            now - timedelta(days=4, hours=1),
-            now - timedelta(days=3, hours=1),
-        ],
-    }
-    monitor._async_fetch_trigger_history = AsyncMock(return_value=history)  # type: ignore[method-assign]
-
-    await monitor.async_backfill_from_recorder(
-        [
-            {"id": "kitchen", "entity_id": "automation.kitchen"},
-            {"id": "hallway", "entity_id": "automation.hallway"},
-        ],
-        now=now,
-    )
-
-    state = monitor.get_runtime_state()
-    kitchen_state = state["automations"]["automation.kitchen"]
-    hallway_state = state["automations"]["automation.hallway"]
-
-    assert kitchen_state["count_model"]["buckets"]
-    assert hallway_state["count_model"]["buckets"]
-    assert (
-        kitchen_state["gap_model"]["last_trigger"]
-        == history["automation.kitchen"][-1].isoformat()
-    )
-    assert (
-        hallway_state["gap_model"]["last_trigger"]
-        == history["automation.hallway"][-1].isoformat()
-    )
-    assert kitchen_state["burst_model"]["baseline_rate_5m"] > 0.0
-    assert hallway_state["burst_model"]["baseline_rate_5m"] > 0.0
+def test_async_backfill_from_recorder_removed(tmp_path: Path) -> None:
+    """async_backfill_from_recorder was removed — replaced by async_bootstrap_from_recorder."""
+    assert not hasattr(RuntimeHealthMonitor, "async_backfill_from_recorder")
 
 
 def test_gap_check_rolls_count_bucket_forward_without_new_live_event(
@@ -361,3 +308,120 @@ def test_gap_check_rolls_count_bucket_forward_without_new_live_event(
     assert bucket["observations"] == [1, 0]
     assert bucket["current_day"] == now.date().isoformat()
     assert bucket["current_count"] == 0
+
+
+def test_rebuild_models_from_store_populates_bocpd_from_sqlite(
+    tmp_path: Path,
+) -> None:
+    """rebuild_models_from_store should replay SQLite daily counts into BOCPD."""
+    now = datetime(2026, 2, 12, 12, 0, tzinfo=UTC)  # Thursday noon
+    store = RuntimeEventStore(str(tmp_path / "autodoctor_runtime.db"))
+    store.ensure_schema(target_version=1)
+
+    aid = "automation.kitchen"
+    base = datetime(2026, 2, 9, 8, 0, tzinfo=UTC)  # Monday 8am
+    # Mon: 1 trigger, Tue: 2 triggers, Wed: 3 triggers
+    for day_offset in range(3):
+        for minute in range(day_offset + 1):
+            store.record_trigger(
+                aid,
+                base + timedelta(days=day_offset, minutes=minute),
+            )
+
+    monitor = _build_monitor(tmp_path, now, runtime_event_store=store)
+    monitor.rebuild_models_from_store(now=now)
+
+    state = monitor.get_runtime_state()
+    bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
+    assert bucket["observations"] == [1, 2, 3]
+    assert bucket["current_day"] == now.date().isoformat()
+    assert bucket["current_count"] == 0
+
+    # Gap model should have last_trigger seeded from store
+    last_trigger = state["automations"][aid]["gap_model"]["last_trigger"]
+    assert last_trigger is not None
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_from_recorder_populates_sqlite_when_empty(
+    tmp_path: Path,
+) -> None:
+    """One-time recorder bootstrap should bulk-import events into empty SQLite."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    store = RuntimeEventStore(str(tmp_path / "autodoctor_runtime.db"))
+    store.ensure_schema(target_version=1)
+
+    monitor = _build_monitor(tmp_path, now, runtime_event_store=store)
+
+    history: dict[str, list[datetime]] = {
+        "automation.kitchen": [
+            now - timedelta(days=3, hours=2),
+            now - timedelta(days=2, hours=2),
+            now - timedelta(days=1, hours=2),
+        ],
+    }
+    monitor._async_fetch_trigger_history = AsyncMock(return_value=history)  # type: ignore[method-assign]
+
+    await monitor.async_bootstrap_from_recorder(
+        [{"id": "kitchen", "entity_id": "automation.kitchen"}],
+    )
+
+    assert store.count_events("automation.kitchen") == 3
+    assert store.get_metadata("bootstrap:complete") == "true"
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_from_recorder_skips_when_already_complete(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should skip if metadata flag is already set."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    store = RuntimeEventStore(str(tmp_path / "autodoctor_runtime.db"))
+    store.ensure_schema(target_version=1)
+    store.set_metadata("bootstrap:complete", "true")
+
+    monitor = _build_monitor(tmp_path, now, runtime_event_store=store)
+    monitor._async_fetch_trigger_history = AsyncMock()  # type: ignore[method-assign]
+
+    await monitor.async_bootstrap_from_recorder(
+        [{"id": "kitchen", "entity_id": "automation.kitchen"}],
+    )
+
+    monitor._async_fetch_trigger_history.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_from_recorder_uses_executor_for_store_calls(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap store I/O must be offloaded via async_add_executor_job."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    store = RuntimeEventStore(str(tmp_path / "autodoctor_runtime.db"))
+    store.ensure_schema(target_version=1)
+
+    monitor = _build_monitor(tmp_path, now, runtime_event_store=store)
+
+    history: dict[str, list[datetime]] = {
+        "automation.kitchen": [
+            now - timedelta(days=2, hours=2),
+            now - timedelta(days=1, hours=2),
+        ],
+    }
+    monitor._async_fetch_trigger_history = AsyncMock(return_value=history)  # type: ignore[method-assign]
+
+    executor_calls: list[object] = []
+
+    async def tracking_executor(func, *args):
+        executor_calls.append(func)
+        return func(*args)
+
+    monitor.hass.async_add_executor_job = tracking_executor
+
+    await monitor.async_bootstrap_from_recorder(
+        [{"id": "kitchen", "entity_id": "automation.kitchen"}],
+    )
+
+    assert store.count_events("automation.kitchen") == 2
+    assert len(executor_calls) > 0, (
+        "Store I/O in bootstrap must go through async_add_executor_job"
+    )
