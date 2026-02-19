@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.28.5](https://github.com/mossipcams/autodoctor/compare/v2.28.4...v2.28.5) (2026-02-19)
+
+
+### Bug Fixes
+
+* **config:** sync card version to 2.28.4 ([#171](https://github.com/mossipcams/autodoctor/issues/171)) ([d117b6d](https://github.com/mossipcams/autodoctor/commit/d117b6da5c82e1b1db3c29a70673915fa33f61f6))
+* **runtime:** remove dead gap_model code and wire weekly maintenance ([#175](https://github.com/mossipcams/autodoctor/issues/175)) ([2af1ca0](https://github.com/mossipcams/autodoctor/commit/2af1ca02fc192e856a4d31fb57528583fe2e635b))
+* **runtime:** wire trim into weekly maintenance for SQLite cleanup ([#173](https://github.com/mossipcams/autodoctor/issues/173)) ([ce60930](https://github.com/mossipcams/autodoctor/commit/ce60930765ee1fa6633d8cac663ffdeec9312dac))
+* **strings:** remove stale 'stalling' reference from min_expected_events description ([#174](https://github.com/mossipcams/autodoctor/issues/174)) ([5b67ecb](https://github.com/mossipcams/autodoctor/commit/5b67ecb67e07abe532cd94b9bca2853bb02addf1))
+
 ## [2.28.4](https://github.com/mossipcams/autodoctor/compare/v2.28.3...v2.28.4) (2026-02-19)
 
 
