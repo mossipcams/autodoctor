@@ -294,6 +294,17 @@ async def _async_reconcile_runtime_alert_surfaces(
         await reporter.async_report_issues(visible_issues)
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entry from an older version.
+
+    Delegates to ConfigFlow.async_migrate_entry which owns the migration logic.
+    This module-level function is required by HA's config entry loader.
+    """
+    from .config_flow import ConfigFlow
+
+    return await ConfigFlow.async_migrate_entry(hass, entry)
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Autodoctor component."""
     hass.data.setdefault(DOMAIN, {})
