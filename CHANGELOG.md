@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.2](https://github.com/mossipcams/autodoctor/compare/v2.28.1...v2.28.2) (2026-02-19)
+
+
+### Bug Fixes
+
+* **config:** add module-level async_migrate_entry and sync card version ([#162](https://github.com/mossipcams/autodoctor/issues/162)) ([930e5e4](https://github.com/mossipcams/autodoctor/commit/930e5e4f66b24be48e02cdcb9f35ba63e823788e))
+
 ## [2.28.1](https://github.com/mossipcams/autodoctor/compare/v2.28.0...v2.28.1) (2026-02-19)
 
 
