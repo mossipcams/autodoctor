@@ -687,56 +687,43 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    # Always clean up resources regardless of unload_ok to prevent leaks
+    data = hass.data.get(DOMAIN, {})
+
+    # Cancel pending debounce task
+    debounce_task = data.get("debounce_task")
+    if debounce_task is not None and not debounce_task.done():
+        debounce_task.cancel()
+
+    # Remove event listeners
+    for key in (
+        "unsub_reload_listener",
+        "unsub_periodic_scan_listener",
+        "unsub_entity_registry_listener",
+        "unsub_zone_state_listener",
+        "unsub_area_registry_listener",
+        "unsub_runtime_trigger_listener",
+        "unsub_runtime_gap_listener",
+    ):
+        unsub = data.get(key)
+        if unsub is not None:
+            unsub()
+
+    runtime_monitor = data.get("runtime_monitor")
+    if runtime_monitor is not None and hasattr(
+        runtime_monitor, "async_close_event_store"
+    ):
+        try:
+            await runtime_monitor.async_close_event_store()
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to close runtime event store during unload: %s",
+                err,
+            )
+
     if unload_ok:
-        data = hass.data.get(DOMAIN, {})
-
-        # Cancel pending debounce task
-        debounce_task = data.get("debounce_task")
-        if debounce_task is not None and not debounce_task.done():
-            debounce_task.cancel()
-
-        # Remove event listeners
-        unsub_reload = data.get("unsub_reload_listener")
-        if unsub_reload is not None:
-            unsub_reload()
-
-        unsub_periodic = data.get("unsub_periodic_scan_listener")
-        if unsub_periodic is not None:
-            unsub_periodic()
-
-        unsub_entity_reg = data.get("unsub_entity_registry_listener")
-        if unsub_entity_reg is not None:
-            unsub_entity_reg()
-
-        unsub_zone_state = data.get("unsub_zone_state_listener")
-        if unsub_zone_state is not None:
-            unsub_zone_state()
-
-        unsub_area_registry = data.get("unsub_area_registry_listener")
-        if unsub_area_registry is not None:
-            unsub_area_registry()
-
-        unsub_runtime_trigger = data.get("unsub_runtime_trigger_listener")
-        if unsub_runtime_trigger is not None:
-            unsub_runtime_trigger()
-
-        unsub_runtime_gap = data.get("unsub_runtime_gap_listener")
-        if unsub_runtime_gap is not None:
-            unsub_runtime_gap()
-
-        runtime_monitor = data.get("runtime_monitor")
-        if runtime_monitor is not None and hasattr(
-            runtime_monitor, "async_close_event_store"
-        ):
-            try:
-                await runtime_monitor.async_close_event_store()
-            except Exception as err:
-                _LOGGER.debug(
-                    "Failed to close runtime event store during unload: %s",
-                    err,
-                )
-
-        # Unregister services
+        # Unregister services and clear data only on successful unload
         hass.services.async_remove(DOMAIN, "validate")
         hass.services.async_remove(DOMAIN, "validate_automation")
         hass.services.async_remove(DOMAIN, "refresh_knowledge_base")

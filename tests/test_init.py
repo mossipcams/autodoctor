@@ -3440,3 +3440,29 @@ async def test_unload_entry_closes_runtime_event_store() -> None:
     result = await async_unload_entry(hass, entry)
     assert result is True
     mock_monitor.async_close_event_store.assert_awaited_once()
+
+
+async def test_unload_entry_closes_event_store_on_platform_failure() -> None:
+    """Event store must be closed even when platform unloading fails."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    mock_monitor = MagicMock()
+    mock_monitor.async_close_event_store = AsyncMock()
+    mock_unsub = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_runtime_trigger_listener": mock_unsub,
+            "runtime_monitor": mock_monitor,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is False
+    mock_monitor.async_close_event_store.assert_awaited_once()
+    mock_unsub.assert_called_once()
