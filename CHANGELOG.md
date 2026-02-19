@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.28.4](https://github.com/mossipcams/autodoctor/compare/v2.28.3...v2.28.4) (2026-02-19)
+
+
+### Code Refactoring
+
+* **runtime:** remove gap detector and RUNTIME_AUTOMATION_SILENT ([#167](https://github.com/mossipcams/autodoctor/issues/167)) ([7c6eb3b](https://github.com/mossipcams/autodoctor/commit/7c6eb3b393f34e0c5d84dd4636b8b3965cdf1eba))
+* **tech-debt:** Phase 1+2 — dead code, consolidation, shared extractors ([#166](https://github.com/mossipcams/autodoctor/issues/166)) ([323f64d](https://github.com/mossipcams/autodoctor/commit/323f64d5db4478ce12d44e3494685bc6b43200b5))
+* **tech-debt:** Phases 3-4 — type safety, test quality, frontend a11y ([#169](https://github.com/mossipcams/autodoctor/issues/169)) ([45b1ed7](https://github.com/mossipcams/autodoctor/commit/45b1ed7a23eb77a5d864a046d1549b0c44ac9fe3))
+
+
+### Documentation
+
+* **readme:** update for silent detection removal and add hour_ratio_days ([#170](https://github.com/mossipcams/autodoctor/issues/170)) ([6666ef5](https://github.com/mossipcams/autodoctor/commit/6666ef557321f054d7e96d532e6451c2db8fdf2b))
+
 ## [2.28.3](https://github.com/mossipcams/autodoctor/compare/v2.28.2...v2.28.3) (2026-02-19)
 
 
