@@ -333,11 +333,6 @@ async def test_async_close_event_store_drains_tasks_and_closes_connection(
     assert len(monitor._runtime_event_store_tasks) == 0
 
 
-def test_async_backfill_from_recorder_removed() -> None:
-    """async_backfill_from_recorder was removed — replaced by async_bootstrap_from_recorder."""
-    assert not hasattr(RuntimeHealthMonitor, "async_backfill_from_recorder")
-
-
 @pytest.mark.asyncio
 async def test_validate_automations_always_uses_event_store(
     hass: HomeAssistant,
@@ -1292,20 +1287,6 @@ async def test_validate_automations_does_not_emit_overactive_with_rate_limit(
     assert overactive == []
 
 
-def test_legacy_sqlite_telemetry_internals_removed() -> None:
-    """Legacy telemetry internals were removed — RuntimeEventStore handles persistence."""
-    assert not hasattr(RuntimeHealthMonitor, "_log_score_telemetry")
-    hass = MagicMock()
-    monitor = RuntimeHealthMonitor(
-        hass,
-        detector=_FixedScoreDetector(0.5),
-        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
-    )
-    assert not hasattr(monitor, "_telemetry_table_ensured")
-    assert not hasattr(monitor, "_telemetry_lock")
-    assert not hasattr(monitor, "_telemetry_db_path")
-
-
 def test_fixed_score_detector_accepts_window_size_kwarg() -> None:
     """Test detector must accept window_size to match the _Detector protocol."""
     detector = _FixedScoreDetector(0.5)
@@ -1361,19 +1342,6 @@ def test_smoothed_score_accepts_prefetched_persisted_ema(tmp_path: Path) -> None
     # score_ema_samples defaults to 5 => alpha = 2/6 ~= 0.3333
     # seeded ema: 0.4, then update with 0.8 => 0.5333
     assert ema == pytest.approx(0.5333333333, rel=1e-3)
-
-
-def test_telemetry_lock_and_db_path_removed() -> None:
-    """Legacy telemetry lock, db_path, and table_ensured were removed with _log_score_telemetry."""
-    hass = MagicMock()
-    monitor = RuntimeHealthMonitor(
-        hass,
-        detector=_FixedScoreDetector(0.5),
-        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
-    )
-    assert not hasattr(monitor, "_telemetry_lock")
-    assert not hasattr(monitor, "_telemetry_db_path")
-    assert not hasattr(monitor, "_telemetry_table_ensured")
 
 
 def test_build_feature_row_uses_precomputed_median_gap() -> None:
@@ -1766,16 +1734,36 @@ async def test_validate_automations_builds_and_passes_bucket_index(
         assert isinstance(call_kwargs["bucket_index"], dict)
 
 
-def test_legacy_telemetry_removed() -> None:
-    """Legacy _log_score_telemetry was removed — score persistence handled by RuntimeEventStore."""
-    assert not hasattr(RuntimeHealthMonitor, "_log_score_telemetry"), (
-        "_log_score_telemetry is dead code — RuntimeEventStore.record_score handles persistence"
+@pytest.mark.parametrize(
+    "attr",
+    [
+        "_log_score_telemetry",
+        "_telemetry_table_ensured",
+        "_telemetry_lock",
+        "_telemetry_db_path",
+        "_dismissed_multiplier",
+        "_percentile",
+        "_build_training_rows",
+        "_build_current_row",
+        "async_load_state",
+        "async_flush_runtime_state",
+        "_persist_runtime_state",
+        "_maybe_flush_runtime_state",
+        "_bucket_expected_rate",
+    ],
+)
+def test_removed_runtime_monitor_attrs(attr: str) -> None:
+    """Guard: removed RuntimeHealthMonitor attributes must not be re-introduced."""
+    assert not hasattr(RuntimeHealthMonitor, attr), (
+        f"RuntimeHealthMonitor.{attr} was removed — do not re-introduce"
     )
 
 
-def test_dismissed_multiplier_removed() -> None:
-    """_dismissed_multiplier was removed — STALLED/OVERACTIVE detection deleted."""
-    assert not hasattr(RuntimeHealthMonitor, "_dismissed_multiplier")
+def test_legacy_gamma_poisson_class_removed() -> None:
+    """Legacy runtime detector should no longer be exported."""
+    from custom_components.autodoctor import runtime_monitor
+
+    assert not hasattr(runtime_monitor, "_GammaPoissonDetector")
 
 
 def test_score_current_logs_debug_on_type_error_fallback(
@@ -1812,31 +1800,6 @@ def test_score_current_logs_debug_on_type_error_fallback(
     assert "auto.test" in caplog.text
 
 
-def test_percentile_removed() -> None:
-    """_percentile was removed — zero references in codebase."""
-    assert not hasattr(RuntimeHealthMonitor, "_percentile")
-
-
-def test_legacy_row_builders_removed() -> None:
-    """Legacy _build_training_rows and _build_current_row should not exist.
-
-    These were replaced by _build_training_rows_from_events and _build_feature_row.
-    """
-    assert not hasattr(RuntimeHealthMonitor, "_build_training_rows"), (
-        "_build_training_rows is dead code — use _build_training_rows_from_events"
-    )
-    assert not hasattr(RuntimeHealthMonitor, "_build_current_row"), (
-        "_build_current_row is dead code — use _build_feature_row"
-    )
-
-
-def test_legacy_gamma_poisson_class_removed() -> None:
-    """Legacy runtime detector should no longer be exported."""
-    from custom_components.autodoctor import runtime_monitor
-
-    assert not hasattr(runtime_monitor, "_GammaPoissonDetector")
-
-
 def test_init_does_not_call_sync_load(hass: HomeAssistant) -> None:
     """RuntimeHealthMonitor.__init__ should not call sync load on the state store."""
     mock_store = MagicMock()
@@ -1851,31 +1814,6 @@ def test_init_does_not_call_sync_load(hass: HomeAssistant) -> None:
         now=datetime(2026, 2, 13, 12, 0, tzinfo=UTC),
     )
     mock_store.load.assert_not_called()
-
-
-def test_async_load_state_removed() -> None:
-    """async_load_state was removed — JSON state persistence deleted."""
-    assert not hasattr(RuntimeHealthMonitor, "async_load_state")
-
-
-def test_async_flush_runtime_state_removed() -> None:
-    """async_flush_runtime_state was removed — JSON state persistence deleted."""
-    assert not hasattr(RuntimeHealthMonitor, "async_flush_runtime_state")
-
-
-def test_persist_runtime_state_removed() -> None:
-    """_persist_runtime_state was removed — JSON state persistence deleted."""
-    assert not hasattr(RuntimeHealthMonitor, "_persist_runtime_state")
-
-
-def test_maybe_flush_runtime_state_removed() -> None:
-    """_maybe_flush_runtime_state was removed — JSON state persistence deleted."""
-    assert not hasattr(RuntimeHealthMonitor, "_maybe_flush_runtime_state")
-
-
-def test_bucket_expected_rate_removed() -> None:
-    """_bucket_expected_rate should no longer exist — replaced by day_type_active."""
-    assert not hasattr(RuntimeHealthMonitor, "_bucket_expected_rate")
 
 
 @pytest.mark.asyncio

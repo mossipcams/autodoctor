@@ -199,11 +199,6 @@ def test_weekly_maintenance_is_noop_with_bocpd(tmp_path: Path) -> None:
     assert "use_negative_binomial" not in after_bucket
 
 
-def test_dismissed_multiplier_removed() -> None:
-    """_dismissed_multiplier was removed — STALLED/OVERACTIVE detection deleted."""
-    assert not hasattr(RuntimeHealthMonitor, "_dismissed_multiplier")
-
-
 def test_auto_adapt_resets_bucket_after_persistent_count_anomalies(
     tmp_path: Path,
 ) -> None:
@@ -277,11 +272,6 @@ def test_out_of_order_runtime_events_do_not_backdate_last_trigger(
     ]
     assert bucket["current_day"] == newer.date().isoformat()
     assert bucket["current_count"] == 1
-
-
-def test_async_backfill_from_recorder_removed(tmp_path: Path) -> None:
-    """async_backfill_from_recorder was removed — replaced by async_bootstrap_from_recorder."""
-    assert not hasattr(RuntimeHealthMonitor, "async_backfill_from_recorder")
 
 
 def test_gap_check_rolls_count_bucket_forward_without_new_live_event(

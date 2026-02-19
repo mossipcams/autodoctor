@@ -1640,14 +1640,6 @@ async def test_async_setup() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_load_state_method_removed() -> None:
-    """Guard: RuntimeHealthMonitor.async_load_state was removed in v2.28.0."""
-    from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
-
-    assert not hasattr(RuntimeHealthMonitor, "async_load_state")
-
-
-@pytest.mark.asyncio
 async def test_unload_entry_does_not_call_async_flush_runtime_state() -> None:
     """async_unload_entry should NOT call async_flush_runtime_state (removed in v2.28.0)."""
     from custom_components.autodoctor import async_unload_entry
