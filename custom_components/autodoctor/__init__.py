@@ -75,7 +75,7 @@ from .models import (
 from .reporter import IssueReporter
 from .runtime_monitor import RuntimeHealthMonitor
 from .service_validator import ServiceCallValidator
-from .suppression_store import SuppressionStore
+from .suppression_store import SuppressionStore, filter_suppressed_issues
 from .validator import ValidationEngine
 from .websocket_api import async_setup_websocket_api
 
@@ -167,24 +167,6 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
     return []
 
 
-def _filter_suppressed_issues(
-    issues: list[ValidationIssue],
-    suppression_store: SuppressionStore | None,
-) -> tuple[list[ValidationIssue], int]:
-    """Return visible issues and suppressed count for the given issue list."""
-    if not suppression_store:
-        return list(issues), 0
-
-    visible: list[ValidationIssue] = []
-    suppressed_count = 0
-    for issue in issues:
-        if suppression_store.is_suppressed(issue.get_suppression_key()):
-            suppressed_count += 1
-            continue
-        visible.append(issue)
-    return visible, suppressed_count
-
-
 def _filter_group_issues_for_suppressions(
     group_issues: dict[str, list[ValidationIssue]],
     suppression_store: SuppressionStore | None,
@@ -195,7 +177,7 @@ def _filter_group_issues_for_suppressions(
     }
     total_suppressed = 0
     for gid in VALIDATION_GROUP_ORDER:
-        visible, suppressed_count = _filter_suppressed_issues(
+        visible, suppressed_count = filter_suppressed_issues(
             group_issues.get(gid, []),
             suppression_store,
         )
@@ -246,8 +228,8 @@ async def _async_reconcile_runtime_alert_surfaces(
         ),
     )
     merged_raw_issues = _replace_runtime_issues(existing_raw_issues, runtime_alerts)
-    visible_issues, _ = _filter_suppressed_issues(merged_raw_issues, suppression_store)
-    visible_runtime_issues, _ = _filter_suppressed_issues(
+    visible_issues, _ = filter_suppressed_issues(merged_raw_issues, suppression_store)
+    visible_runtime_issues, _ = filter_suppressed_issues(
         runtime_alerts, suppression_store
     )
 
@@ -1207,7 +1189,7 @@ async def async_validate_automation(
 
     result = await _async_run_validators(hass, [automation])
     suppression_store: SuppressionStore | None = data.get("suppression_store")
-    visible_current_issues, _ = _filter_suppressed_issues(
+    visible_current_issues, _ = filter_suppressed_issues(
         result["all_issues"],
         suppression_store,
     )

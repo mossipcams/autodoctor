@@ -24,6 +24,7 @@ from .models import (
     Severity,
     ValidationIssue,
 )
+from .suppression_store import filter_suppressed_issues
 from .validator import get_entity_suggestion
 
 if TYPE_CHECKING:
@@ -592,24 +593,6 @@ def _compute_group_status(issues: list[ValidationIssue]) -> str:
     return "pass"
 
 
-def _filter_suppressed(
-    issues: list[ValidationIssue],
-    suppression_store: SuppressionStore | None,
-) -> tuple[list[ValidationIssue], int]:
-    """Filter suppressed issues and return visible issues with suppressed count."""
-    if suppression_store:
-        visible = [
-            i
-            for i in issues
-            if not suppression_store.is_suppressed(i.get_suppression_key())
-        ]
-        suppressed_count = len(issues) - len(visible)
-    else:
-        visible = issues
-        suppressed_count = 0
-    return visible, suppressed_count
-
-
 async def _async_reconcile_visible_issues(hass: HomeAssistant) -> None:
     """Recompute visible issues from raw cache and update reporter-backed surfaces."""
     data = hass.data.get(DOMAIN, {})
@@ -618,7 +601,7 @@ async def _async_reconcile_visible_issues(hass: HomeAssistant) -> None:
         "validation_issues_raw",
         data.get("validation_issues", data.get("issues", [])),
     )
-    visible_issues, _ = _filter_suppressed(raw_issues, suppression_store)
+    visible_issues, _ = filter_suppressed_issues(raw_issues, suppression_store)
 
     data["issues"] = visible_issues
     data["validation_issues"] = visible_issues
@@ -646,7 +629,7 @@ async def websocket_get_issues(
         "validation_issues_raw",
         data.get("validation_issues", data.get("issues", [])),
     )
-    issues, _ = _filter_suppressed(all_issues, suppression_store)
+    issues, _ = filter_suppressed_issues(all_issues, suppression_store)
 
     issues_with_fixes = _format_issues_with_fixes(hass, issues)
     healthy_count = _get_healthy_count(hass, issues)
@@ -700,7 +683,7 @@ async def websocket_get_validation(
     )
     last_run = data.get("validation_last_run")
 
-    visible_issues, suppressed_count = _filter_suppressed(all_issues, suppression_store)
+    visible_issues, suppressed_count = filter_suppressed_issues(all_issues, suppression_store)
 
     issues_with_fixes = _format_issues_with_fixes(hass, visible_issues)
     healthy_count = _get_healthy_count(hass, visible_issues)
@@ -737,7 +720,7 @@ async def websocket_run_validation(
 
         all_issues = await async_validate_all(hass)
 
-        visible_issues, suppressed_count = _filter_suppressed(
+        visible_issues, suppressed_count = filter_suppressed_issues(
             all_issues, suppression_store
         )
 
@@ -794,7 +777,7 @@ async def websocket_run_validation_steps(
             raw_issues = cast(
                 list[ValidationIssue], result["group_issues"].get(gid, [])
             )
-            visible, suppressed_count = _filter_suppressed(
+            visible, suppressed_count = filter_suppressed_issues(
                 raw_issues, suppression_store
             )
             total_suppressed += suppressed_count
@@ -886,7 +869,7 @@ async def websocket_get_validation_steps(
         for gid in VALIDATION_GROUP_ORDER:
             bucket = cast(dict[str, Any], cached_groups.get(gid, {}))
             raw_issues = cast(list[ValidationIssue], bucket.get("issues", []))
-            visible, suppressed_count = _filter_suppressed(
+            visible, suppressed_count = filter_suppressed_issues(
                 raw_issues, suppression_store
             )
             total_suppressed += suppressed_count
