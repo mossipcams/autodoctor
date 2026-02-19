@@ -15,7 +15,7 @@ Hours later you discover:
 - You typed `Armed_Away` but it's actually `armed_away`
 - You have a typo: `binary_sensor.motion_sensor`
 - A template has a syntax error: `{{ is_state('sensor.temp' }}`
-- An automation that ran daily just stopped firing three days ago
+- An automation that runs once a day suddenly fires 50 times in an hour
 
 **Autodoctor catches these issues before they waste your time.**
 
@@ -28,7 +28,7 @@ Hours later you discover:
 - **One-Click Fixes** -- Preview and apply suggested fixes directly from the dashboard card
 - **State Learning** -- Learns valid states when you dismiss false positives
 - **Issue Suppression** -- Dismiss false positives globally (card, Repairs, sensors) with full management UI
-- **Runtime Health Monitoring** -- Detects silent, overactive, and burst anomalies in automation trigger patterns using Bayesian changepoint detection
+- **Runtime Health Monitoring** -- Detects overactive and burst anomalies in automation trigger patterns using Bayesian changepoint detection
 - **Validation Pipeline UI** -- Animated step-by-step validation progress in the dashboard card
 - **Periodic Scanning** -- Configurable background re-validation interval
 
@@ -114,7 +114,8 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 | Enable runtime health monitoring | No | Turn on trigger-behavior anomaly detection |
 | Baseline history (days) | 30 | Recorder history window for building behavior baselines |
 | Warmup samples | 3 | Minimum active baseline days before scoring starts |
-| Min expected events/day | 0 | Minimum daily baseline activity required for gap checks |
+| Min expected events/day | 0 | Minimum daily trigger count needed before scoring starts |
+| Hour ratio lookback (days) | 30 | Days of same-hour history used for time-of-day context scoring |
 | Sensitivity | medium | Overall sensitivity (low/medium/high) |
 | Burst multiplier | 4.0 | Short-window trigger rate multiplier for burst detection |
 | Max alerts/day | 10 | Per-automation alert cap to limit noise |
@@ -167,11 +168,10 @@ Autodoctor builds a knowledge base of valid states from multiple sources:
 
 When enabled, Autodoctor monitors automation trigger patterns in real time and detects behavioral anomalies using **Bayesian Online Changepoint Detection (BOCPD)** with a Gamma-Poisson conjugate model. Models are seeded from recorder history on first enable and persisted across restarts.
 
-Runtime monitoring detects three types of anomalies:
+Runtime monitoring detects two types of anomalies:
 
 | Issue | Description |
 |-------|-------------|
-| **Silent** | An automation that normally fires has gone unusually long without triggering |
 | **Overactive** | Daily trigger count is statistically unusual versus the BOCPD-estimated baseline |
 | **Burst** | Short-window trigger spike exceeding the burst multiplier |
 
@@ -184,10 +184,11 @@ Key behaviors:
 - **State persistence** -- Trigger events are stored in a local SQLite database; BOCPD models are rebuilt from this store on startup
 
 Practical guidance:
-- Use baseline windows of 21-30 days for stable scoring
+- Use baseline windows of 21–30 days for stable scoring
 - Keep warmup samples less than or equal to baseline days
 - Start with the default "medium" sensitivity and adjust from there
 - Tune the burst multiplier if you have automations with legitimate traffic spikes
+- Hour ratio lookback should match or exceed the baseline window for best results
 
 ### What Is NOT Validated
 
