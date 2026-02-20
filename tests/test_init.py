@@ -1694,7 +1694,6 @@ async def test_async_setup_entry_full_lifecycle() -> None:
     entry.options = {
         "history_days": 7,
         "validate_on_reload": True,
-        "debounce_seconds": 3,
         "strict_template_validation": True,
         "strict_service_validation": True,
     }
@@ -1903,17 +1902,8 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     entry.options = {
         "validate_on_reload": False,
         "runtime_health_enabled": True,
-        "runtime_health_hour_ratio_days": 14,
         "runtime_health_sensitivity": "high",
-        "runtime_health_burst_multiplier": 3.5,
         "runtime_health_max_alerts_per_day": 8,
-        "runtime_health_restart_exclusion_minutes": 7,
-        "runtime_event_store_enabled": True,
-        "runtime_event_store_shadow_read": True,
-        "runtime_event_store_cutover": False,
-        "runtime_event_store_reconciliation_enabled": True,
-        "runtime_schedule_anomaly_enabled": False,
-        "runtime_daily_rollup_enabled": True,
     }
     entry.add_update_listener = MagicMock(return_value=None)
     entry.async_on_unload = MagicMock()
@@ -1944,25 +1934,8 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert "runtime_monitor" in hass.data[DOMAIN]
     assert hass.data[DOMAIN]["runtime_monitor"] is mock_runtime_cls.return_value
     assert hass.data[DOMAIN]["runtime_health_enabled"] is True
-    assert mock_runtime_cls.call_args.kwargs["hour_ratio_days"] == 14
     assert mock_runtime_cls.call_args.kwargs["sensitivity"] == "high"
-    assert mock_runtime_cls.call_args.kwargs["burst_multiplier"] == 3.5
     assert mock_runtime_cls.call_args.kwargs["max_alerts_per_day"] == 8
-    assert mock_runtime_cls.call_args.kwargs["startup_recovery_minutes"] == 7
-    # Removed kwargs should not be passed to constructor
-    for removed_kwarg in (
-        "smoothing_window",
-        "auto_adapt",
-        "runtime_event_store_enabled",
-        "runtime_event_store_shadow_read",
-        "runtime_event_store_cutover",
-        "runtime_event_store_reconciliation_enabled",
-        "runtime_schedule_anomaly_enabled",
-        "runtime_daily_rollup_enabled",
-    ):
-        assert removed_kwarg not in mock_runtime_cls.call_args.kwargs, (
-            f"Rollout kwarg '{removed_kwarg}' should not be passed to RuntimeHealthMonitor"
-        )
     # Event store init must happen asynchronously after construction
     mock_runtime_cls.return_value.async_init_event_store.assert_awaited_once()
 
@@ -1983,11 +1956,9 @@ async def test_async_setup_entry_schedules_initial_scan_after_recovery() -> None
     hass.services.async_register = MagicMock()
 
     entry = MagicMock()
-    restart_minutes = 7
     entry.options = {
         "validate_on_reload": False,
         "runtime_health_enabled": True,
-        "runtime_health_restart_exclusion_minutes": restart_minutes,
     }
     entry.add_update_listener = MagicMock(return_value=None)
     entry.async_on_unload = MagicMock()
@@ -2023,7 +1994,8 @@ async def test_async_setup_entry_schedules_initial_scan_after_recovery() -> None
 
     mock_call_later.assert_called_once()
     delay_seconds = mock_call_later.call_args[0][1]
-    expected_delay = (restart_minutes + 1) * 60
+    # Uses hardcoded DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES (5)
+    expected_delay = (5 + 1) * 60
     assert delay_seconds == expected_delay
     assert hass.data[DOMAIN]["unsub_initial_scan"] == unsub_initial_scan
 

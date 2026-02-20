@@ -59,7 +59,6 @@ _DEFAULT_MEDIAN_GAP_MINUTES = 60.0
 _MIN_MEDIAN_GAP_MINUTES = 1.0
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
-_TRIM_RETENTION_DAYS = 90
 
 # BOCPD anomaly score sensitivity thresholds
 _SENSITIVITY_THRESHOLDS: dict[str, float] = {
@@ -383,14 +382,15 @@ class RuntimeHealthMonitor:
         self._runtime_state["last_weekly_maintenance"] = maintenance_time.isoformat()
         if self._runtime_event_store is not None:
             try:
+                retention = self.baseline_days + 7
                 deleted = self._runtime_event_store.trim(
-                    retention_days=_TRIM_RETENTION_DAYS, now=maintenance_time
+                    retention_days=retention, now=maintenance_time
                 )
                 if deleted > 0:
                     _LOGGER.info(
                         "Weekly maintenance: trimmed %d events older than %d days",
                         deleted,
-                        _TRIM_RETENTION_DAYS,
+                        retention,
                     )
             except Exception:
                 _LOGGER.debug(

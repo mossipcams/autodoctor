@@ -1813,7 +1813,7 @@ async def test_record_issue_dismissed_increases_threshold_multiplier(
 
 
 def test_run_weekly_maintenance_trims_old_events(tmp_path: Path) -> None:
-    """Weekly maintenance should trim events older than 90 days from the store."""
+    """Weekly maintenance should trim events older than baseline_days + 7."""
     from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
 
     now = datetime(2026, 2, 19, 12, 0, tzinfo=UTC)
@@ -1836,8 +1836,43 @@ def test_run_weekly_maintenance_trims_old_events(tmp_path: Path) -> None:
     )
     monitor.run_weekly_maintenance(now=now)
 
+    # default baseline_days=30, retention = 30+7 = 37 days
     assert store.count_events("automation.old") == 0
     assert store.count_events("automation.recent") == 1
+    store.close()
+
+
+def test_run_weekly_maintenance_retention_linked_to_baseline_days(
+    tmp_path: Path,
+) -> None:
+    """Trim retention should be baseline_days + 7, keeping data the model needs."""
+    from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
+
+    now = datetime(2026, 2, 19, 12, 0, tzinfo=UTC)
+    db_path = tmp_path / "autodoctor_runtime.db"
+    store = RuntimeEventStore(db_path)
+    store.ensure_schema(target_version=1)
+
+    # Event at 125 days ago — outside 120+7=127 retention, should be trimmed
+    store.record_trigger("automation.very_old", now - timedelta(days=130))
+    # Event at 100 days ago — inside 127 day retention, should be kept
+    store.record_trigger("automation.within_baseline", now - timedelta(days=100))
+
+    hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        baseline_days=120,
+        warmup_samples=0,
+        min_expected_events=0,
+        runtime_event_store=store,
+    )
+    monitor.run_weekly_maintenance(now=now)
+
+    # baseline_days=120, retention = 120+7 = 127 days
+    assert store.count_events("automation.very_old") == 0
+    assert store.count_events("automation.within_baseline") == 1
     store.close()
 
 

@@ -16,7 +16,6 @@ import custom_components.autodoctor.websocket_api as ws_mod
 from custom_components.autodoctor.analyzer import AutomationAnalyzer
 from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_ENABLED,
-    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_RUNTIME_HEALTH_ENABLED,
@@ -112,12 +111,6 @@ def test_runtime_health_realistic_defaults() -> None:
     """Guard: warmup and min-events defaults must be realistic for typical setups."""
     assert DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES == 3
     assert DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS == 0
-
-
-def test_runtime_health_hour_ratio_default_and_key() -> None:
-    """Guard: hour-ratio lookback option should keep stable key/default."""
-    assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS == "runtime_health_hour_ratio_days"
-    assert DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS == 30
 
 
 def test_runtime_health_manifest_has_no_external_ml_dependency() -> None:
@@ -723,8 +716,8 @@ def test_websocket_api_has_iter_automation_configs_helper() -> None:
     )
 
 
-def test_runtime_health_config_has_nine_fields() -> None:
-    """Guard: RuntimeHealthConfig dataclass must bundle all 9 runtime health settings."""
+def test_runtime_health_config_has_four_fields() -> None:
+    """Guard: RuntimeHealthConfig dataclass bundles user-facing runtime health settings."""
     from dataclasses import fields
 
     from custom_components.autodoctor.const import RuntimeHealthConfig
@@ -733,13 +726,8 @@ def test_runtime_health_config_has_nine_fields() -> None:
     assert field_names == {
         "enabled",
         "baseline_days",
-        "warmup_samples",
-        "min_expected_events",
-        "hour_ratio_days",
         "sensitivity",
-        "burst_multiplier",
         "max_alerts_per_day",
-        "restart_exclusion_minutes",
     }
 
 
@@ -764,8 +752,6 @@ def test_runtime_health_config_from_options() -> None:
     )
     assert cfg.baseline_days == 7
     assert cfg.sensitivity == "high"
-    # Rest stays default
-    assert cfg.warmup_samples == 3
 
 
 def test_config_flow_imports_runtime_health_config() -> None:
