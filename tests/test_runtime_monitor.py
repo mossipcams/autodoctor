@@ -209,7 +209,7 @@ async def test_runtime_monitor_suppresses_sparse_stalled_alerts(
         hass,
         history=sparse_history,
         now=now,
-        score=2.2,
+        score=1.0,
         baseline_days=90,
         warmup_samples=5,
         min_expected_events=0,
@@ -440,7 +440,7 @@ async def test_runtime_monitor_does_not_flag_overactive_for_bursty_reminder_base
         for issue in issues
         if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
-    assert overactive == []
+    assert len(overactive) == 1
 
 
 @pytest.mark.asyncio
@@ -1079,17 +1079,16 @@ def test_count_other_automations_same_5m_excludes_current_automation() -> None:
 async def test_validate_automations_does_not_emit_overactive_issues(
     hass: HomeAssistant,
 ) -> None:
-    """validate_automations should not emit OVERACTIVE; _detect_count_anomaly handles it."""
+    """validate_automations should not emit OVERACTIVE when score is below threshold."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
-    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
-    history = {"runtime_test": baseline + burst}
+    history = {"runtime_test": baseline}
 
     monitor = _TestRuntimeMonitor(
         hass,
         history=history,
         now=now,
-        score=2.0,
+        score=0.5,
         warmup_samples=7,
         min_expected_events=0,
     )
@@ -1204,13 +1203,12 @@ async def test_validate_automations_does_not_emit_stalled_with_rate_limit(
 async def test_validate_automations_does_not_emit_overactive_with_rate_limit(
     hass: HomeAssistant,
 ) -> None:
-    """validate_automations no longer emits OVERACTIVE; _detect_count_anomaly handles it."""
+    """Global rate limit should cap OVERACTIVE to 1 even when both automations exceed threshold."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
-    burst = [now - timedelta(hours=1, minutes=i) for i in range(20)]
     history = {
-        "runtime_a": baseline + burst,
-        "runtime_b": baseline + burst,
+        "runtime_a": baseline,
+        "runtime_b": baseline,
     }
     monitor = _TestRuntimeMonitor(
         hass,
@@ -1223,12 +1221,17 @@ async def test_validate_automations_does_not_emit_overactive_with_rate_limit(
         global_alert_cap_per_day=1,
     )
 
-    first = await monitor.validate_automations([_automation("runtime_a", "A")])
+    issues = await monitor.validate_automations(
+        [
+            _automation("runtime_a", "A"),
+            _automation("runtime_b", "B"),
+        ]
+    )
 
     overactive = [
-        i for i in first if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
-    assert overactive == []
+    assert len(overactive) == 1
 
 
 def test_fixed_score_detector_accepts_window_size_kwarg() -> None:
@@ -1650,8 +1653,8 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_day_type(
     overactive = [
         i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
-    assert overactive == [], (
-        "Should not flag overactive when no baseline events on current day type"
+    assert len(overactive) == 1, (
+        "Score meets threshold so OVERACTIVE should be emitted regardless of day type"
     )
 
 
@@ -1684,8 +1687,8 @@ async def test_overactive_skipped_when_no_baseline_events_on_current_weekday(
         i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
 
-    assert overactive == [], (
-        "Should not flag overactive when current weekday has no baseline evidence"
+    assert len(overactive) == 1, (
+        "Score meets threshold so OVERACTIVE should be emitted regardless of weekday"
     )
 
 
@@ -1836,3 +1839,303 @@ def test_run_weekly_maintenance_trims_old_events(tmp_path: Path) -> None:
     assert store.count_events("automation.old") == 0
     assert store.count_events("automation.recent") == 1
     store.close()
+
+
+def test_score_threshold_for_returns_base_medium_threshold() -> None:
+    """_score_threshold_for should return 2.0 for default medium sensitivity."""
+    hass = MagicMock()
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(hass, now_factory=lambda: now, sensitivity="medium")
+    threshold = monitor._score_threshold_for("automation.test")
+    assert threshold == 2.0
+
+
+@pytest.mark.parametrize(
+    ("sensitivity", "expected"),
+    [("low", 3.0), ("medium", 2.0), ("high", 1.5)],
+)
+def test_score_threshold_for_each_sensitivity_level(
+    sensitivity: str, expected: float
+) -> None:
+    """_score_threshold_for should return correct base threshold per sensitivity."""
+    hass = MagicMock()
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass, now_factory=lambda: now, sensitivity=sensitivity
+    )
+    assert monitor._score_threshold_for("automation.test") == expected
+
+
+def test_score_threshold_for_applies_adaptation_multiplier() -> None:
+    """_score_threshold_for should multiply base threshold by adaptation multiplier."""
+    hass = MagicMock()
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(hass, now_factory=lambda: now, sensitivity="medium")
+    # Manually set adaptation multiplier
+    state = monitor._ensure_automation_state("automation.test")
+    state["adaptation"] = {"threshold_multiplier": 1.5}
+    assert monitor._score_threshold_for("automation.test") == 3.0
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_emits_overactive_when_score_exceeds_threshold(
+    hass: HomeAssistant,
+) -> None:
+    """validate_automations should emit OVERACTIVE when smoothed score >= threshold."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert "score 3.00" in overactive[0].message
+    assert "threshold 2.00" in overactive[0].message
+    assert overactive[0].confidence == "medium"
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_overactive_high_confidence_when_score_far_above(
+    hass: HomeAssistant,
+) -> None:
+    """confidence should be 'high' when score is >= 2x the threshold."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=5.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert overactive[0].confidence == "high"
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_no_overactive_when_score_below_threshold(
+    hass: HomeAssistant,
+) -> None:
+    """validate_automations should not emit OVERACTIVE when score < threshold."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.5,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_clears_overactive_when_score_drops(
+    hass: HomeAssistant,
+) -> None:
+    """Alert should be cleared when score drops below threshold on next scan."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    # First scan: high score emits alert
+    await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
+    assert len(monitor.get_active_runtime_alerts()) == 1
+
+    # Switch to low score for second scan
+    monitor._detector = _FixedScoreDetector(0.5)
+    monitor._score_history.clear()
+    await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
+    assert len(monitor.get_active_runtime_alerts()) == 0
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_rate_limits_overactive_emissions(
+    hass: HomeAssistant,
+) -> None:
+    """Global rate limit should cap OVERACTIVE emissions across automations."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {
+        "runtime_a": baseline,
+        "runtime_b": baseline,
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+        max_alerts_per_day=10,
+        global_alert_cap_per_day=1,
+    )
+
+    issues = await monitor.validate_automations(
+        [
+            _automation("runtime_a", "A"),
+            _automation("runtime_b", "B"),
+        ]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_suppression_prevents_overactive(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressed automations should not emit OVERACTIVE even with high score."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(return_value=True)
+    hass.data["autodoctor"] = {"suppression_store": suppression_store}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_low_sensitivity_requires_higher_score(
+    hass: HomeAssistant,
+) -> None:
+    """sensitivity=low (threshold=3.0) should not alert at score=2.5 but should at 3.5."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    # Score 2.5 < threshold 3.0 → no alert
+    monitor_low = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        sensitivity="low",
+    )
+    issues_low = await monitor_low.validate_automations(
+        [_automation("runtime_test", "Test")]
+    )
+    overactive_low = [
+        i for i in issues_low if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive_low == []
+
+    # Score 3.5 >= threshold 3.0 → alert
+    monitor_high = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.5,
+        warmup_samples=7,
+        min_expected_events=0,
+        sensitivity="low",
+    )
+    issues_high = await monitor_high.validate_automations(
+        [_automation("runtime_test", "Test")]
+    )
+    overactive_high = [
+        i
+        for i in issues_high
+        if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive_high) == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_dismissal_adaptation_raises_threshold(
+    hass: HomeAssistant,
+) -> None:
+    """After dismissing, adapted threshold (2.0*1.25=2.5) blocks score=2.3."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=2.3,
+        warmup_samples=7,
+        min_expected_events=0,
+        dismissed_threshold_multiplier=1.25,
+    )
+
+    # Dismiss once → multiplier becomes 1.25, threshold = 2.0 * 1.25 = 2.5
+    monitor.record_issue_dismissed("automation.runtime_test")
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []

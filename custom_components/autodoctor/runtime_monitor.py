@@ -61,6 +61,13 @@ _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
 _TRIM_RETENTION_DAYS = 90
 
+# BOCPD anomaly score sensitivity thresholds
+_SENSITIVITY_THRESHOLDS: dict[str, float] = {
+    "low": 3.0,
+    "medium": 2.0,
+    "high": 1.5,
+}
+
 
 class RuntimeHealthMonitor:
     """Detect runtime automation anomalies from recorder trigger history."""
@@ -518,6 +525,14 @@ class RuntimeHealthMonitor:
 
         return [issue]
 
+    def _score_threshold_for(self, automation_id: str) -> float:
+        """Return effective anomaly score threshold for an automation."""
+        base = _SENSITIVITY_THRESHOLDS.get(self.sensitivity, 2.0)
+        automation_state = self._ensure_automation_state(automation_id)
+        adaptation = automation_state.get("adaptation", {})
+        multiplier = self._coerce_float(adaptation.get("threshold_multiplier"), 1.0)
+        return base * max(1.0, multiplier)
+
     def _register_runtime_alert(self, issue: ValidationIssue) -> None:
         self._active_runtime_alerts[issue.get_suppression_key()] = issue
 
@@ -876,10 +891,38 @@ class RuntimeHealthMonitor:
                 smoothed_score,
             )
 
-            self._clear_runtime_alert(
-                automation_entity_id,
-                IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            issue_type = IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+            threshold = self._score_threshold_for(automation_entity_id)
+            suppression_store = self._runtime_suppression_store()
+            is_suppressed = self._is_runtime_suppressed(
+                automation_entity_id, suppression_store
             )
+
+            if smoothed_score >= threshold and not is_suppressed:
+                if self._allow_alert(automation_entity_id, now=now):
+                    confidence = (
+                        "high"
+                        if threshold > 0 and smoothed_score / threshold >= 2.0
+                        else "medium"
+                    )
+                    issue = ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=automation_entity_id,
+                        automation_name=automation_name,
+                        entity_id=automation_entity_id,
+                        location="runtime.health.anomaly",
+                        message=(
+                            f"Anomalous trigger pattern detected: "
+                            f"score {smoothed_score:.2f} exceeds threshold {threshold:.2f}"
+                        ),
+                        issue_type=issue_type,
+                        confidence=confidence,
+                    )
+                    self._register_runtime_alert(issue)
+                    issues.append(issue)
+                    stats["overactive_alerts"] += 1
+            else:
+                self._clear_runtime_alert(automation_entity_id, issue_type)
 
         evaluated_automation_ids = set(automation_ids)
         existing_keys = {issue.get_suppression_key() for issue in issues}
