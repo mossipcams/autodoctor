@@ -1175,6 +1175,31 @@ async def test_unload_entry_calls_unsub_periodic_scan_listener() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unload_entry_cancels_initial_scan_timer() -> None:
+    """Unload should cancel the initial post-recovery scan timer."""
+    from custom_components.autodoctor import async_unload_entry
+
+    hass = MagicMock()
+    entry = MagicMock()
+    unsub_initial = MagicMock()
+
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.async_remove = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "debounce_task": None,
+            "unsub_reload_listener": None,
+            "unsub_entity_registry_listener": None,
+            "unsub_initial_scan": unsub_initial,
+        }
+    }
+
+    result = await async_unload_entry(hass, entry)
+    assert result is True
+    unsub_initial.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_unload_entry_removes_services() -> None:
     """Test that unload removes all three registered services.
 
@@ -1703,6 +1728,7 @@ async def test_async_setup_entry_full_lifecycle() -> None:
         assert "analyzer" in data
         assert "validator" in data
         assert "unsub_reload_listener" in data
+        assert data["unsub_initial_scan"] is None
         hass.bus.async_listen_once.assert_called_once()
         mock_register_card.assert_called_once()
 
@@ -1939,6 +1965,67 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
         )
     # Event store init must happen asynchronously after construction
     mock_runtime_cls.return_value.async_init_event_store.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_schedules_initial_scan_after_recovery() -> None:
+    """Setup should schedule a one-shot validation scan after the recovery window."""
+    from custom_components.autodoctor import async_setup_entry
+
+    hass = MagicMock()
+    hass.data = {}
+    hass.bus = MagicMock()
+    hass.bus.async_listen_once = MagicMock()
+    hass.bus.async_listen = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+
+    entry = MagicMock()
+    restart_minutes = 7
+    entry.options = {
+        "validate_on_reload": False,
+        "runtime_health_enabled": True,
+        "runtime_health_restart_exclusion_minutes": restart_minutes,
+    }
+    entry.add_update_listener = MagicMock(return_value=None)
+    entry.async_on_unload = MagicMock()
+
+    unsub_initial_scan = MagicMock()
+
+    with (
+        patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
+        patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
+        patch("custom_components.autodoctor.RuntimeHealthMonitor") as mock_runtime_cls,
+        patch(
+            "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
+        ),
+        patch(
+            "custom_components.autodoctor.async_setup_websocket_api",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "custom_components.autodoctor.async_call_later",
+            return_value=unsub_initial_scan,
+        ) as mock_call_later,
+    ):
+        mock_suppression = AsyncMock()
+        mock_suppression.async_load = AsyncMock()
+        mock_suppression_cls.return_value = mock_suppression
+
+        mock_learned = AsyncMock()
+        mock_learned.async_load = AsyncMock()
+        mock_learned_cls.return_value = mock_learned
+
+        mock_runtime_cls.return_value.async_init_event_store = AsyncMock()
+        await async_setup_entry(hass, entry)
+
+    mock_call_later.assert_called_once()
+    delay_seconds = mock_call_later.call_args[0][1]
+    expected_delay = (restart_minutes + 1) * 60
+    assert delay_seconds == expected_delay
+    assert hass.data[DOMAIN]["unsub_initial_scan"] == unsub_initial_scan
 
 
 @pytest.mark.asyncio
