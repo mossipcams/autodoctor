@@ -207,7 +207,9 @@ def test_options_schema_internal_tuning_knobs_removed() -> None:
         "runtime_health_restart_exclusion_minutes",
     }
     found = removed & schema_keys
-    assert not found, f"Internal tuning knobs should be removed from options schema: {found}"
+    assert not found, (
+        f"Internal tuning knobs should be removed from options schema: {found}"
+    )
 
 
 def test_options_schema_rollout_flags_removed() -> None:
