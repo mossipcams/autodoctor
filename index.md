@@ -101,6 +101,7 @@ autodoctor/
 | `autodoctor/validation` | Get validation issues only |
 | `autodoctor/validation/run` | Run validation on demand |
 | `autodoctor/suppress` | Suppress an issue (optionally learn state) |
+| `autodoctor/dismiss` | Dismiss a runtime health alert and adapt detection threshold |
 | `autodoctor/clear_suppressions` | Clear all suppressions |
 | `autodoctor/validation/run_steps` | Run validation and return per-group structured results |
 | `autodoctor/validation/steps` | Get cached per-group validation results |

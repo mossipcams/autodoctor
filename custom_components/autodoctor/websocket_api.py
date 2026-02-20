@@ -51,6 +51,7 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_fix_preview)
     websocket_api.async_register_command(hass, websocket_fix_apply)
     websocket_api.async_register_command(hass, websocket_fix_undo)
+    websocket_api.async_register_command(hass, websocket_dismiss)
 
 
 def _raw_config_get(raw_config: Any, key: str) -> Any:
@@ -1394,3 +1395,34 @@ async def websocket_fix_undo(
             "restored_value": previous_value,
         },
     )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "autodoctor/dismiss",
+        vol.Required("automation_id"): str,
+        vol.Required("issue_type"): vol.In(
+            [
+                IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value,
+                IssueType.RUNTIME_AUTOMATION_BURST.value,
+            ]
+        ),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_dismiss(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Dismiss a runtime health alert and adapt the detection threshold."""
+    data = hass.data.get(DOMAIN, {})
+    runtime_monitor = data.get("runtime_monitor")
+
+    if runtime_monitor is None:
+        connection.send_error(msg["id"], "not_ready", "Runtime monitor not initialized")
+        return
+
+    runtime_monitor.record_issue_dismissed(msg["automation_id"])
+    connection.send_result(msg["id"], {"success": True})

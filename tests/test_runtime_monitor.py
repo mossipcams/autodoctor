@@ -1812,6 +1812,109 @@ async def test_record_issue_dismissed_increases_threshold_multiplier(
     assert adaptation["threshold_multiplier"] == pytest.approx(1.25 * 1.25)
 
 
+def test_record_issue_dismissed_persists_to_event_store(tmp_path: Path) -> None:
+    """record_issue_dismissed should persist adaptation state to SQLite metadata."""
+    now = datetime(2026, 2, 20, 12, 0, tzinfo=UTC)
+    db_path = tmp_path / "autodoctor_runtime.db"
+    store = RuntimeEventStore(db_path)
+    store.ensure_schema(target_version=1)
+
+    hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        runtime_event_store=store,
+        dismissed_threshold_multiplier=1.25,
+    )
+
+    monitor.record_issue_dismissed("automation.test")
+
+    raw = store.get_metadata("adaptation:automation.test")
+    assert raw is not None
+    data = json.loads(raw)
+    assert data["dismissed_count"] == 1
+    assert data["threshold_multiplier"] == pytest.approx(1.25)
+
+    monitor.record_issue_dismissed("automation.test")
+    raw2 = store.get_metadata("adaptation:automation.test")
+    data2 = json.loads(raw2)
+    assert data2["dismissed_count"] == 2
+    assert data2["threshold_multiplier"] == pytest.approx(1.25 * 1.25)
+    store.close()
+
+
+def test_adaptation_state_loads_from_event_store(tmp_path: Path) -> None:
+    """New monitor should lazy-load persisted adaptation state from SQLite."""
+    now = datetime(2026, 2, 20, 12, 0, tzinfo=UTC)
+    db_path = tmp_path / "autodoctor_runtime.db"
+    store = RuntimeEventStore(db_path)
+    store.ensure_schema(target_version=1)
+
+    # Pre-seed adaptation data
+    store.set_metadata(
+        "adaptation:automation.test",
+        json.dumps({"dismissed_count": 3, "threshold_multiplier": 1.953125}),
+    )
+
+    hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        runtime_event_store=store,
+        sensitivity="medium",
+    )
+
+    # Accessing automation state should load persisted adaptation
+    threshold = monitor._score_threshold_for("automation.test")
+    # base=2.0, multiplier=1.953125 -> 3.90625
+    assert threshold == pytest.approx(2.0 * 1.953125)
+
+    state = monitor._ensure_automation_state("automation.test")
+    assert state["adaptation"]["dismissed_count"] == 3
+    assert state["adaptation"]["threshold_multiplier"] == pytest.approx(1.953125)
+    store.close()
+
+
+def test_dismiss_survives_monitor_restart(tmp_path: Path) -> None:
+    """Adaptation state should survive monitor restart via SQLite round-trip."""
+    now = datetime(2026, 2, 20, 12, 0, tzinfo=UTC)
+    db_path = tmp_path / "autodoctor_runtime.db"
+    store1 = RuntimeEventStore(db_path)
+    store1.ensure_schema(target_version=1)
+
+    hass = MagicMock()
+    hass.create_task = MagicMock(side_effect=lambda coro, *a, **kw: coro.close())
+    monitor1 = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        runtime_event_store=store1,
+        dismissed_threshold_multiplier=1.25,
+        sensitivity="medium",
+    )
+
+    monitor1.record_issue_dismissed("automation.garage")
+    monitor1.record_issue_dismissed("automation.garage")
+    store1.close()
+
+    # New store + monitor simulates HA restart
+    store2 = RuntimeEventStore(db_path)
+    store2.ensure_schema(target_version=1)
+    monitor2 = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        runtime_event_store=store2,
+        dismissed_threshold_multiplier=1.25,
+        sensitivity="medium",
+    )
+
+    threshold = monitor2._score_threshold_for("automation.garage")
+    # base=2.0, multiplier=1.25*1.25=1.5625 -> 3.125
+    assert threshold == pytest.approx(2.0 * 1.5625)
+    store2.close()
+
+
 def test_run_weekly_maintenance_trims_old_events(tmp_path: Path) -> None:
     """Weekly maintenance should trim events older than baseline_days + 7."""
     from custom_components.autodoctor.runtime_event_store import RuntimeEventStore

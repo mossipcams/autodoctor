@@ -29,6 +29,7 @@ from custom_components.autodoctor.websocket_api import (
     _resolve_automation_edit_config_id,
     async_setup_websocket_api,
     websocket_clear_suppressions,
+    websocket_dismiss,
     websocket_fix_apply,
     websocket_fix_preview,
     websocket_fix_undo,
@@ -57,7 +58,7 @@ async def test_websocket_api_setup(hass: HomeAssistant) -> None:
     ) as mock_register:
         await async_setup_websocket_api(hass)
         # One call per handler in async_setup_websocket_api; update when adding/removing WS commands
-        assert mock_register.call_count == 13
+        assert mock_register.call_count == 14
 
 
 @pytest.mark.parametrize(
@@ -103,6 +104,15 @@ async def test_websocket_api_setup(hass: HomeAssistant) -> None:
             },
         ),
         (websocket_fix_undo, {"id": 8, "type": "autodoctor/fix_undo"}),
+        (
+            websocket_dismiss,
+            {
+                "id": 9,
+                "type": "autodoctor/dismiss",
+                "automation_id": "automation.test",
+                "issue_type": "runtime_automation_overactive",
+            },
+        ),
     ],
 )
 def test_mutating_websocket_commands_require_admin(
@@ -1450,6 +1460,51 @@ async def test_websocket_runtime_health_issue_can_be_suppressed(
     runtime_group = next(g for g in result["groups"] if g["id"] == "runtime_health")
     assert runtime_group["issue_count"] == 0
     assert result["suppressed_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_websocket_dismiss_calls_record_issue_dismissed(
+    hass: HomeAssistant,
+) -> None:
+    """Dismiss WS command should call record_issue_dismissed on runtime monitor."""
+    runtime_monitor = MagicMock()
+    hass.data[DOMAIN] = {"runtime_monitor": runtime_monitor}
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/dismiss",
+        "automation_id": "automation.garage",
+        "issue_type": "runtime_automation_overactive",
+    }
+
+    await invoke_command(websocket_dismiss, hass, connection, msg)
+
+    runtime_monitor.record_issue_dismissed.assert_called_once_with("automation.garage")
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args[0][1]
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_websocket_dismiss_error_when_no_monitor(
+    hass: HomeAssistant,
+) -> None:
+    """Dismiss WS command should send error when runtime monitor is unavailable."""
+    hass.data[DOMAIN] = {}
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/dismiss",
+        "automation_id": "automation.garage",
+        "issue_type": "runtime_automation_overactive",
+    }
+
+    await invoke_command(websocket_dismiss, hass, connection, msg)
+
+    connection.send_error.assert_called_once()
+    assert connection.send_result.call_count == 0
 
 
 @pytest.mark.asyncio

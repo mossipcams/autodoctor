@@ -60,6 +60,18 @@ export class AutodocIssueGroup extends LitElement {
         <div class="issue-header">
           <span class="issue-icon" aria-hidden="true">${isError ? "\u2715" : "!"}</span>
           <span class="issue-message">${issue.message}</span>
+          ${this._isRuntimeIssue(issue)
+            ? html`
+                <button
+                  class="dismiss-runtime-btn"
+                  @click=${() => this._dispatchDismissRuntime(issue)}
+                  aria-label="Dismiss this alert"
+                  title="Mark as false positive (adapts threshold)"
+                >
+                  <span aria-hidden="true">\u2715</span><span class="dismiss-runtime-label">Dismiss</span>
+                </button>
+              `
+            : nothing}
           <button
             class="suppress-btn"
             @click=${() => this._dispatchSuppress(issue)}
@@ -147,6 +159,23 @@ export class AutodocIssueGroup extends LitElement {
         ${isHigh ? "High" : "Medium"} confidence
       </span>
     `;
+  }
+
+  private _isRuntimeIssue(issue: ValidationIssue): boolean {
+    return (
+      issue.issue_type === "runtime_automation_overactive" ||
+      issue.issue_type === "runtime_automation_burst"
+    );
+  }
+
+  private _dispatchDismissRuntime(issue: ValidationIssue): void {
+    this.dispatchEvent(
+      new CustomEvent("dismiss-runtime-issue", {
+        detail: { issue },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _dispatchSuppress(issue: ValidationIssue): void {

@@ -117,6 +117,69 @@ describe("AutodoctorCard runtime health telemetry", () => {
   });
 });
 
+describe("AutodoctorCard dismiss runtime issue", () => {
+  it("calls autodoctor/dismiss WS command and shows toast", async () => {
+    const card = new AutodoctorCard() as any;
+    card.config = { type: "custom:autodoctor-card" };
+    const callWS = vi.fn().mockImplementation((msg: { type: string }) => {
+      if (msg.type === "autodoctor/dismiss") {
+        return Promise.resolve({ success: true });
+      }
+      return Promise.resolve(makeResponse());
+    });
+    card.hass = { callWS };
+    card._loading = false;
+    card._validationData = {
+      ...makeResponse(),
+      last_run: "2026-02-12T10:00:00+00:00",
+      issues: [
+        {
+          issue: {
+            issue_type: "runtime_automation_overactive",
+            severity: "warning",
+            automation_id: "automation.garage",
+            automation_name: "Garage",
+            entity_id: "automation.garage",
+            location: "",
+            message: "Overactive",
+            suggestion: null,
+            valid_states: [],
+          },
+          fix: null,
+          edit_url: null,
+        },
+      ],
+    };
+
+    document.body.appendChild(card);
+    await card.updateComplete;
+
+    // Find the dismiss-runtime-btn inside the shadow DOM of the nested issue-group
+    const issueGroup = card.shadowRoot?.querySelector("autodoc-issue-group");
+    expect(issueGroup).toBeTruthy();
+    await issueGroup.updateComplete;
+
+    const dismissBtn = issueGroup.shadowRoot?.querySelector(".dismiss-runtime-btn") as HTMLButtonElement;
+    expect(dismissBtn).toBeTruthy();
+    dismissBtn.click();
+
+    // Wait for the WS call to resolve
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+
+    expect(callWS).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "autodoctor/dismiss",
+        automation_id: "automation.garage",
+        issue_type: "runtime_automation_overactive",
+      })
+    );
+    expect(card._toastMessage).toBe("Alert dismissed - threshold adapted");
+
+    card.remove();
+  });
+});
+
 describe("AutodoctorCard build parity", () => {
   it("compiled_card_version_matches_package_version", () => {
     const packageJson = JSON.parse(
