@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.0](https://github.com/mossipcams/autodoctor/compare/v2.29.0...v2.30.0) (2026-02-20)
+
+
+### Features
+
+* **runtime:** add dismiss action with SQLite-persisted threshold adaptation ([#181](https://github.com/mossipcams/autodoctor/issues/181)) ([7abf4f7](https://github.com/mossipcams/autodoctor/commit/7abf4f7f20448a4ab32c117c2be6f82099907f1a))
+
 ## [2.29.0](https://github.com/mossipcams/autodoctor/compare/v2.28.6...v2.29.0) (2026-02-20)
 
 
