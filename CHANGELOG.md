@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.6](https://github.com/mossipcams/autodoctor/compare/v2.28.5...v2.28.6) (2026-02-20)
+
+
+### Code Refactoring
+
+* **runtime:** remove live BOCPD count model and use full 90-day window ([#176](https://github.com/mossipcams/autodoctor/issues/176)) ([eb3ddbb](https://github.com/mossipcams/autodoctor/commit/eb3ddbb9fbfe69053c25c2677c1973149e46c310))
+
 ## [2.28.5](https://github.com/mossipcams/autodoctor/compare/v2.28.4...v2.28.5) (2026-02-19)
 
 
