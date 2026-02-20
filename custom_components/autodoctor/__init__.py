@@ -20,7 +20,7 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
@@ -402,6 +402,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_zone_state_listener": None,
         "unsub_area_registry_listener": None,
         "unsub_runtime_trigger_listener": None,
+        "unsub_initial_scan": None,
     }
 
     if validate_on_reload:
@@ -431,6 +432,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         except Exception as err:
             _LOGGER.warning("Runtime recorder bootstrap failed: %s", err)
+
+        # Schedule initial validation scan after the startup recovery window
+        initial_scan_delay = (rhc.restart_exclusion_minutes + 1) * 60
+
+        async def _initial_scan(_: datetime) -> None:
+            _LOGGER.debug("Running initial post-recovery validation scan")
+            try:
+                await async_validate_all(hass)
+            except Exception as scan_err:
+                _LOGGER.warning("Initial post-recovery scan failed: %s", scan_err)
+
+        unsub_initial = async_call_later(hass, initial_scan_delay, _initial_scan)
+        hass.data[DOMAIN]["unsub_initial_scan"] = unsub_initial
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
@@ -545,6 +559,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_zone_state_listener",
         "unsub_area_registry_listener",
         "unsub_runtime_trigger_listener",
+        "unsub_initial_scan",
     ):
         unsub = data.get(key)
         if unsub is not None:
