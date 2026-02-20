@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.0](https://github.com/mossipcams/autodoctor/compare/v2.28.6...v2.29.0) (2026-02-20)
+
+
+### Features
+
+* **runtime:** wire BOCPD anomaly scoring to emit overactive issues ([#178](https://github.com/mossipcams/autodoctor/issues/178)) ([3632d4c](https://github.com/mossipcams/autodoctor/commit/3632d4cc8b55e4932589df3ab61adc52cf19872d))
+
 ## [2.28.6](https://github.com/mossipcams/autodoctor/compare/v2.28.5...v2.28.6) (2026-02-20)
 
 
