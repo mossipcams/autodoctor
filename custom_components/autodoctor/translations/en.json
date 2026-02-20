@@ -33,9 +33,7 @@
           "runtime_health_sensitivity": "Runtime sensitivity",
           "runtime_health_burst_multiplier": "Runtime burst multiplier",
           "runtime_health_max_alerts_per_day": "Runtime max alerts/day",
-          "runtime_health_smoothing_window": "Runtime smoothing window",
-          "runtime_health_restart_exclusion_minutes": "Runtime restart exclusion (minutes)",
-          "runtime_health_auto_adapt": "Runtime auto-adapt baselines"
+          "runtime_health_restart_exclusion_minutes": "Runtime restart exclusion (minutes)"
         },
         "data_description": {
           "history_days": "Number of days of state history to analyze",
@@ -52,9 +50,7 @@
           "runtime_health_sensitivity": "Sensitivity profile for count anomaly confidence intervals (low, medium, high)",
           "runtime_health_burst_multiplier": "Multiplier over learned 5-minute baseline rate required to classify a burst",
           "runtime_health_max_alerts_per_day": "Maximum runtime alerts emitted per automation per day",
-          "runtime_health_smoothing_window": "Number of consecutive anomalies before auto-adapt can reset the baseline",
-          "runtime_health_restart_exclusion_minutes": "Minutes to suppress runtime scoring after startup/restart",
-          "runtime_health_auto_adapt": "Automatically reset count baselines after persistent anomalies"
+          "runtime_health_restart_exclusion_minutes": "Minutes to suppress runtime scoring after startup/restart"
         }
       }
     }

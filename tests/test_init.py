@@ -1881,9 +1881,7 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
         "runtime_health_sensitivity": "high",
         "runtime_health_burst_multiplier": 3.5,
         "runtime_health_max_alerts_per_day": 8,
-        "runtime_health_smoothing_window": 4,
         "runtime_health_restart_exclusion_minutes": 7,
-        "runtime_health_auto_adapt": False,
         "runtime_event_store_enabled": True,
         "runtime_event_store_shadow_read": True,
         "runtime_event_store_cutover": False,
@@ -1924,11 +1922,11 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert mock_runtime_cls.call_args.kwargs["sensitivity"] == "high"
     assert mock_runtime_cls.call_args.kwargs["burst_multiplier"] == 3.5
     assert mock_runtime_cls.call_args.kwargs["max_alerts_per_day"] == 8
-    assert mock_runtime_cls.call_args.kwargs["smoothing_window"] == 4
     assert mock_runtime_cls.call_args.kwargs["startup_recovery_minutes"] == 7
-    assert mock_runtime_cls.call_args.kwargs["auto_adapt"] is False
-    # Rollout kwargs removed in v2.28.0 SQLite consolidation
+    # Removed kwargs should not be passed to constructor
     for removed_kwarg in (
+        "smoothing_window",
+        "auto_adapt",
         "runtime_event_store_enabled",
         "runtime_event_store_shadow_read",
         "runtime_event_store_cutover",

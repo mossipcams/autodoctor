@@ -43,21 +43,6 @@ _WRITE_FAILURE_LOG_THRESHOLD = 3
 # Bootstrap history minimum horizon (days)
 _BOOTSTRAP_MIN_HISTORY_DAYS = 90
 
-# BOCPD count anomaly detection
-_BOCPD_MIN_OBSERVATIONS = 7
-_BOCPD_WINDOW_SIZE_MIN = 16
-_BOCPD_WINDOW_SIZE_MAX = 1024
-_BOCPD_WINDOW_SIZE_DAILY_SCALE = 30
-_BOCPD_QUANTILE_UPPER_SENTINEL = 10_000
-_BOCPD_PMF_SEARCH_MIN_COUNT = 64
-_BOCPD_PMF_SEARCH_RATE_SCALE = 10.0
-_BOCPD_PMF_SEARCH_HEADROOM = 32
-
-# Sensitivity-tier coverage fractions for credible interval
-_COVERAGE_LOW = 0.99
-_COVERAGE_MEDIUM = 0.95
-_COVERAGE_HIGH = 0.90
-
 # Burst detection
 _BURST_WINDOW_HOURS = 1
 _BURST_SHORT_WINDOW_MINUTES = 5
@@ -75,8 +60,6 @@ _MIN_MEDIAN_GAP_MINUTES = 1.0
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
 _TRIM_RETENTION_DAYS = 90
-
-_SPARSE_WARMUP_LOOKBACK_DAYS = 90
 
 
 class RuntimeHealthMonitor:
@@ -99,8 +82,6 @@ class RuntimeHealthMonitor:
         burst_multiplier: float = 4.0,
         max_alerts_per_day: int = 10,
         global_alert_cap_per_day: int | None = None,
-        smoothing_window: int = 5,
-        auto_adapt: bool = True,
         hazard_rate: float = DEFAULT_RUNTIME_HEALTH_HAZARD_RATE,
         max_run_length: int = DEFAULT_RUNTIME_HEALTH_MAX_RUN_LENGTH,
         runtime_event_store: RuntimeEventStore | None = None,
@@ -125,8 +106,6 @@ class RuntimeHealthMonitor:
             if global_alert_cap_per_day is not None
             else max(10, self.max_alerts_per_day * 10)
         )
-        self.smoothing_window = max(1, int(smoothing_window))
-        self.auto_adapt = bool(auto_adapt)
         self.hazard_rate = min(1.0, max(1e-6, float(hazard_rate)))
         self.max_run_length = max(2, int(max_run_length))
         self._runtime_event_store_degraded = False
@@ -138,11 +117,10 @@ class RuntimeHealthMonitor:
             async_runtime_event_store
         )
         self._runtime_event_store_tasks: set[asyncio.Task[Any]] = set()
-        self._bocpd_count_detector = BOCPDDetector(
+        self._detector: Detector = detector or BOCPDDetector(
             hazard_rate=self.hazard_rate,
             max_run_length=self.max_run_length,
         )
-        self._detector: Detector = detector or self._bocpd_count_detector
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}
@@ -230,9 +208,6 @@ class RuntimeHealthMonitor:
             event_time=event_time,
         )
 
-        count_bucket_name, count_bucket = self._update_count_model(
-            automation_state, event_time
-        )
         if runtime_suppressed:
             self._clear_runtime_alert(
                 automation_entity_id, IssueType.RUNTIME_AUTOMATION_OVERACTIVE
@@ -247,20 +222,6 @@ class RuntimeHealthMonitor:
                 automation_state=automation_state,
                 now=event_time,
             )
-            issues.extend(
-                self._detect_count_anomaly(
-                    automation_entity_id=automation_entity_id,
-                    automation_state=automation_state,
-                    bucket_name=count_bucket_name,
-                    bucket_state=count_bucket,
-                    now=event_time,
-                )
-            )
-        self._maybe_auto_adapt(
-            automation_entity_id=automation_entity_id,
-            automation_state=automation_state,
-            bucket_name=count_bucket_name,
-        )
         return issues
 
     def _enqueue_runtime_event_store_write(
@@ -328,94 +289,6 @@ class RuntimeHealthMonitor:
             "write_failures": self._runtime_event_store_write_failures,
             "dropped_events": self._runtime_event_store_dropped_events,
         }
-
-    def catch_up_count_model(
-        self,
-        store: RuntimeEventStore,
-        automation_id: str,
-        now: datetime,
-    ) -> None:
-        """Replay missing finalized daily counts into BOCPD bucket state."""
-        automation_state = self._ensure_automation_state(automation_id)
-        count_model_raw: object = automation_state.setdefault("count_model", {})
-        if not isinstance(count_model_raw, dict):
-            count_model_raw = {}
-            automation_state["count_model"] = count_model_raw
-        count_model = cast(dict[str, Any], count_model_raw)
-        buckets_raw: object = count_model.setdefault("buckets", {})
-        if not isinstance(buckets_raw, dict):
-            buckets_raw = {}
-            count_model["buckets"] = buckets_raw
-        buckets = cast(dict[str, Any], buckets_raw)
-
-        store.rebuild_daily_summaries(automation_id)
-
-        for bucket_name in list(buckets.keys()):
-            bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
-            current_day_str = bucket_state.get("current_day")
-            current_day = self._coerce_date(current_day_str)
-            if current_day is None:
-                continue
-            target_day = now.date()
-            if current_day >= target_day:
-                continue
-
-            daily_bucket = store.get_daily_bucket_counts(automation_id, bucket_name)
-
-            cursor = current_day + timedelta(days=1)
-            while cursor < target_day:
-                if self._bucket_matches_day_type(bucket_name, cursor):
-                    count = daily_bucket.get(cursor.isoformat(), 0)
-                    self._bocpd_count_detector.update_state(bucket_state, count)
-                cursor += timedelta(days=1)
-            bucket_state["current_day"] = target_day.isoformat()
-            bucket_state["current_count"] = 0
-
-    def rebuild_models_from_store(self, *, now: datetime | None = None) -> None:
-        """Bootstrap in-memory BOCPD + gap models from SQLite event store."""
-        store = self._runtime_event_store
-        if store is None:
-            return
-        if now is None:
-            now = self._now_factory()
-        target_day = now.date()
-        for aid in store.get_automation_ids():
-            store.rebuild_daily_summaries(aid)
-            automation_state = self._ensure_automation_state(aid)
-            count_model = cast(dict[str, Any], automation_state["count_model"])
-            for bucket_name in (
-                "weekday_morning",
-                "weekday_afternoon",
-                "weekday_evening",
-                "weekday_night",
-                "weekend_morning",
-                "weekend_afternoon",
-                "weekend_evening",
-                "weekend_night",
-            ):
-                daily_counts = store.get_daily_bucket_counts(aid, bucket_name)
-                if not daily_counts:
-                    continue
-                bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
-                min_date = date.fromisoformat(sorted(daily_counts)[0])
-                cursor = min_date
-                while cursor < target_day:
-                    if self._bucket_matches_day_type(bucket_name, cursor):
-                        count = daily_counts.get(cursor.isoformat(), 0)
-                        self._bocpd_count_detector.update_state(bucket_state, count)
-                    cursor += timedelta(days=1)
-                bucket_state["current_day"] = target_day.isoformat()
-                bucket_state["current_count"] = 0
-
-            # Seed last_trigger from store
-            last_epoch = store.get_last_trigger(aid)
-            if last_epoch is not None:
-                last_dt = datetime.fromtimestamp(last_epoch, tz=UTC)
-                automation_state["last_trigger"] = last_dt.isoformat()
-
-    async def async_rebuild_models_from_store(self) -> None:
-        """Run rebuild_models_from_store in an executor thread."""
-        await self.hass.async_add_executor_job(self.rebuild_models_from_store)
 
     async def async_bootstrap_from_recorder(
         self,
@@ -521,10 +394,6 @@ class RuntimeHealthMonitor:
     def _empty_automation_state() -> dict[str, Any]:
         """Return default in-memory state for an automation runtime model."""
         return {
-            "count_model": {
-                "buckets": {},
-                "anomaly_streak": 0,
-            },
             "last_trigger": None,
             "burst_model": {
                 "recent_triggers": [],
@@ -561,230 +430,6 @@ class RuntimeHealthMonitor:
             ):
                 state[key] = deepcopy(default_value)
         return state
-
-    def _ensure_count_bucket_state(
-        self,
-        count_model: dict[str, Any],
-        bucket_name: str,
-    ) -> dict[str, Any]:
-        buckets = count_model.setdefault("buckets", {})
-        if not isinstance(buckets, dict):
-            buckets = {}
-            count_model["buckets"] = buckets
-        buckets_dict = cast(dict[str, Any], buckets)
-        bucket_state_raw = buckets_dict.get(bucket_name)
-        if isinstance(bucket_state_raw, dict):
-            bucket_state = cast(dict[str, Any], bucket_state_raw)
-        else:
-            bucket_state = {}
-            buckets_dict[bucket_name] = bucket_state
-
-        # Migrate any legacy shape into BOCPD-compatible fields on read.
-        if not (
-            isinstance(bucket_state.get("run_length_probs"), list)
-            and isinstance(bucket_state.get("observations"), list)
-        ):
-            seeded = self._bocpd_count_detector.initial_state()
-            legacy_counts_raw = bucket_state.get("counts")
-            if isinstance(legacy_counts_raw, list):
-                for value in cast(list[Any], legacy_counts_raw):
-                    try:
-                        self._bocpd_count_detector.update_state(seeded, int(value))
-                    except (TypeError, ValueError):
-                        continue
-            seeded["current_day"] = str(bucket_state.get("current_day", ""))
-            seeded["current_count"] = max(
-                0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
-            )
-            bucket_state.clear()
-            bucket_state.update(seeded)
-
-        self._bocpd_count_detector.normalize_state(bucket_state)
-        buckets_dict[bucket_name] = bucket_state
-        return bucket_state
-
-    def _update_count_model(
-        self,
-        automation_state: dict[str, Any],
-        event_time: datetime,
-    ) -> tuple[str, dict[str, Any]]:
-        count_model = automation_state.setdefault("count_model", {})
-        if not isinstance(count_model, dict):
-            count_model = {}
-            automation_state["count_model"] = count_model
-        bucket_name = self.classify_time_bucket(event_time)
-        bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
-        self._advance_count_bucket_to_day(
-            bucket_name=bucket_name,
-            bucket_state=bucket_state,
-            target_day=event_time.date(),
-        )
-
-        bucket_state["current_day"] = event_time.date().isoformat()
-        bucket_state["current_count"] = max(
-            0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
-        )
-        bucket_state["current_count"] = int(bucket_state.get("current_count", 0)) + 1
-        return bucket_name, bucket_state
-
-    def _advance_count_bucket_to_day(
-        self,
-        *,
-        bucket_name: str,
-        bucket_state: dict[str, Any],
-        target_day: date,
-    ) -> bool:
-        current_day = self._coerce_date(bucket_state.get("current_day"))
-        if current_day is None:
-            bucket_state["current_day"] = target_day.isoformat()
-            bucket_state["current_count"] = max(
-                0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
-            )
-            return True
-        if current_day >= target_day:
-            return False
-
-        current_count = max(
-            0, int(self._coerce_float(bucket_state.get("current_count"), 0.0))
-        )
-        cursor = current_day
-        consumed_current_count = False
-        while cursor < target_day:
-            if self._bucket_matches_day_type(bucket_name, cursor):
-                finalized = current_count if not consumed_current_count else 0
-                self._bocpd_count_detector.update_state(bucket_state, finalized)
-                consumed_current_count = True
-            cursor += timedelta(days=1)
-
-        if not consumed_current_count and current_count > 0:
-            self._bocpd_count_detector.update_state(bucket_state, current_count)
-
-        bucket_state["current_day"] = target_day.isoformat()
-        bucket_state["current_count"] = 0
-        return True
-
-    def _roll_count_model_forward(
-        self,
-        automation_state: dict[str, Any],
-        *,
-        now: datetime,
-    ) -> bool:
-        count_model_raw = automation_state.get("count_model", {})
-        if not isinstance(count_model_raw, dict):
-            return False
-        count_model = cast(dict[str, Any], count_model_raw)
-        buckets_raw = count_model.get("buckets", {})
-        if not isinstance(buckets_raw, dict):
-            return False
-
-        state_dirty = False
-        bucket_names = list(cast(dict[str, Any], buckets_raw).keys())
-        target_day = now.date()
-        for bucket_name in bucket_names:
-            bucket_state = self._ensure_count_bucket_state(count_model, bucket_name)
-            state_dirty = (
-                self._advance_count_bucket_to_day(
-                    bucket_name=bucket_name,
-                    bucket_state=bucket_state,
-                    target_day=target_day,
-                )
-                or state_dirty
-            )
-        return state_dirty
-
-    def _detect_count_anomaly(
-        self,
-        *,
-        automation_entity_id: str,
-        automation_state: dict[str, Any],
-        bucket_name: str,
-        bucket_state: dict[str, Any],
-        now: datetime,
-    ) -> list[ValidationIssue]:
-        issue_type = IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-        observations = bucket_state.get("observations")
-        if (
-            not isinstance(observations, list)
-            or len(observations) < _BOCPD_MIN_OBSERVATIONS
-        ):
-            self._clear_runtime_alert(automation_entity_id, issue_type)
-            return []
-
-        lower, upper = self._bocpd_expected_count_range(bucket_state)
-        observed = int(bucket_state.get("current_count", 0))
-        if lower <= observed <= upper:
-            self._clear_runtime_alert(automation_entity_id, issue_type)
-            count_model = automation_state.get("count_model", {})
-            if isinstance(count_model, dict):
-                count_model["anomaly_streak"] = 0
-            return []
-
-        if not self._allow_alert(automation_entity_id, now=now):
-            return []
-
-        issue = ValidationIssue(
-            severity=Severity.WARNING,
-            automation_id=automation_entity_id,
-            automation_name=automation_entity_id,
-            entity_id=automation_entity_id,
-            location="runtime.health.count",
-            message=(
-                f"Runtime count anomaly in {bucket_name}: observed {observed}, expected "
-                f"range {lower}-{upper} for current window"
-            ),
-            issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
-            confidence="medium",
-        )
-        self._register_runtime_alert(issue)
-        count_model = automation_state.get("count_model", {})
-        if isinstance(count_model, dict):
-            count_model["anomaly_streak"] = (
-                int(count_model.get("anomaly_streak", 0)) + 1
-            )
-
-        return [issue]
-
-    def _bocpd_expected_count_range(
-        self, bucket_state: dict[str, Any]
-    ) -> tuple[int, int]:
-        sensitivity_to_coverage = {
-            "low": _COVERAGE_LOW,
-            "medium": _COVERAGE_MEDIUM,
-            "high": _COVERAGE_HIGH,
-        }
-        coverage = sensitivity_to_coverage.get(self.sensitivity, 0.95)
-        tail = (1.0 - coverage) / 2.0
-        lower = self._bocpd_quantile(bucket_state, tail)
-        upper = self._bocpd_quantile(bucket_state, 1.0 - tail)
-        return max(0, lower), max(0, upper)
-
-    def _bocpd_quantile(self, bucket_state: dict[str, Any], quantile: float) -> int:
-        q = min(1.0, max(0.0, quantile))
-        if q <= 0.0:
-            return 0
-        if q >= 1.0:
-            return _BOCPD_QUANTILE_UPPER_SENTINEL
-
-        cumulative = 0.0
-        expected = self._bocpd_count_detector.expected_rate(bucket_state)
-        max_count = max(
-            _BOCPD_PMF_SEARCH_MIN_COUNT,
-            round(expected * _BOCPD_PMF_SEARCH_RATE_SCALE) + _BOCPD_PMF_SEARCH_HEADROOM,
-        )
-        for count in range(max_count + 1):
-            cumulative += self._bocpd_count_detector.predictive_pmf_for_count(
-                bucket_state, count
-            )
-            if cumulative >= q:
-                return count
-
-        for count in range(max_count + 1, _BOCPD_QUANTILE_UPPER_SENTINEL + 1):
-            cumulative += self._bocpd_count_detector.predictive_pmf_for_count(
-                bucket_state, count
-            )
-            if cumulative >= q:
-                return count
-        return 10_000
 
     def _detect_burst_anomaly(
         self,
@@ -959,41 +604,6 @@ class RuntimeHealthMonitor:
             1.0, current_multiplier * self.dismissed_threshold_multiplier
         )
 
-    def _maybe_auto_adapt(
-        self,
-        *,
-        automation_entity_id: str,
-        automation_state: dict[str, Any],
-        bucket_name: str,
-    ) -> None:
-        if not self.auto_adapt:
-            return
-        count_model = automation_state.get("count_model", {})
-        if not isinstance(count_model, dict):
-            return
-        count_model_dict = cast(dict[str, Any], count_model)
-        streak = int(count_model_dict.get("anomaly_streak", 0))
-        if streak < self.smoothing_window:
-            return
-
-        buckets = count_model_dict.get("buckets", {})
-        if not isinstance(buckets, dict):
-            return
-        buckets_dict = cast(dict[str, Any], buckets)
-        bucket_state = buckets_dict.get(bucket_name)
-        if not isinstance(bucket_state, dict):
-            return
-        preserved_day = str(bucket_state.get("current_day", ""))
-        bucket_state.clear()
-        bucket_state.update(self._bocpd_count_detector.initial_state())
-        bucket_state["current_day"] = preserved_day
-        count_model_dict["anomaly_streak"] = 0
-        _LOGGER.debug(
-            "Auto-adapt reset runtime count baseline for '%s' bucket '%s'",
-            automation_entity_id,
-            bucket_name,
-        )
-
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:
         if isinstance(value, datetime):
@@ -1089,56 +699,11 @@ class RuntimeHealthMonitor:
         baseline_start_by_automation: dict[str, datetime] = dict.fromkeys(
             automation_ids, baseline_start
         )
-        looked_back_automation_ids: set[str] = set()
         history = await self._async_fetch_trigger_history_from_store(
             automation_ids=automation_ids,
             start=baseline_start,
             end=now,
         )
-        if (
-            self.warmup_samples > 0
-            and self.baseline_days < _SPARSE_WARMUP_LOOKBACK_DAYS
-        ):
-            sparse_automation_ids: list[str] = []
-            for automation_id in automation_ids:
-                baseline_events = [
-                    ts
-                    for ts in history.get(automation_id, [])
-                    if baseline_start <= ts < recent_start
-                ]
-                day_counts = self._build_daily_counts(
-                    baseline_events,
-                    baseline_start,
-                    recent_start,
-                )
-                active_days = sum(1 for count in day_counts if count > 0)
-                if active_days < self.warmup_samples:
-                    sparse_automation_ids.append(automation_id)
-
-            if sparse_automation_ids:
-                extended_baseline_start = recent_start - timedelta(
-                    days=_SPARSE_WARMUP_LOOKBACK_DAYS
-                )
-                extended_history = await self._async_fetch_trigger_history_from_store(
-                    automation_ids=sparse_automation_ids,
-                    start=extended_baseline_start,
-                    end=baseline_start,
-                )
-                for automation_id in sparse_automation_ids:
-                    merged_events = sorted(
-                        history.get(automation_id, [])
-                        + extended_history.get(automation_id, [])
-                    )
-                    history[automation_id] = merged_events
-                    baseline_start_by_automation[automation_id] = (
-                        extended_baseline_start
-                    )
-                looked_back_automation_ids.update(sparse_automation_ids)
-                stats["extended_lookback_used"] += len(sparse_automation_ids)
-                _LOGGER.debug(
-                    "Runtime health extended lookback applied to %d sparse automations",
-                    len(sparse_automation_ids),
-                )
 
         issues: list[ValidationIssue] = []
         all_events_by_automation = history
@@ -1252,9 +817,6 @@ class RuntimeHealthMonitor:
                 )
                 stats["insufficient_training_rows"] += 1
                 continue
-            window_size = self._compute_window_size(expected)
-            if automation_entity_id in looked_back_automation_ids:
-                stats["scored_after_lookback"] += 1
             _LOGGER.debug(
                 "Automation '%s': scoring with %d training rows, "
                 "expected %.1f/day, recent %d events",
@@ -1263,9 +825,7 @@ class RuntimeHealthMonitor:
                 expected,
                 len(recent_events),
             )
-            score = self._score_current(
-                automation_entity_id, train_rows, window_size=window_size
-            )
+            score = self._score_current(automation_entity_id, train_rows)
             prefetched_ema: float | None = None
             if (
                 not self._score_history.get(automation_entity_id)
@@ -1339,22 +899,8 @@ class RuntimeHealthMonitor:
         self,
         automation_id: str,
         train_rows: list[dict[str, float]],
-        *,
-        window_size: int,
     ) -> float:
-        try:
-            return self._detector.score_current(
-                automation_id,
-                train_rows,
-                window_size=window_size,
-            )
-        except TypeError as exc:
-            _LOGGER.debug(
-                "Detector for '%s' raised TypeError, falling back without window_size: %s",
-                automation_id,
-                exc,
-            )
-            return self._detector.score_current(automation_id, train_rows)
+        return self._detector.score_current(automation_id, train_rows)
 
     def _smoothed_score(
         self,
@@ -1374,16 +920,6 @@ class RuntimeHealthMonitor:
         for value in history[1:]:
             ema = (self._score_ema_alpha * value) + ((1 - self._score_ema_alpha) * ema)
         return ema
-
-    @staticmethod
-    def _compute_window_size(expected_daily: float) -> int:
-        return max(
-            _BOCPD_WINDOW_SIZE_MIN,
-            min(
-                _BOCPD_WINDOW_SIZE_MAX,
-                int(max(1.0, expected_daily) * _BOCPD_WINDOW_SIZE_DAILY_SCALE),
-            ),
-        )
 
     def _effective_warmup_samples(
         self,
