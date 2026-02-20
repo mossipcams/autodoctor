@@ -20,13 +20,12 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
 from .analyzer import AutomationAnalyzer
 from .const import (
-    CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_STRICT_SERVICE_VALIDATION,
@@ -35,6 +34,11 @@ from .const import (
     DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
+    DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
+    DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
+    DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+    DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
+    DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
     DEFAULT_STRICT_SERVICE_VALIDATION,
     DEFAULT_STRICT_TEMPLATE_VALIDATION,
     DEFAULT_VALIDATE_ON_RELOAD,
@@ -315,7 +319,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     validate_on_reload = options.get(
         CONF_VALIDATE_ON_RELOAD, DEFAULT_VALIDATE_ON_RELOAD
     )
-    debounce_seconds = options.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)
+    debounce_seconds = DEFAULT_DEBOUNCE_SECONDS
     periodic_scan_interval_hours = options.get(
         CONF_PERIODIC_SCAN_INTERVAL_HOURS,
         DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
@@ -354,13 +358,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         RuntimeHealthMonitor(
             hass,
             baseline_days=rhc.baseline_days,
-            warmup_samples=rhc.warmup_samples,
-            min_expected_events=rhc.min_expected_events,
-            hour_ratio_days=rhc.hour_ratio_days,
+            warmup_samples=DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
+            min_expected_events=DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
+            hour_ratio_days=DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
             sensitivity=rhc.sensitivity,
-            burst_multiplier=rhc.burst_multiplier,
+            burst_multiplier=DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER,
             max_alerts_per_day=rhc.max_alerts_per_day,
-            startup_recovery_minutes=rhc.restart_exclusion_minutes,
+            startup_recovery_minutes=DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
         )
         if rhc.enabled
         else None
@@ -402,6 +406,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_zone_state_listener": None,
         "unsub_area_registry_listener": None,
         "unsub_runtime_trigger_listener": None,
+        "unsub_initial_scan": None,
     }
 
     if validate_on_reload:
@@ -431,6 +436,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         except Exception as err:
             _LOGGER.warning("Runtime recorder bootstrap failed: %s", err)
+
+        # Schedule initial validation scan after the startup recovery window
+        initial_scan_delay = (DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES + 1) * 60
+
+        async def _initial_scan(_: datetime) -> None:
+            _LOGGER.debug("Running initial post-recovery validation scan")
+            try:
+                await async_validate_all(hass)
+            except Exception as scan_err:
+                _LOGGER.warning("Initial post-recovery scan failed: %s", scan_err)
+
+        unsub_initial = async_call_later(hass, initial_scan_delay, _initial_scan)
+        hass.data[DOMAIN]["unsub_initial_scan"] = unsub_initial
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
@@ -545,6 +563,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_zone_state_listener",
         "unsub_area_registry_listener",
         "unsub_runtime_trigger_listener",
+        "unsub_initial_scan",
     ):
         unsub = data.get(key)
         if unsub is not None:

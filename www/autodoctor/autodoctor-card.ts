@@ -292,6 +292,8 @@ export class AutodoctorCard extends LitElement {
                         this._suppressIssue(e.detail.issue)}
                       @dismiss-suggestion=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
                         this._dismissSuggestion(e.detail.issue)}
+                      @dismiss-runtime-issue=${(e: CustomEvent<{ issue: ValidationIssue }>) =>
+                        this._dismissRuntimeIssue(e.detail.issue)}
                       @fix-copied=${(e: CustomEvent<{ value: string }>) =>
                         this._showToast(`Copied: ${e.detail.value}`)}
                       @apply-fix=${(e: CustomEvent<{ issue: ValidationIssue; fix: FixSuggestion }>) =>
@@ -448,6 +450,20 @@ export class AutodoctorCard extends LitElement {
   private _dismissSuggestion(issue: ValidationIssue): void {
     const key = getSuggestionKey(issue);
     this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
+  }
+
+  private async _dismissRuntimeIssue(issue: ValidationIssue): Promise<void> {
+    try {
+      await this.hass.callWS({
+        type: "autodoctor/dismiss",
+        automation_id: issue.automation_id,
+        issue_type: issue.issue_type || "unknown",
+      });
+      this._showToast("Alert dismissed - threshold adapted");
+    } catch (err) {
+      console.error("Failed to dismiss runtime issue:", err);
+      this._showToast("Failed to dismiss alert");
+    }
   }
 
   private async _suppressIssue(issue: ValidationIssue): Promise<void> {

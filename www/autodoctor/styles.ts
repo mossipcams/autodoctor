@@ -276,6 +276,42 @@ export const issueGroupStyles = css`
     opacity: 1;
   }
 
+  /* Runtime dismiss button */
+  .dismiss-runtime-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--secondary-text-color);
+    font-size: 0.7rem;
+    cursor: pointer;
+    opacity: 0.6;
+    transition:
+      opacity var(--autodoc-transition-fast),
+      background var(--autodoc-transition-fast);
+  }
+
+  .dismiss-runtime-btn:hover {
+    opacity: 1;
+    background: var(--divider-color, rgba(127, 127, 127, 0.2));
+  }
+
+  .dismiss-runtime-btn:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+    opacity: 1;
+  }
+
+  .dismiss-runtime-label {
+    display: none;
+  }
+
   /* Fix suggestions */
   .fix-suggestion {
     display: flex;
@@ -480,6 +516,24 @@ export const issueGroupStyles = css`
     }
 
     .suppress-label {
+      display: inline;
+      font-size: var(--autodoc-meta-size);
+    }
+
+    /* Runtime dismiss button: 44px touch target */
+    .dismiss-runtime-btn {
+      width: auto;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 6px;
+    }
+
+    .dismiss-runtime-label {
       display: inline;
       font-size: var(--autodoc-meta-size);
     }

@@ -91,6 +91,44 @@ describe("AutodocIssueGroup", () => {
     el.remove();
   });
 
+  it("renders dismiss button for runtime overactive issues", async () => {
+    const group = makeGroup();
+    group.issues[0].issue.issue_type = "runtime_automation_overactive";
+    const el = new AutodocIssueGroup();
+    el.group = group;
+    document.body.appendChild(el);
+    await el.updateComplete;
+
+    const btn = el.shadowRoot?.querySelector(".dismiss-runtime-btn") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+
+    const events: CustomEvent[] = [];
+    el.addEventListener("dismiss-runtime-issue", (e) => events.push(e as CustomEvent));
+    btn.click();
+    expect(events).toHaveLength(1);
+    expect(events[0].detail.issue.issue_type).toBe("runtime_automation_overactive");
+
+    el.remove();
+  });
+
+  it("does not render dismiss button for non-runtime issues", async () => {
+    const el = new AutodocIssueGroup();
+    el.group = makeGroup(); // issue_type is "case_mismatch"
+    document.body.appendChild(el);
+    await el.updateComplete;
+
+    const btn = el.shadowRoot?.querySelector(".dismiss-runtime-btn");
+    expect(btn).toBeNull();
+
+    el.remove();
+  });
+
+  it("dismiss-runtime-btn has styles defined", () => {
+    const sheets = (AutodocIssueGroup as any).styles as import("lit").CSSResult[];
+    const css = sheets.map((s: any) => s.cssText).join("");
+    expect(css).toContain(".dismiss-runtime-btn");
+  });
+
   it("does not render edit link when edit_url is missing", async () => {
     const el = new AutodocIssueGroup();
     el.group = makeGroupWithoutEditUrl();

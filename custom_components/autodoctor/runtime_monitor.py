@@ -59,7 +59,6 @@ _DEFAULT_MEDIAN_GAP_MINUTES = 60.0
 _MIN_MEDIAN_GAP_MINUTES = 1.0
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
-_TRIM_RETENTION_DAYS = 90
 
 # BOCPD anomaly score sensitivity thresholds
 _SENSITIVITY_THRESHOLDS: dict[str, float] = {
@@ -139,6 +138,7 @@ class RuntimeHealthMonitor:
             "updated_at": "",
         }
         self._active_runtime_alerts: dict[str, ValidationIssue] = {}
+        self._loaded_adaptation_ids: set[str] = set()
         self._runtime_event_store_db_path: str | None = None
         if self._runtime_event_store is None:
             if hasattr(hass, "config") and hasattr(hass.config, "path"):
@@ -383,14 +383,15 @@ class RuntimeHealthMonitor:
         self._runtime_state["last_weekly_maintenance"] = maintenance_time.isoformat()
         if self._runtime_event_store is not None:
             try:
+                retention = self.baseline_days + 7
                 deleted = self._runtime_event_store.trim(
-                    retention_days=_TRIM_RETENTION_DAYS, now=maintenance_time
+                    retention_days=retention, now=maintenance_time
                 )
                 if deleted > 0:
                     _LOGGER.info(
                         "Weekly maintenance: trimmed %d events older than %d days",
                         deleted,
-                        _TRIM_RETENTION_DAYS,
+                        retention,
                     )
             except Exception:
                 _LOGGER.debug(
@@ -427,15 +428,40 @@ class RuntimeHealthMonitor:
         if not isinstance(state_raw, dict):
             state: dict[str, Any] = self._empty_automation_state()
             automations_dict[automation_entity_id] = state
-            return state
-        state = cast(dict[str, Any], state_raw)
+        else:
+            state = cast(dict[str, Any], state_raw)
+            defaults = self._empty_automation_state()
+            for key, default_value in defaults.items():
+                if key not in state or (
+                    isinstance(default_value, dict) and not isinstance(state[key], dict)
+                ):
+                    state[key] = deepcopy(default_value)
 
-        defaults = self._empty_automation_state()
-        for key, default_value in defaults.items():
-            if key not in state or (
-                isinstance(default_value, dict) and not isinstance(state[key], dict)
-            ):
-                state[key] = deepcopy(default_value)
+        if (
+            automation_entity_id not in self._loaded_adaptation_ids
+            and self._runtime_event_store is not None
+        ):
+            self._loaded_adaptation_ids.add(automation_entity_id)
+            raw = self._runtime_event_store.get_metadata(
+                f"adaptation:{automation_entity_id}"
+            )
+            if raw is not None:
+                try:
+                    persisted = json.loads(raw)
+                    adaptation = state.setdefault("adaptation", {})
+                    if not isinstance(adaptation, dict):
+                        adaptation = {}
+                        state["adaptation"] = adaptation
+                    if int(persisted.get("dismissed_count", 0)) > int(
+                        adaptation.get("dismissed_count", 0)
+                    ):
+                        adaptation["dismissed_count"] = persisted["dismissed_count"]
+                        adaptation["threshold_multiplier"] = persisted[
+                            "threshold_multiplier"
+                        ]
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    pass
+
         return state
 
     def _detect_burst_anomaly(
@@ -618,6 +644,16 @@ class RuntimeHealthMonitor:
         adaptation["threshold_multiplier"] = max(
             1.0, current_multiplier * self.dismissed_threshold_multiplier
         )
+        if self._runtime_event_store is not None:
+            self._runtime_event_store.set_metadata(
+                f"adaptation:{automation_id}",
+                json.dumps(
+                    {
+                        "dismissed_count": adaptation["dismissed_count"],
+                        "threshold_multiplier": adaptation["threshold_multiplier"],
+                    }
+                ),
+            )
 
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:

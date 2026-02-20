@@ -41,48 +41,30 @@ DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES = 5
 # Config keys
 CONF_HISTORY_DAYS = "history_days"
 CONF_VALIDATE_ON_RELOAD = "validate_on_reload"
-CONF_DEBOUNCE_SECONDS = "debounce_seconds"
 CONF_PERIODIC_SCAN_INTERVAL_HOURS = "periodic_scan_interval_hours"
 CONF_STRICT_TEMPLATE_VALIDATION = "strict_template_validation"
 CONF_STRICT_SERVICE_VALIDATION = "strict_service_validation"
 CONF_RUNTIME_HEALTH_ENABLED = "runtime_health_enabled"
 CONF_RUNTIME_HEALTH_BASELINE_DAYS = "runtime_health_baseline_days"
-CONF_RUNTIME_HEALTH_WARMUP_SAMPLES = "runtime_health_warmup_samples"
-CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS = "runtime_health_min_expected_events"
-CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS = "runtime_health_hour_ratio_days"
 CONF_RUNTIME_HEALTH_SENSITIVITY = "runtime_health_sensitivity"
-CONF_RUNTIME_HEALTH_BURST_MULTIPLIER = "runtime_health_burst_multiplier"
 CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY = "runtime_health_max_alerts_per_day"
-CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES = (
-    "runtime_health_restart_exclusion_minutes"
-)
 
 
 @dataclass(frozen=True)
 class RuntimeHealthConfig:
-    """Bundled runtime health monitoring configuration."""
+    """Bundled runtime health monitoring configuration (user-facing options only)."""
 
     enabled: bool = DEFAULT_RUNTIME_HEALTH_ENABLED
     baseline_days: int = DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS
-    warmup_samples: int = DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES
-    min_expected_events: int = DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS
-    hour_ratio_days: int = DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS
     sensitivity: str = DEFAULT_RUNTIME_HEALTH_SENSITIVITY
-    burst_multiplier: float = DEFAULT_RUNTIME_HEALTH_BURST_MULTIPLIER
     max_alerts_per_day: int = DEFAULT_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY
-    restart_exclusion_minutes: int = DEFAULT_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES
 
     # Mapping from HA options dict keys to dataclass field names
     _OPTION_TO_FIELD: ClassVar[dict[str, str]] = {
         CONF_RUNTIME_HEALTH_ENABLED: "enabled",
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: "baseline_days",
-        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: "warmup_samples",
-        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: "min_expected_events",
-        CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: "hour_ratio_days",
         CONF_RUNTIME_HEALTH_SENSITIVITY: "sensitivity",
-        CONF_RUNTIME_HEALTH_BURST_MULTIPLIER: "burst_multiplier",
         CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY: "max_alerts_per_day",
-        CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES: "restart_exclusion_minutes",
     }
 
     @classmethod

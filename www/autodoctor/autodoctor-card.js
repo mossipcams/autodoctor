@@ -350,6 +350,42 @@ const issueGroupStyles = i$3 `
     opacity: 1;
   }
 
+  /* Runtime dismiss button */
+  .dismiss-runtime-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--secondary-text-color);
+    font-size: 0.7rem;
+    cursor: pointer;
+    opacity: 0.6;
+    transition:
+      opacity var(--autodoc-transition-fast),
+      background var(--autodoc-transition-fast);
+  }
+
+  .dismiss-runtime-btn:hover {
+    opacity: 1;
+    background: var(--divider-color, rgba(127, 127, 127, 0.2));
+  }
+
+  .dismiss-runtime-btn:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+    opacity: 1;
+  }
+
+  .dismiss-runtime-label {
+    display: none;
+  }
+
   /* Fix suggestions */
   .fix-suggestion {
     display: flex;
@@ -554,6 +590,24 @@ const issueGroupStyles = i$3 `
     }
 
     .suppress-label {
+      display: inline;
+      font-size: var(--autodoc-meta-size);
+    }
+
+    /* Runtime dismiss button: 44px touch target */
+    .dismiss-runtime-btn {
+      width: auto;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 6px;
+    }
+
+    .dismiss-runtime-label {
       display: inline;
       font-size: var(--autodoc-meta-size);
     }
@@ -1181,6 +1235,18 @@ let AutodocIssueGroup = class AutodocIssueGroup extends i {
         <div class="issue-header">
           <span class="issue-icon" aria-hidden="true">${isError ? "\u2715" : "!"}</span>
           <span class="issue-message">${issue.message}</span>
+          ${this._isRuntimeIssue(issue)
+            ? b `
+                <button
+                  class="dismiss-runtime-btn"
+                  @click=${() => this._dispatchDismissRuntime(issue)}
+                  aria-label="Dismiss this alert"
+                  title="Mark as false positive (adapts threshold)"
+                >
+                  <span aria-hidden="true">\u2715</span><span class="dismiss-runtime-label">Dismiss</span>
+                </button>
+              `
+            : A}
           <button
             class="suppress-btn"
             @click=${() => this._dispatchSuppress(issue)}
@@ -1262,6 +1328,17 @@ let AutodocIssueGroup = class AutodocIssueGroup extends i {
         ${isHigh ? "High" : "Medium"} confidence
       </span>
     `;
+    }
+    _isRuntimeIssue(issue) {
+        return (issue.issue_type === "runtime_automation_overactive" ||
+            issue.issue_type === "runtime_automation_burst");
+    }
+    _dispatchDismissRuntime(issue) {
+        this.dispatchEvent(new CustomEvent("dismiss-runtime-issue", {
+            detail: { issue },
+            bubbles: true,
+            composed: true,
+        }));
     }
     _dispatchSuppress(issue) {
         this.dispatchEvent(new CustomEvent("suppress-issue", {
@@ -1832,7 +1909,7 @@ AutodocSuppressions = __decorate([
 ], AutodocSuppressions);
 
 var AutodoctorCard_1;
-const CARD_VERSION = "2.28.6";
+const CARD_VERSION = "2.30.0-beta.2";
 console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
 let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     constructor() {
@@ -2050,6 +2127,7 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
                       .dismissedKeys=${this._dismissedSuggestions}
                       @suppress-issue=${(e) => this._suppressIssue(e.detail.issue)}
                       @dismiss-suggestion=${(e) => this._dismissSuggestion(e.detail.issue)}
+                      @dismiss-runtime-issue=${(e) => this._dismissRuntimeIssue(e.detail.issue)}
                       @fix-copied=${(e) => this._showToast(`Copied: ${e.detail.value}`)}
                       @apply-fix=${(e) => this._applyFix(e.detail.issue, e.detail.fix)}
                     ></autodoc-issue-group>
@@ -2179,6 +2257,20 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     _dismissSuggestion(issue) {
         const key = getSuggestionKey(issue);
         this._dismissedSuggestions = new Set([...this._dismissedSuggestions, key]);
+    }
+    async _dismissRuntimeIssue(issue) {
+        try {
+            await this.hass.callWS({
+                type: "autodoctor/dismiss",
+                automation_id: issue.automation_id,
+                issue_type: issue.issue_type || "unknown",
+            });
+            this._showToast("Alert dismissed - threshold adapted");
+        }
+        catch (err) {
+            console.error("Failed to dismiss runtime issue:", err);
+            this._showToast("Failed to dismiss alert");
+        }
     }
     async _suppressIssue(issue) {
         // Prevent concurrent suppression operations

@@ -9,25 +9,18 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.autodoctor.config_flow import ConfigFlow, OptionsFlowHandler
 from custom_components.autodoctor.const import (
-    CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
-    CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
     CONF_RUNTIME_HEALTH_ENABLED,
-    CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
     CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
-    CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
-    CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     CONF_RUNTIME_HEALTH_SENSITIVITY,
-    CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
@@ -149,55 +142,16 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
     user_input: dict[str, Any] = {
         CONF_HISTORY_DAYS: 14,
         CONF_VALIDATE_ON_RELOAD: False,
-        CONF_DEBOUNCE_SECONDS: 10,
         CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
         CONF_STRICT_TEMPLATE_VALIDATION: True,
         CONF_STRICT_SERVICE_VALIDATION: True,
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
-        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
-        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
     result = await handler.async_step_init(user_input=user_input)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"] == user_input
-
-
-async def test_options_step_init_rejects_warmup_over_baseline(
-    hass: HomeAssistant,
-) -> None:
-    """Warmup samples cannot exceed baseline days."""
-    mock_entry = MagicMock()
-    mock_entry.options = {}
-
-    handler = OptionsFlowHandler()
-    handler.hass = hass
-    handler.flow_id = "test_options"
-
-    user_input: dict[str, Any] = {
-        CONF_HISTORY_DAYS: 14,
-        CONF_VALIDATE_ON_RELOAD: False,
-        CONF_DEBOUNCE_SECONDS: 10,
-        CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
-        CONF_STRICT_TEMPLATE_VALIDATION: True,
-        CONF_STRICT_SERVICE_VALIDATION: True,
-        CONF_RUNTIME_HEALTH_ENABLED: True,
-        CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
-        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 14,
-        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
-    }
-
-    with patch.object(
-        type(handler),
-        "config_entry",
-        new_callable=lambda: property(lambda self: mock_entry),
-    ):
-        result = await handler.async_step_init(user_input=user_input)
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "init"
-    assert result["errors"]["base"] == "warmup_exceeds_baseline"
 
 
 async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
@@ -214,14 +168,11 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
     user_input: dict[str, Any] = {
         CONF_HISTORY_DAYS: 14,
         CONF_VALIDATE_ON_RELOAD: False,
-        CONF_DEBOUNCE_SECONDS: 10,
         CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
         CONF_STRICT_TEMPLATE_VALIDATION: True,
         CONF_STRICT_SERVICE_VALIDATION: True,
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 7,
-        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 3,
-        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 1,
     }
 
     with patch.object(
@@ -243,15 +194,22 @@ def test_options_schema_anomaly_threshold_removed() -> None:
     assert "runtime_health_anomaly_threshold" not in schema_keys
 
 
-def test_options_schema_runtime_health_hour_ratio_days_range() -> None:
-    """Hour-ratio lookback should be bounded by schema range checks."""
+def test_options_schema_internal_tuning_knobs_removed() -> None:
+    """Guard: internal ML tuning knobs should not be in the options schema."""
     schema = OptionsFlowHandler._build_options_schema(defaults={})
-
-    valid = schema({CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 30})
-    assert valid[CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS] == 30
-
-    with pytest.raises(vol.Invalid):
-        schema({CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 0})
+    schema_keys = {str(k) for k in schema.schema}
+    removed = {
+        "debounce_seconds",
+        "runtime_health_warmup_samples",
+        "runtime_health_min_expected_events",
+        "runtime_health_hour_ratio_days",
+        "runtime_health_burst_multiplier",
+        "runtime_health_restart_exclusion_minutes",
+    }
+    found = removed & schema_keys
+    assert not found, (
+        f"Internal tuning knobs should be removed from options schema: {found}"
+    )
 
 
 def test_options_schema_rollout_flags_removed() -> None:
@@ -327,24 +285,20 @@ async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
     assert CONF_PERIODIC_SCAN_INTERVAL_HOURS in schema.schema
     assert CONF_RUNTIME_HEALTH_ENABLED in schema.schema
     assert CONF_RUNTIME_HEALTH_BASELINE_DAYS in schema.schema
-    assert CONF_RUNTIME_HEALTH_WARMUP_SAMPLES in schema.schema
-    assert CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS in schema.schema
 
 
-def test_options_schema_includes_three_model_runtime_fields() -> None:
-    """Three-model runtime monitor options should be exposed in options schema."""
+def test_options_schema_includes_user_facing_runtime_fields() -> None:
+    """User-facing runtime monitor options should be exposed in options schema."""
     schema = OptionsFlowHandler._build_options_schema(defaults={})
 
     assert CONF_RUNTIME_HEALTH_SENSITIVITY in schema.schema
-    assert CONF_RUNTIME_HEALTH_BURST_MULTIPLIER in schema.schema
     assert CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY in schema.schema
-    assert CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES in schema.schema
 
 
-async def test_options_flow_saves_three_model_runtime_fields(
+async def test_options_flow_saves_user_facing_runtime_fields(
     hass: HomeAssistant,
 ) -> None:
-    """Options flow should persist three-model runtime monitor tuning fields."""
+    """Options flow should persist user-facing runtime monitor fields."""
     handler = OptionsFlowHandler()
     handler.hass = hass
     handler.flow_id = "test_options"
@@ -352,28 +306,22 @@ async def test_options_flow_saves_three_model_runtime_fields(
     user_input: dict[str, Any] = {
         CONF_HISTORY_DAYS: 14,
         CONF_VALIDATE_ON_RELOAD: False,
-        CONF_DEBOUNCE_SECONDS: 5,
         CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
-        CONF_RUNTIME_HEALTH_WARMUP_SAMPLES: 7,
-        CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS: 0,
-        CONF_RUNTIME_HEALTH_HOUR_RATIO_DAYS: 30,
         CONF_RUNTIME_HEALTH_SENSITIVITY: "medium",
-        CONF_RUNTIME_HEALTH_BURST_MULTIPLIER: 4.0,
         CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY: 10,
-        CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES: 5,
     }
 
     result = await handler.async_step_init(user_input=user_input)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_RUNTIME_HEALTH_SENSITIVITY] == "medium"
-    assert result["data"][CONF_RUNTIME_HEALTH_BURST_MULTIPLIER] == 4.0
+    assert result["data"][CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY] == 10
 
 
-def test_config_flow_version_is_3() -> None:
-    """Config flow version must be 3 after anomaly_threshold removal."""
-    assert ConfigFlow.VERSION == 3
+def test_config_flow_version_is_4() -> None:
+    """Config flow version must be 4 after internal tuning knob removal."""
+    assert ConfigFlow.VERSION == 4
 
 
 @pytest.mark.asyncio
@@ -451,3 +399,35 @@ async def test_migrate_entry_v2_strips_anomaly_threshold(
     assert result is True
     assert "runtime_health_anomaly_threshold" not in entry.options
     assert entry.options[CONF_HISTORY_DAYS] == 14
+
+
+@pytest.mark.asyncio
+async def test_migrate_entry_v3_strips_internal_tuning_knobs(
+    hass: HomeAssistant,
+) -> None:
+    """Migration from v3 should strip internal tuning knobs from options."""
+    removed_keys = [
+        "debounce_seconds",
+        "runtime_health_warmup_samples",
+        "runtime_health_min_expected_events",
+        "runtime_health_hour_ratio_days",
+        "runtime_health_burst_multiplier",
+        "runtime_health_restart_exclusion_minutes",
+    ]
+    old_options = dict.fromkeys(removed_keys, 99)
+    old_options[CONF_HISTORY_DAYS] = 14
+    old_options["runtime_health_sensitivity"] = "high"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        options=old_options,
+    )
+    entry.add_to_hass(hass)
+
+    result = await ConfigFlow.async_migrate_entry(hass, entry)
+
+    assert result is True
+    for key in removed_keys:
+        assert key not in entry.options, f"Removed key {key!r} still in options"
+    assert entry.options[CONF_HISTORY_DAYS] == 14
+    assert entry.options["runtime_health_sensitivity"] == "high"

@@ -11,13 +11,11 @@ from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import HomeAssistant, callback
 
 from .const import (
-    CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
     CONF_VALIDATE_ON_RELOAD,
-    DEFAULT_DEBOUNCE_SECONDS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_PERIODIC_SCAN_INTERVAL_HOURS,
     DEFAULT_STRICT_SERVICE_VALIDATION,
@@ -36,7 +34,7 @@ _RUNTIME_HEALTH_MIN_TRAINING_ROWS = 1
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Autodoctor."""
 
-    VERSION = 3
+    VERSION = 4
 
     _V1_REMOVED_KEYS = frozenset(
         {
@@ -53,6 +51,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     _V2_REMOVED_KEYS = frozenset(
         {
             "runtime_health_anomaly_threshold",
+        }
+    )
+
+    _V3_REMOVED_KEYS = frozenset(
+        {
+            "debounce_seconds",
+            "runtime_health_warmup_samples",
+            "runtime_health_min_expected_events",
+            "runtime_health_hour_ratio_days",
+            "runtime_health_burst_multiplier",
+            "runtime_health_restart_exclusion_minutes",
         }
     )
 
@@ -74,6 +83,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
             hass.config_entries.async_update_entry(
                 entry, options=new_options, version=3
+            )
+        if entry.version < 4:
+            new_options = {
+                k: v for k, v in entry.options.items() if k not in cls._V3_REMOVED_KEYS
+            }
+            hass.config_entries.async_update_entry(
+                entry, options=new_options, version=4
             )
         return True
 
@@ -122,12 +138,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 ): bool,
                 vol.Optional(
-                    CONF_DEBOUNCE_SECONDS,
-                    default=defaults.get(
-                        CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS
-                    ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
-                vol.Optional(
                     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
                     default=defaults.get(
                         CONF_PERIODIC_SCAN_INTERVAL_HOURS,
@@ -157,33 +167,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=rhc.baseline_days,
                 ): vol.All(vol.Coerce(int), vol.Range(min=7, max=365)),
                 vol.Optional(
-                    "runtime_health_warmup_samples",
-                    default=rhc.warmup_samples,
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
-                vol.Optional(
-                    "runtime_health_min_expected_events",
-                    default=rhc.min_expected_events,
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=1000)),
-                vol.Optional(
-                    "runtime_health_hour_ratio_days",
-                    default=rhc.hour_ratio_days,
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
-                vol.Optional(
                     "runtime_health_sensitivity",
                     default=rhc.sensitivity,
                 ): vol.In(["low", "medium", "high"]),
                 vol.Optional(
-                    "runtime_health_burst_multiplier",
-                    default=rhc.burst_multiplier,
-                ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=100.0)),
-                vol.Optional(
                     "runtime_health_max_alerts_per_day",
                     default=rhc.max_alerts_per_day,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
-                vol.Optional(
-                    "runtime_health_restart_exclusion_minutes",
-                    default=rhc.restart_exclusion_minutes,
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
             }
         )
 
@@ -194,14 +184,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             _input_rhc = RuntimeHealthConfig.from_options(user_input)
             baseline_days = _input_rhc.baseline_days
-            warmup_samples = _input_rhc.warmup_samples
             runtime_enabled = _input_rhc.enabled
-            if warmup_samples > baseline_days:
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=self._build_options_schema(user_input),
-                    errors={"base": "warmup_exceeds_baseline"},
-                )
             effective_training_rows = baseline_days - _RUNTIME_HEALTH_COLD_START_DAYS
             if (
                 runtime_enabled
