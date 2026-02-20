@@ -900,6 +900,11 @@ class RuntimeHealthMonitor:
 
             if smoothed_score >= threshold and not is_suppressed:
                 if self._allow_alert(automation_entity_id, now=now):
+                    confidence = (
+                        "high"
+                        if threshold > 0 and smoothed_score / threshold >= 2.0
+                        else "medium"
+                    )
                     issue = ValidationIssue(
                         severity=Severity.WARNING,
                         automation_id=automation_entity_id,
@@ -911,7 +916,7 @@ class RuntimeHealthMonitor:
                             f"score {smoothed_score:.2f} exceeds threshold {threshold:.2f}"
                         ),
                         issue_type=issue_type,
-                        confidence="medium",
+                        confidence=confidence,
                     )
                     self._register_runtime_alert(issue)
                     issues.append(issue)

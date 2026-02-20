@@ -1905,6 +1905,36 @@ async def test_validate_automations_emits_overactive_when_score_exceeds_threshol
     assert len(overactive) == 1
     assert "score 3.00" in overactive[0].message
     assert "threshold 2.00" in overactive[0].message
+    assert overactive[0].confidence == "medium"
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_overactive_high_confidence_when_score_far_above(
+    hass: HomeAssistant,
+) -> None:
+    """confidence should be 'high' when score is >= 2x the threshold."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=5.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert overactive[0].confidence == "high"
 
 
 @pytest.mark.asyncio
