@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.autodoctor.models import IssueType
 from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
 from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
 
@@ -44,133 +43,8 @@ def test_classify_time_bucket_returns_expected_segments(tmp_path: Path) -> None:
     assert monitor.classify_time_bucket(weekend_night) == "weekend_night"
 
 
-def test_count_model_updates_bocpd_state_on_day_rollover(tmp_path: Path) -> None:
-    """Per-bucket count model should roll prior day count into BOCPD state."""
-    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
-
-    aid = "automation.kitchen"
-    base_day = datetime(2026, 2, 9, 8, 0, tzinfo=UTC)
-    # Monday: 2 triggers
-    monitor.ingest_trigger_event(aid, occurred_at=base_day)
-    monitor.ingest_trigger_event(aid, occurred_at=base_day + timedelta(minutes=10))
-    # Tuesday: 4 triggers
-    for idx in range(4):
-        monitor.ingest_trigger_event(
-            aid,
-            occurred_at=base_day + timedelta(days=1, minutes=idx * 3),
-        )
-    # Wednesday event rolls Tuesday into historical counts
-    monitor.ingest_trigger_event(aid, occurred_at=base_day + timedelta(days=2))
-
-    state = monitor.get_runtime_state()
-    bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
-
-    assert bucket["observations"] == [2, 4]
-    assert bucket["current_count"] == 1
-    assert bucket["current_day"] == (base_day + timedelta(days=2)).date().isoformat()
-    assert sum(bucket["run_length_probs"]) == pytest.approx(1.0)
-    assert bucket["map_run_length"] >= 0
-    assert bucket["expected_rate"] > 0.0
-
-
-def test_count_anomaly_emits_runtime_issue_with_expected_range_metadata(
-    tmp_path: Path,
-) -> None:
-    """Count anomaly path should emit range-aware runtime issue messages."""
-    now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
-    monitor = _build_monitor(
-        tmp_path,
-        now,
-        sensitivity="high",
-        burst_multiplier=999.0,
-        max_alerts_per_day=20,
-    )
-    aid = "automation.count_watch"
-
-    # Build a stable historical bucket baseline (1 trigger/day).
-    for days_back in range(14, 1, -1):
-        monitor.ingest_trigger_event(
-            aid,
-            occurred_at=now - timedelta(days=days_back),
-        )
-
-    emitted = []
-    for idx in range(12):
-        emitted.extend(
-            monitor.ingest_trigger_event(
-                aid,
-                occurred_at=now + timedelta(seconds=idx),
-            )
-        )
-
-    count_issues = [
-        issue
-        for issue in emitted
-        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-    ]
-    assert count_issues, "Expected at least one count anomaly issue"
-    assert "expected range" in count_issues[0].message.lower()
-    assert "observed" in count_issues[0].message.lower()
-
-
-def test_count_alert_clears_when_observation_returns_to_expected_range(
-    tmp_path: Path,
-) -> None:
-    """Active count alerts should clear once counts return to expected range."""
-    now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
-    monitor = _build_monitor(
-        tmp_path,
-        now,
-        sensitivity="high",
-        burst_multiplier=999.0,
-        max_alerts_per_day=20,
-    )
-    aid = "automation.count_recovery"
-    automation_state = monitor._ensure_automation_state(aid)
-    count_model = automation_state["count_model"]
-    bucket_name = "weekday_morning"
-    bucket_state = monitor._ensure_count_bucket_state(count_model, bucket_name)
-
-    for _ in range(20):
-        monitor._bocpd_count_detector.update_state(bucket_state, 1)
-    bucket_state["current_day"] = now.date().isoformat()
-    bucket_state["current_count"] = 10
-
-    emitted = monitor._detect_count_anomaly(
-        automation_entity_id=aid,
-        automation_state=automation_state,
-        bucket_name=bucket_name,
-        bucket_state=bucket_state,
-        now=now,
-    )
-    assert emitted
-    assert any(
-        issue.automation_id == aid
-        and issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-        for issue in monitor.get_active_runtime_alerts()
-    )
-
-    bucket_state["current_count"] = 1
-    monitor._detect_count_anomaly(
-        automation_entity_id=aid,
-        automation_state=automation_state,
-        bucket_name=bucket_name,
-        bucket_state=bucket_state,
-        now=now + timedelta(minutes=1),
-    )
-
-    assert all(
-        not (
-            issue.automation_id == aid
-            and issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-        )
-        for issue in monitor.get_active_runtime_alerts()
-    )
-
-
 def test_weekly_maintenance_is_noop_with_bocpd(tmp_path: Path) -> None:
-    """Weekly maintenance should not mutate BOCPD bucket internals."""
+    """Weekly maintenance should not mutate burst model internals."""
     now = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
     monitor = _build_monitor(tmp_path, now, burst_multiplier=999.0)
     aid = "automation.nb_watch"
@@ -189,45 +63,9 @@ def test_weekly_maintenance_is_noop_with_bocpd(tmp_path: Path) -> None:
     monitor.run_weekly_maintenance(now=now)
     after = monitor.get_runtime_state()
 
-    before_bucket = before["automations"][aid]["count_model"]["buckets"][
-        "weekday_morning"
-    ]
-    after_bucket = after["automations"][aid]["count_model"]["buckets"][
-        "weekday_morning"
-    ]
-    assert after_bucket == before_bucket
-    assert "use_negative_binomial" not in after_bucket
-
-
-def test_auto_adapt_resets_bucket_after_persistent_count_anomalies(
-    tmp_path: Path,
-) -> None:
-    """Persistent count anomalies should trigger auto-adapt baseline reset."""
-    now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
-    monitor = _build_monitor(
-        tmp_path,
-        now,
-        sensitivity="high",
-        smoothing_window=2,
-        auto_adapt=True,
-        burst_multiplier=999.0,
-        max_alerts_per_day=50,
-    )
-    aid = "automation.auto_adapt"
-
-    for days_back in range(15, 1, -1):
-        monitor.ingest_trigger_event(aid, occurred_at=now - timedelta(days=days_back))
-
-    for idx in range(8):
-        monitor.ingest_trigger_event(aid, occurred_at=now + timedelta(seconds=idx))
-
-    state = monitor.get_runtime_state()
-    bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
-    assert bucket["run_length_probs"] == [1.0]
-    assert bucket["observations"] == []
-    assert bucket["map_run_length"] == 0
-    assert bucket["expected_rate"] == pytest.approx(0.0)
-    assert state["automations"][aid]["count_model"]["anomaly_streak"] == 0
+    before_burst = before["automations"][aid]["burst_model"]
+    after_burst = after["automations"][aid]["burst_model"]
+    assert after_burst == before_burst
 
 
 def test_suppressed_runtime_paths_continue_learning_without_alerts(
@@ -267,48 +105,10 @@ def test_out_of_order_runtime_events_do_not_backdate_last_trigger(
     last_trigger = state["automations"][aid]["last_trigger"]
     assert last_trigger == newer.isoformat()
 
-    bucket = state["automations"][aid]["count_model"]["buckets"][
-        monitor.classify_time_bucket(newer)
-    ]
-    assert bucket["current_day"] == newer.date().isoformat()
-    assert bucket["current_count"] == 1
-
 
 def test_async_backfill_from_recorder_removed(tmp_path: Path) -> None:
     """async_backfill_from_recorder was removed — replaced by async_bootstrap_from_recorder."""
     assert not hasattr(RuntimeHealthMonitor, "async_backfill_from_recorder")
-
-
-def test_rebuild_models_from_store_populates_bocpd_from_sqlite(
-    tmp_path: Path,
-) -> None:
-    """rebuild_models_from_store should replay SQLite daily counts into BOCPD."""
-    now = datetime(2026, 2, 12, 12, 0, tzinfo=UTC)  # Thursday noon
-    store = RuntimeEventStore(str(tmp_path / "autodoctor_runtime.db"))
-    store.ensure_schema(target_version=1)
-
-    aid = "automation.kitchen"
-    base = datetime(2026, 2, 9, 8, 0, tzinfo=UTC)  # Monday 8am
-    # Mon: 1 trigger, Tue: 2 triggers, Wed: 3 triggers
-    for day_offset in range(3):
-        for minute in range(day_offset + 1):
-            store.record_trigger(
-                aid,
-                base + timedelta(days=day_offset, minutes=minute),
-            )
-
-    monitor = _build_monitor(tmp_path, now, runtime_event_store=store)
-    monitor.rebuild_models_from_store(now=now)
-
-    state = monitor.get_runtime_state()
-    bucket = state["automations"][aid]["count_model"]["buckets"]["weekday_morning"]
-    assert bucket["observations"] == [1, 2, 3]
-    assert bucket["current_day"] == now.date().isoformat()
-    assert bucket["current_count"] == 0
-
-    # last_trigger should be seeded from store
-    last_trigger = state["automations"][aid]["last_trigger"]
-    assert last_trigger is not None
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,6 @@ from custom_components.autodoctor.const import (
     CONF_DEBOUNCE_SECONDS,
     CONF_HISTORY_DAYS,
     CONF_PERIODIC_SCAN_INTERVAL_HOURS,
-    CONF_RUNTIME_HEALTH_AUTO_ADAPT,
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_BURST_MULTIPLIER,
     CONF_RUNTIME_HEALTH_ENABLED,
@@ -28,7 +27,6 @@ from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
     CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES,
     CONF_RUNTIME_HEALTH_SENSITIVITY,
-    CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW,
     CONF_RUNTIME_HEALTH_WARMUP_SAMPLES,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
@@ -340,9 +338,7 @@ def test_options_schema_includes_three_model_runtime_fields() -> None:
     assert CONF_RUNTIME_HEALTH_SENSITIVITY in schema.schema
     assert CONF_RUNTIME_HEALTH_BURST_MULTIPLIER in schema.schema
     assert CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY in schema.schema
-    assert CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW in schema.schema
     assert CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES in schema.schema
-    assert CONF_RUNTIME_HEALTH_AUTO_ADAPT in schema.schema
 
 
 async def test_options_flow_saves_three_model_runtime_fields(
@@ -366,9 +362,7 @@ async def test_options_flow_saves_three_model_runtime_fields(
         CONF_RUNTIME_HEALTH_SENSITIVITY: "medium",
         CONF_RUNTIME_HEALTH_BURST_MULTIPLIER: 4.0,
         CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY: 10,
-        CONF_RUNTIME_HEALTH_SMOOTHING_WINDOW: 5,
         CONF_RUNTIME_HEALTH_RESTART_EXCLUSION_MINUTES: 5,
-        CONF_RUNTIME_HEALTH_AUTO_ADAPT: True,
     }
 
     result = await handler.async_step_init(user_input=user_input)

@@ -108,10 +108,10 @@ async def test_runtime_monitor_skips_when_warmup_insufficient(
 
 
 @pytest.mark.asyncio
-async def test_runtime_monitor_extends_lookback_for_sparse_warmup(
+async def test_runtime_monitor_uses_single_fetch_for_sparse_warmup(
     hass: HomeAssistant,
 ) -> None:
-    """Sparse automations should trigger a wider history fetch before warmup skip."""
+    """Sparse automations should use the full baseline window in a single fetch."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     sparse_history = {
         "runtime_sparse": [
@@ -148,30 +148,24 @@ async def test_runtime_monitor_extends_lookback_for_sparse_warmup(
         history=sparse_history,
         now=now,
         score=0.1,
-        baseline_days=30,
+        baseline_days=90,
         warmup_samples=3,
         min_expected_events=0,
     )
 
     issues = await monitor.validate_automations([_automation("runtime_sparse")])
-    stats = monitor.get_last_run_stats()
 
     assert issues == []
-    assert len(fetch_calls) == 2
-    assert fetch_calls[1][0] < fetch_calls[0][0]
-    assert fetch_calls[1][1] == fetch_calls[0][0], (
-        "Extended lookback query should end where the original query started (no overlap)"
+    assert len(fetch_calls) == 1, (
+        "Full 90-day baseline should use a single fetch, no extended lookback"
     )
-    assert stats.get("insufficient_warmup", 0) == 0
-    assert stats.get("extended_lookback_used", 0) == 1
-    assert stats.get("scored_after_lookback", 0) == 1
 
 
 @pytest.mark.asyncio
 async def test_runtime_monitor_adapts_warmup_for_low_frequency_automation(
     hass: HomeAssistant,
 ) -> None:
-    """Low-frequency automations should still score after extended lookback."""
+    """Low-frequency automations should still score with full 90-day baseline."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
     sparse_history = {
         "runtime_sparse": [
@@ -185,7 +179,7 @@ async def test_runtime_monitor_adapts_warmup_for_low_frequency_automation(
         history=sparse_history,
         now=now,
         score=0.2,
-        baseline_days=30,
+        baseline_days=90,
         warmup_samples=5,
         min_expected_events=0,
     )
@@ -216,7 +210,7 @@ async def test_runtime_monitor_suppresses_sparse_stalled_alerts(
         history=sparse_history,
         now=now,
         score=2.2,
-        baseline_days=30,
+        baseline_days=90,
         warmup_samples=5,
         min_expected_events=0,
     )
@@ -644,12 +638,14 @@ def test_runtime_monitor_defaults_to_bocpd_detector(
     assert isinstance(monitor._detector, BOCPDDetector)
 
 
-def test_runtime_monitor_shares_single_bocpd_instance_when_no_custom_detector(
+def test_runtime_monitor_default_detector_is_bocpd(
     hass: HomeAssistant,
 ) -> None:
-    """Default detector and count detector should be the same BOCPD instance."""
+    """Default detector should be a BOCPDDetector instance."""
+    from custom_components.autodoctor.runtime_monitor import BOCPDDetector
+
     monitor = RuntimeHealthMonitor(hass)
-    assert monitor._detector is monitor._bocpd_count_detector
+    assert isinstance(monitor._detector, BOCPDDetector)
 
 
 @pytest.mark.asyncio
@@ -1439,83 +1435,6 @@ async def test_validate_automations_does_not_persist_periodic_model(
     assert "periodic_model" not in automation_state
 
 
-@pytest.mark.asyncio
-async def test_validate_automations_does_not_overwrite_live_daypart_bucket_state(
-    hass: HomeAssistant,
-    tmp_path,
-) -> None:
-    """Periodic scoring should not mutate daypart live bucket expected-rate semantics."""
-    now = datetime(2026, 2, 20, 9, 0, tzinfo=UTC)
-    aid = "automation.runtime_mix_units"
-    history_events: list[datetime] = []
-    cursor = now - timedelta(days=40)
-    for _ in range(32):
-        cursor += timedelta(days=1)
-        history_events.extend(
-            [
-                cursor.replace(hour=8, minute=0),  # morning
-                cursor.replace(hour=13, minute=0),  # afternoon
-                cursor.replace(hour=18, minute=0),  # evening
-                cursor.replace(hour=23, minute=0),  # night
-            ]
-        )
-    history = {aid: history_events}
-
-    class _HistoryRuntimeMonitor(RuntimeHealthMonitor):
-        def __init__(self) -> None:
-            super().__init__(
-                hass,
-                now_factory=lambda: now,
-                warmup_samples=7,
-                min_expected_events=0,
-                burst_multiplier=999.0,
-            )
-
-        async def _async_fetch_trigger_history(
-            self,
-            automation_ids: list[str],
-            start: datetime,
-            end: datetime,
-        ) -> dict[str, list[datetime]]:
-            return {
-                automation_id: [
-                    ts for ts in history.get(automation_id, []) if start <= ts <= end
-                ]
-                for automation_id in automation_ids
-            }
-
-        async def _async_fetch_trigger_history_from_store(
-            self,
-            *,
-            automation_ids: list[str],
-            start: datetime,
-            end: datetime,
-        ) -> dict[str, list[datetime]]:
-            return await self._async_fetch_trigger_history(automation_ids, start, end)
-
-    monitor = _HistoryRuntimeMonitor()
-
-    for event_time in history_events:
-        monitor.ingest_trigger_event(aid, occurred_at=event_time)
-
-    state_before = monitor.get_runtime_state()
-    bucket_name = monitor.classify_time_bucket(now)
-    before_bucket = state_before["automations"][aid]["count_model"]["buckets"][
-        bucket_name
-    ]
-    before_expected_rate = before_bucket["expected_rate"]
-
-    await monitor.validate_automations(
-        [{"id": "runtime_mix_units", "alias": "Mix Units", "entity_id": aid}]
-    )
-
-    state_after = monitor.get_runtime_state()
-    after_bucket = state_after["automations"][aid]["count_model"]["buckets"][
-        bucket_name
-    ]
-    assert after_bucket["expected_rate"] == pytest.approx(before_expected_rate)
-
-
 def test_build_5m_bucket_index_groups_events_correctly() -> None:
     """_build_5m_bucket_index should bucket events into 5-minute windows."""
     all_events: dict[str, list[datetime]] = {
@@ -1543,58 +1462,6 @@ def test_build_5m_bucket_index_groups_events_correctly() -> None:
 def test_build_profile_removed() -> None:
     """build_profile and AutomationProfile were removed — BOCPD handles profiling."""
     assert not hasattr(RuntimeHealthMonitor, "build_profile")
-
-
-def test_catch_up_count_model_replays_missing_finalized_days(
-    tmp_path: Path,
-) -> None:
-    """catch_up_count_model should feed missing finalized daily counts into BOCPD state."""
-    automation_id = "automation.catch_up_test"
-    store = RuntimeEventStore(tmp_path / "catch_up.db")
-    store.ensure_schema(target_version=1)
-
-    # Plant 2 events per day for Feb 14-17 (Sat-Tue) in the morning bucket
-    timestamps = [
-        datetime(2026, 2, 14, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 14, 10, 0, tzinfo=UTC),
-        datetime(2026, 2, 15, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 15, 10, 0, tzinfo=UTC),
-        datetime(2026, 2, 16, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 16, 10, 0, tzinfo=UTC),
-        datetime(2026, 2, 17, 9, 0, tzinfo=UTC),
-        datetime(2026, 2, 17, 10, 0, tzinfo=UTC),
-    ]
-    store.bulk_import(automation_id, timestamps)
-    store.rebuild_daily_summaries(automation_id)
-
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    monitor = RuntimeHealthMonitor(
-        hass=MagicMock(),
-        now_factory=lambda: now,
-    )
-
-    # Pre-seed bucket state as if last scored on Feb 13
-    automation_state = monitor._ensure_automation_state(automation_id)
-    bucket_state = monitor._ensure_count_bucket_state(
-        automation_state["count_model"], "weekday_morning"
-    )
-    bucket_state["current_day"] = "2026-02-13"
-    bucket_state["current_count"] = 0
-    bucket_state["observations"] = [1, 1, 1]
-
-    monitor.catch_up_count_model(
-        store=store,
-        automation_id=automation_id,
-        now=now,
-    )
-
-    updated = automation_state["count_model"]["buckets"]["weekday_morning"]
-    # Feb 14 (Sat) and 15 (Sun) are weekend — don't match weekday_morning.
-    # Feb 16 (Mon) and 17 (Tue) are weekday_morning days with 2 events each.
-    # Original 3 obs + 2 new weekday days = 5 observations.
-    assert len(updated["observations"]) == 5
-
-    store.close()
 
 
 def test_build_feature_row_uses_prebucketed_5m_index() -> None:
@@ -1698,6 +1565,18 @@ async def test_validate_automations_builds_and_passes_bucket_index(
         "_persist_runtime_state",
         "_maybe_flush_runtime_state",
         "_bucket_expected_rate",
+        "_ensure_count_bucket_state",
+        "_update_count_model",
+        "_advance_count_bucket_to_day",
+        "_roll_count_model_forward",
+        "_detect_count_anomaly",
+        "_bocpd_expected_count_range",
+        "_bocpd_quantile",
+        "catch_up_count_model",
+        "rebuild_models_from_store",
+        "async_rebuild_models_from_store",
+        "_maybe_auto_adapt",
+        "_compute_window_size",
     ],
 )
 def test_removed_runtime_monitor_attrs(attr: str) -> None:
@@ -1707,45 +1586,24 @@ def test_removed_runtime_monitor_attrs(attr: str) -> None:
     )
 
 
+def test_constructor_does_not_accept_smoothing_window_or_auto_adapt(
+    hass: HomeAssistant,
+) -> None:
+    """Constructor should not accept removed smoothing_window/auto_adapt params."""
+    import inspect
+
+    sig = inspect.signature(RuntimeHealthMonitor.__init__)
+    assert "smoothing_window" not in sig.parameters, (
+        "smoothing_window was removed from constructor"
+    )
+    assert "auto_adapt" not in sig.parameters, "auto_adapt was removed from constructor"
+
+
 def test_legacy_gamma_poisson_class_removed() -> None:
     """Legacy runtime detector should no longer be exported."""
     from custom_components.autodoctor import runtime_monitor
 
     assert not hasattr(runtime_monitor, "_GammaPoissonDetector")
-
-
-def test_score_current_logs_debug_on_type_error_fallback(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """_score_current should log a debug message when falling back due to TypeError."""
-
-    class _NoWindowSizeDetector:
-        def score_current(
-            self,
-            automation_id: str,
-            train_rows: list[dict[str, float]],
-            **kwargs: object,
-        ) -> float:
-            if "window_size" in kwargs:
-                raise TypeError("unexpected keyword argument 'window_size'")
-            return 0.42
-
-    hass = MagicMock()
-    monitor = RuntimeHealthMonitor(
-        hass,
-        detector=_NoWindowSizeDetector(),
-        now_factory=lambda: datetime(2026, 2, 11, 12, 0, tzinfo=UTC),
-    )
-    rows = [{"a": 1.0}, {"a": 2.0}]
-
-    with caplog.at_level(
-        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
-    ):
-        score = monitor._score_current("auto.test", rows, window_size=32)
-
-    assert score == pytest.approx(0.42)
-    assert "TypeError" in caplog.text
-    assert "auto.test" in caplog.text
 
 
 def test_init_does_not_call_sync_load(hass: HomeAssistant) -> None:
@@ -1873,45 +1731,6 @@ def test_resolve_automation_entity_id_edge_cases(
     """_resolve_automation_entity_id should handle all key/prefix combinations."""
     result = RuntimeHealthMonitor._resolve_automation_entity_id(automation_dict)
     assert result == expected
-
-
-@pytest.mark.asyncio
-async def test_advance_count_bucket_to_day_branches(hass: HomeAssistant) -> None:
-    """_advance_count_bucket_to_day should handle init, same-day, and multi-day advance."""
-    from datetime import date
-
-    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
-    monitor = RuntimeHealthMonitor(hass, now_factory=lambda: now)
-
-    # Branch 1: current_day is None → initializes and returns True
-    bucket_state: dict = {"current_count": 5}
-    result = monitor._advance_count_bucket_to_day(
-        bucket_name="weekday_morning",
-        bucket_state=bucket_state,
-        target_day=date(2026, 2, 18),
-    )
-    assert result is True
-    assert bucket_state["current_day"] == "2026-02-18"
-    assert bucket_state["current_count"] == 5
-
-    # Branch 2: current_day >= target_day → returns False
-    result = monitor._advance_count_bucket_to_day(
-        bucket_name="weekday_morning",
-        bucket_state=bucket_state,
-        target_day=date(2026, 2, 18),
-    )
-    assert result is False
-
-    # Branch 3: advance by one day
-    bucket_state2: dict = {"current_day": "2026-02-18", "current_count": 3}
-    result = monitor._advance_count_bucket_to_day(
-        bucket_name="weekday_morning",
-        bucket_state=bucket_state2,
-        target_day=date(2026, 2, 19),
-    )
-    assert result is True
-    assert bucket_state2["current_day"] == "2026-02-19"
-    assert bucket_state2["current_count"] == 0
 
 
 @pytest.mark.asyncio

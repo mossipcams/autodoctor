@@ -181,17 +181,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=rhc.max_alerts_per_day,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
                 vol.Optional(
-                    "runtime_health_smoothing_window",
-                    default=rhc.smoothing_window,
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
-                vol.Optional(
                     "runtime_health_restart_exclusion_minutes",
                     default=rhc.restart_exclusion_minutes,
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
-                vol.Optional(
-                    "runtime_health_auto_adapt",
-                    default=rhc.auto_adapt,
-                ): bool,
             }
         )
 

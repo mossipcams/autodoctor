@@ -723,8 +723,8 @@ def test_websocket_api_has_iter_automation_configs_helper() -> None:
     )
 
 
-def test_runtime_health_config_has_eleven_fields() -> None:
-    """Guard: RuntimeHealthConfig dataclass must bundle all 11 runtime health settings."""
+def test_runtime_health_config_has_nine_fields() -> None:
+    """Guard: RuntimeHealthConfig dataclass must bundle all 9 runtime health settings."""
     from dataclasses import fields
 
     from custom_components.autodoctor.const import RuntimeHealthConfig
@@ -739,10 +739,15 @@ def test_runtime_health_config_has_eleven_fields() -> None:
         "sensitivity",
         "burst_multiplier",
         "max_alerts_per_day",
-        "smoothing_window",
         "restart_exclusion_minutes",
-        "auto_adapt",
     }
+
+
+def test_default_runtime_health_baseline_days_is_90() -> None:
+    """Guard: default baseline should use full 90-day retention window."""
+    from custom_components.autodoctor.const import DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS
+
+    assert DEFAULT_RUNTIME_HEALTH_BASELINE_DAYS == 90
 
 
 def test_runtime_health_config_from_options() -> None:

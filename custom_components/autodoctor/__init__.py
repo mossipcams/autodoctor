@@ -360,9 +360,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             sensitivity=rhc.sensitivity,
             burst_multiplier=rhc.burst_multiplier,
             max_alerts_per_day=rhc.max_alerts_per_day,
-            smoothing_window=rhc.smoothing_window,
             startup_recovery_minutes=rhc.restart_exclusion_minutes,
-            auto_adapt=rhc.auto_adapt,
         )
         if rhc.enabled
         else None
@@ -433,10 +431,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         except Exception as err:
             _LOGGER.warning("Runtime recorder bootstrap failed: %s", err)
-        try:
-            await runtime_monitor.async_rebuild_models_from_store()
-        except Exception as err:
-            _LOGGER.warning("Runtime model rebuild failed during setup: %s", err)
 
     async def _async_load_history(_: Event) -> None:
         await knowledge_base.async_load_history()
