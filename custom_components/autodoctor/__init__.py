@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import voluptuous as vol
-from homeassistant.components.http import StaticPathConfig
+from aiohttp import web
+from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
@@ -68,6 +69,24 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 # Frontend card
 CARD_URL_BASE = "/autodoctor/autodoctor-card.js"
+
+
+class CardFileView(HomeAssistantView):
+    """Serve the frontend card JS with no-cache headers."""
+
+    url = "/autodoctor/autodoctor-card.js"
+    name = "autodoctor:card"
+    requires_auth = False
+
+    def __init__(self, card_path: Path) -> None:
+        self._card_path = card_path
+
+    async def get(self, request: web.Request) -> web.FileResponse:
+        response = web.FileResponse(path=str(self._card_path))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
 
 # Service schemas
 SERVICE_VALIDATE_SCHEMA = vol.Schema(
@@ -196,14 +215,8 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # Get versioned URL using integration version for cache-busting
     card_url = f"{CARD_URL_BASE}?v={VERSION}"
 
-    # Register static path for the card (base URL without version query string)
-    try:
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(CARD_URL_BASE, str(card_path), cache_headers=False)]
-        )
-    except (ValueError, RuntimeError):
-        # Path already registered from previous setup
-        _LOGGER.debug("Static path %s already registered", CARD_URL_BASE)
+    # Register view for the card with no-cache headers
+    hass.http.register_view(CardFileView(card_path))
 
     # Register as Lovelace resource (storage mode only)
     # In YAML mode, users must manually add the resource
