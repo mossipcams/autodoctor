@@ -27,9 +27,11 @@ jobs:
         run: |
           BASE_VERSION=$(jq -r '.version' custom_components/autodoctor/manifest.json)
 
-          # Count existing beta tags for this base version
-          BETA_COUNT=$(git tag --list "v${BASE_VERSION}-beta.*" | wc -l | tr -d ' ')
-          NEXT_BETA=$((BETA_COUNT + 1))
+          # Find the highest existing beta number for this base version
+          LAST_BETA=$(git tag --list "v${BASE_VERSION}-beta.*" \
+            | grep -oP '(?<=beta\.)\d+$' \
+            | sort -n | tail -1)
+          NEXT_BETA=$(( ${LAST_BETA:-0} + 1 ))
 
           BETA_VERSION="${BASE_VERSION}-beta.${NEXT_BETA}"
           echo "version=${BETA_VERSION}" >> "$GITHUB_OUTPUT"

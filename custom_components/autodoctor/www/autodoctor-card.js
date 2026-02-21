@@ -1909,7 +1909,7 @@ AutodocSuppressions = __decorate([
 ], AutodocSuppressions);
 
 var AutodoctorCard_1;
-const CARD_VERSION = "2.30.0-beta.2";
+const CARD_VERSION = "2.31.0";
 console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
 let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
     constructor() {
@@ -2265,6 +2265,7 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
                 automation_id: issue.automation_id,
                 issue_type: issue.issue_type || "unknown",
             });
+            await this._fetchValidation();
             this._showToast("Alert dismissed - threshold adapted");
         }
         catch (err) {
