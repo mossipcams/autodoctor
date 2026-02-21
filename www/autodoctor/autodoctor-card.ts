@@ -459,6 +459,7 @@ export class AutodoctorCard extends LitElement {
         automation_id: issue.automation_id,
         issue_type: issue.issue_type || "unknown",
       });
+      await this._fetchValidation();
       this._showToast("Alert dismissed - threshold adapted");
     } catch (err) {
       console.error("Failed to dismiss runtime issue:", err);

@@ -2265,6 +2265,7 @@ let AutodoctorCard = AutodoctorCard_1 = class AutodoctorCard extends i {
                 automation_id: issue.automation_id,
                 issue_type: issue.issue_type || "unknown",
             });
+            await this._fetchValidation();
             this._showToast("Alert dismissed - threshold adapted");
         }
         catch (err) {
