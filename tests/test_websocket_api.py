@@ -1558,6 +1558,56 @@ async def test_websocket_dismiss_error_when_no_monitor(
 
 
 @pytest.mark.asyncio
+async def test_websocket_dismiss_removes_issue_from_groups_raw(
+    hass: HomeAssistant,
+) -> None:
+    """Dismiss should also remove the issue from validation_groups_raw buckets."""
+    runtime_monitor = MagicMock()
+    reporter = MagicMock()
+    reporter.async_report_issues = AsyncMock()
+
+    overactive_issue = make_issue(
+        IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+        Severity.WARNING,
+        automation_id="automation.garage",
+        entity_id="automation.garage",
+    )
+    other_issue = make_issue(
+        IssueType.ENTITY_NOT_FOUND,
+        Severity.WARNING,
+        automation_id="automation.lights",
+        entity_id="light.kitchen",
+    )
+
+    hass.data[DOMAIN] = {
+        "runtime_monitor": runtime_monitor,
+        "reporter": reporter,
+        "suppression_store": None,
+        "validation_issues_raw": [overactive_issue, other_issue],
+        "validation_issues": [overactive_issue, other_issue],
+        "issues": [overactive_issue, other_issue],
+        "validation_groups_raw": {
+            "runtime": {"issues": [overactive_issue], "duration_ms": 10},
+            "entity_state": {"issues": [other_issue], "duration_ms": 20},
+        },
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/dismiss",
+        "automation_id": "automation.garage",
+        "issue_type": "runtime_automation_overactive",
+    }
+
+    await invoke_command(websocket_dismiss, hass, connection, msg)
+
+    groups_raw = hass.data[DOMAIN]["validation_groups_raw"]
+    assert overactive_issue not in groups_raw["runtime"]["issues"]
+    assert other_issue in groups_raw["entity_state"]["issues"]
+
+
+@pytest.mark.asyncio
 async def test_websocket_fix_preview_returns_proposed_change(
     hass: HomeAssistant,
 ) -> None:

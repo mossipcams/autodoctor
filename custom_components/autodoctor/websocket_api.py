@@ -1439,6 +1439,21 @@ async def websocket_dismiss(
             and i.issue_type.value == issue_type_val
         )
     ]
+
+    # Remove from validation_groups_raw so /validation/steps reflects the change
+    groups_raw = data.get("validation_groups_raw")
+    if groups_raw is not None:
+        for bucket in groups_raw.values():
+            bucket["issues"] = [
+                i
+                for i in bucket.get("issues", [])
+                if not (
+                    i.automation_id == automation_id
+                    and i.issue_type is not None
+                    and i.issue_type.value == issue_type_val
+                )
+            ]
+
     await _async_reconcile_visible_issues(hass)
 
     connection.send_result(msg["id"], {"success": True})
