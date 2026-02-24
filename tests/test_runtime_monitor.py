@@ -2016,6 +2016,115 @@ def test_score_threshold_for_applies_adaptation_multiplier() -> None:
 
 
 @pytest.mark.asyncio
+async def test_validate_automations_skips_overactive_when_baseline_coverage_is_partial(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive alerts should be gated until baseline history coverage is mature."""
+    now = datetime(2026, 2, 24, 12, 0, tzinfo=UTC)
+    # 35 days of real history with baseline_days=90 should be treated as not mature.
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 37)]
+    history = {"runtime_test": baseline}
+
+    mock_store = MagicMock()
+    mock_store.get_metadata.return_value = (now - timedelta(days=35)).isoformat()
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=8.0,
+        baseline_days=90,
+        warmup_samples=3,
+        min_expected_events=0,
+        runtime_event_store=mock_store,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+    assert monitor.get_last_run_stats()["insufficient_coverage"] == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_uses_observation_age_for_coverage_maturity(
+    hass: HomeAssistant,
+) -> None:
+    """Observed no-fire days should count toward maturity via event-store observation age."""
+    now = datetime(2026, 2, 24, 12, 0, tzinfo=UTC)
+    # Sparse triggers: oldest trigger only 20 days old.
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 21)]
+    history = {"runtime_test": baseline}
+    mock_store = MagicMock()
+    mock_store.get_metadata.return_value = (now - timedelta(days=120)).isoformat()
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=8.0,
+        baseline_days=90,
+        warmup_samples=3,
+        min_expected_events=0,
+        runtime_event_store=mock_store,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_clamps_baseline_to_observation_start_for_training(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Training rows should be based on observed coverage, not pre-observation padding."""
+    now = datetime(2026, 2, 24, 12, 0, tzinfo=UTC)
+    observation_start = now - timedelta(days=20)
+    # 19 baseline events (one/day) inside observed window, plus one recent event.
+    baseline_events = [
+        observation_start + timedelta(days=idx, hours=1) for idx in range(19)
+    ]
+    recent_event = now - timedelta(hours=2)
+    history = {"runtime_test": baseline_events + [recent_event]}
+    mock_store = MagicMock()
+    mock_store.get_metadata.return_value = observation_start.isoformat()
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=5.0,
+        baseline_days=20,
+        warmup_samples=3,
+        min_expected_events=0,
+        runtime_event_store=mock_store,
+    )
+
+    with caplog.at_level(
+        logging.DEBUG, logger="custom_components.autodoctor.runtime_monitor"
+    ):
+        issues = await monitor.validate_automations(
+            [_automation("runtime_test", "Hallway Lights")]
+        )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert "scoring with 12 training rows" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_validate_automations_emits_overactive_when_score_exceeds_threshold(
     hass: HomeAssistant,
 ) -> None:

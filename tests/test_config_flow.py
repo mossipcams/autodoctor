@@ -5,6 +5,8 @@ without loading the full integration, since the integration has heavy HA
 dependencies (recorder, frontend, etc.) that aren't available in the test env.
 """
 
+import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -322,6 +324,34 @@ async def test_options_flow_saves_user_facing_runtime_fields(
 def test_config_flow_version_is_4() -> None:
     """Config flow version must be 4 after internal tuning knob removal."""
     assert ConfigFlow.VERSION == 4
+
+
+def test_runtime_baseline_description_refers_to_runtime_event_store() -> None:
+    """Runtime baseline option copy should reflect event-store backed behavior."""
+    repo_root = Path(__file__).resolve().parents[1]
+    strings_path = repo_root / "custom_components" / "autodoctor" / "strings.json"
+    translations_path = (
+        repo_root
+        / "custom_components"
+        / "autodoctor"
+        / "translations"
+        / "en.json"
+    )
+
+    strings = json.loads(strings_path.read_text())
+    translations = json.loads(translations_path.read_text())
+
+    strings_desc = strings["options"]["step"]["init"]["data_description"][
+        "runtime_health_baseline_days"
+    ]
+    translations_desc = translations["options"]["step"]["init"]["data_description"][
+        "runtime_health_baseline_days"
+    ]
+
+    assert "runtime event store" in strings_desc.lower()
+    assert "runtime event store" in translations_desc.lower()
+    assert "recorder history" not in strings_desc.lower()
+    assert "recorder history" not in translations_desc.lower()
 
 
 @pytest.mark.asyncio
