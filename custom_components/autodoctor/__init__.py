@@ -246,6 +246,35 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 
             if current_exists:
                 _LOGGER.debug("Autodoctor card already registered with current version")
+                # Keep one current-version entry and remove stale/duplicate entries.
+                primary_current_id = next(
+                    (
+                        cast(str, resource.get("id"))
+                        for resource in existing
+                        if resource.get("url") == card_url and resource.get("id")
+                    ),
+                    None,
+                )
+                for resource in existing:
+                    resource_id: str | None = resource.get("id")
+                    if not resource_id:
+                        continue
+
+                    is_current = resource.get("url") == card_url
+                    if is_current and resource_id == primary_current_id:
+                        continue
+                    if is_current and primary_current_id is None:
+                        primary_current_id = resource_id
+                        continue
+
+                    try:
+                        await resources.async_delete_item(resource_id)
+                        _LOGGER.debug(
+                            "Removed duplicate autodoctor card resource: %s",
+                            resource.get("url"),
+                        )
+                    except Exception as err:
+                        _LOGGER.warning("Failed to remove duplicate resource: %s", err)
             elif existing:
                 # Update first existing resource in place (atomic — avoids
                 # losing the resource if delete succeeds but create fails)

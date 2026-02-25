@@ -945,6 +945,76 @@ async def test_register_card_current_version_already_registered() -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_card_prerelease_removes_older_duplicates() -> None:
+    """When current prerelease exists, stale prerelease duplicates are removed."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+
+    hass = MagicMock()
+
+    prerelease_version = "2.31.0-beta.2"
+    current_url = f"{CARD_URL_BASE}?v={prerelease_version}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": f"{CARD_URL_BASE}?v=2.31.0-beta.1", "id": "old_beta"},
+        {"url": current_url, "id": "current_beta"},
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("custom_components.autodoctor.VERSION", prerelease_version),
+    ):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_delete_item.assert_called_once_with("old_beta")
+
+
+@pytest.mark.asyncio
+async def test_register_card_prerelease_keeps_single_current_resource() -> None:
+    """When multiple current prerelease resources exist, keep only one."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+
+    hass = MagicMock()
+
+    prerelease_version = "2.31.0-beta.2"
+    current_url = f"{CARD_URL_BASE}?v={prerelease_version}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": current_url, "id": "current_a"},
+        {"url": current_url, "id": "current_b"},
+        {"url": f"{CARD_URL_BASE}?v=2.31.0-beta.1", "id": "old_beta"},
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("custom_components.autodoctor.VERSION", prerelease_version),
+    ):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
+    deleted_ids = {call.args[0] for call in mock_resources.async_delete_item.call_args_list}
+    assert deleted_ids == {"current_b", "old_beta"}
+
+
+@pytest.mark.asyncio
 async def test_register_card_replaces_old_version() -> None:
     """Test that old card versions are updated in place on upgrade.
 
