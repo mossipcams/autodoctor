@@ -2095,7 +2095,7 @@ async def test_validate_automations_clamps_baseline_to_observation_start_for_tra
         observation_start + timedelta(days=idx, hours=1) for idx in range(19)
     ]
     recent_event = now - timedelta(hours=2)
-    history = {"runtime_test": baseline_events + [recent_event]}
+    history = {"runtime_test": [*baseline_events, recent_event]}
     mock_store = MagicMock()
     mock_store.get_metadata.return_value = observation_start.isoformat()
 
