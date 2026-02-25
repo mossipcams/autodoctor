@@ -1,5 +1,4 @@
 import { LitElement, html, CSSResultGroup, TemplateResult, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
 import {
@@ -27,21 +26,35 @@ console.info(
   "color: #3498db; background: white; font-weight: bold;"
 );
 
-@customElement("autodoctor-card")
 export class AutodoctorCard extends LitElement {
-  @property({ attribute: false }) public hass!: HomeAssistant;
-  @property({ attribute: false }) public config!: AutodoctorCardConfig;
+  static properties = {
+    hass: { attribute: false },
+    config: { attribute: false },
+    _loading: { state: true },
+    _error: { state: true },
+    _validationData: { state: true },
+    _runningValidation: { state: true },
+    _dismissedSuggestions: { state: true },
+    _view: { state: true },
+    _toastMessage: { state: true },
+    _toastVisible: { state: true },
+    _cooldownUntil: { state: true },
+    _canUndoLastFix: { state: true },
+  };
 
-  @state() private _loading = true;
-  @state() private _error: string | null = null;
-  @state() private _validationData: StepsResponse | null = null;
-  @state() private _runningValidation = false;
-  @state() private _dismissedSuggestions = new Set<string>();
-  @state() private _view: "issues" | "suppressions" = "issues";
-  @state() private _toastMessage = "";
-  @state() private _toastVisible = false;
-  @state() private _cooldownUntil = 0;
-  @state() private _canUndoLastFix = false;
+  public hass!: HomeAssistant;
+  public config!: AutodoctorCardConfig;
+
+  private _loading = true;
+  private _error: string | null = null;
+  private _validationData: StepsResponse | null = null;
+  private _runningValidation = false;
+  private _dismissedSuggestions = new Set<string>();
+  private _view: "issues" | "suppressions" = "issues";
+  private _toastMessage = "";
+  private _toastVisible = false;
+  private _cooldownUntil = 0;
+  private _canUndoLastFix = false;
 
   // Request tracking to prevent race conditions
   private _validationRequestId = 0;
@@ -610,6 +623,10 @@ export class AutodoctorCard extends LitElement {
       rows: "auto",
     };
   }
+}
+
+if (!customElements.get("autodoctor-card")) {
+  customElements.define("autodoctor-card", AutodoctorCard);
 }
 
 declare global {
