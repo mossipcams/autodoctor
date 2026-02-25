@@ -1010,7 +1010,9 @@ async def test_register_card_prerelease_keeps_single_current_resource() -> None:
 
     mock_resources.async_update_item.assert_not_called()
     mock_resources.async_create_item.assert_not_called()
-    deleted_ids = {call.args[0] for call in mock_resources.async_delete_item.call_args_list}
+    deleted_ids = {
+        call.args[0] for call in mock_resources.async_delete_item.call_args_list
+    }
     assert deleted_ids == {"current_b", "old_beta"}
 
 
