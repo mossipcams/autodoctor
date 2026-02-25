@@ -1017,6 +1017,69 @@ async def test_register_card_prerelease_keeps_single_current_resource() -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_card_does_not_delete_non_card_autodoctor_resource() -> None:
+    """Only the card resource path should be considered for duplicate cleanup."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+    from custom_components.autodoctor.const import VERSION
+
+    hass = MagicMock()
+
+    card_url = f"{CARD_URL_BASE}?v={VERSION}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": card_url, "id": "current_card"},
+        {"url": "/local/autodoctor-helper.js?v=1", "id": "helper_asset"},
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_card_ignores_non_card_autodoctor_like_path() -> None:
+    """Non-card URLs containing 'autodoctor' must not be updated in place."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+    from custom_components.autodoctor.const import VERSION
+
+    hass = MagicMock()
+
+    card_url = f"{CARD_URL_BASE}?v={VERSION}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": "/hacsfiles/autodoctor/autodoctor-card.js?v=0.0.1", "id": "hacs_card"}
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_called_once_with(
+        {"url": card_url, "res_type": "module"}
+    )
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_register_card_replaces_old_version() -> None:
     """Test that old card versions are updated in place on upgrade.
 

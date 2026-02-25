@@ -11,6 +11,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import voluptuous as vol
 from aiohttp import web
@@ -234,11 +235,18 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             or (lovelace.get("resources") if isinstance(lovelace, dict) else None),
         )
         if resources:
+            def _is_card_resource(resource: dict[str, Any]) -> bool:
+                """Match only the real Autodoctor card resource path."""
+                url = resource.get("url")
+                if not isinstance(url, str):
+                    return False
+                return urlsplit(url).path == CARD_URL_BASE
+
             # Find all existing autodoctor resources
             # Note: lovelace.mode/resources use attribute access (HA 2026+)
             # but resource items from async_items() are dicts
             existing: list[dict[str, Any]] = [
-                r for r in resources.async_items() if "autodoctor" in r.get("url", "")
+                r for r in resources.async_items() if _is_card_resource(r)
             ]
 
             # Check if current version already registered
