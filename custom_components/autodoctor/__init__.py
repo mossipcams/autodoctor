@@ -235,6 +235,7 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             or (lovelace.get("resources") if isinstance(lovelace, dict) else None),
         )
         if resources:
+
             def _is_card_resource(resource: dict[str, Any]) -> bool:
                 """Match only the real Autodoctor card resource path."""
                 url = resource.get("url")
