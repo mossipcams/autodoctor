@@ -156,7 +156,10 @@ class RuntimeHealthMonitor:
             )
         if self._runtime_event_store is not None:
             try:
-                if self._runtime_event_store.get_metadata(_EVENT_STORE_OBS_START_KEY) is None:
+                if (
+                    self._runtime_event_store.get_metadata(_EVENT_STORE_OBS_START_KEY)
+                    is None
+                ):
                     self._runtime_event_store.set_metadata(
                         _EVENT_STORE_OBS_START_KEY, self._started_at.isoformat()
                     )
@@ -847,9 +850,8 @@ class RuntimeHealthMonitor:
             observed_coverage_days = self._observed_coverage_days(
                 now=now,
             )
-            if (
-                observed_coverage_days is not None
-                and observed_coverage_days < float(self.baseline_days)
+            if observed_coverage_days is not None and observed_coverage_days < float(
+                self.baseline_days
             ):
                 _LOGGER.debug(
                     "Automation '%s': skipped (insufficient coverage: %.1f days < %d required)",

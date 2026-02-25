@@ -331,11 +331,7 @@ def test_runtime_baseline_description_refers_to_runtime_event_store() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     strings_path = repo_root / "custom_components" / "autodoctor" / "strings.json"
     translations_path = (
-        repo_root
-        / "custom_components"
-        / "autodoctor"
-        / "translations"
-        / "en.json"
+        repo_root / "custom_components" / "autodoctor" / "translations" / "en.json"
     )
 
     strings = json.loads(strings_path.read_text())
