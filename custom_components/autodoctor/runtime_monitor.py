@@ -77,6 +77,7 @@ class RuntimeHealthMonitor:
         hass: HomeAssistant,
         *,
         baseline_days: int = 30,
+        min_coverage_days: int | None = None,
         hour_ratio_days: int = 30,
         warmup_samples: int = 14,
         min_expected_events: int = 1,
@@ -97,6 +98,10 @@ class RuntimeHealthMonitor:
     ) -> None:
         self.hass = hass
         self.baseline_days = baseline_days
+        self.min_coverage_days = max(
+            1,
+            int(min_coverage_days if min_coverage_days is not None else baseline_days),
+        )
         self.hour_ratio_days = max(1, hour_ratio_days)
         self.warmup_samples = warmup_samples
         self.min_expected_events = min_expected_events
@@ -851,13 +856,13 @@ class RuntimeHealthMonitor:
                 now=now,
             )
             if observed_coverage_days is not None and observed_coverage_days < float(
-                self.baseline_days
+                self.min_coverage_days
             ):
                 _LOGGER.debug(
                     "Automation '%s': skipped (insufficient coverage: %.1f days < %d required)",
                     automation_name,
                     observed_coverage_days,
-                    self.baseline_days,
+                    self.min_coverage_days,
                 )
                 stats["insufficient_coverage"] += 1
                 continue

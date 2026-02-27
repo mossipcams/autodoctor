@@ -2071,6 +2071,8 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     entry.options = {
         "validate_on_reload": False,
         "runtime_health_enabled": True,
+        "runtime_health_baseline_days": 30,
+        "runtime_health_min_coverage_days": 14,
         "runtime_health_sensitivity": "high",
         "runtime_health_max_alerts_per_day": 8,
     }
@@ -2103,6 +2105,8 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert "runtime_monitor" in hass.data[DOMAIN]
     assert hass.data[DOMAIN]["runtime_monitor"] is mock_runtime_cls.return_value
     assert hass.data[DOMAIN]["runtime_health_enabled"] is True
+    assert mock_runtime_cls.call_args.kwargs["baseline_days"] == 30
+    assert mock_runtime_cls.call_args.kwargs["min_coverage_days"] == 14
     assert mock_runtime_cls.call_args.kwargs["sensitivity"] == "high"
     assert mock_runtime_cls.call_args.kwargs["max_alerts_per_day"] == 8
     # Event store init must happen asynchronously after construction

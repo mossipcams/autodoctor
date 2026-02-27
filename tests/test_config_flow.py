@@ -22,6 +22,7 @@ from custom_components.autodoctor.const import (
     CONF_RUNTIME_HEALTH_BASELINE_DAYS,
     CONF_RUNTIME_HEALTH_ENABLED,
     CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY,
+    CONF_RUNTIME_HEALTH_MIN_COVERAGE_DAYS,
     CONF_RUNTIME_HEALTH_SENSITIVITY,
     CONF_STRICT_SERVICE_VALIDATION,
     CONF_STRICT_TEMPLATE_VALIDATION,
@@ -149,6 +150,7 @@ async def test_options_step_init_saves_input(hass: HomeAssistant) -> None:
         CONF_STRICT_SERVICE_VALIDATION: True,
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
+        CONF_RUNTIME_HEALTH_MIN_COVERAGE_DAYS: 21,
     }
 
     result = await handler.async_step_init(user_input=user_input)
@@ -187,6 +189,35 @@ async def test_options_step_init_rejects_baseline_too_short_for_training_rows(
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "init"
     assert result["errors"]["base"] == "baseline_too_short_for_training"
+
+
+async def test_options_step_init_rejects_min_coverage_exceeding_baseline(
+    hass: HomeAssistant,
+) -> None:
+    """Minimum coverage days cannot exceed baseline days."""
+    mock_entry = MagicMock()
+    mock_entry.options = {}
+
+    handler = OptionsFlowHandler()
+    handler.hass = hass
+    handler.flow_id = "test_options"
+
+    user_input: dict[str, Any] = {
+        CONF_RUNTIME_HEALTH_ENABLED: True,
+        CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
+        CONF_RUNTIME_HEALTH_MIN_COVERAGE_DAYS: 45,
+    }
+
+    with patch.object(
+        type(handler),
+        "config_entry",
+        new_callable=lambda: property(lambda self: mock_entry),
+    ):
+        result = await handler.async_step_init(user_input=user_input)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+    assert result["errors"]["base"] == "min_coverage_exceeds_baseline"
 
 
 def test_options_schema_anomaly_threshold_removed() -> None:
@@ -287,6 +318,7 @@ async def test_options_flow_step_init_shows_form_without_custom_init() -> None:
     assert CONF_PERIODIC_SCAN_INTERVAL_HOURS in schema.schema
     assert CONF_RUNTIME_HEALTH_ENABLED in schema.schema
     assert CONF_RUNTIME_HEALTH_BASELINE_DAYS in schema.schema
+    assert CONF_RUNTIME_HEALTH_MIN_COVERAGE_DAYS in schema.schema
 
 
 def test_options_schema_includes_user_facing_runtime_fields() -> None:
@@ -311,6 +343,7 @@ async def test_options_flow_saves_user_facing_runtime_fields(
         CONF_PERIODIC_SCAN_INTERVAL_HOURS: 4,
         CONF_RUNTIME_HEALTH_ENABLED: True,
         CONF_RUNTIME_HEALTH_BASELINE_DAYS: 30,
+        CONF_RUNTIME_HEALTH_MIN_COVERAGE_DAYS: 14,
         CONF_RUNTIME_HEALTH_SENSITIVITY: "medium",
         CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY: 10,
     }
@@ -319,6 +352,7 @@ async def test_options_flow_saves_user_facing_runtime_fields(
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_RUNTIME_HEALTH_SENSITIVITY] == "medium"
     assert result["data"][CONF_RUNTIME_HEALTH_MAX_ALERTS_PER_DAY] == 10
+    assert result["data"][CONF_RUNTIME_HEALTH_MIN_COVERAGE_DAYS] == 14
 
 
 def test_config_flow_version_is_4() -> None:
@@ -348,6 +382,29 @@ def test_runtime_baseline_description_refers_to_runtime_event_store() -> None:
     assert "runtime event store" in translations_desc.lower()
     assert "recorder history" not in strings_desc.lower()
     assert "recorder history" not in translations_desc.lower()
+
+
+def test_runtime_min_coverage_option_has_copy() -> None:
+    """Runtime minimum coverage option should be present in user-facing copy."""
+    repo_root = Path(__file__).resolve().parents[1]
+    strings = json.loads(
+        (repo_root / "custom_components" / "autodoctor" / "strings.json").read_text()
+    )
+    translations = json.loads(
+        (
+            repo_root / "custom_components" / "autodoctor" / "translations" / "en.json"
+        ).read_text()
+    )
+
+    strings_data = strings["options"]["step"]["init"]["data"]
+    strings_desc = strings["options"]["step"]["init"]["data_description"]
+    translations_data = translations["options"]["step"]["init"]["data"]
+    translations_desc = translations["options"]["step"]["init"]["data_description"]
+
+    assert "runtime_health_min_coverage_days" in strings_data
+    assert "runtime_health_min_coverage_days" in strings_desc
+    assert "runtime_health_min_coverage_days" in translations_data
+    assert "runtime_health_min_coverage_days" in translations_desc
 
 
 @pytest.mark.asyncio

@@ -2125,6 +2125,74 @@ async def test_validate_automations_clamps_baseline_to_observation_start_for_tra
 
 
 @pytest.mark.asyncio
+async def test_validate_automations_allows_scoring_when_min_coverage_is_met(
+    hass: HomeAssistant,
+) -> None:
+    """Coverage gate should use min_coverage_days, not always baseline_days."""
+    now = datetime(2026, 2, 24, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 37)]
+    history = {"runtime_test": baseline}
+    mock_store = MagicMock()
+    mock_store.get_metadata.return_value = (now - timedelta(days=35)).isoformat()
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=8.0,
+        baseline_days=90,
+        min_coverage_days=30,
+        warmup_samples=3,
+        min_expected_events=0,
+        runtime_event_store=mock_store,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert monitor.get_last_run_stats().get("insufficient_coverage", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_skips_when_min_coverage_not_met(
+    hass: HomeAssistant,
+) -> None:
+    """Coverage gate should skip scoring when observed days are below min_coverage_days."""
+    now = datetime(2026, 2, 24, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 37)]
+    history = {"runtime_test": baseline}
+    mock_store = MagicMock()
+    mock_store.get_metadata.return_value = (now - timedelta(days=35)).isoformat()
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=8.0,
+        baseline_days=90,
+        min_coverage_days=60,
+        warmup_samples=3,
+        min_expected_events=0,
+        runtime_event_store=mock_store,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+    assert monitor.get_last_run_stats()["insufficient_coverage"] == 1
+
+
+@pytest.mark.asyncio
 async def test_validate_automations_emits_overactive_when_score_exceeds_threshold(
     hass: HomeAssistant,
 ) -> None:

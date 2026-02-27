@@ -409,6 +409,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         RuntimeHealthMonitor(
             hass,
             baseline_days=rhc.baseline_days,
+            min_coverage_days=rhc.min_coverage_days,
             warmup_samples=DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
             min_expected_events=DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
             hour_ratio_days=DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,
