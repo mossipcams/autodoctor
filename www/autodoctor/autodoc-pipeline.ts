@@ -1,5 +1,4 @@
 import { LitElement, html, CSSResultGroup, TemplateResult, nothing, PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
 import { autodocTokens, pipelineStyles } from "./styles.js";
 import type { ValidationGroup } from "./types.js";
 
@@ -9,16 +8,22 @@ const ACTIVE_DURATION_MS = 300;
 /** Gap between one group resolving and the next group highlighting (ms). */
 const INTER_GROUP_DELAY_MS = 100;
 
-@customElement("autodoc-pipeline")
 export class AutodocPipeline extends LitElement {
-  @property({ attribute: false }) groups: ValidationGroup[] = [];
-  @property({ type: Boolean }) running = false;
+  static properties = {
+    groups: { attribute: false },
+    running: { type: Boolean },
+    _displayStates: { state: true },
+    _showSummary: { state: true },
+  };
+
+  groups: ValidationGroup[] = [];
+  running = false;
 
   /** Per-group display state: "neutral", "active", "pass", "warning", or "fail". */
-  @state() private _displayStates: string[] = [];
+  private _displayStates: string[] = [];
 
   /** Controls summary rollup visibility. */
-  @state() private _showSummary = false;
+  private _showSummary = false;
 
   /** Monotonically increasing ID for abort guard. */
   private _staggerRunId = 0;
@@ -184,6 +189,10 @@ export class AutodocPipeline extends LitElement {
       </div>
     `;
   }
+}
+
+if (!customElements.get("autodoc-pipeline")) {
+  customElements.define("autodoc-pipeline", AutodocPipeline);
 }
 
 declare global {
