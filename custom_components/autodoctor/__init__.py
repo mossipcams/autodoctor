@@ -11,9 +11,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import voluptuous as vol
-from homeassistant.components.http import StaticPathConfig
+from aiohttp import web
+from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
@@ -68,6 +70,24 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 # Frontend card
 CARD_URL_BASE = "/autodoctor/autodoctor-card.js"
+
+
+class CardFileView(HomeAssistantView):
+    """Serve the frontend card JS with no-cache headers."""
+
+    url = "/autodoctor/autodoctor-card.js"
+    name = "autodoctor:card"
+    requires_auth = False
+
+    def __init__(self, card_path: Path) -> None:
+        self._card_path = card_path
+
+    async def get(self, request: web.Request) -> web.FileResponse:
+        response = web.FileResponse(path=str(self._card_path))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
 
 # Service schemas
 SERVICE_VALIDATE_SCHEMA = vol.Schema(
@@ -196,14 +216,8 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # Get versioned URL using integration version for cache-busting
     card_url = f"{CARD_URL_BASE}?v={VERSION}"
 
-    # Register static path for the card (base URL without version query string)
-    try:
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(CARD_URL_BASE, str(card_path), cache_headers=False)]
-        )
-    except (ValueError, RuntimeError):
-        # Path already registered from previous setup
-        _LOGGER.debug("Static path %s already registered", CARD_URL_BASE)
+    # Register view for the card with no-cache headers
+    hass.http.register_view(CardFileView(card_path))
 
     # Register as Lovelace resource (storage mode only)
     # In YAML mode, users must manually add the resource
@@ -221,11 +235,19 @@ async def _async_register_card(hass: HomeAssistant) -> None:
             or (lovelace.get("resources") if isinstance(lovelace, dict) else None),
         )
         if resources:
+
+            def _is_card_resource(resource: dict[str, Any]) -> bool:
+                """Match only the real Autodoctor card resource path."""
+                url = resource.get("url")
+                if not isinstance(url, str):
+                    return False
+                return urlsplit(url).path == CARD_URL_BASE
+
             # Find all existing autodoctor resources
             # Note: lovelace.mode/resources use attribute access (HA 2026+)
             # but resource items from async_items() are dicts
             existing: list[dict[str, Any]] = [
-                r for r in resources.async_items() if "autodoctor" in r.get("url", "")
+                r for r in resources.async_items() if _is_card_resource(r)
             ]
 
             # Check if current version already registered
@@ -233,6 +255,35 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 
             if current_exists:
                 _LOGGER.debug("Autodoctor card already registered with current version")
+                # Keep one current-version entry and remove stale/duplicate entries.
+                primary_current_id = next(
+                    (
+                        cast(str, resource.get("id"))
+                        for resource in existing
+                        if resource.get("url") == card_url and resource.get("id")
+                    ),
+                    None,
+                )
+                for resource in existing:
+                    resource_id: str | None = resource.get("id")
+                    if not resource_id:
+                        continue
+
+                    is_current = resource.get("url") == card_url
+                    if is_current and resource_id == primary_current_id:
+                        continue
+                    if is_current and primary_current_id is None:
+                        primary_current_id = resource_id
+                        continue
+
+                    try:
+                        await resources.async_delete_item(resource_id)
+                        _LOGGER.debug(
+                            "Removed duplicate autodoctor card resource: %s",
+                            resource.get("url"),
+                        )
+                    except Exception as err:
+                        _LOGGER.warning("Failed to remove duplicate resource: %s", err)
             elif existing:
                 # Update first existing resource in place (atomic — avoids
                 # losing the resource if delete succeeds but create fails)
@@ -358,6 +409,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         RuntimeHealthMonitor(
             hass,
             baseline_days=rhc.baseline_days,
+            min_coverage_days=rhc.min_coverage_days,
             warmup_samples=DEFAULT_RUNTIME_HEALTH_WARMUP_SAMPLES,
             min_expected_events=DEFAULT_RUNTIME_HEALTH_MIN_EXPECTED_EVENTS,
             hour_ratio_days=DEFAULT_RUNTIME_HEALTH_HOUR_RATIO_DAYS,

@@ -871,8 +871,8 @@ async def test_register_card_path_missing() -> None:
     hass = MagicMock()
     with patch("pathlib.Path.exists", return_value=False):
         await _async_register_card(hass)
-    # http.async_register_static_paths should NOT have been called
-    hass.http.async_register_static_paths.assert_not_called()
+    # http.register_view should NOT have been called
+    hass.http.register_view.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -888,7 +888,6 @@ async def test_register_card_storage_mode_creates_resource() -> None:
     from custom_components.autodoctor import _async_register_card
 
     hass = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock()
 
     # Mock lovelace in storage mode with resources
     mock_resources = MagicMock()
@@ -903,8 +902,8 @@ async def test_register_card_storage_mode_creates_resource() -> None:
     with patch("pathlib.Path.exists", return_value=True):
         await _async_register_card(hass)
 
-    # Should have registered static path and created resource
-    hass.http.async_register_static_paths.assert_called_once()
+    # Should have registered view and created resource
+    hass.http.register_view.assert_called_once()
     mock_resources.async_create_item.assert_called_once()
     call_args = mock_resources.async_create_item.call_args[0][0]
     assert call_args["res_type"] == "module"
@@ -925,7 +924,6 @@ async def test_register_card_current_version_already_registered() -> None:
     from custom_components.autodoctor.const import VERSION
 
     hass = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock()
 
     card_url = f"{CARD_URL_BASE}?v={VERSION}"
     mock_resources = MagicMock()
@@ -947,6 +945,141 @@ async def test_register_card_current_version_already_registered() -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_card_prerelease_removes_older_duplicates() -> None:
+    """When current prerelease exists, stale prerelease duplicates are removed."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+
+    hass = MagicMock()
+
+    prerelease_version = "2.31.0-beta.2"
+    current_url = f"{CARD_URL_BASE}?v={prerelease_version}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": f"{CARD_URL_BASE}?v=2.31.0-beta.1", "id": "old_beta"},
+        {"url": current_url, "id": "current_beta"},
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("custom_components.autodoctor.VERSION", prerelease_version),
+    ):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_delete_item.assert_called_once_with("old_beta")
+
+
+@pytest.mark.asyncio
+async def test_register_card_prerelease_keeps_single_current_resource() -> None:
+    """When multiple current prerelease resources exist, keep only one."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+
+    hass = MagicMock()
+
+    prerelease_version = "2.31.0-beta.2"
+    current_url = f"{CARD_URL_BASE}?v={prerelease_version}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": current_url, "id": "current_a"},
+        {"url": current_url, "id": "current_b"},
+        {"url": f"{CARD_URL_BASE}?v=2.31.0-beta.1", "id": "old_beta"},
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("custom_components.autodoctor.VERSION", prerelease_version),
+    ):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
+    deleted_ids = {
+        call.args[0] for call in mock_resources.async_delete_item.call_args_list
+    }
+    assert deleted_ids == {"current_b", "old_beta"}
+
+
+@pytest.mark.asyncio
+async def test_register_card_does_not_delete_non_card_autodoctor_resource() -> None:
+    """Only the card resource path should be considered for duplicate cleanup."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+    from custom_components.autodoctor.const import VERSION
+
+    hass = MagicMock()
+
+    card_url = f"{CARD_URL_BASE}?v={VERSION}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": card_url, "id": "current_card"},
+        {"url": "/local/autodoctor-helper.js?v=1", "id": "helper_asset"},
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_card_ignores_non_card_autodoctor_like_path() -> None:
+    """Non-card URLs containing 'autodoctor' must not be updated in place."""
+    from custom_components.autodoctor import CARD_URL_BASE, _async_register_card
+    from custom_components.autodoctor.const import VERSION
+
+    hass = MagicMock()
+
+    card_url = f"{CARD_URL_BASE}?v={VERSION}"
+    mock_resources = MagicMock()
+    mock_resources.async_items.return_value = [
+        {"url": "/hacsfiles/autodoctor/autodoctor-card.js?v=0.0.1", "id": "hacs_card"}
+    ]
+    mock_resources.async_update_item = AsyncMock()
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_delete_item = AsyncMock()
+
+    mock_lovelace = MagicMock()
+    mock_lovelace.mode = "storage"
+    mock_lovelace.resources = mock_resources
+    hass.data = {"lovelace": mock_lovelace}
+
+    with patch("pathlib.Path.exists", return_value=True):
+        await _async_register_card(hass)
+
+    mock_resources.async_update_item.assert_not_called()
+    mock_resources.async_create_item.assert_called_once_with(
+        {"url": card_url, "res_type": "module"}
+    )
+    mock_resources.async_delete_item.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_register_card_replaces_old_version() -> None:
     """Test that old card versions are updated in place on upgrade.
 
@@ -960,7 +1093,6 @@ async def test_register_card_replaces_old_version() -> None:
     from custom_components.autodoctor import _async_register_card
 
     hass = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock()
 
     mock_resources = MagicMock()
     mock_resources.async_items.return_value = [
@@ -994,7 +1126,6 @@ async def test_register_card_update_failure_falls_back_to_create() -> None:
     from custom_components.autodoctor import _async_register_card
 
     hass = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock()
 
     mock_resources = MagicMock()
     mock_resources.async_items.return_value = [
@@ -1026,7 +1157,6 @@ async def test_register_card_existing_resource_without_id_creates_new() -> None:
     from custom_components.autodoctor import _async_register_card
 
     hass = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock()
 
     mock_resources = MagicMock()
     mock_resources.async_items.return_value = [
@@ -1066,7 +1196,6 @@ async def test_register_card_yaml_mode_skips_resources() -> None:
     from custom_components.autodoctor import _async_register_card
 
     hass = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock()
 
     mock_lovelace = MagicMock()
     mock_lovelace.mode = "yaml"
@@ -1076,9 +1205,49 @@ async def test_register_card_yaml_mode_skips_resources() -> None:
     with patch("pathlib.Path.exists", return_value=True):
         await _async_register_card(hass)
 
-    # Static path registered, but NO resource operations
-    hass.http.async_register_static_paths.assert_called_once()
+    # View registered, but NO resource operations
+    hass.http.register_view.assert_called_once()
     mock_lovelace.resources.async_items.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_card_view_is_homeassistant_view() -> None:
+    """Test that CardFileView is a HomeAssistantView subclass.
+
+    HomeAssistantView provides CORS middleware and standard HA route
+    registration via register_view().
+    """
+    from homeassistant.components.http import HomeAssistantView
+
+    from custom_components.autodoctor import CardFileView
+
+    assert issubclass(CardFileView, HomeAssistantView)
+    assert CardFileView.requires_auth is False
+    assert CardFileView.url == "/autodoctor/autodoctor-card.js"
+    assert CardFileView.name == "autodoctor:card"
+
+
+@pytest.mark.asyncio
+async def test_card_view_sets_no_store_headers() -> None:
+    """Test that CardFileView sets Cache-Control: no-store on responses.
+
+    YAML-mode users hardcode the card URL without version params, so the
+    view must set no-store to prevent browsers from caching stale JS.
+    """
+    from custom_components.autodoctor import CardFileView
+
+    card_path = "/fake/path/autodoctor-card.js"
+    view = CardFileView(card_path)
+
+    request = MagicMock()
+    with patch("aiohttp.web.FileResponse") as mock_file_response:
+        mock_response = MagicMock()
+        mock_response.headers = {}
+        mock_file_response.return_value = mock_response
+        response = await view.get(request)
+
+    assert response.headers["Cache-Control"] == "no-store, no-cache, must-revalidate"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 # --- async_unload_entry tests (mutation hardening) ---
@@ -1902,6 +2071,8 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     entry.options = {
         "validate_on_reload": False,
         "runtime_health_enabled": True,
+        "runtime_health_baseline_days": 30,
+        "runtime_health_min_coverage_days": 14,
         "runtime_health_sensitivity": "high",
         "runtime_health_max_alerts_per_day": 8,
     }
@@ -1934,6 +2105,8 @@ async def test_async_setup_entry_runtime_monitor_enabled() -> None:
     assert "runtime_monitor" in hass.data[DOMAIN]
     assert hass.data[DOMAIN]["runtime_monitor"] is mock_runtime_cls.return_value
     assert hass.data[DOMAIN]["runtime_health_enabled"] is True
+    assert mock_runtime_cls.call_args.kwargs["baseline_days"] == 30
+    assert mock_runtime_cls.call_args.kwargs["min_coverage_days"] == 14
     assert mock_runtime_cls.call_args.kwargs["sensitivity"] == "high"
     assert mock_runtime_cls.call_args.kwargs["max_alerts_per_day"] == 8
     # Event store init must happen asynchronously after construction
@@ -2113,20 +2286,17 @@ async def test_validate_all_with_groups_logs_visibility_when_all_suppressed(
 
 @pytest.mark.asyncio
 async def test_register_card_exceptions() -> None:
-    """Test card registration exception handling."""
+    """Test card registration calls register_view."""
     from custom_components.autodoctor import _async_register_card
 
     hass = MagicMock()
     hass.http = MagicMock()
-    hass.http.async_register_static_paths = AsyncMock(
-        side_effect=ValueError("Already registered")
-    )
     hass.data = {}
 
     with patch("pathlib.Path.exists", return_value=True):
         await _async_register_card(hass)
 
-    hass.http.async_register_static_paths.assert_called_once()
+    hass.http.register_view.assert_called_once()
 
 
 @pytest.mark.asyncio

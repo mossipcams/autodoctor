@@ -1425,4 +1425,35 @@ async def websocket_dismiss(
         return
 
     runtime_monitor.record_issue_dismissed(msg["automation_id"])
+
+    # Remove the dismissed issue from the raw cache and update repairs
+    automation_id = msg["automation_id"]
+    issue_type_val = msg["issue_type"]
+    raw_issues: list[ValidationIssue] = data.get("validation_issues_raw", [])
+    data["validation_issues_raw"] = [
+        i
+        for i in raw_issues
+        if not (
+            i.automation_id == automation_id
+            and i.issue_type is not None
+            and i.issue_type.value == issue_type_val
+        )
+    ]
+
+    # Remove from validation_groups_raw so /validation/steps reflects the change
+    groups_raw = data.get("validation_groups_raw")
+    if groups_raw is not None:
+        for bucket in groups_raw.values():
+            bucket["issues"] = [
+                i
+                for i in bucket.get("issues", [])
+                if not (
+                    i.automation_id == automation_id
+                    and i.issue_type is not None
+                    and i.issue_type.value == issue_type_val
+                )
+            ]
+
+    await _async_reconcile_visible_issues(hass)
+
     connection.send_result(msg["id"], {"success": True})

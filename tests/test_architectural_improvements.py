@@ -715,7 +715,7 @@ def test_websocket_api_has_iter_automation_configs_helper() -> None:
     )
 
 
-def test_runtime_health_config_has_four_fields() -> None:
+def test_runtime_health_config_has_five_fields() -> None:
     """Guard: RuntimeHealthConfig dataclass bundles user-facing runtime health settings."""
     from dataclasses import fields
 
@@ -725,6 +725,7 @@ def test_runtime_health_config_has_four_fields() -> None:
     assert field_names == {
         "enabled",
         "baseline_days",
+        "min_coverage_days",
         "sensitivity",
         "max_alerts_per_day",
     }
