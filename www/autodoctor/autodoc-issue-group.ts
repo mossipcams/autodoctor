@@ -1,5 +1,4 @@
 import { LitElement, html, CSSResultGroup, TemplateResult, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
 
 import { autodocTokens, issueGroupStyles } from "./styles.js";
 import {
@@ -16,10 +15,14 @@ import {
  *
  * Data flows DOWN via properties; actions flow UP via CustomEvents.
  */
-@customElement("autodoc-issue-group")
 export class AutodocIssueGroup extends LitElement {
-  @property({ attribute: false }) group!: AutomationGroup;
-  @property({ attribute: false }) dismissedKeys: Set<string> = new Set();
+  static properties = {
+    group: { attribute: false },
+    dismissedKeys: { attribute: false },
+  };
+
+  group!: AutomationGroup;
+  dismissedKeys: Set<string> = new Set();
 
   static styles: CSSResultGroup = [autodocTokens, issueGroupStyles];
 
@@ -231,6 +234,10 @@ export class AutodocIssueGroup extends LitElement {
       })
     );
   }
+}
+
+if (!customElements.get("autodoc-issue-group")) {
+  customElements.define("autodoc-issue-group", AutodocIssueGroup);
 }
 
 function confidenceAtLeast(actual: number, min: number): boolean {

@@ -59,6 +59,7 @@ _DEFAULT_MEDIAN_GAP_MINUTES = 60.0
 _MIN_MEDIAN_GAP_MINUTES = 1.0
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
+_EVENT_STORE_OBS_START_KEY = "observation:start_at"
 
 # BOCPD anomaly score sensitivity thresholds
 _SENSITIVITY_THRESHOLDS: dict[str, float] = {
@@ -76,6 +77,7 @@ class RuntimeHealthMonitor:
         hass: HomeAssistant,
         *,
         baseline_days: int = 30,
+        min_coverage_days: int | None = None,
         hour_ratio_days: int = 30,
         warmup_samples: int = 14,
         min_expected_events: int = 1,
@@ -96,6 +98,10 @@ class RuntimeHealthMonitor:
     ) -> None:
         self.hass = hass
         self.baseline_days = baseline_days
+        self.min_coverage_days = max(
+            1,
+            int(min_coverage_days if min_coverage_days is not None else baseline_days),
+        )
         self.hour_ratio_days = max(1, hour_ratio_days)
         self.warmup_samples = warmup_samples
         self.min_expected_events = min_expected_events
@@ -153,6 +159,20 @@ class RuntimeHealthMonitor:
                 hass,
                 self._runtime_event_store,
             )
+        if self._runtime_event_store is not None:
+            try:
+                if (
+                    self._runtime_event_store.get_metadata(_EVENT_STORE_OBS_START_KEY)
+                    is None
+                ):
+                    self._runtime_event_store.set_metadata(
+                        _EVENT_STORE_OBS_START_KEY, self._started_at.isoformat()
+                    )
+            except Exception:
+                _LOGGER.debug(
+                    "Failed initializing runtime observation metadata",
+                    exc_info=True,
+                )
         _LOGGER.debug(
             "RuntimeHealthMonitor initialized: baseline_days=%d, warmup_samples=%d, "
             "min_expected_events=%d, hour_ratio_days=%d, detector=%s",
@@ -361,9 +381,13 @@ class RuntimeHealthMonitor:
 
         db_path = self._runtime_event_store_db_path
 
+        now = self._now_factory()
+
         def _create_store() -> RuntimeEventStore:
             store = RuntimeEventStore(db_path)
             store.ensure_schema(target_version=1)
+            if store.get_metadata(_EVENT_STORE_OBS_START_KEY) is None:
+                store.set_metadata(_EVENT_STORE_OBS_START_KEY, now.isoformat())
             return store
 
         try:
@@ -733,6 +757,7 @@ class RuntimeHealthMonitor:
 
         recent_start = now - timedelta(hours=_RECENT_WINDOW_HOURS)
         baseline_start = recent_start - timedelta(days=self.baseline_days)
+        observed_start = self._observed_coverage_start()
         automation_ids: list[str] = []
         seen_ids: set[str] = set()
         for automation in automations:
@@ -747,8 +772,11 @@ class RuntimeHealthMonitor:
             self._last_run_stats = dict(stats)
             return []
 
+        effective_baseline_start = baseline_start
+        if observed_start is not None and observed_start > baseline_start:
+            effective_baseline_start = observed_start
         baseline_start_by_automation: dict[str, datetime] = dict.fromkeys(
-            automation_ids, baseline_start
+            automation_ids, effective_baseline_start
         )
         history = await self._async_fetch_trigger_history_from_store(
             automation_ids=automation_ids,
@@ -822,6 +850,21 @@ class RuntimeHealthMonitor:
                     self.cold_start_days,
                 )
                 stats["cold_start"] += 1
+                continue
+
+            observed_coverage_days = self._observed_coverage_days(
+                now=now,
+            )
+            if observed_coverage_days is not None and observed_coverage_days < float(
+                self.min_coverage_days
+            ):
+                _LOGGER.debug(
+                    "Automation '%s': skipped (insufficient coverage: %.1f days < %d required)",
+                    automation_name,
+                    observed_coverage_days,
+                    self.min_coverage_days,
+                )
+                stats["insufficient_coverage"] += 1
                 continue
 
             if expected < float(self.min_expected_events):
@@ -1023,6 +1066,31 @@ class RuntimeHealthMonitor:
         if expected_daily < 1.0:
             return min(required, _LOW_FREQUENCY_WARMUP_MINIMUM)
         return required
+
+    def _observed_coverage_days(
+        self,
+        *,
+        now: datetime,
+    ) -> float | None:
+        """Return best-known observed coverage age in days for maturity checks."""
+        parsed = self._observed_coverage_start()
+        if parsed is None:
+            return None
+        return max(0.0, (now - parsed).total_seconds() / 86400)
+
+    def _observed_coverage_start(self) -> datetime | None:
+        """Return persisted event-store observation start timestamp when available."""
+        if self._runtime_event_store is None:
+            return None
+        try:
+            stored_start = self._runtime_event_store.get_metadata(
+                _EVENT_STORE_OBS_START_KEY
+            )
+        except Exception:
+            return None
+        if stored_start is None:
+            return None
+        return self._coerce_datetime(stored_start)
 
     @staticmethod
     def _count_events_in_range(

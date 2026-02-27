@@ -167,6 +167,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=rhc.baseline_days,
                 ): vol.All(vol.Coerce(int), vol.Range(min=7, max=365)),
                 vol.Optional(
+                    "runtime_health_min_coverage_days",
+                    default=rhc.min_coverage_days,
+                ): vol.All(vol.Coerce(int), vol.Range(min=7, max=365)),
+                vol.Optional(
                     "runtime_health_sensitivity",
                     default=rhc.sensitivity,
                 ): vol.In(["low", "medium", "high"]),
@@ -184,6 +188,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             _input_rhc = RuntimeHealthConfig.from_options(user_input)
             baseline_days = _input_rhc.baseline_days
+            min_coverage_days = _input_rhc.min_coverage_days
             runtime_enabled = _input_rhc.enabled
             effective_training_rows = baseline_days - _RUNTIME_HEALTH_COLD_START_DAYS
             if (
@@ -194,6 +199,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     step_id="init",
                     data_schema=self._build_options_schema(user_input),
                     errors={"base": "baseline_too_short_for_training"},
+                )
+            if runtime_enabled and min_coverage_days > baseline_days:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._build_options_schema(user_input),
+                    errors={"base": "min_coverage_exceeds_baseline"},
                 )
             return self.async_create_entry(title="", data=user_input)
 

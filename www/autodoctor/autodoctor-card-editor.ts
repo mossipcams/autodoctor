@@ -1,13 +1,16 @@
 import { LitElement, html, css, CSSResultGroup, TemplateResult } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 
 import type { AutodoctorCardConfig } from "./types.js";
 
-@customElement("autodoctor-card-editor")
 export class AutodoctorCardEditor extends LitElement {
-  @property({ attribute: false }) public hass!: HomeAssistant;
-  @state() private _config!: AutodoctorCardConfig;
+  static properties = {
+    hass: { attribute: false },
+    _config: { state: true },
+  };
+
+  public hass!: HomeAssistant;
+  private _config!: AutodoctorCardConfig;
 
   public setConfig(config: AutodoctorCardConfig): void {
     this._config = config;
@@ -67,4 +70,8 @@ export class AutodoctorCardEditor extends LitElement {
       }
     `;
   }
+}
+
+if (!customElements.get("autodoctor-card-editor")) {
+  customElements.define("autodoctor-card-editor", AutodoctorCardEditor);
 }

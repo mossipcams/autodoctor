@@ -1,16 +1,22 @@
 import { LitElement, html, css, CSSResultGroup, TemplateResult, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
 import { HomeAssistant } from "custom-card-helpers";
 import { autodocTokens } from "./styles.js";
 import type { SuppressionEntry, SuppressionsResponse } from "./types.js";
 
-@customElement("autodoc-suppressions")
 export class AutodocSuppressions extends LitElement {
-  @property({ attribute: false }) hass!: HomeAssistant;
-  @state() private _suppressions: SuppressionEntry[] = [];
-  @state() private _loading = true;
-  @state() private _error: string | null = null;
-  @state() private _confirmingClearAll = false;
+  static properties = {
+    hass: { attribute: false },
+    _suppressions: { state: true },
+    _loading: { state: true },
+    _error: { state: true },
+    _confirmingClearAll: { state: true },
+  };
+
+  hass!: HomeAssistant;
+  private _suppressions: SuppressionEntry[] = [];
+  private _loading = true;
+  private _error: string | null = null;
+  private _confirmingClearAll = false;
 
   private _confirmTimeout?: ReturnType<typeof setTimeout>;
   private _fetchRequestId = 0;
@@ -337,6 +343,10 @@ export class AutodocSuppressions extends LitElement {
       `,
     ];
   }
+}
+
+if (!customElements.get("autodoc-suppressions")) {
+  customElements.define("autodoc-suppressions", AutodocSuppressions);
 }
 
 declare global {

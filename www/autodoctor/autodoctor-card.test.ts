@@ -178,6 +178,63 @@ describe("AutodoctorCard dismiss runtime issue", () => {
 
     card.remove();
   });
+
+  it("refreshes validation data after successful dismiss", async () => {
+    const card = new AutodoctorCard() as any;
+    card.config = { type: "custom:autodoctor-card" };
+    const callWS = vi.fn().mockImplementation((msg: { type: string }) => {
+      if (msg.type === "autodoctor/dismiss") {
+        return Promise.resolve({ success: true });
+      }
+      return Promise.resolve(makeResponse());
+    });
+    card.hass = { callWS };
+    card._loading = false;
+    card._validationData = {
+      ...makeResponse(),
+      last_run: "2026-02-12T10:00:00+00:00",
+      issues: [
+        {
+          issue: {
+            issue_type: "runtime_automation_overactive",
+            severity: "warning",
+            automation_id: "automation.garage",
+            automation_name: "Garage",
+            entity_id: "automation.garage",
+            location: "",
+            message: "Overactive",
+            suggestion: null,
+            valid_states: [],
+          },
+          fix: null,
+          edit_url: null,
+        },
+      ],
+    };
+
+    document.body.appendChild(card);
+    await card.updateComplete;
+
+    // Clear initial callWS calls so we only track post-dismiss calls
+    callWS.mockClear();
+
+    const issueGroup = card.shadowRoot?.querySelector("autodoc-issue-group");
+    await issueGroup.updateComplete;
+    const dismissBtn = issueGroup.shadowRoot?.querySelector(".dismiss-runtime-btn") as HTMLButtonElement;
+    dismissBtn.click();
+
+    // Wait for the dismiss WS call and any follow-up calls to resolve
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+
+    const stepsCalls = callWS.mock.calls.filter(
+      (call: any[]) => call[0]?.type === "autodoctor/validation/steps"
+    );
+    expect(stepsCalls).toHaveLength(1);
+
+    card.remove();
+  });
 });
 
 describe("AutodoctorCard build parity", () => {
@@ -198,3 +255,4 @@ describe("AutodoctorCard build parity", () => {
     );
   });
 });
+
