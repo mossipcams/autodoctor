@@ -12,7 +12,8 @@
   },
   "options": {
     "error": {
-      "baseline_too_short_for_training": "Runtime baseline days must be larger than the internal cold-start window to produce anomaly training rows."
+      "baseline_too_short_for_training": "Runtime baseline days must be larger than the internal cold-start window to produce anomaly training rows.",
+      "min_coverage_exceeds_baseline": "Minimum runtime coverage days cannot exceed runtime baseline days."
     },
     "step": {
       "init": {
@@ -25,6 +26,7 @@
           "strict_service_validation": "Strict service validation",
           "runtime_health_enabled": "Enable runtime health monitoring (ML)",
           "runtime_health_baseline_days": "Runtime baseline history (days)",
+          "runtime_health_min_coverage_days": "Runtime minimum coverage (days)",
           "runtime_health_sensitivity": "Runtime sensitivity",
           "runtime_health_max_alerts_per_day": "Runtime max alerts/day"
         },
@@ -35,7 +37,8 @@
           "strict_template_validation": "Flag template expressions that reference undefined variables or use risky patterns",
           "strict_service_validation": "Flag service calls with unrecognized target fields or missing required parameters",
           "runtime_health_enabled": "Track automation trigger behavior over time and detect runtime anomalies",
-          "runtime_health_baseline_days": "Days of recorder history used to build runtime behavior baseline",
+          "runtime_health_baseline_days": "Days of runtime event store history used to build runtime behavior baseline",
+          "runtime_health_min_coverage_days": "Minimum observed runtime event-store days required before emitting runtime anomaly alerts",
           "runtime_health_sensitivity": "Sensitivity profile for count anomaly confidence intervals (low, medium, high)",
           "runtime_health_max_alerts_per_day": "Maximum runtime alerts emitted per automation per day"
         }
