@@ -297,6 +297,42 @@ async def test_validate_required_param_skips_when_target_is_non_dict(
     assert type_issues
 
 
+async def test_validate_required_param_still_checks_data_when_target_uninspectable(
+    hass: HomeAssistant,
+) -> None:
+    """Non-dict target should not suppress missing required data fields."""
+    hass.services.async_register("test", "service", _noop_service_handler)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "entity_id": {"required": True, "selector": {"entity": {}}},
+                    "brightness": {"required": True, "selector": {"number": {}}},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={},  # Missing required data field 'brightness'
+        target="{{ target_entity }}",  # Uninspectable target for entity_id
+    )
+
+    issues = validator.validate_service_calls([call])
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
+
+    assert len(missing_issues) == 1
+    assert "brightness" in missing_issues[0].message
+
+
 async def test_validate_skips_required_check_when_templated(
     hass: HomeAssistant,
 ) -> None:
