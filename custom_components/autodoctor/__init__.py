@@ -105,18 +105,11 @@ SERVICE_VALIDATE_AUTOMATION_SCHEMA = vol.Schema(
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 
-def _normalize_automation_entity_id(automation_id: str) -> str:
-    """Normalize automation ids to automation.<id> format."""
-    return (
-        automation_id
-        if automation_id.startswith("automation.")
-        else f"automation.{automation_id}"
-    )
-
-
 def _is_enabled_automation_config(config: dict[str, Any]) -> bool:
     """Return True when an automation config should be included for validation."""
     return config.get("enabled", True) is not False
+
+
 def _build_config_snapshot(configs: list[dict[str, Any]]) -> dict[str, str]:
     """Build a snapshot of automation configs for change detection.
 
