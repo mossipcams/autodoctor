@@ -853,6 +853,55 @@ def test_get_automation_configs_entity_without_raw_config() -> None:
     assert result[0]["id"] == "good"
 
 
+def test_get_automation_configs_skips_disabled_in_entity_component_mode() -> None:
+    """Disabled automations should be excluded from extracted configs."""
+    from custom_components.autodoctor import _get_automation_configs
+
+    enabled_entity = MagicMock()
+    enabled_entity.entity_id = "automation.enabled"
+    enabled_entity.raw_config = {"id": "enabled", "alias": "Enabled", "enabled": True}
+
+    disabled_entity = MagicMock()
+    disabled_entity.entity_id = "automation.disabled"
+    disabled_entity.raw_config = {
+        "id": "disabled",
+        "alias": "Disabled",
+        "enabled": False,
+    }
+
+    component = MagicMock()
+    component.entities = [enabled_entity, disabled_entity]
+
+    hass = MagicMock()
+    hass.data = {"automation": component}
+
+    result = _get_automation_configs(hass)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "enabled"
+    assert result[0]["__entity_id"] == "automation.enabled"
+
+
+def test_get_automation_configs_skips_disabled_in_dict_mode() -> None:
+    """Disabled automations should be excluded in dict-mode extraction too."""
+    from custom_components.autodoctor import _get_automation_configs
+
+    hass = MagicMock()
+    hass.data = {
+        "automation": {
+            "config": [
+                {"id": "enabled", "alias": "Enabled"},
+                {"id": "disabled", "alias": "Disabled", "enabled": False},
+            ]
+        }
+    }
+
+    result = _get_automation_configs(hass)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "enabled"
+
+
 # --- _async_register_card tests (mutation hardening) ---
 
 

@@ -105,6 +105,18 @@ SERVICE_VALIDATE_AUTOMATION_SCHEMA = vol.Schema(
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 
+def _normalize_automation_entity_id(automation_id: str) -> str:
+    """Normalize automation ids to automation.<id> format."""
+    return (
+        automation_id
+        if automation_id.startswith("automation.")
+        else f"automation.{automation_id}"
+    )
+
+
+def _is_enabled_automation_config(config: dict[str, Any]) -> bool:
+    """Return True when an automation config should be included for validation."""
+    return config.get("enabled", True) is not False
 def _build_config_snapshot(configs: list[dict[str, Any]]) -> dict[str, str]:
     """Build a snapshot of automation configs for change detection.
 
@@ -136,8 +148,13 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
 
     # If it's a dict with "config" key (older HA versions or test mocks)
     if isinstance(automation_data, dict):
-        configs = cast(list[dict[str, Any]], automation_data.get("config", []))
-        _LOGGER.debug("Dict mode: found %d configs", len(configs))
+        raw_configs = cast(list[dict[str, Any]], automation_data.get("config", []))
+        configs = [c for c in raw_configs if _is_enabled_automation_config(c)]
+        _LOGGER.debug(
+            "Dict mode: found %d configs (%d disabled skipped)",
+            len(configs),
+            len(raw_configs) - len(configs),
+        )
         return configs
 
     # EntityComponent - get configs from entities
@@ -155,6 +172,8 @@ def _get_automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
             # Automation entities store their config in raw_config attribute
             if hasattr(entity, "raw_config") and entity.raw_config is not None:
                 config = cast(dict[str, Any], dict(entity.raw_config))
+                if not _is_enabled_automation_config(config):
+                    continue
                 entity_id = getattr(entity, "entity_id", None)
                 if isinstance(entity_id, str) and entity_id:
                     config["__entity_id"] = entity_id
