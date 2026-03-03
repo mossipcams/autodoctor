@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from .models import IssueType, Severity, ValidationIssue
 from .template_utils import is_template_value
@@ -27,13 +27,21 @@ class ReachabilityValidator:
         automation_id = f"automation.{automation.get('id', 'unknown')}"
         automation_name = str(automation.get("alias", automation_id))
 
-        triggers_raw = automation.get("triggers") or automation.get("trigger") or []
-        conditions_raw = (
+        triggers_raw: Any = (
+            automation.get("triggers") or automation.get("trigger") or []
+        )
+        conditions_raw: Any = (
             automation.get("conditions") or automation.get("condition") or []
         )
-        triggers = triggers_raw if isinstance(triggers_raw, list) else [triggers_raw]
-        conditions = (
-            conditions_raw if isinstance(conditions_raw, list) else [conditions_raw]
+        triggers: list[Any] = (
+            cast(list[Any], triggers_raw)
+            if isinstance(triggers_raw, list)
+            else [triggers_raw]
+        )
+        conditions: list[Any] = (
+            cast(list[Any], conditions_raw)
+            if isinstance(conditions_raw, list)
+            else [conditions_raw]
         )
 
         issues.extend(
@@ -57,34 +65,36 @@ class ReachabilityValidator:
     ) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         for trig_idx, trigger in enumerate(triggers):
-            if not isinstance(trigger, dict):
+            trigger_dict = self._as_dict(trigger)
+            if trigger_dict is None:
                 continue
-            platform = trigger.get("platform") or trigger.get("trigger")
+            platform: Any = trigger_dict.get("platform") or trigger_dict.get("trigger")
             if platform != "state":
                 continue
 
-            trigger_to = trigger.get("to")
+            trigger_to: Any = trigger_dict.get("to")
             if not isinstance(trigger_to, str) or is_template_value(trigger_to):
                 continue
 
-            trigger_entities = self._normalize_entity_ids(trigger.get("entity_id"))
+            trigger_entities = self._normalize_entity_ids(trigger_dict.get("entity_id"))
             if not trigger_entities:
                 continue
 
             for cond_idx, condition in enumerate(conditions):
-                if not isinstance(condition, dict):
+                condition_dict = self._as_dict(condition)
+                if condition_dict is None:
                     continue
-                cond_type = condition.get("condition")
+                cond_type: Any = condition_dict.get("condition")
                 if cond_type != "state":
                     continue
-                condition_state = condition.get("state")
+                condition_state: Any = condition_dict.get("state")
                 if not isinstance(condition_state, str) or is_template_value(
                     condition_state
                 ):
                     continue
 
                 condition_entities = self._normalize_entity_ids(
-                    condition.get("entity_id")
+                    condition_dict.get("entity_id")
                 )
                 if not condition_entities:
                     continue
@@ -154,26 +164,27 @@ class ReachabilityValidator:
         automation_id: str,
         automation_name: str,
     ) -> ValidationIssue | None:
-        if not isinstance(node, dict):
+        node_dict = self._as_dict(node)
+        if node_dict is None:
             return None
 
         node_type = ""
         for key in node_type_key:
-            val = node.get(key)
+            val: Any = node_dict.get(key)
             if isinstance(val, str) and val:
                 node_type = val
                 break
         if node_type != expected_type:
             return None
 
-        above = self._coerce_number(node.get("above"))
-        below = self._coerce_number(node.get("below"))
+        above = self._coerce_number(node_dict.get("above"))
+        below = self._coerce_number(node_dict.get("below"))
         if above is None or below is None:
             return None
         if below > above:
             return None
 
-        entity_ids = self._normalize_entity_ids(node.get("entity_id"))
+        entity_ids = self._normalize_entity_ids(node_dict.get("entity_id"))
         entity_id = entity_ids[0] if entity_ids else ""
         return ValidationIssue(
             severity=Severity.ERROR,
@@ -192,10 +203,16 @@ class ReachabilityValidator:
         if value is None:
             return []
         if isinstance(value, list):
-            return [v for v in value if isinstance(v, str)]
+            values = cast(list[Any], value)
+            return [v for v in values if isinstance(v, str)]
         if isinstance(value, str):
             return [value]
         return []
+
+    def _as_dict(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        return cast(dict[str, Any], value)
 
     def _coerce_number(self, value: Any) -> float | None:
         if isinstance(value, (int, float)):
