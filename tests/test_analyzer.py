@@ -1632,6 +1632,21 @@ def test_extract_direct_service_call() -> None:
     assert calls[0].is_template is False
 
 
+def test_extract_service_calls_normalizes_automation_id() -> None:
+    """Service call extraction should use automation.<id> format."""
+    automation = {
+        "id": "normalize_id",
+        "alias": "Normalize ID",
+        "action": [{"service": "light.turn_on"}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].automation_id == "automation.normalize_id"
+
+
 def test_extract_templated_service_call() -> None:
     """Test extracting a templated service call."""
     automation = {
@@ -1969,6 +1984,106 @@ def test_extract_service_call_inline_device_and_area_ids() -> None:
     assert device_refs[0].reference_type == "device"
     assert len(area_refs) == 1
     assert area_refs[0].reference_type == "area"
+
+
+def test_extract_service_reference_location_from_choose_branch() -> None:
+    """Service references should preserve full choose branch location."""
+    automation = {
+        "id": "choose_location",
+        "alias": "Choose Location",
+        "action": [
+            {
+                "choose": [
+                    {
+                        "sequence": [
+                            {
+                                "service": "light.turn_on",
+                                "target": {"entity_id": "light.choose_nested"},
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.choose_nested")
+    assert target_ref.location == "action[0].choose[0].sequence[0].service.entity_id"
+
+
+def test_extract_service_reference_location_from_if_branch() -> None:
+    """Service references should preserve full if branch location."""
+    automation = {
+        "id": "if_location",
+        "alias": "If Location",
+        "action": [
+            {
+                "if": [{"condition": "template", "value_template": "{{ true }}"}],
+                "then": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.if_nested"},
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.if_nested")
+    assert target_ref.location == "action[0].then[0].service.entity_id"
+
+
+def test_extract_service_reference_location_from_repeat_sequence() -> None:
+    """Service references should preserve full repeat sequence location."""
+    automation = {
+        "id": "repeat_location",
+        "alias": "Repeat Location",
+        "action": [
+            {
+                "repeat": {
+                    "count": 2,
+                    "sequence": [
+                        {
+                            "service": "light.turn_on",
+                            "target": {"entity_id": "light.repeat_nested"},
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.repeat_nested")
+    assert target_ref.location == "action[0].repeat.sequence[0].service.entity_id"
+
+
+def test_extract_service_reference_location_from_parallel_branch() -> None:
+    """Service references should preserve full parallel branch location."""
+    automation = {
+        "id": "parallel_location",
+        "alias": "Parallel Location",
+        "action": [
+            {
+                "parallel": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.parallel_nested"},
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.parallel_nested")
+    assert target_ref.location == "action[0].parallel[0][0].service.entity_id"
 
 
 def test_extract_service_call_target_entity_id_none_placeholder_kept() -> None:

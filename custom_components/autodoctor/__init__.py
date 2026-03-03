@@ -57,6 +57,7 @@ from .models import (
     IssueType,
     ValidationIssue,
 )
+from .reachability_validator import ReachabilityValidator
 from .reporter import IssueReporter
 from .runtime_monitor import RuntimeHealthMonitor
 from .service_validator import ServiceCallValidator
@@ -103,6 +104,11 @@ SERVICE_VALIDATE_AUTOMATION_SCHEMA = vol.Schema(
 )
 
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
+
+
+def _normalize_automation_entity_id(automation_id: str) -> str:
+    """Normalize automation ids to automation.<id> format."""
+    return automation_id if automation_id.startswith("automation.") else f"automation.{automation_id}"
 
 
 def _build_config_snapshot(configs: list[dict[str, Any]]) -> dict[str, str]:
@@ -404,6 +410,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     service_validator = ServiceCallValidator(
         hass, strict_service_validation=strict_service
     )
+    reachability_validator = ReachabilityValidator()
     rhc = RuntimeHealthConfig.from_options(options)
     runtime_monitor = (
         RuntimeHealthMonitor(
@@ -435,6 +442,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "validator": validator,
         "jinja_validator": jinja_validator,
         "service_validator": service_validator,
+        "reachability_validator": reachability_validator,
         "runtime_monitor": runtime_monitor,
         "runtime_health_enabled": rhc.enabled,
         "reporter": reporter,
@@ -790,6 +798,7 @@ async def _async_run_validators(
     validator = data.get("validator")
     jinja_validator = data.get("jinja_validator")
     service_validator = data.get("service_validator")
+    reachability_validator = data.get("reachability_validator")
 
     # Initialize per-group collectors
     group_issues: dict[str, list[ValidationIssue]] = {
@@ -904,6 +913,29 @@ async def _async_run_validators(
                     exc_info=True,
                 )
                 continue
+
+        if reachability_validator:
+            try:
+                reachability_issues = reachability_validator.validate_automations(
+                    automations
+                )
+                _LOGGER.debug(
+                    "Reachability validation: found %d issues",
+                    len(reachability_issues),
+                )
+                for issue in reachability_issues:
+                    gid = issue_type_to_group.get(issue.issue_type, "entity_state")
+                    group_issues[gid].append(issue)
+            except Exception as err:
+                _LOGGER.warning("Reachability validation failed: %s", err)
+                skip_reasons["entity_state"]["reachability_validation_exception"] = (
+                    skip_reasons["entity_state"].get(
+                        "reachability_validation_exception", 0
+                    )
+                    + 1
+                )
+        else:
+            skip_reasons["entity_state"]["reachability_validator_unavailable"] = 1
     else:
         skip_reasons["entity_state"]["validator_unavailable"] = 1
     group_durations["entity_state"] = round((time.monotonic() - t0) * 1000)
@@ -1125,7 +1157,12 @@ async def async_validate_automation(
     # to prevent reporter from clearing their repair entries. Reporter's
     # _clear_resolved_issues deletes all repairs NOT in the provided list.
     existing_issues: list[ValidationIssue] = data.get("validation_issues", [])
-    other_issues = [i for i in existing_issues if i.automation_id != automation_id]
+    normalized_target_id = _normalize_automation_entity_id(automation_id)
+    other_issues = [
+        i
+        for i in existing_issues
+        if _normalize_automation_entity_id(i.automation_id) != normalized_target_id
+    ]
     merged_issues = other_issues + visible_current_issues
 
     existing_raw_issues: list[ValidationIssue] = data.get(
@@ -1133,7 +1170,9 @@ async def async_validate_automation(
         existing_issues,
     )
     other_raw_issues = [
-        i for i in existing_raw_issues if i.automation_id != automation_id
+        i
+        for i in existing_raw_issues
+        if _normalize_automation_entity_id(i.automation_id) != normalized_target_id
     ]
     merged_raw_issues = other_raw_issues + result["all_issues"]
 

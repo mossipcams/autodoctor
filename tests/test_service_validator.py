@@ -227,6 +227,76 @@ async def test_validate_missing_required_param_in_target(hass: HomeAssistant) ->
     assert len(missing_issues) == 0
 
 
+async def test_validate_required_param_skips_when_target_is_template_string(
+    hass: HomeAssistant,
+) -> None:
+    """Templated non-dict target should not trigger missing-required false positives."""
+    hass.services.async_register("test", "service", _noop_service_handler)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "entity_id": {"required": True, "selector": {"entity": {}}},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={},
+        target="{{ target_entity }}",
+    )
+
+    issues = validator.validate_service_calls([call])
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
+    assert missing_issues == []
+
+
+async def test_validate_required_param_skips_when_target_is_non_dict(
+    hass: HomeAssistant,
+) -> None:
+    """Non-dict target should not create missing-required issues."""
+    hass.services.async_register("test", "service", _noop_service_handler)
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "test": {
+            "service": {
+                "fields": {
+                    "entity_id": {"required": True, "selector": {"entity": {}}},
+                }
+            }
+        }
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="test.service",
+        location="action[0]",
+        data={},
+        target=42,  # type: ignore[arg-type]
+    )
+
+    issues = validator.validate_service_calls([call])
+    missing_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_MISSING_REQUIRED_PARAM
+    ]
+    type_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_INVALID_PARAM_TYPE
+    ]
+    assert missing_issues == []
+    assert type_issues
+
+
 async def test_validate_skips_required_check_when_templated(
     hass: HomeAssistant,
 ) -> None:

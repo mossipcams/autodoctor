@@ -929,6 +929,7 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
+        location: str | None = None,
     ) -> list[StateReference]:
         """Extract entity references from service calls.
 
@@ -937,11 +938,13 @@ class AutomationAnalyzer:
             index: Action index in the automation
             automation_id: Automation entity ID
             automation_name: Automation friendly name
+            location: Full walker action location
 
         Returns:
             List of StateReference objects for entities in service call
         """
         refs: list[StateReference] = []
+        action_location = location or f"action[{index}]"
 
         # Get service name (both 'service' and 'action' keys)
         service = action.get("service") or action.get("action")
@@ -965,7 +968,7 @@ class AutomationAnalyzer:
                     entity_id=service,  # e.g., "script.bedtime_routine"
                     expected_state=None,
                     expected_attribute=None,
-                    location=f"action[{index}].service",
+                    location=f"{action_location}.service",
                     reference_type="script",
                 )
             )
@@ -1038,7 +1041,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         entity_id,
-                        f"action[{index}].data.entity_id",
+                        f"{action_location}.data.entity_id",
                         automation_id,
                         automation_name,
                     )
@@ -1052,7 +1055,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"action[{index}].service.entity_id",
+                        location=f"{action_location}.service.entity_id",
                         reference_type=reference_type,
                     )
                 )
@@ -1062,7 +1065,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         device_id,
-                        f"action[{index}].data.device_id",
+                        f"{action_location}.data.device_id",
                         automation_id,
                         automation_name,
                     )
@@ -1075,7 +1078,7 @@ class AutomationAnalyzer:
                         entity_id=device_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"action[{index}].service.device_id",
+                        location=f"{action_location}.service.device_id",
                         reference_type="device",
                     )
                 )
@@ -1085,7 +1088,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         area_id,
-                        f"action[{index}].data.area_id",
+                        f"{action_location}.data.area_id",
                         automation_id,
                         automation_name,
                     )
@@ -1098,7 +1101,7 @@ class AutomationAnalyzer:
                         entity_id=area_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"action[{index}].service.area_id",
+                        location=f"{action_location}.service.area_id",
                         reference_type="area",
                     )
                 )
@@ -1122,6 +1125,7 @@ class AutomationAnalyzer:
                     idx,
                     automation_id,
                     automation_name,
+                    location,
                 )
             )
             if "wait_template" in action:
@@ -1170,7 +1174,7 @@ class AutomationAnalyzer:
         if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
             actions = [actions]
 
-        automation_id: str = automation.get("id", "unknown")
+        automation_id = f"automation.{automation.get('id', 'unknown')}"
         automation_name: str = automation.get("alias", "Unknown")
 
         self._extract_service_calls_from_actions(

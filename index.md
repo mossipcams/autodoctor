@@ -24,6 +24,7 @@ autodoctor/
 │   ├── models.py                    # Core data structures
 │   ├── bocpd_detector.py            # Pure BOCPD statistical anomaly detector
 │   ├── reporter.py                  # Issue output & repairs
+│   ├── reachability_validator.py    # High-confidence contradiction checks
 │   ├── runtime_event_store.py       # Runtime event/score SQLite storage
 │   ├── runtime_monitor.py           # Runtime health monitoring (uses bocpd_detector)
 │   ├── sensor.py                    # Issue count sensor
@@ -73,7 +74,7 @@ autodoctor/
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 ### Data Models
-- **`models.py`** - Core structures: `Severity`, `IssueType` (17 members), `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
+- **`models.py`** - Core structures: `Severity`, `IssueType` (16 members), `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states
@@ -82,6 +83,7 @@ autodoctor/
 - **`websocket_api.py`** - WebSocket commands for frontend communication
 - **`reporter.py`** - Outputs issues to logs and repair entries
 - **`bocpd_detector.py`** - Pure statistical BOCPD anomaly detector (no HA dependencies)
+- **`reachability_validator.py`** - Conservative static contradiction detection (state/condition and numeric range impossibilities)
 - **`runtime_monitor.py`** - Runtime trigger-behavior anomaly detection using bocpd_detector (opt-in)
 
 ### Sensors
@@ -143,7 +145,7 @@ autodoctor/
 
 ## Validation Families
 
-Autodoctor performs three distinct families of validation:
+Autodoctor performs four distinct families of validation:
 
 ### 1. State Reference Validation (`validator.py`)
 Validates entity states, attributes, attribute values, and registry references in triggers/conditions/actions. **Conservative mode**: state validation only applies to whitelisted domains with stable states (`alarm_control_panel`, `automation`, `binary_sensor`, `calendar`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `humidifier`, `input_boolean`, `input_select`, `lawn_mower`, `light`, `lock`, `media_player`, `person`, `remote`, `schedule`, `script`, `select`, `siren`, `sun`, `switch`, `timer`, `update`, `vacuum`, `valve`, `water_heater`, `weather`) plus enum sensors (device_class: enum with declared options).
@@ -192,7 +194,15 @@ Validates Jinja2 template syntax and filter/test usage. Entity validation is han
 - Recursively walks nested action structures (choose, if/then/else, repeat, parallel) with depth limiting
 - **Removed in v2.14.0**: Entity existence, state validity, attribute existence, and registry reference checks (were a duplicate code path generating false positives)
 
-### 4. Runtime Health Monitoring (`runtime_monitor.py`)
+### 4. Reachability Validation (`reachability_validator.py`)
+Conservative contradiction detection that only flags high-confidence unreachable logic.
+
+| Check | Severity | Description |
+|-------|----------|-------------|
+| State trigger/condition contradiction | ERROR | Trigger `to` state conflicts with same-entity state condition |
+| Numeric range contradiction | ERROR | `numeric_state` defines impossible range (`below <= above`) |
+
+### 5. Runtime Health Monitoring (`runtime_monitor.py`)
 Opt-in anomaly detection for automation trigger behavior using BOCPD (Bayesian Online Changepoint Detection).
 
 | Check | Severity | Description |

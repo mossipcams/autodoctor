@@ -181,6 +181,40 @@ async def test_validate_all_with_groups_classification(grouped_hass: MagicMock) 
 
 
 @pytest.mark.asyncio
+async def test_validate_all_with_groups_includes_reachability_issues(
+    grouped_hass: MagicMock,
+) -> None:
+    """Reachability issues should appear in grouped and flat outputs."""
+    reachability_issue = ValidationIssue(
+        issue_type=IssueType.INVALID_STATE,
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.temp",
+        location="trigger[0]",
+        message="Contradiction",
+    )
+    mock_reachability = MagicMock()
+    mock_reachability.validate_automations.return_value = [reachability_issue]
+    grouped_hass.data[DOMAIN]["reachability_validator"] = mock_reachability
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "test", "alias": "Test"}],
+    ):
+        result = await async_validate_all_with_groups(grouped_hass)
+
+    assert reachability_issue in result["group_issues"]["entity_state"]
+    assert reachability_issue in result["all_issues"]
+
+
+@pytest.mark.asyncio
 async def test_validate_all_with_groups_timing(grouped_hass: MagicMock) -> None:
     """Test that each group has a non-negative duration_ms value.
 
@@ -3030,6 +3064,66 @@ async def test_validate_automation_preserves_other_repairs(
 
     # Verify hass.data also has the preserved issues
     assert len(grouped_hass.data[DOMAIN]["validation_issues"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_validate_automation_replaces_legacy_unprefixed_service_issue_ids(
+    grouped_hass: MagicMock,
+) -> None:
+    """Targeted merge should remove legacy unprefixed IDs for same automation."""
+    legacy_service_issue = ValidationIssue(
+        issue_type=IssueType.SERVICE_NOT_FOUND,
+        severity=Severity.ERROR,
+        automation_id="auto_b",
+        automation_name="Auto B",
+        entity_id="service.light_turn_on",
+        location="action[0]",
+        message="Legacy unprefixed issue",
+    )
+    unrelated_issue = ValidationIssue(
+        issue_type=IssueType.ENTITY_NOT_FOUND,
+        severity=Severity.ERROR,
+        automation_id="automation.auto_a",
+        automation_name="Auto A",
+        entity_id="sensor.a1",
+        location="trigger[0]",
+        message="Other automation issue",
+    )
+    grouped_hass.data[DOMAIN]["validation_issues"] = [legacy_service_issue, unrelated_issue]
+
+    refreshed_service_issue = ValidationIssue(
+        issue_type=IssueType.SERVICE_NOT_FOUND,
+        severity=Severity.ERROR,
+        automation_id="automation.auto_b",
+        automation_name="Auto B",
+        entity_id="service.light_turn_on",
+        location="action[1]",
+        message="Refreshed prefixed issue",
+    )
+
+    with (
+        patch(
+            "custom_components.autodoctor._get_automation_configs",
+            return_value=[{"id": "auto_b", "alias": "Auto B"}],
+        ),
+        patch(
+            "custom_components.autodoctor._async_run_validators",
+            new_callable=AsyncMock,
+        ) as mock_run_validators,
+    ):
+        mock_run_validators.return_value = {
+            "all_issues": [refreshed_service_issue],
+            "group_issues": {"entity_state": [], "templates": [], "services": [refreshed_service_issue]},
+            "group_durations": {"entity_state": 0, "templates": 0, "services": 0},
+            "timestamp": "2026-03-03T00:00:00Z",
+        }
+        await async_validate_automation(grouped_hass, "automation.auto_b")
+
+    merged = grouped_hass.data[DOMAIN]["validation_issues"]
+    assert legacy_service_issue not in merged
+    assert refreshed_service_issue in merged
+    assert unrelated_issue in merged
+    assert len(merged) == 2
 
 
 @pytest.mark.asyncio

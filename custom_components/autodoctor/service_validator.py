@@ -383,10 +383,17 @@ class ServiceCallValidator:
         """Check that all required parameters are provided."""
         issues: list[ValidationIssue] = []
         data = call.data or {}
-        target = call.target or {}
 
         # If data is a template string (not a dict), skip validation entirely
         if not isinstance(data, dict):
+            return issues
+        # Non-dict targets may be dynamic/template payloads; avoid strict required
+        # presence checks against values we cannot safely introspect.
+        if call.target is None:
+            target: dict[str, Any] = {}
+        elif isinstance(call.target, dict):
+            target = call.target
+        else:
             return issues
 
         for field_name, field_schema in fields.items():
