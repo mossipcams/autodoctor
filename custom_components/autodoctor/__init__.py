@@ -108,7 +108,11 @@ SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 def _normalize_automation_entity_id(automation_id: str) -> str:
     """Normalize automation ids to automation.<id> format."""
-    return automation_id if automation_id.startswith("automation.") else f"automation.{automation_id}"
+    return (
+        automation_id
+        if automation_id.startswith("automation.")
+        else f"automation.{automation_id}"
+    )
 
 
 def _build_config_snapshot(configs: list[dict[str, Any]]) -> dict[str, str]:

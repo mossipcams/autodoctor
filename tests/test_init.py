@@ -201,7 +201,9 @@ async def test_validate_all_with_groups_includes_reachability_issues(
     grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
     grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
-    grouped_hass.data[DOMAIN]["service_validator"].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
     grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
 
     with patch(
@@ -3089,7 +3091,10 @@ async def test_validate_automation_replaces_legacy_unprefixed_service_issue_ids(
         location="trigger[0]",
         message="Other automation issue",
     )
-    grouped_hass.data[DOMAIN]["validation_issues"] = [legacy_service_issue, unrelated_issue]
+    grouped_hass.data[DOMAIN]["validation_issues"] = [
+        legacy_service_issue,
+        unrelated_issue,
+    ]
 
     refreshed_service_issue = ValidationIssue(
         issue_type=IssueType.SERVICE_NOT_FOUND,
@@ -3113,7 +3118,11 @@ async def test_validate_automation_replaces_legacy_unprefixed_service_issue_ids(
     ):
         mock_run_validators.return_value = {
             "all_issues": [refreshed_service_issue],
-            "group_issues": {"entity_state": [], "templates": [], "services": [refreshed_service_issue]},
+            "group_issues": {
+                "entity_state": [],
+                "templates": [],
+                "services": [refreshed_service_issue],
+            },
             "group_durations": {"entity_state": 0, "templates": 0, "services": 0},
             "timestamp": "2026-03-03T00:00:00Z",
         }

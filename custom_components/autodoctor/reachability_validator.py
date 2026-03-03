@@ -78,9 +78,8 @@ class ReachabilityValidator:
                 if cond_type != "state":
                     continue
                 condition_state = condition.get("state")
-                if (
-                    not isinstance(condition_state, str)
-                    or is_template_value(condition_state)
+                if not isinstance(condition_state, str) or is_template_value(
+                    condition_state
                 ):
                     continue
 
@@ -91,7 +90,10 @@ class ReachabilityValidator:
                     continue
 
                 for entity_id in trigger_entities:
-                    if entity_id in condition_entities and trigger_to != condition_state:
+                    if (
+                        entity_id in condition_entities
+                        and trigger_to != condition_state
+                    ):
                         issues.append(
                             ValidationIssue(
                                 severity=Severity.ERROR,
