@@ -22,6 +22,7 @@ autodoctor/
 │   ├── jinja_validator.py           # Jinja2 template validation
 │   ├── knowledge_base.py            # Valid state knowledge
 │   ├── models.py                    # Core data structures
+│   ├── reachability_validator.py      # Contradiction/reachability validation
 │   ├── bocpd_detector.py            # Pure BOCPD statistical anomaly detector
 │   ├── reporter.py                  # Issue output & repairs
 │   ├── runtime_event_store.py       # Runtime event/score SQLite storage
@@ -73,7 +74,7 @@ autodoctor/
 - **`device_class_states.py`** - 30+ predefined domain state sets
 - **`domain_attributes.py`** - Domain-specific attribute mappings to prevent false positives
 ### Data Models
-- **`models.py`** - Core structures: `Severity`, `IssueType` (17 members), `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
+- **`models.py`** - Core structures: `Severity`, `IssueType` (18 members), `StateReference`, `ValidationIssue`, `ServiceCall`, `VALIDATION_GROUPS`, `VALIDATION_GROUP_ORDER`
 
 ### Persistence & API
 - **`learned_states_store.py`** - Thread-safe storage of user-learned states

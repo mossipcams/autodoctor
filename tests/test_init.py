@@ -181,6 +181,37 @@ async def test_validate_all_with_groups_classification(grouped_hass: MagicMock) 
 
 
 @pytest.mark.asyncio
+async def test_validate_all_with_groups_includes_reachability_issues(
+    grouped_hass: MagicMock,
+) -> None:
+    """Reachability issues should flow into entity_state group and flat list."""
+    reachability_issue = make_issue(
+        IssueType.UNREACHABLE_STATE_COMBINATION,
+        Severity.ERROR,
+    )
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["reachability_validator"] = MagicMock()
+    grouped_hass.data[DOMAIN][
+        "reachability_validator"
+    ].validate_automations.return_value = [reachability_issue]
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "test", "alias": "Test"}],
+    ):
+        result = await async_validate_all_with_groups(grouped_hass)
+
+    assert reachability_issue in result["group_issues"]["entity_state"]
+    assert reachability_issue in result["all_issues"]
+
+
+@pytest.mark.asyncio
 async def test_validate_all_with_groups_timing(grouped_hass: MagicMock) -> None:
     """Test that each group has a non-negative duration_ms value.
 

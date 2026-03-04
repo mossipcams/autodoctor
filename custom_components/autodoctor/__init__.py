@@ -57,6 +57,7 @@ from .models import (
     IssueType,
     ValidationIssue,
 )
+from .reachability_validator import ReachabilityValidator
 from .reporter import IssueReporter
 from .runtime_monitor import RuntimeHealthMonitor
 from .service_validator import ServiceCallValidator
@@ -416,6 +417,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     service_validator = ServiceCallValidator(
         hass, strict_service_validation=strict_service
     )
+    reachability_validator = ReachabilityValidator()
     rhc = RuntimeHealthConfig.from_options(options)
     runtime_monitor = (
         RuntimeHealthMonitor(
@@ -447,6 +449,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "validator": validator,
         "jinja_validator": jinja_validator,
         "service_validator": service_validator,
+        "reachability_validator": reachability_validator,
         "runtime_monitor": runtime_monitor,
         "runtime_health_enabled": rhc.enabled,
         "reporter": reporter,
@@ -802,6 +805,7 @@ async def _async_run_validators(
     validator = data.get("validator")
     jinja_validator = data.get("jinja_validator")
     service_validator = data.get("service_validator")
+    reachability_validator = data.get("reachability_validator")
 
     # Initialize per-group collectors
     group_issues: dict[str, list[ValidationIssue]] = {
@@ -916,6 +920,22 @@ async def _async_run_validators(
                     exc_info=True,
                 )
                 continue
+        if reachability_validator:
+            try:
+                reachability_issues = reachability_validator.validate_automations(
+                    automations
+                )
+                for issue in reachability_issues:
+                    gid = issue_type_to_group.get(issue.issue_type, "entity_state")
+                    group_issues[gid].append(issue)
+            except Exception as err:
+                _LOGGER.warning("Reachability validation failed: %s", err)
+                skip_reasons["entity_state"]["reachability_validation_exception"] = (
+                    skip_reasons["entity_state"].get(
+                        "reachability_validation_exception", 0
+                    )
+                    + 1
+                )
     else:
         skip_reasons["entity_state"]["validator_unavailable"] = 1
     group_durations["entity_state"] = round((time.monotonic() - t0) * 1000)

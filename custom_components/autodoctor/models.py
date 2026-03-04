@@ -36,6 +36,8 @@ class IssueType(StrEnum):
     SERVICE_INVALID_PARAM_TYPE = "service_invalid_param_type"
     SERVICE_UNKNOWN_PARAM = "service_unknown_param"
     SERVICE_TARGET_NOT_FOUND = "service_target_not_found"
+    UNREACHABLE_STATE_COMBINATION = "unreachable_state_combination"
+    UNREACHABLE_NUMERIC_RANGE = "unreachable_numeric_range"
     RUNTIME_AUTOMATION_OVERACTIVE = "runtime_automation_overactive"
     RUNTIME_AUTOMATION_BURST = "runtime_automation_burst"
 
@@ -141,6 +143,8 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
                 IssueType.CASE_MISMATCH,
                 IssueType.ATTRIBUTE_NOT_FOUND,
                 IssueType.INVALID_ATTRIBUTE_VALUE,
+                IssueType.UNREACHABLE_STATE_COMBINATION,
+                IssueType.UNREACHABLE_NUMERIC_RANGE,
             }
         ),
     },

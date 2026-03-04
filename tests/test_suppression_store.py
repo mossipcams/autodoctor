@@ -216,6 +216,31 @@ async def test_async_load_no_orphaned_keys(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_load_keeps_reachability_issue_types(hass: HomeAssistant) -> None:
+    """New reachability issue types should be treated as valid suppression keys."""
+    store = SuppressionStore(hass)
+
+    stored_data: dict[str, Any] = {
+        "suppressions": [
+            "automation.a:sensor.a:unreachable_state_combination",
+            "automation.b:sensor.b:unreachable_numeric_range",
+        ]
+    }
+
+    with (
+        patch.object(
+            store._store, "async_load", new_callable=AsyncMock, return_value=stored_data
+        ),
+        patch.object(store._store, "async_save", new_callable=AsyncMock) as mock_save,
+    ):
+        await store.async_load()
+
+    assert store.is_suppressed("automation.a:sensor.a:unreachable_state_combination")
+    assert store.is_suppressed("automation.b:sensor.b:unreachable_numeric_range")
+    mock_save.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_async_load_with_malformed_keys(hass: HomeAssistant) -> None:
     """Test async_load handles malformed keys (no colons) without crashing.
 
