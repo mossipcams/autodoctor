@@ -257,7 +257,7 @@ describe("AutodoctorCard build parity", () => {
 });
 
 describe("AutodoctorCard compatibility", () => {
-  it("registers the legacy auto-doctor-card tag", () => {
-    expect(customElements.get("auto-doctor-card")).toBeTruthy();
+  it("does not claim the legacy auto-doctor-card tag", () => {
+    expect(customElements.get("auto-doctor-card")).toBeUndefined();
   });
 });

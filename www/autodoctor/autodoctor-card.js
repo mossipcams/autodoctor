@@ -2355,11 +2355,6 @@ AutodoctorCard.AUTO_REFRESH_MS = 10000; // 10 second background refresh
 if (!customElements.get("autodoctor-card")) {
     customElements.define("autodoctor-card", AutodoctorCard);
 }
-if (!customElements.get("auto-doctor-card")) {
-    class AutoDoctorCard extends AutodoctorCard {
-    }
-    customElements.define("auto-doctor-card", AutoDoctorCard);
-}
 // Register card with HA
 window.customCards = window.customCards || [];
 window.customCards.push({

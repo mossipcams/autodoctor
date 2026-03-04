@@ -629,10 +629,6 @@ if (!customElements.get("autodoctor-card")) {
   customElements.define("autodoctor-card", AutodoctorCard);
 }
 
-if (!customElements.get("auto-doctor-card")) {
-  class AutoDoctorCard extends AutodoctorCard {}
-  customElements.define("auto-doctor-card", AutoDoctorCard);
-}
 
 declare global {
   interface Window {
