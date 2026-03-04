@@ -6,8 +6,8 @@ from custom_components.autodoctor.models import IssueType, Severity
 from custom_components.autodoctor.reachability_validator import ReachabilityValidator
 
 
-def test_detects_impossible_state_trigger_to_vs_condition() -> None:
-    """Trigger 'to' and condition state on same entity cannot disagree."""
+def test_does_not_flag_cross_trigger_state_values_as_contradictions() -> None:
+    """State trigger values are OR paths and must not become global facts."""
     automation = {
         "id": "reachability_state",
         "alias": "Reachability State",
@@ -31,17 +31,11 @@ def test_detects_impossible_state_trigger_to_vs_condition() -> None:
     validator = ReachabilityValidator()
     issues = validator.validate_automations([automation])
 
-    assert len(issues) == 1
-    issue = issues[0]
-    assert issue.issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
-    assert issue.severity == Severity.ERROR
-    assert issue.automation_id == "automation.reachability_state"
-    assert issue.entity_id == "binary_sensor.motion_kitchen"
-    assert issue.location == "condition[0].state"
+    assert issues == []
 
 
-def test_detects_impossible_state_between_top_level_and_if_branch() -> None:
-    """An if-branch is unreachable when its condition contradicts trigger state."""
+def test_does_not_flag_if_branch_from_trigger_only_constraint() -> None:
+    """Branch conditions should not be constrained by OR trigger state facts alone."""
     automation = {
         "id": "reachability_if",
         "alias": "Reachability If",
@@ -70,11 +64,7 @@ def test_detects_impossible_state_between_top_level_and_if_branch() -> None:
     validator = ReachabilityValidator()
     issues = validator.validate_automations([automation])
 
-    assert len(issues) == 1
-    issue = issues[0]
-    assert issue.issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
-    assert issue.location == "action[0].if[0].state"
-    assert issue.entity_id == "binary_sensor.motion_office"
+    assert issues == []
 
 
 def test_detects_impossible_numeric_range_in_single_condition() -> None:
@@ -105,8 +95,8 @@ def test_detects_impossible_numeric_range_in_single_condition() -> None:
     assert issue.entity_id == "sensor.office_temp"
 
 
-def test_detects_numeric_contradiction_between_trigger_and_condition() -> None:
-    """Trigger and condition numeric bounds on same entity can contradict."""
+def test_does_not_flag_numeric_trigger_condition_as_global_contradiction() -> None:
+    """Numeric trigger constraints should not be treated as global always-true bounds."""
     automation = {
         "id": "reachability_numeric_cross",
         "alias": "Reachability Numeric Cross",
@@ -130,11 +120,7 @@ def test_detects_numeric_contradiction_between_trigger_and_condition() -> None:
     validator = ReachabilityValidator()
     issues = validator.validate_automations([automation])
 
-    assert len(issues) == 1
-    issue = issues[0]
-    assert issue.issue_type == IssueType.UNREACHABLE_NUMERIC_RANGE
-    assert issue.location == "condition[0]"
-    assert issue.entity_id == "sensor.humidity"
+    assert issues == []
 
 
 def test_detects_impossible_numeric_choose_branch_without_global_constraints() -> None:

@@ -34,45 +34,8 @@ class ReachabilityValidator:
         global_constraints: dict[tuple[str, str | None], StateConstraint] = {}
         global_numeric: dict[tuple[str, str | None], NumericConstraint] = {}
 
-        triggers = self._as_list(
-            automation.get("triggers") or automation.get("trigger")
-        )
-        for idx, trigger_obj in enumerate(triggers):
-            if not isinstance(trigger_obj, dict):
-                continue
-            trigger = cast(dict[str, Any], trigger_obj)
-            platform_obj = trigger.get("platform") or trigger.get("trigger")
-            platform = platform_obj if isinstance(platform_obj, str) else ""
-
-            if platform == "state":
-                states = self._normalize_values(trigger.get("to"))
-                if len(states) != 1 or is_template_value(states[0]):
-                    continue
-                entity_ids = self._normalize_entity_ids(trigger.get("entity_id"))
-                attribute_obj = trigger.get("attribute")
-                attribute = attribute_obj if isinstance(attribute_obj, str) else None
-                for entity_id in entity_ids:
-                    self._add_state_constraint(
-                        constraints=global_constraints,
-                        issues=issues,
-                        automation_id=automation_id,
-                        automation_name=automation_name,
-                        entity_id=entity_id,
-                        attribute=attribute,
-                        state=states[0],
-                        location=f"trigger[{idx}].to",
-                    )
-                continue
-
-            if platform == "numeric_state":
-                self._process_numeric_constraint(
-                    constraint=trigger,
-                    location=f"trigger[{idx}]",
-                    automation_id=automation_id,
-                    automation_name=automation_name,
-                    numeric_constraints=global_numeric,
-                    issues=issues,
-                )
+        # Do not treat trigger states/thresholds as global facts.
+        # Triggers are OR paths in Home Assistant and would cause false positives.
 
         conditions = self._as_list(
             automation.get("conditions") or automation.get("condition")
