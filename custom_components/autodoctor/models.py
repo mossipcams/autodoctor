@@ -108,7 +108,7 @@ class ValidationIssue:
             "location": self.location,
             "message": self.message,
             "suggestion": self.suggestion,
-            "valid_states": list(self.valid_states),
+            "valid_states": self.valid_states,
         }
 
     def get_suppression_key(self) -> str:
