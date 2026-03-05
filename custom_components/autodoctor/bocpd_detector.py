@@ -49,7 +49,6 @@ _PROB_TRIM_THRESHOLD = 1e-15
 # Prior parameter floor
 _PRIOR_FLOOR = 1e-6
 _HAZARD_FLOOR = 1e-6
-_MAX_OBSERVED_COUNT = 100_000
 
 
 class Detector(Protocol):
@@ -123,7 +122,6 @@ class BOCPDDetector:
             current_row=current_row,
             current_count=current_count,
         )
-        score = max(0.0, min(_MAX_ANOMALY_SCORE, float(score)))
         _LOGGER.debug(
             "Scored '%s' with BOCPD: %.3f (current=%d, n=%d)",
             automation_id,
@@ -136,7 +134,7 @@ class BOCPDDetector:
     def update_state(self, state: dict[str, Any], observed_count: int) -> None:
         """Apply one BOCPD update step for a finalized bucket count."""
         self._ensure_state(state)
-        count = self._sanitize_count(observed_count)
+        count = max(0, int(observed_count))
         effective_hazard = self._effective_hazard(state, count)
         observations = cast(list[int], state["observations"])
         previous_probs = cast(list[float], state["run_length_probs"])
@@ -171,7 +169,7 @@ class BOCPDDetector:
     def predictive_pmf_for_count(self, state: dict[str, Any], count: int) -> float:
         """Return BOCPD posterior predictive PMF for an integer count."""
         self._ensure_state(state)
-        candidate = self._sanitize_count(count)
+        candidate = max(0, int(count))
         observations = cast(list[int], state["observations"])
         probs = cast(list[float], state["run_length_probs"])
 
@@ -201,7 +199,10 @@ class BOCPDDetector:
 
     def _coerce_count(self, row: dict[str, float]) -> int:
         value = row.get(self._count_feature, 0.0)
-        return self._sanitize_count(value)
+        try:
+            return max(0, round(float(value)))
+        except (TypeError, ValueError):
+            return 0
 
     def _score_tail_probability(
         self, state: dict[str, Any], current_count: int
@@ -310,14 +311,12 @@ class BOCPDDetector:
     def _ensure_state(self, state: dict[str, Any]) -> None:
         run_length_probs_raw = state.get("run_length_probs")
         if isinstance(run_length_probs_raw, list):
-            run_length_probs = []
-            for value in cast(list[Any], run_length_probs_raw)[
-                : self.max_run_length + 1
-            ]:
-                numeric = self._coerce_numeric(value, 0.0)
-                run_length_probs.append(
-                    max(0.0, numeric if math.isfinite(numeric) else 0.0)
-                )
+            run_length_probs = [
+                max(0.0, float(value))
+                for value in cast(list[Any], run_length_probs_raw)[
+                    : self.max_run_length + 1
+                ]
+            ]
         else:
             run_length_probs = [1.0]
         if not run_length_probs:
@@ -327,14 +326,16 @@ class BOCPDDetector:
         observations_raw = state.get("observations")
         if isinstance(observations_raw, list):
             observations = [
-                self._sanitize_count(value)
+                max(0, round(float(value)))
                 for value in cast(list[Any], observations_raw)[-self.max_run_length :]
             ]
         else:
             observations = []
         state["observations"] = observations
         state.setdefault("current_day", "")
-        state["current_count"] = self._sanitize_count(state.get("current_count", 0))
+        state["current_count"] = max(
+            0, int(self._coerce_numeric(state.get("current_count"), 0.0))
+        )
         run_length_probs_state = state["run_length_probs"]
         state["map_run_length"] = self._map_run_length_from_probs(
             run_length_probs_state
@@ -359,20 +360,6 @@ class BOCPDDetector:
             return float(value)
         except (TypeError, ValueError):
             return fallback
-
-    @staticmethod
-    def _sanitize_count(value: Any) -> int:
-        """Coerce arbitrary numeric-ish inputs into a safe bounded count."""
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return 0
-        if not math.isfinite(numeric):
-            return 0
-        rounded = round(numeric)
-        if rounded <= 0:
-            return 0
-        return min(_MAX_OBSERVED_COUNT, int(rounded))
 
     @staticmethod
     def _map_run_length_from_probs(probs: list[float]) -> int:

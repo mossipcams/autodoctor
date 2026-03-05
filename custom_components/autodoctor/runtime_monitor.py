@@ -212,7 +212,7 @@ class RuntimeHealthMonitor:
             "automation."
         ):
             return []
-        event_time = self._coerce_datetime(occurred_at) or self._now_factory()
+        event_time = occurred_at or self._now_factory()
         automation_state = self._ensure_automation_state(automation_entity_id)
         runtime_suppressed = self._is_runtime_suppressed(
             automation_entity_id, suppression_store
@@ -682,9 +682,7 @@ class RuntimeHealthMonitor:
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:
         if isinstance(value, datetime):
-            if value.tzinfo is None:
-                return value.replace(tzinfo=UTC)
-            return value.astimezone(UTC)
+            return value
         if isinstance(value, str):
             try:
                 parsed = datetime.fromisoformat(value)
@@ -692,7 +690,7 @@ class RuntimeHealthMonitor:
                 return None
             if parsed.tzinfo is None:
                 return parsed.replace(tzinfo=UTC)
-            return parsed.astimezone(UTC)
+            return parsed
         return None
 
     @staticmethod

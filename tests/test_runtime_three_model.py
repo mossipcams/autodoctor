@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
 from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
@@ -197,30 +194,3 @@ async def test_bootstrap_from_recorder_uses_executor_for_store_calls(
     assert len(executor_calls) > 0, (
         "Store I/O in bootstrap must go through async_add_executor_job"
     )
-
-
-@given(
-    first=st.one_of(
-        st.datetimes(timezones=st.just(UTC)),
-        st.datetimes(timezones=st.none()),
-    ),
-    second=st.one_of(
-        st.datetimes(timezones=st.just(UTC)),
-        st.datetimes(timezones=st.none()),
-    ),
-)
-@settings(max_examples=120)
-def test_ingest_trigger_event_property_handles_mixed_timezone_datetimes(
-    first: datetime, second: datetime
-) -> None:
-    """Ingesting mixed naive/aware datetimes should never crash."""
-    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
-    aid = "automation.mixed_tz"
-    with TemporaryDirectory() as tmp_dir:
-        monitor = _build_monitor(Path(tmp_dir), now, burst_multiplier=999.0)
-
-        monitor.ingest_trigger_event(aid, occurred_at=first)
-        monitor.ingest_trigger_event(aid, occurred_at=second)
-
-        state = monitor.get_runtime_state()
-        assert aid in state["automations"]

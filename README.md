@@ -211,46 +211,6 @@ From the dashboard card, you can preview a suggested fix, apply it directly to y
 
 When you dismiss an issue as a false positive, Autodoctor learns that the state is valid for that integration. For example, if you dismiss an issue about a Roborock vacuum using `segment_cleaning`, Autodoctor will remember that `segment_cleaning` is valid for all Roborock vacuums.
 
-## Fuzz Testing (Atheris)
-
-Autodoctor includes native fuzz targets under `fuzz/`:
-
-- `fuzz.fuzz_analyzer` -- Exercises `AutomationAnalyzer` with arbitrary payloads
-- `fuzz.fuzz_websocket_and_store` -- Exercises websocket location parsing and runtime SQLite store paths
-
-Quick smoke checks (deterministic, no Atheris runtime required):
-
-```bash
-scripts/run_fuzz.sh analyzer --self-test
-scripts/run_fuzz.sh websocket --self-test
-```
-
-Replay on-disk regression corpus through both targets:
-
-```bash
-./.venv/bin/pytest tests/test_fuzz_targets.py -q
-```
-
-Run short live fuzzing with explicit bounds:
-
-```bash
-scripts/run_fuzz.sh analyzer --runs 1000 --max-len 2048 --timeout 10
-scripts/run_fuzz.sh websocket --runs 1000 --max-len 2048 --timeout 10
-```
-
-Run deeper fuzzing sessions:
-
-```bash
-scripts/run_fuzz.sh analyzer --runs 50000 --max-len 4096 --timeout 15
-scripts/run_fuzz.sh websocket --runs 50000 --max-len 4096 --timeout 15
-```
-
-Interpretation guide:
-
-- `--self-test` should always pass quickly; failures indicate deterministic regressions.
-- `--runs` mode requires `atheris`; crashes generate libFuzzer repro details.
-- `fuzz/corpus/` contains seed regressions that are replayed in tests and target startup.
-
 ## Requirements
 
 - Home Assistant 2024.1 or newer

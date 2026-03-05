@@ -20,7 +20,6 @@ dev = [
     "tdd-guard-pytest",
     "mutmut>=3.4.0",
     "hypothesis>=6.0.0",
-    "atheris>=2.3.0; platform_system == 'Linux'",
 ]
 
 [tool.pytest.ini_options]
@@ -59,20 +58,5 @@ ignore = [
 quote-style = "double"
 
 [tool.mutmut]
-paths_to_mutate = [
-    "custom_components/autodoctor/analyzer.py",
-    "custom_components/autodoctor/validator.py",
-    "custom_components/autodoctor/jinja_validator.py",
-]
-# Ensure mutated modules run in a complete package context inside ./mutants.
-also_copy = ["custom_components/autodoctor"]
-tests_dir = []
-pytest_add_cli_args_test_selection = [
-    "tests/test_analyzer.py",
-    "tests/test_validator.py",
-    "tests/test_jinja_validator.py",
-    "tests/test_property_based.py",
-    "tests/test_property_based_validator.py",
-    "tests/test_property_based_jinja.py",
-    "tests/test_property_based_remaining.py",
-]
+paths_to_mutate = "custom_components/autodoctor/validator.py:custom_components/autodoctor/service_validator.py:custom_components/autodoctor/jinja_validator.py:custom_components/autodoctor/knowledge_base.py"
+tests_dir = "tests/"
