@@ -265,7 +265,9 @@ class StateKnowledgeBase:
                 cap_value = entry.capabilities[capability_key]
                 if isinstance(cap_value, list):
                     attribute_values: list[Any] = list(cap_value)
-                    return {str(attribute_value) for attribute_value in attribute_values}
+                    return {
+                        str(attribute_value) for attribute_value in attribute_values
+                    }
 
             return set()
 
