@@ -1220,7 +1220,6 @@ class AutomationAnalyzer:
             service = action.get("service") or action.get("action")
             if service and isinstance(service, str):
                 service = service.strip()
-            if service and isinstance(service, str):
                 is_template = is_template_value(service)
 
                 explicit_data: Any = action.get("data")

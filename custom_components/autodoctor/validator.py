@@ -404,12 +404,19 @@ def get_entity_suggestion(invalid_entity: str, all_entities: list[str]) -> str |
         return None
 
     domain, name = invalid_entity.split(".", 1)
+    domain_lower = domain.lower()
+    name_lower = name.lower()
 
-    same_domain = [e for e in all_entities if e.startswith(f"{domain}.")]
-    if not same_domain:
+    names: dict[str, str] = {}
+    for entity_id in all_entities:
+        if "." not in entity_id:
+            continue
+        entity_domain, entity_name = entity_id.split(".", 1)
+        if entity_domain.lower() == domain_lower:
+            names[entity_name.lower()] = entity_id
+
+    if not names:
         return None
-
-    names = {eid.split(".", 1)[1]: eid for eid in same_domain}
-    matches = get_close_matches(name, names.keys(), n=1, cutoff=0.75)
+    matches = get_close_matches(name_lower, names.keys(), n=1, cutoff=0.75)
 
     return names[matches[0]] if matches else None

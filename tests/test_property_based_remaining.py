@@ -254,6 +254,26 @@ def test_validation_issue_to_dict_never_crashes(
     assert set(result.keys()) == expected_keys
 
 
+@given(states=st.lists(st.text(max_size=20), max_size=10))
+@settings(max_examples=200)
+def test_validation_issue_to_dict_valid_states_is_defensive_copy(
+    states: list[str],
+) -> None:
+    """Property: mutating serialized payload must not mutate the model."""
+    issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="light.kitchen",
+        location="action[0]",
+        message="msg",
+        valid_states=list(states),
+    )
+    payload = issue.to_dict()
+    payload["valid_states"].append("__mutated__")
+    assert "__mutated__" not in issue.valid_states
+
+
 @given(
     issue=validation_issue_list()
     .filter(lambda lst: len(lst) > 0)
