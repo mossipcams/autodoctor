@@ -49,6 +49,30 @@ def test_extract_state_trigger_to() -> None:
     assert refs[0].location == "trigger[0].to"
 
 
+def test_extract_state_trigger_with_whitespace_platform() -> None:
+    """State trigger parsing should tolerate padded platform strings."""
+    automation: dict[str, Any] = {
+        "id": "welcome_home_whitespace",
+        "alias": "Welcome Home Whitespace",
+        "trigger": [
+            {
+                "platform": " state ",
+                "entity_id": "person.matt",
+                "to": "home",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "person.matt"
+    assert refs[0].expected_state == "home"
+    assert refs[0].location == "trigger[0].to"
+
+
 def test_extract_state_trigger_from_and_to() -> None:
     """Test extraction of 'from' and 'to' states in state trigger.
 
@@ -108,6 +132,29 @@ def test_extract_multiple_entity_ids() -> None:
     assert "binary_sensor.motion_2" in entity_ids
 
 
+def test_extract_defaults_metadata_when_id_or_alias_is_none() -> None:
+    """Null id/alias should fall back to stable automation metadata."""
+    automation: dict[str, Any] = {
+        "id": None,
+        "alias": None,
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.motion",
+                "to": "on",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].automation_id == "automation.unknown"
+    assert refs[0].automation_name == "automation.unknown"
+
+
 def test_extract_state_condition() -> None:
     """Test extraction from state condition."""
     automation = {
@@ -117,6 +164,96 @@ def test_extract_state_condition() -> None:
         "condition": [
             {
                 "condition": "state",
+                "entity_id": "alarm_control_panel.home",
+                "state": "armed_away",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "alarm_control_panel.home"
+    assert refs[0].expected_state == "armed_away"
+    assert refs[0].location == "condition[0].state"
+
+
+def test_extract_state_references_supports_plural_conditions_key() -> None:
+    """`conditions` key should be parsed the same as `condition`."""
+    automation = {
+        "id": "plural_conditions",
+        "alias": "Plural Conditions",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "conditions": [
+            {
+                "condition": "state",
+                "entity_id": "alarm_control_panel.home",
+                "state": "armed_away",
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "alarm_control_panel.home"
+    assert refs[0].expected_state == "armed_away"
+    assert refs[0].automation_id == "automation.plural_conditions"
+    assert refs[0].automation_name == "Plural Conditions"
+
+
+def test_extract_state_references_supports_singular_action_dict() -> None:
+    """A single action mapping should be normalized and parsed."""
+    automation = {
+        "id": "single_action_dict",
+        "alias": "Single Action Dict",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [],
+        "action": {
+            "service": "light.turn_on",
+            "target": {"entity_id": "light.bedroom"},
+        },
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "light.bedroom"
+    assert refs[0].reference_type == "service_call"
+    assert refs[0].automation_id == "automation.single_action_dict"
+    assert refs[0].automation_name == "Single Action Dict"
+
+
+def test_extract_state_references_missing_sections_do_not_log_nondict_warnings(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Absent trigger/condition/action sections should not be treated as non-dict entries."""
+    automation = {
+        "id": "missing_sections",
+        "alias": "Missing Sections",
+    }
+    analyzer = AutomationAnalyzer()
+
+    refs = analyzer.extract_state_references(automation)
+
+    assert refs == []
+    assert "Skipping non-dict trigger" not in caplog.text
+
+
+def test_extract_state_condition_with_whitespace_condition_type() -> None:
+    """State condition parsing should tolerate padded condition type strings."""
+    automation = {
+        "id": "check_alarm_whitespace",
+        "alias": "Check Alarm Whitespace",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": " state ",
                 "entity_id": "alarm_control_panel.home",
                 "state": "armed_away",
             }
@@ -265,6 +402,7 @@ def test_extract_template_with_escaped_quotes() -> None:
 
     assert len(refs) == 1
     assert refs[0].entity_id == "sensor.name_with_quote"
+    assert refs[0].expected_state == "value's_here"
 
 
 def test_extract_multiline_template() -> None:
@@ -559,6 +697,29 @@ def test_extract_explicit_state_condition_in_if() -> None:
     assert refs[0].expected_state == "home"
 
 
+def test_extract_string_template_condition_in_if() -> None:
+    """String condition shorthand in if blocks should be parsed as template."""
+    automation = {
+        "id": "if_string_template",
+        "alias": "If String Template",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "if": ["{{ is_state('binary_sensor.window', 'on') }}"],
+                "then": [{"action": "light.turn_on"}],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "binary_sensor.window"
+    assert refs[0].expected_state == "on"
+    assert refs[0].location.endswith(".is_state")
+
+
 def test_extract_state_condition_in_choose() -> None:
     """Test extraction of state condition in choose block."""
     automation = {
@@ -647,6 +808,28 @@ def test_extract_implicit_state_condition_in_repeat_until() -> None:
     assert len(refs) == 1
     assert refs[0].entity_id == "lock.front_door"
     assert refs[0].expected_state == "locked"
+
+
+def test_extract_state_condition_ignores_mapping_state_values() -> None:
+    """Mapping state values should not be coerced into synthetic state names."""
+    automation = {
+        "id": "mapping_state_condition",
+        "alias": "Mapping State Condition",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "sensor.mode",
+                "state": {"unexpected": "on"},
+            }
+        ],
+        "action": [],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert refs == []
 
 
 @pytest.mark.parametrize(
@@ -2086,6 +2269,22 @@ def test_extract_service_call_with_string_target_does_not_crash() -> None:
     assert calls[0].service == "light.turn_on"
 
 
+def test_extract_service_calls_trims_service_name() -> None:
+    """Service call extraction should normalize padded service names."""
+    automation = {
+        "id": "service_trim",
+        "alias": "Service Trim",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [{"service": " light.turn_on "}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].service == "light.turn_on"
+
+
 def test_analyzer_uses_shared_template_detection() -> None:
     """Guard: analyzer should use template_utils instead of inline template check."""
     import custom_components.autodoctor.analyzer as analyzer_mod
@@ -2154,6 +2353,29 @@ def test_extract_script_turn_on() -> None:
     script_refs = [r for r in refs if r.entity_id == "script.bedtime_routine"]
     assert len(script_refs) == 1
     assert script_refs[0].reference_type == "script"
+
+
+def test_extract_service_call_with_whitespace_service_name() -> None:
+    """Service reference typing should tolerate padded service names."""
+    automation = {
+        "id": "script_turn_on_whitespace",
+        "alias": "Script Turn On Whitespace",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "service": " script.turn_on ",
+                "target": {"entity_id": "script.bedtime_routine"},
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    assert len(refs) == 1
+    assert refs[0].entity_id == "script.bedtime_routine"
+    assert refs[0].reference_type == "script"
+    assert refs[0].location == "action[0].service.entity_id"
 
 
 def test_extract_script_shorthand() -> None:
