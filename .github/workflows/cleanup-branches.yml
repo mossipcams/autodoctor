@@ -64,6 +64,7 @@ jobs:
           for branch in $branches; do
             # Skip protected patterns
             if [[ "$branch" == "main" ]] || \
+               [[ "$branch" == "dev" ]] || \
                [[ "$branch" == release-please--branches--* ]] || \
                [[ "$branch" == dependabot/* ]] || \
                [[ "$branch" == "chore/rebuild-card" ]]; then
@@ -118,6 +119,7 @@ jobs:
           for branch in $branches; do
             # Skip protected patterns
             if [[ "$branch" == "main" ]] || \
+               [[ "$branch" == "dev" ]] || \
                [[ "$branch" == release-please--branches--* ]] || \
                [[ "$branch" == dependabot/* ]] || \
                [[ "$branch" == "chore/rebuild-card" ]]; then
