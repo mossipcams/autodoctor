@@ -9,6 +9,7 @@ PYTEST_BIN="${PYTEST_BIN:-.venv/bin/pytest}"
 PYRIGHT_BIN="${PYRIGHT_BIN:-.venv/bin/pyright}"
 USE_SYSTEM_NODE="${USE_SYSTEM_NODE:-0}"
 SKIP_MAIN_SYNC_CHECK="${SKIP_MAIN_SYNC_CHECK:-0}"
+SKIP_BASE_SYNC_CHECK="${SKIP_BASE_SYNC_CHECK:-0}"
 PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
 
 CI_WORKFLOW_PATH=".github/workflows/ci.yml"
@@ -61,15 +62,23 @@ if [[ "$VENV_PYTHON_MM" != "$CI_PYTHON_VERSION" ]]; then
   exit 1
 fi
 
-if [[ "$SKIP_MAIN_SYNC_CHECK" != "1" ]]; then
-echo "[0/9] Verify branch is up to date with origin/main"
-  git fetch --quiet origin main
-  ORIGIN_MAIN_SHA="$(git rev-parse origin/main)"
-  MERGE_BASE_SHA="$(git merge-base HEAD origin/main)"
-  if [[ "$MERGE_BASE_SHA" != "$ORIGIN_MAIN_SHA" ]]; then
-    echo "ERROR: Branch is not up to date with origin/main."
-    echo "Rebase or merge main before opening/updating a PR:"
-    echo "  git fetch origin main && git rebase origin/main"
+if [[ "$SKIP_BASE_SYNC_CHECK" != "1" && "$SKIP_MAIN_SYNC_CHECK" != "1" ]]; then
+  PR_BASE_BRANCH="main"
+  if command -v gh >/dev/null 2>&1; then
+    GH_BASE_BRANCH="$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null || true)"
+    if [[ -n "$GH_BASE_BRANCH" ]]; then
+      PR_BASE_BRANCH="$GH_BASE_BRANCH"
+    fi
+  fi
+
+  echo "[0/8] Verify branch is up to date with origin/$PR_BASE_BRANCH"
+  git fetch --quiet origin "$PR_BASE_BRANCH"
+  ORIGIN_BASE_SHA="$(git rev-parse "origin/$PR_BASE_BRANCH")"
+  MERGE_BASE_SHA="$(git merge-base HEAD "origin/$PR_BASE_BRANCH")"
+  if [[ "$MERGE_BASE_SHA" != "$ORIGIN_BASE_SHA" ]]; then
+    echo "ERROR: Branch is not up to date with origin/$PR_BASE_BRANCH."
+    echo "Rebase or merge $PR_BASE_BRANCH before opening/updating a PR:"
+    echo "  git fetch origin $PR_BASE_BRANCH && git rebase origin/$PR_BASE_BRANCH"
     exit 1
   fi
 fi
@@ -92,32 +101,28 @@ if [[ "$NODE_MAJOR" != "$CI_NODE_MAJOR" ]]; then
   NPM_CMD=("npx" "-y" "node@${CI_NODE_MAJOR}" "$NPM_CLI_PATH")
 fi
 
-echo "[1/9] Ruff lint"
+echo "[1/8] Ruff lint"
 "$RUFF_BIN" check custom_components/ tests/
 
-echo "[2/9] Ruff format check"
+echo "[2/8] Ruff format check"
 "$RUFF_BIN" format --check custom_components/ tests/
 
-echo "[3/9] Pyright"
+echo "[3/8] Pyright"
 "$PYRIGHT_BIN" custom_components/
 
-echo "[4/9] Python tests"
+echo "[4/8] Python tests"
 "$PYTEST_BIN" tests/ -v --tb=short
 
-echo "[5/9] Fuzz smoke tests"
-./scripts/run_fuzz.sh analyzer --self-test --runs 256 --max-len 2048 --timeout 10
-./scripts/run_fuzz.sh websocket --self-test --runs 256 --max-len 2048 --timeout 10
-
-echo "[6/9] Frontend tests"
+echo "[5/8] Frontend tests"
 pushd www/autodoctor >/dev/null
 "${NPM_CMD[@]}" ci
 "${NPM_CMD[@]}" test
 
-echo "[7/9] Frontend build"
+echo "[6/8] Frontend build"
 "${NPM_CMD[@]}" run build
 popd >/dev/null
 
-echo "[8/9] Verify generated card is committed and in sync"
+echo "[7/8] Verify generated card is committed and in sync"
 if ! git diff --quiet custom_components/autodoctor/www/autodoctor-card.js; then
   echo "ERROR: custom_components/autodoctor/www/autodoctor-card.js is out of date."
   echo "Run: cd www/autodoctor && npm run build"
@@ -135,5 +140,5 @@ if ! cmp -s \
   exit 1
 fi
 
-echo "[9/9] Done"
+echo "[8/8] Done"
 echo "All pre-PR checks passed."

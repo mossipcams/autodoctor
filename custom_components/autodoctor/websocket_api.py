@@ -304,20 +304,12 @@ def _get_healthy_count(hass: HomeAssistant, issues: list[ValidationIssue]) -> in
 
 
 _LOCATION_SEGMENT_RE = re.compile(r"^([a-zA-Z_]+)(?:\[(\d+)\])?$")
-_MAX_LOCATION_LENGTH = 4096
-_MAX_LOCATION_SEGMENTS = 256
-_MAX_INDEX_DIGITS = 18
 
 
 def _parse_location_path(location: str) -> list[str | int] | None:
     """Parse location strings like 'trigger[0].entity_id' into path segments."""
-    if not location or len(location) > _MAX_LOCATION_LENGTH:
-        return None
-
     segments: list[str | int] = []
     for part in location.split("."):
-        if len(segments) >= _MAX_LOCATION_SEGMENTS:
-            return None
         match = _LOCATION_SEGMENT_RE.match(part)
         if not match:
             return None
@@ -325,12 +317,7 @@ def _parse_location_path(location: str) -> list[str | int] | None:
         idx = match.group(2)
         segments.append(key)
         if idx is not None:
-            if len(idx) > _MAX_INDEX_DIGITS:
-                return None
-            try:
-                segments.append(int(idx))
-            except ValueError:
-                return None
+            segments.append(int(idx))
     return segments
 
 

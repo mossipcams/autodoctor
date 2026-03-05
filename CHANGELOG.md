@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.31.0](https://github.com/mossipcams/autodoctor/compare/v2.30.0...v2.31.0) (2026-02-27)
+
+
+### Features
+
+* **runtime:** dismiss action, initial scan, coverage config, and card cleanup ([#184](https://github.com/mossipcams/autodoctor/issues/184)) ([d1b0dfe](https://github.com/mossipcams/autodoctor/commit/d1b0dfe7c78794a8e43986f47e8287129a72dccf))
+
 ## [2.30.0](https://github.com/mossipcams/autodoctor/compare/v2.29.0...v2.30.0) (2026-02-20)
 
 

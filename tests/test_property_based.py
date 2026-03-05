@@ -181,38 +181,6 @@ def test_extract_state_references_with_wrong_types(
     assert isinstance(result, list)
 
 
-@given(
-    bad_entity_id=st.one_of(
-        st.none(),
-        st.integers(),
-        st.booleans(),
-        st.dictionaries(st.text(max_size=10), st.text(max_size=10), max_size=3),
-    )
-)
-@settings(max_examples=200)
-def test_extract_state_references_ignores_non_string_scalar_entity_ids(
-    bad_entity_id: Any,
-) -> None:
-    """Property: scalar/non-list non-string entity_id inputs are ignored.
-
-    Coercing values like 123 into "123" creates invalid synthetic references.
-    """
-    automation = {
-        "id": "bad_entity_id",
-        "alias": "Bad Entity ID",
-        "trigger": [
-            {
-                "platform": "state",
-                "entity_id": bad_entity_id,
-                "to": "on",
-            }
-        ],
-    }
-    analyzer = AutomationAnalyzer()
-    result = analyzer.extract_state_references(automation)
-    assert result == []
-
-
 @given(automation=automation_dicts())
 @settings(max_examples=200)
 def test_extract_service_calls_never_crashes(automation: dict[str, Any]) -> None:

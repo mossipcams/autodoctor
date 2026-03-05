@@ -106,6 +106,15 @@ SERVICE_VALIDATE_AUTOMATION_SCHEMA = vol.Schema(
 SERVICE_REFRESH_SCHEMA = vol.Schema({})  # No parameters
 
 
+def _normalize_automation_entity_id(automation_id: str) -> str:
+    """Normalize automation ids to automation.<id> format."""
+    return (
+        automation_id
+        if automation_id.startswith("automation.")
+        else f"automation.{automation_id}"
+    )
+
+
 def _is_enabled_automation_config(config: dict[str, Any]) -> bool:
     """Return True when an automation config should be included for validation."""
     return config.get("enabled", True) is not False
@@ -925,6 +934,10 @@ async def _async_run_validators(
                 reachability_issues = reachability_validator.validate_automations(
                     automations
                 )
+                _LOGGER.debug(
+                    "Reachability validation: found %d issues",
+                    len(reachability_issues),
+                )
                 for issue in reachability_issues:
                     gid = issue_type_to_group.get(issue.issue_type, "entity_state")
                     group_issues[gid].append(issue)
@@ -936,6 +949,8 @@ async def _async_run_validators(
                     )
                     + 1
                 )
+        else:
+            skip_reasons["entity_state"]["reachability_validator_unavailable"] = 1
     else:
         skip_reasons["entity_state"]["validator_unavailable"] = 1
     group_durations["entity_state"] = round((time.monotonic() - t0) * 1000)
@@ -1157,7 +1172,12 @@ async def async_validate_automation(
     # to prevent reporter from clearing their repair entries. Reporter's
     # _clear_resolved_issues deletes all repairs NOT in the provided list.
     existing_issues: list[ValidationIssue] = data.get("validation_issues", [])
-    other_issues = [i for i in existing_issues if i.automation_id != automation_id]
+    normalized_target_id = _normalize_automation_entity_id(automation_id)
+    other_issues = [
+        i
+        for i in existing_issues
+        if _normalize_automation_entity_id(i.automation_id) != normalized_target_id
+    ]
     merged_issues = other_issues + visible_current_issues
 
     existing_raw_issues: list[ValidationIssue] = data.get(
@@ -1165,7 +1185,9 @@ async def async_validate_automation(
         existing_issues,
     )
     other_raw_issues = [
-        i for i in existing_raw_issues if i.automation_id != automation_id
+        i
+        for i in existing_raw_issues
+        if _normalize_automation_entity_id(i.automation_id) != normalized_target_id
     ]
     merged_raw_issues = other_raw_issues + result["all_issues"]
 
