@@ -87,6 +87,7 @@ def _unescape_quoted(value: str) -> str:
     """Normalize escaped quote/backslash sequences captured from templates."""
     return value.replace("\\'", "'").replace('\\"', '"').replace("\\\\", "\\")
 
+
 # Keys at the action dict level that are structural (not service parameters).
 # Any key NOT in this set is treated as an inline service parameter.
 _ACTION_STRUCTURAL_KEYS = frozenset(
@@ -543,7 +544,9 @@ class AutomationAnalyzer:
 
         # Support both 'condition' key (used in both old and new formats for condition type)
         raw_cond_type = condition.get("condition", "")
-        cond_type = raw_cond_type.strip().lower() if isinstance(raw_cond_type, str) else ""
+        cond_type = (
+            raw_cond_type.strip().lower() if isinstance(raw_cond_type, str) else ""
+        )
 
         # Handle explicit state condition OR implicit shorthand (entity_id + state without condition key)
         is_state_condition = cond_type == "state" or (

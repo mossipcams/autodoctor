@@ -318,7 +318,9 @@ def test_bocpd_normalize_state_property_handles_malformed_payload(
 
     normalized_observations = state["observations"]
     assert len(normalized_observations) <= detector.max_run_length
-    assert all(isinstance(value, int) and value >= 0 for value in normalized_observations)
+    assert all(
+        isinstance(value, int) and value >= 0 for value in normalized_observations
+    )
     assert isinstance(state["current_count"], int)
     assert state["current_count"] >= 0
 
