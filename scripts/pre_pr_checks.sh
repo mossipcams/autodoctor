@@ -63,7 +63,8 @@ if [[ "$VENV_PYTHON_MM" != "$CI_PYTHON_VERSION" ]]; then
 fi
 
 if [[ "$SKIP_BASE_SYNC_CHECK" != "1" && "$SKIP_MAIN_SYNC_CHECK" != "1" ]]; then
-  PR_BASE_BRANCH="main"
+  CURRENT_BRANCH="$(git branch --show-current)"
+  PR_BASE_BRANCH=""
   if command -v gh >/dev/null 2>&1; then
     GH_BASE_BRANCH="$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null || true)"
     if [[ -n "$GH_BASE_BRANCH" ]]; then
@@ -71,15 +72,20 @@ if [[ "$SKIP_BASE_SYNC_CHECK" != "1" && "$SKIP_MAIN_SYNC_CHECK" != "1" ]]; then
     fi
   fi
 
-  echo "[0/8] Verify branch is up to date with origin/$PR_BASE_BRANCH"
-  git fetch --quiet origin "$PR_BASE_BRANCH"
-  ORIGIN_BASE_SHA="$(git rev-parse "origin/$PR_BASE_BRANCH")"
-  MERGE_BASE_SHA="$(git merge-base HEAD "origin/$PR_BASE_BRANCH")"
-  if [[ "$MERGE_BASE_SHA" != "$ORIGIN_BASE_SHA" ]]; then
-    echo "ERROR: Branch is not up to date with origin/$PR_BASE_BRANCH."
-    echo "Rebase or merge $PR_BASE_BRANCH before opening/updating a PR:"
-    echo "  git fetch origin $PR_BASE_BRANCH && git rebase origin/$PR_BASE_BRANCH"
-    exit 1
+  REQUIRED_BASE_BRANCH="$("$PYTHON_BIN" scripts/pre_pr_policy.py "$CURRENT_BRANCH" "$PR_BASE_BRANCH")"
+  if [[ "$REQUIRED_BASE_BRANCH" == "SKIP" ]]; then
+    echo "[0/8] Skip base sync check on integration branch $CURRENT_BRANCH"
+  else
+    echo "[0/8] Verify branch is up to date with origin/$REQUIRED_BASE_BRANCH"
+    git fetch --quiet origin "$REQUIRED_BASE_BRANCH"
+    ORIGIN_BASE_SHA="$(git rev-parse "origin/$REQUIRED_BASE_BRANCH")"
+    MERGE_BASE_SHA="$(git merge-base HEAD "origin/$REQUIRED_BASE_BRANCH")"
+    if [[ "$MERGE_BASE_SHA" != "$ORIGIN_BASE_SHA" ]]; then
+      echo "ERROR: Branch is not up to date with origin/$REQUIRED_BASE_BRANCH."
+      echo "Rebase or merge $REQUIRED_BASE_BRANCH before opening/updating a PR:"
+      echo "  git fetch origin $REQUIRED_BASE_BRANCH && git rebase origin/$REQUIRED_BASE_BRANCH"
+      exit 1
+    fi
   fi
 fi
 
