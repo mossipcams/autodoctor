@@ -62,7 +62,7 @@ if [[ "$VENV_PYTHON_MM" != "$CI_PYTHON_VERSION" ]]; then
 fi
 
 if [[ "$SKIP_MAIN_SYNC_CHECK" != "1" ]]; then
-  echo "[0/8] Verify branch is up to date with origin/main"
+echo "[0/9] Verify branch is up to date with origin/main"
   git fetch --quiet origin main
   ORIGIN_MAIN_SHA="$(git rev-parse origin/main)"
   MERGE_BASE_SHA="$(git merge-base HEAD origin/main)"
@@ -92,28 +92,32 @@ if [[ "$NODE_MAJOR" != "$CI_NODE_MAJOR" ]]; then
   NPM_CMD=("npx" "-y" "node@${CI_NODE_MAJOR}" "$NPM_CLI_PATH")
 fi
 
-echo "[1/8] Ruff lint"
+echo "[1/9] Ruff lint"
 "$RUFF_BIN" check custom_components/ tests/
 
-echo "[2/8] Ruff format check"
+echo "[2/9] Ruff format check"
 "$RUFF_BIN" format --check custom_components/ tests/
 
-echo "[3/8] Pyright"
+echo "[3/9] Pyright"
 "$PYRIGHT_BIN" custom_components/
 
-echo "[4/8] Python tests"
+echo "[4/9] Python tests"
 "$PYTEST_BIN" tests/ -v --tb=short
 
-echo "[5/8] Frontend tests"
+echo "[5/9] Fuzz smoke tests"
+./scripts/run_fuzz.sh analyzer --self-test --runs 256 --max-len 2048 --timeout 10
+./scripts/run_fuzz.sh websocket --self-test --runs 256 --max-len 2048 --timeout 10
+
+echo "[6/9] Frontend tests"
 pushd www/autodoctor >/dev/null
 "${NPM_CMD[@]}" ci
 "${NPM_CMD[@]}" test
 
-echo "[6/8] Frontend build"
+echo "[7/9] Frontend build"
 "${NPM_CMD[@]}" run build
 popd >/dev/null
 
-echo "[7/8] Verify generated card is committed and in sync"
+echo "[8/9] Verify generated card is committed and in sync"
 if ! git diff --quiet custom_components/autodoctor/www/autodoctor-card.js; then
   echo "ERROR: custom_components/autodoctor/www/autodoctor-card.js is out of date."
   echo "Run: cd www/autodoctor && npm run build"
@@ -131,5 +135,5 @@ if ! cmp -s \
   exit 1
 fi
 
-echo "[8/8] Done"
+echo "[9/9] Done"
 echo "All pre-PR checks passed."

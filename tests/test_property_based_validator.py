@@ -285,3 +285,18 @@ def test_get_entity_suggestion_exact_match_empty_list(domain: str, name: str) ->
     invalid_entity = f"{domain}.{name}"
     result = get_entity_suggestion(invalid_entity, [])
     assert result is None
+
+
+@given(
+    domain=st.sampled_from(["light", "switch", "sensor", "binary_sensor"]),
+    name=st.from_regex(r"[a-z_]{1,20}", fullmatch=True),
+)
+@settings(max_examples=200)
+def test_get_entity_suggestion_case_insensitive_domain_and_name(
+    domain: str, name: str
+) -> None:
+    """Property: suggestion should recover lower-case entity IDs from case typos."""
+    canonical = f"{domain}.{name}"
+    invalid_entity = f"{domain.upper()}.{name.upper()}"
+    result = get_entity_suggestion(invalid_entity, [canonical])
+    assert result == canonical

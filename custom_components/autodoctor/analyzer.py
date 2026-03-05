@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any, cast
 
 from .action_walker import walk_automation_actions
@@ -81,6 +82,12 @@ HAS_VALUE_PATTERN = re.compile(
 # Pattern to strip Jinja2 comments before parsing
 JINJA_COMMENT_PATTERN = re.compile(r"\{#.*?#\}", re.DOTALL)
 
+
+def _unescape_quoted(value: str) -> str:
+    """Normalize escaped quote/backslash sequences captured from templates."""
+    return value.replace("\\'", "'").replace('\\"', '"').replace("\\\\", "\\")
+
+
 # Keys at the action dict level that are structural (not service parameters).
 # Any key NOT in this set is treated as an inline service parameter.
 _ACTION_STRUCTURAL_KEYS = frozenset(
@@ -133,6 +140,8 @@ class AutomationAnalyzer:
         """
         if value is None:
             return []
+        if isinstance(value, Mapping):
+            return []
 
         # Handle list-like objects (including YAML NodeListClass)
         # Check for list behavior rather than exact type
@@ -145,9 +154,13 @@ class AutomationAnalyzer:
         """Normalize entity_id value(s) to a list of strings."""
         if value is None:
             return []
-        if hasattr(value, "__iter__") and not isinstance(value, str):
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, Mapping):
+            return []
+        if hasattr(value, "__iter__"):
             return [str(v) for v in value if isinstance(v, str)]
-        return [str(value)]
+        return []
 
     def extract_state_references(
         self, automation: dict[str, Any]
@@ -155,8 +168,9 @@ class AutomationAnalyzer:
         """Extract all state references from an automation."""
         refs: list[StateReference] = []
 
-        automation_id = f"automation.{automation.get('id', 'unknown')}"
-        automation_name = automation.get("alias", automation_id)
+        raw_automation_id = automation.get("id") or "unknown"
+        automation_id = f"automation.{raw_automation_id}"
+        automation_name = automation.get("alias") or automation_id
 
         # Extract from triggers (support both 'trigger' and 'triggers' keys)
         triggers = automation.get("triggers") or automation.get("trigger", [])
@@ -224,7 +238,8 @@ class AutomationAnalyzer:
             return refs
 
         # Support both 'platform' (old format) and 'trigger' (new format) keys
-        platform = trigger.get("platform") or trigger.get("trigger", "")
+        raw_platform = trigger.get("platform") or trigger.get("trigger", "")
+        platform = raw_platform.strip().lower() if isinstance(raw_platform, str) else ""
 
         if platform == "state":
             entity_ids = self._normalize_entity_ids(
@@ -528,7 +543,10 @@ class AutomationAnalyzer:
             return refs
 
         # Support both 'condition' key (used in both old and new formats for condition type)
-        cond_type = condition.get("condition", "")
+        raw_cond_type = condition.get("condition", "")
+        cond_type = (
+            raw_cond_type.strip().lower() if isinstance(raw_cond_type, str) else ""
+        )
 
         # Handle explicit state condition OR implicit shorthand (entity_id + state without condition key)
         is_state_condition = cond_type == "state" or (
@@ -737,6 +755,8 @@ class AutomationAnalyzer:
         # Extract is_state() calls
         for match in IS_STATE_PATTERN.finditer(template):
             entity_id, state = match.groups()
+            entity_id = _unescape_quoted(entity_id)
+            state = _unescape_quoted(state)
             refs.append(
                 StateReference(
                     automation_id=automation_id,
@@ -751,6 +771,9 @@ class AutomationAnalyzer:
         # Extract is_state_attr() calls
         for match in IS_STATE_ATTR_PATTERN.finditer(template):
             entity_id, attribute, attr_value = match.groups()
+            entity_id = _unescape_quoted(entity_id)
+            attribute = _unescape_quoted(attribute)
+            attr_value = _unescape_quoted(attr_value)
             refs.append(
                 StateReference(
                     automation_id=automation_id,
@@ -765,6 +788,8 @@ class AutomationAnalyzer:
         # Extract state_attr() calls
         for match in STATE_ATTR_PATTERN.finditer(template):
             entity_id, attribute = match.groups()
+            entity_id = _unescape_quoted(entity_id)
+            attribute = _unescape_quoted(attribute)
             refs.append(
                 StateReference(
                     automation_id=automation_id,
@@ -794,7 +819,7 @@ class AutomationAnalyzer:
 
         # Extract states('entity_id') function calls
         for match in STATES_FUNCTION_PATTERN.finditer(template):
-            entity_id = match.group(1)
+            entity_id = _unescape_quoted(match.group(1))
             # Deduplicate - don't add if already found via other patterns
             if not any(r.entity_id == entity_id for r in refs):
                 refs.append(
@@ -810,7 +835,7 @@ class AutomationAnalyzer:
 
         # Extract expand() function calls
         for match in EXPAND_PATTERN.finditer(template):
-            entity_id = match.group(1)
+            entity_id = _unescape_quoted(match.group(1))
             # Deduplicate - don't add if already found via other patterns
             if not any(r.entity_id == entity_id for r in refs):
                 refs.append(
@@ -827,7 +852,7 @@ class AutomationAnalyzer:
 
         # Extract area_entities() calls
         for match in AREA_ENTITIES_PATTERN.finditer(template):
-            area_id = match.group(1)
+            area_id = _unescape_quoted(match.group(1))
             if not any(r.entity_id == area_id for r in refs):
                 refs.append(
                     StateReference(
@@ -843,7 +868,7 @@ class AutomationAnalyzer:
 
         # Extract device_entities() calls
         for match in DEVICE_ENTITIES_PATTERN.finditer(template):
-            device_id = match.group(1)
+            device_id = _unescape_quoted(match.group(1))
             if not any(r.entity_id == device_id for r in refs):
                 refs.append(
                     StateReference(
@@ -859,7 +884,7 @@ class AutomationAnalyzer:
 
         # Extract integration_entities() calls
         for match in INTEGRATION_ENTITIES_PATTERN.finditer(template):
-            integration_id = match.group(1)
+            integration_id = _unescape_quoted(match.group(1))
             if not any(r.entity_id == integration_id for r in refs):
                 refs.append(
                     StateReference(
@@ -875,7 +900,7 @@ class AutomationAnalyzer:
 
         # Extract device_id() calls
         for match in DEVICE_ID_PATTERN.finditer(template):
-            entity_id = match.group(1)
+            entity_id = _unescape_quoted(match.group(1))
             if not any(r.entity_id == entity_id for r in refs):
                 refs.append(
                     StateReference(
@@ -891,7 +916,7 @@ class AutomationAnalyzer:
 
         # Extract area_name/area_id() calls
         for match in AREA_NAME_PATTERN.finditer(template):
-            entity_id = match.group(1)
+            entity_id = _unescape_quoted(match.group(1))
             if not any(r.entity_id == entity_id for r in refs):
                 refs.append(
                     StateReference(
@@ -907,7 +932,7 @@ class AutomationAnalyzer:
 
         # Extract has_value() calls
         for match in HAS_VALUE_PATTERN.finditer(template):
-            entity_id = match.group(1)
+            entity_id = _unescape_quoted(match.group(1))
             if not any(r.entity_id == entity_id for r in refs):
                 refs.append(
                     StateReference(
@@ -951,6 +976,7 @@ class AutomationAnalyzer:
         # Fix: property-based testing found crash on non-string service values
         if not isinstance(service, str):
             return refs
+        service = service.strip()
 
         # Shorthand script call: service: script.my_script
         if service.startswith("script.") and service not in (
@@ -1196,24 +1222,28 @@ class AutomationAnalyzer:
         def _visit_action(action: dict[str, Any], idx: int, location: str) -> None:
             service = action.get("service") or action.get("action")
             if service and isinstance(service, str):
+                service = service.strip()
                 is_template = is_template_value(service)
 
                 explicit_data: Any = action.get("data")
                 if isinstance(explicit_data, str):
-                    merged_data: dict[str, Any] | None = cast(
-                        dict[str, Any] | None, explicit_data
-                    )
+                    # Templates/raw strings are valid in HA action data.
+                    merged_data: dict[str, Any] | str | None = explicit_data
                 else:
                     inline_params = {
                         k: v
                         for k, v in action.items()
                         if k not in _ACTION_STRUCTURAL_KEYS
                     }
-                    explicit_data = cast(dict[str, Any], explicit_data or {})
+                    safe_explicit_data = (
+                        cast(dict[str, Any], explicit_data)
+                        if isinstance(explicit_data, dict)
+                        else {}
+                    )
                     merged_data = (
-                        {**inline_params, **explicit_data}
+                        {**inline_params, **safe_explicit_data}
                         if inline_params
-                        else explicit_data
+                        else safe_explicit_data
                     ) or None
 
                 service_calls.append(

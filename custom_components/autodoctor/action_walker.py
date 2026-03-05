@@ -10,7 +10,7 @@ def walk_automation_actions(
     actions: list[dict[str, Any]],
     *,
     visit_action: Callable[[dict[str, Any], int, str], None],
-    visit_condition: Callable[[dict[str, Any], int, str], None] | None = None,
+    visit_condition: Callable[[Any, int, str], None] | None = None,
     location_prefix: str = "action",
     max_depth: int = 50,
 ) -> None:
@@ -35,11 +35,11 @@ def _ensure_list(value: Any) -> list[Any]:
 
 def _visit_conditions(
     conditions: Any,
-    visit_condition: Callable[[dict[str, Any], int, str], None],
+    visit_condition: Callable[[Any, int, str], None],
     location_prefix: str,
 ) -> None:
     for cond_idx, cond in enumerate(_ensure_list(conditions)):
-        if isinstance(cond, dict):
+        if isinstance(cond, (dict, str)):
             visit_condition(cond, cond_idx, f"{location_prefix}[{cond_idx}]")
 
 
@@ -47,7 +47,7 @@ def _walk(
     actions: list[dict[str, Any]],
     *,
     visit_action: Callable[[dict[str, Any], int, str], None],
-    visit_condition: Callable[[dict[str, Any], int, str], None] | None,
+    visit_condition: Callable[[Any, int, str], None] | None,
     location_prefix: str,
     max_depth: int,
     _depth: int,
