@@ -38,6 +38,14 @@ def _is_any_list(value: Any) -> TypeGuard[list[Any]]:
     return isinstance(value, list)
 
 
+def _condition_location(location_prefix: str, index: int) -> str:
+    """Build a condition location without double-indexing walker-provided paths."""
+    indexed_suffix = f"[{index}]"
+    if location_prefix.endswith(indexed_suffix):
+        return location_prefix
+    return f"{location_prefix}{indexed_suffix}"
+
+
 class JinjaValidator:
     """Validates Jinja2 template syntax in automations."""
 
@@ -172,6 +180,7 @@ class JinjaValidator:
     ) -> list[ValidationIssue]:
         """Validate templates in a condition."""
         issues: list[ValidationIssue] = []
+        condition_location = _condition_location(location_prefix, index)
 
         if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
             _LOGGER.warning(
@@ -187,7 +196,7 @@ class JinjaValidator:
                 issues.extend(
                     self._check_template(
                         condition,
-                        f"{location_prefix}[{index}]",
+                        condition_location,
                         auto_id,
                         auto_name,
                     )
@@ -204,7 +213,7 @@ class JinjaValidator:
             issues.extend(
                 self._check_template(
                     value_template,
-                    f"{location_prefix}[{index}].value_template",
+                    f"{condition_location}.value_template",
                     auto_id,
                     auto_name,
                 )
@@ -220,7 +229,7 @@ class JinjaValidator:
                         nested_idx,
                         auto_id,
                         auto_name,
-                        f"{location_prefix}[{index}].{key}",
+                        f"{condition_location}.{key}",
                         _depth + 1,
                     )
                 )

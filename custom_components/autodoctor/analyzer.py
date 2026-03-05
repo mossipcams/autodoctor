@@ -120,6 +120,14 @@ _ACTION_STRUCTURAL_KEYS = frozenset(
 )
 
 
+def _condition_location(location_prefix: str, index: int) -> str:
+    """Build a condition location without double-indexing walker-provided paths."""
+    indexed_suffix = f"[{index}]"
+    if location_prefix.endswith(indexed_suffix):
+        return location_prefix
+    return f"{location_prefix}{indexed_suffix}"
+
+
 class AutomationAnalyzer:
     """Parses automation configs and extracts all state references."""
 
@@ -510,13 +518,14 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
+        condition_location = _condition_location(location_prefix, index)
 
         # Handle string conditions (template shorthand)
         if isinstance(condition, str):
             refs.extend(
                 self._extract_from_template(
                     condition,
-                    f"{location_prefix}[{index}]",
+                    condition_location,
                     automation_id,
                     automation_name,
                 )
@@ -552,7 +561,7 @@ class AutomationAnalyzer:
                             entity_id=entity_id,
                             expected_state=state,
                             expected_attribute=condition_attribute,
-                            location=f"{location_prefix}[{index}].state",
+                            location=f"{condition_location}.state",
                         )
                     )
 
@@ -561,7 +570,7 @@ class AutomationAnalyzer:
             refs.extend(
                 self._extract_from_template(
                     value_template,
-                    f"{location_prefix}[{index}]",
+                    condition_location,
                     automation_id,
                     automation_name,
                 )
@@ -582,7 +591,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=attribute,
-                        location=f"{location_prefix}[{index}]",
+                        location=condition_location,
                         reference_type="direct",
                     )
                 )
@@ -592,7 +601,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         value_template,
-                        f"{location_prefix}[{index}].value_template",
+                        f"{condition_location}.value_template",
                         automation_id,
                         automation_name,
                     )
@@ -612,7 +621,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].entity_id",
+                        location=f"{condition_location}.entity_id",
                         reference_type="direct",
                     )
                 )
@@ -625,7 +634,7 @@ class AutomationAnalyzer:
                         entity_id=zone_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].zone",
+                        location=f"{condition_location}.zone",
                         reference_type="zone",
                     )
                 )
@@ -638,7 +647,7 @@ class AutomationAnalyzer:
                     entity_id="sun.sun",
                     expected_state=None,
                     expected_attribute=None,
-                    location=f"{location_prefix}[{index}]",
+                    location=condition_location,
                     reference_type="direct",
                 )
             )
@@ -662,7 +671,7 @@ class AutomationAnalyzer:
                         entity_id=after_value,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].after",
+                        location=f"{condition_location}.after",
                         reference_type="direct",
                     )
                 )
@@ -680,7 +689,7 @@ class AutomationAnalyzer:
                         entity_id=before_value,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].before",
+                        location=f"{condition_location}.before",
                         reference_type="direct",
                     )
                 )
@@ -696,7 +705,7 @@ class AutomationAnalyzer:
                         entity_id=device_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].device_id",
+                        location=f"{condition_location}.device_id",
                         reference_type="device",
                     )
                 )
@@ -712,7 +721,7 @@ class AutomationAnalyzer:
                             i,
                             automation_id,
                             automation_name,
-                            f"{location_prefix}[{index}].{cond_type}",
+                            f"{condition_location}.{cond_type}",
                         )
                     )
 

@@ -181,6 +181,149 @@ def test_run_typechecks_fails_when_mypy_fails(monkeypatch):
     assert mw.run_typechecks() == 1
 
 
+def test_mutation_runner_command_uses_fresh_python_process(tmp_path):
+    mw = _load_module()
+
+    assert mw.get_mutation_runner_command(tmp_path) == [
+        ".venv/bin/python",
+        "scripts/mutmut_subprocess_runner.py",
+        "--results-file",
+        str(tmp_path / "mutation_results.json"),
+    ]
+
+
+def test_run_command_keeps_typechecks_and_uses_fresh_process_runner(tmp_path, monkeypatch):
+    mw = _load_module()
+    calls: list[tuple[list[str], int | None]] = []
+
+    class FakeResult:
+        def __init__(self, returncode: int):
+            self.returncode = returncode
+
+    outcomes = {
+        tuple([".venv/bin/pyright", "custom_components/"]): FakeResult(0),
+        tuple(
+            [
+                ".venv/bin/mypy",
+                "--strict",
+                "--follow-imports=skip",
+                "custom_components/autodoctor/action_walker.py",
+                "custom_components/autodoctor/analyzer.py",
+                "custom_components/autodoctor/jinja_validator.py",
+                "custom_components/autodoctor/knowledge_base.py",
+                "custom_components/autodoctor/service_validator.py",
+                "custom_components/autodoctor/template_utils.py",
+                "custom_components/autodoctor/validator.py",
+            ]
+        ): FakeResult(0),
+        tuple(
+            [
+                ".venv/bin/python",
+                "scripts/mutmut_subprocess_runner.py",
+                "--results-file",
+                str(tmp_path / "mutation_results.json"),
+                "custom_components.autodoctor.action_walker.x_walk_automation_actions__mutmut_1",
+            ]
+        ): FakeResult(0),
+    }
+
+    def fake_run(cmd, check=False, timeout=None, **kwargs):
+        calls.append((cmd, timeout))
+        return outcomes[tuple(cmd)]
+
+    monkeypatch.setattr(mw.subprocess, "run", fake_run)
+
+    assert (
+        mw.run_mutation_suite(
+            tmp_path,
+            [
+                "custom_components.autodoctor.action_walker."
+                "x_walk_automation_actions__mutmut_1"
+            ],
+        )
+        == 0
+    )
+    assert calls == [
+        ([".venv/bin/pyright", "custom_components/"], None),
+        (
+            [
+                ".venv/bin/mypy",
+                "--strict",
+                "--follow-imports=skip",
+                "custom_components/autodoctor/action_walker.py",
+                "custom_components/autodoctor/analyzer.py",
+                "custom_components/autodoctor/jinja_validator.py",
+                "custom_components/autodoctor/knowledge_base.py",
+                "custom_components/autodoctor/service_validator.py",
+                "custom_components/autodoctor/template_utils.py",
+                "custom_components/autodoctor/validator.py",
+            ],
+            None,
+        ),
+        (
+            [
+                ".venv/bin/python",
+                "scripts/mutmut_subprocess_runner.py",
+                "--results-file",
+                str(tmp_path / "mutation_results.json"),
+                "custom_components.autodoctor.action_walker.x_walk_automation_actions__mutmut_1",
+            ],
+            mw.RUN_TIMEOUT_SECONDS,
+        ),
+    ]
+
+
+def test_get_survivor_mutants_reads_workflow_results_file(tmp_path):
+    mw = _load_module()
+    (tmp_path / "mutation_results.json").write_text(
+        __import__("json").dumps(
+            [
+                {"mutant_name": "a", "status": "killed"},
+                {"mutant_name": "b", "status": "survived"},
+                {"mutant_name": "c", "status": "timeout"},
+            ]
+        )
+    )
+
+    assert mw.get_survivor_mutants(tmp_path) == ["b"]
+
+
+def test_rerun_survivors_uses_fresh_process_runner(tmp_path, monkeypatch):
+    mw = _load_module()
+    calls: list[tuple[list[str], int | None]] = []
+
+    class FakeResult:
+        returncode = 0
+
+    def fake_run(cmd, check=False, timeout=None, **kwargs):
+        calls.append((cmd, timeout))
+        return FakeResult()
+
+    monkeypatch.setattr(mw.subprocess, "run", fake_run)
+    (tmp_path / "mutation_results.json").write_text(
+        __import__("json").dumps(
+            [
+                {"mutant_name": "custom_components.autodoctor.validator.x_a__mutmut_1", "status": "survived"},
+                {"mutant_name": "custom_components.autodoctor.validator.x_b__mutmut_2", "status": "killed"},
+            ]
+        )
+    )
+
+    assert mw.rerun_survivors(tmp_path) == 0
+    assert calls == [
+        (
+            [
+                ".venv/bin/python",
+                "scripts/mutmut_subprocess_runner.py",
+                "--results-file",
+                str(tmp_path / "mutation_results.json"),
+                "custom_components.autodoctor.validator.x_a__mutmut_1",
+            ],
+            mw.RUN_TIMEOUT_SECONDS,
+        )
+    ]
+
+
 def test_pyproject_mutmut_paths_are_list():
     import tomllib
 
@@ -188,8 +331,7 @@ def test_pyproject_mutmut_paths_are_list():
     data = tomllib.loads(pyproject.read_text())
     paths = data["tool"]["mutmut"]["paths_to_mutate"]
 
-    assert isinstance(paths, list)
-    assert "custom_components/autodoctor/validator.py" in paths
+    assert paths == ["custom_components/autodoctor/action_walker.py"]
 
 
 def test_pyproject_mutmut_tests_dir_is_list():

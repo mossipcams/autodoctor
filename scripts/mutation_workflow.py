@@ -15,6 +15,7 @@ CORE_MUTATION_PATHS = [
     "custom_components/autodoctor/template_utils.py",
     "custom_components/autodoctor/validator.py",
 ]
+MUTATION_RESULTS_FILENAME = "mutation_results.json"
 RESULTS_TIMEOUT_SECONDS = 180
 SHOW_TIMEOUT_SECONDS = 120
 RUN_TIMEOUT_SECONDS = 7200
@@ -56,15 +57,23 @@ def parse_survivors(results_output: str) -> list[str]:
     return survivors
 
 
-def get_survivor_mutants() -> list[str]:
-    result = subprocess.run(
-        [".venv/bin/mutmut", "results"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=RESULTS_TIMEOUT_SECONDS,
-    )
-    return parse_survivors(result.stdout)
+def get_mutation_results_path(artifacts_dir: Path) -> Path:
+    return artifacts_dir / MUTATION_RESULTS_FILENAME
+
+
+def load_mutation_results(artifacts_dir: Path) -> list[dict[str, object]]:
+    results_path = get_mutation_results_path(artifacts_dir)
+    if not results_path.exists():
+        return []
+    return json.loads(results_path.read_text())
+
+
+def get_survivor_mutants(artifacts_dir: Path) -> list[str]:
+    return [
+        str(result["mutant_name"])
+        for result in load_mutation_results(artifacts_dir)
+        if result.get("status") == "survived"
+    ]
 
 
 def get_mutant_diff(mutant_name: str) -> str:
@@ -99,7 +108,7 @@ def build_survivor_prompt(survivor_diffs: dict[str, str]) -> str:
 
 def export_survivor_prompt(artifacts_dir: Path) -> int:
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    survivors = get_survivor_mutants()
+    survivors = get_survivor_mutants(artifacts_dir)
     diffs = collect_survivor_diffs(survivors)
     prompt = build_survivor_prompt(diffs)
     (artifacts_dir / "survivor_prompt.md").write_text(prompt)
@@ -112,12 +121,12 @@ def rerun_survivors(artifacts_dir: Path) -> int:
     if survivors_file.exists():
         survivors = json.loads(survivors_file.read_text())
     else:
-        survivors = get_survivor_mutants()
+        survivors = get_survivor_mutants(artifacts_dir)
 
     if not survivors:
         return 0
 
-    cmd = [".venv/bin/mutmut", "run", *survivors]
+    cmd = get_mutation_runner_command(artifacts_dir, survivors)
     result = subprocess.run(cmd, check=False, timeout=RUN_TIMEOUT_SECONDS)
     return result.returncode
 
@@ -148,6 +157,28 @@ def run_baseline(artifacts_dir: Path) -> int:
     return result.returncode
 
 
+def get_mutation_runner_command(artifacts_dir: Path, mutant_names: list[str] | None = None) -> list[str]:
+    mutant_names = mutant_names or []
+    return [
+        ".venv/bin/python",
+        "scripts/mutmut_subprocess_runner.py",
+        "--results-file",
+        str(get_mutation_results_path(artifacts_dir)),
+        *mutant_names,
+    ]
+
+
+def run_mutation_suite(artifacts_dir: Path, mutant_names: list[str] | None = None) -> int:
+    rc = run_typechecks()
+    if rc != 0:
+        return rc
+    return subprocess.run(
+        get_mutation_runner_command(artifacts_dir, mutant_names),
+        check=False,
+        timeout=RUN_TIMEOUT_SECONDS,
+    ).returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Mutation testing workflow runner")
     parser.add_argument(
@@ -159,6 +190,7 @@ def main() -> int:
         default="mutants/workflow",
         help="Directory to store workflow artifacts",
     )
+    parser.add_argument("mutant_names", nargs="*")
     args = parser.parse_args()
 
     artifacts_dir = Path(args.artifacts_dir)
@@ -166,14 +198,7 @@ def main() -> int:
     if args.command == "baseline":
         return run_baseline(artifacts_dir)
     if args.command == "run":
-        rc = run_typechecks()
-        if rc != 0:
-            return rc
-        return subprocess.run(
-            [".venv/bin/mutmut", "run"],
-            check=False,
-            timeout=RUN_TIMEOUT_SECONDS,
-        ).returncode
+        return run_mutation_suite(artifacts_dir, args.mutant_names)
     if args.command == "show-survivors":
         return export_survivor_prompt(artifacts_dir)
     if args.command == "rerun-survivors":
