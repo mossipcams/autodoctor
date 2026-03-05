@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.31.1](https://github.com/mossipcams/autodoctor/compare/v2.31.0...v2.31.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* **ci:** protect dev branch from stale branch cleanup ([#189](https://github.com/mossipcams/autodoctor/issues/189)) ([6155888](https://github.com/mossipcams/autodoctor/commit/615588803f472ccf1c11b297531f9ccbdf4eb014))
+
 ## [2.31.0](https://github.com/mossipcams/autodoctor/compare/v2.30.0...v2.31.0) (2026-02-27)
 
 
