@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeGuard, cast
 
 import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
@@ -26,9 +26,16 @@ _TEMPLATE_MAX_NESTING_DEPTH = 20
 
 def _ensure_list(value: Any) -> list[Any]:
     """Wrap a value in a list if it isn't one already."""
-    if not isinstance(value, list):
-        return [value] if value is not None else []
-    return cast(list[Any], value)
+    if _is_any_list(value):
+        return value
+    if value is None:
+        return []
+    return [value]
+
+
+def _is_any_list(value: Any) -> TypeGuard[list[Any]]:
+    """Narrow Any to list[Any] for static type-checkers."""
+    return isinstance(value, list)
 
 
 class JinjaValidator:
@@ -189,10 +196,10 @@ class JinjaValidator:
 
         if not isinstance(condition, dict):
             return issues
-        condition = cast(dict[str, Any], condition)
+        typed_condition = cast(dict[str, Any], condition)
 
         # Check value_template
-        value_template = condition.get("value_template")
+        value_template = typed_condition.get("value_template")
         if value_template and isinstance(value_template, str):
             issues.extend(
                 self._check_template(
@@ -205,7 +212,7 @@ class JinjaValidator:
 
         # Check nested conditions (and/or/not)
         for key in ("conditions", "and", "or", "not"):
-            nested = _ensure_list(condition.get(key, []))
+            nested = _ensure_list(typed_condition.get(key, []))
             for nested_idx, nested_cond in enumerate(nested):
                 issues.extend(
                     self._validate_condition(
@@ -309,7 +316,8 @@ class JinjaValidator:
                     )
                 )
             elif isinstance(value, list):
-                for idx, item in enumerate(cast(list[Any], value)):
+                list_value: list[Any] = list(value)
+                for idx, item in enumerate(list_value):
                     if isinstance(item, str) and self._is_template(item):
                         issues.extend(
                             self._check_template(

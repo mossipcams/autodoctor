@@ -216,6 +216,31 @@ When you dismiss an issue as a false positive, Autodoctor learns that the state 
 - Home Assistant 2024.1 or newer
 - Recorder integration (for history analysis and runtime health)
 
+## Mutation Workflow (Critical Paths)
+
+The repository now includes `scripts/mutation_workflow.py` to support this mutation-testing loop:
+
+1. **Baseline coverage**
+   - `./.venv/bin/python scripts/mutation_workflow.py baseline`
+2. **Type checks**
+   - `scripts/mutation_workflow.py run` hard-gates on both:
+     - `pyright custom_components/`
+     - `mypy --strict --follow-imports=skip` on core mutation paths only
+   - Existing `pyright` usage also remains in `scripts/pre_pr_checks.sh`
+3. **Only mutate covered lines**
+   - `setup.cfg` sets `mutate_only_covered_lines = true`
+4. **Run mutmut on core logic scope**
+   - `./.venv/bin/python scripts/mutation_workflow.py run`
+   - Scope is configured in `[tool.mutmut].paths_to_mutate` (core validator/analyzer modules only; excludes config flow and HA glue)
+5. **Export survivors for test generation**
+   - `./.venv/bin/python scripts/mutation_workflow.py show-survivors`
+   - Paste `mutants/workflow/survivor_prompt.md` into Claude Code with: `write tests to kill these mutants`
+6. **Re-run only survivors**
+   - `./.venv/bin/python scripts/mutation_workflow.py rerun-survivors`
+7. **Stop condition**
+   - Stop when kill-rate on critical paths reaches `>= 70%` or progress plateaus
+   - Plateau helper logic is implemented in `should_stop(...)` in `scripts/mutation_workflow.py`
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

@@ -375,7 +375,8 @@ class ValidationEngine:
 
         self._ensure_entity_cache()
         domain = invalid.split(".", 1)[0]
-        same_domain = self._entity_cache.get(domain, [])  # pyright: ignore[reportOptionalMemberAccess]
+        cache = self._entity_cache or {}
+        same_domain = cache.get(domain, [])
         if not same_domain:
             return None
 

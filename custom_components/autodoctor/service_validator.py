@@ -191,7 +191,10 @@ class ServiceCallValidator:
         if service_desc is None:
             return None
 
-        return service_desc.get("fields", {})
+        fields = service_desc.get("fields", {})
+        if isinstance(fields, dict):
+            return cast(dict[str, Any], fields)
+        return {}
 
     def validate_service_calls(
         self,
@@ -368,11 +371,12 @@ class ServiceCallValidator:
         if isinstance(value, str):
             return set() if _is_template_value(value) else {value}
         if isinstance(value, list):
-            return {
-                v
-                for v in cast(list[Any], value)
-                if isinstance(v, str) and not _is_template_value(v)
-            }
+            target_values: set[str] = set()
+            typed_values: list[Any] = list(value)
+            for item in typed_values:
+                if isinstance(item, str) and not _is_template_value(item):
+                    target_values.add(item)
+            return target_values
         return set()
 
     def _validate_required_params(
@@ -789,11 +793,11 @@ class ServiceCallValidator:
         options = select_config.get("options", [])
         if not options or not isinstance(options, list):
             return None
-        options = cast(list[Any], options)
 
         # Normalize options — they can be strings or dicts with 'value' key
-        valid_values = []
-        for opt in options:
+        valid_values: list[Any] = []
+        typed_options: list[Any] = list(options)
+        for opt in typed_options:
             if isinstance(opt, str):
                 valid_values.append(opt)
             elif isinstance(opt, dict) and "value" in opt:
@@ -807,8 +811,11 @@ class ServiceCallValidator:
 
         # For list parameters with multiple=True, validate each item
         if is_multiple and isinstance(value, list):
-            typed_value = cast(list[Any], value)
-            invalid_items = [v for v in typed_value if v not in valid_values]
+            invalid_items: list[Any] = []
+            typed_values: list[Any] = list(value)
+            for item in typed_values:
+                if item not in valid_values:
+                    invalid_items.append(item)
             if invalid_items:
                 return ValidationIssue(
                     severity=Severity.WARNING,
@@ -968,8 +975,14 @@ class ServiceCallValidator:
             return [value], issues
 
         if isinstance(value, list):
-            values = cast(list[Any], value)
-            non_strings = [v for v in values if not isinstance(v, str)]
+            non_strings: list[Any] = []
+            string_values: list[str] = []
+            typed_values: list[Any] = list(value)
+            for item in typed_values:
+                if isinstance(item, str):
+                    string_values.append(item)
+                else:
+                    non_strings.append(item)
             if non_strings:
                 issues.append(
                     ValidationIssue(
@@ -984,7 +997,7 @@ class ServiceCallValidator:
                         issue_type=IssueType.SERVICE_INVALID_PARAM_TYPE,
                     )
                 )
-            return [v for v in values if isinstance(v, str)], issues
+            return string_values, issues
 
         issues.append(
             ValidationIssue(

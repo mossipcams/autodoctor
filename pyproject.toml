@@ -20,6 +20,7 @@ dev = [
     "tdd-guard-pytest",
     "mutmut>=3.4.0",
     "hypothesis>=6.0.0",
+    "mypy>=1.11.0",
 ]
 
 [tool.pytest.ini_options]
@@ -58,5 +59,32 @@ ignore = [
 quote-style = "double"
 
 [tool.mutmut]
-paths_to_mutate = "custom_components/autodoctor/validator.py:custom_components/autodoctor/service_validator.py:custom_components/autodoctor/jinja_validator.py:custom_components/autodoctor/knowledge_base.py"
-tests_dir = "tests/"
+paths_to_mutate = [
+    "custom_components/autodoctor/action_walker.py",
+    "custom_components/autodoctor/analyzer.py",
+    "custom_components/autodoctor/jinja_validator.py",
+    "custom_components/autodoctor/knowledge_base.py",
+    "custom_components/autodoctor/service_validator.py",
+    "custom_components/autodoctor/template_utils.py",
+    "custom_components/autodoctor/validator.py",
+]
+tests_dir = ["tests/"]
+pytest_add_cli_args_test_selection = [
+    "--ignore=tests/test_fuzz_targets.py",
+    "--ignore=tests/test_fuzz_runner_script.py",
+    "--ignore=tests/test_property_mutation_gate_script.py",
+]
+also_copy = ["scripts"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = [
+    "custom_components/autodoctor/action_walker.py",
+    "custom_components/autodoctor/analyzer.py",
+    "custom_components/autodoctor/jinja_validator.py",
+    "custom_components/autodoctor/knowledge_base.py",
+    "custom_components/autodoctor/service_validator.py",
+    "custom_components/autodoctor/template_utils.py",
+    "custom_components/autodoctor/validator.py",
+]

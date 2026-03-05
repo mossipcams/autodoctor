@@ -172,7 +172,10 @@ class StateKnowledgeBase:
         if not integration:
             return set()
 
-        return self._learned_states_store.get_learned_states(domain, integration)
+        learned_states = self._learned_states_store.get_learned_states(
+            domain, integration
+        )
+        return {str(state) for state in learned_states}
 
     def _get_capabilities_states(self, entity_id: str) -> set[str]:
         """Extract valid states from entity registry capabilities.
@@ -197,7 +200,9 @@ class StateKnowledgeBase:
                 if cap_key in entry.capabilities:
                     cap_value = entry.capabilities[cap_key]
                     if isinstance(cap_value, list):
-                        states.update(str(v) for v in cast(list[Any], cap_value))
+                        capability_values: list[Any] = list(cap_value)
+                        for state_value in capability_values:
+                            states.add(str(state_value))
 
             return states
 
@@ -259,7 +264,8 @@ class StateKnowledgeBase:
             if capability_key in entry.capabilities:
                 cap_value = entry.capabilities[capability_key]
                 if isinstance(cap_value, list):
-                    return {str(v) for v in cast(list[Any], cap_value)}
+                    attribute_values: list[Any] = list(cap_value)
+                    return {str(attribute_value) for attribute_value in attribute_values}
 
             return set()
 
@@ -303,21 +309,22 @@ class StateKnowledgeBase:
                 and isinstance(state.attributes.get("options"), list)
                 and state.attributes["options"]  # non-empty
             ):
-                valid_states = {str(v) for v in state.attributes["options"]}
-                valid_states.add("unavailable")
-                valid_states.add("unknown")
+                enum_valid_states = {str(v) for v in state.attributes["options"]}
+                enum_valid_states.add("unavailable")
+                enum_valid_states.add("unknown")
                 # Always include current state as valid
                 if state.state not in ("unavailable", "unknown"):
-                    valid_states.add(state.state)
+                    enum_valid_states.add(state.state)
                 # Cache and return
                 if entity_id in self._cache:
-                    self._cache[entity_id].update(valid_states)
+                    self._cache[entity_id].update(enum_valid_states)
                 else:
-                    self._cache[entity_id] = valid_states
-                return valid_states.copy()
+                    self._cache[entity_id] = enum_valid_states
+                return enum_valid_states.copy()
             return None
 
         # Start with device class defaults
+        valid_states: set[str]
         device_class_defaults = get_device_class_states(domain)
         if device_class_defaults is not None:
             valid_states = device_class_defaults.copy()
@@ -329,7 +336,7 @@ class StateKnowledgeBase:
             )
         else:
             # Unknown domain - return empty set (will be populated by history)
-            valid_states: set[str] = set()
+            valid_states = set()
             _LOGGER.debug(
                 "Entity %s (domain=%s): no device class defaults", entity_id, domain
             )
@@ -476,7 +483,8 @@ class StateKnowledgeBase:
         if source_attr:
             values = state.attributes.get(source_attr)
             if values and isinstance(values, list):
-                return {str(v) for v in cast(list[Any], values)}
+                typed_values: list[Any] = list(values)
+                return {str(v) for v in typed_values}
 
         return None
 
@@ -535,10 +543,11 @@ class StateKnowledgeBase:
             new_observed: dict[str, set[str]] = {}
             loaded_count = 0
 
-            for entity_id, states in cast(dict[str, list[Any]], history).items():
+            history_by_entity = cast(dict[str, list[Any]], history)
+            for entity_id, state_history in history_by_entity.items():
                 entity_states: set[str] = set()
 
-                for state in states:
+                for state in state_history:
                     # Handle both State objects and dict formats
                     if hasattr(state, "state"):
                         state_value = state.state
@@ -555,15 +564,15 @@ class StateKnowledgeBase:
                     new_observed[entity_id] = entity_states
 
             # Apply updates atomically - merge with existing data
-            for entity_id, states in new_observed.items():
+            for entity_id, observed_states in new_observed.items():
                 if entity_id in self._observed_states:
-                    self._observed_states[entity_id].update(states)
+                    self._observed_states[entity_id].update(observed_states)
                 else:
-                    self._observed_states[entity_id] = states
+                    self._observed_states[entity_id] = observed_states
 
                 # Also update cache if entry exists
                 if entity_id in self._cache:
-                    self._cache[entity_id].update(states)
+                    self._cache[entity_id].update(observed_states)
 
             _LOGGER.debug(
                 "Loaded %d historical states for %d entities",

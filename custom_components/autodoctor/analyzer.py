@@ -702,9 +702,10 @@ class AutomationAnalyzer:
                 )
 
         elif cond_type in ("and", "or", "not"):
-            nested_conditions = condition.get("conditions", [])
-            if isinstance(nested_conditions, list):
-                for i, nested in enumerate(cast(list[Any], nested_conditions)):
+            nested_conditions_raw = condition.get("conditions", [])
+            if isinstance(nested_conditions_raw, list):
+                nested_conditions: list[Any] = list(nested_conditions_raw)
+                for i, nested in enumerate(nested_conditions):
                     refs.extend(
                         self._extract_from_condition(
                             nested,
@@ -1167,18 +1168,21 @@ class AutomationAnalyzer:
     def extract_service_calls(self, automation: dict[str, Any]) -> list[ServiceCall]:
         """Extract all service calls from automation actions."""
         service_calls: list[ServiceCall] = []
-        actions = cast(
-            list[dict[str, Any]],
-            automation.get("actions") or automation.get("action") or [],
-        )
-        if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
-            actions = [actions]
+        raw_actions: Any = automation.get("actions") or automation.get("action") or []
+        actions: list[dict[str, Any]]
+        if isinstance(raw_actions, list):
+            raw_action_items: list[Any] = list(raw_actions)
+            actions = [item for item in raw_action_items if isinstance(item, dict)]
+        elif isinstance(raw_actions, dict):
+            actions = [raw_actions]
+        else:
+            actions = []
 
         automation_id = f"automation.{automation.get('id', 'unknown')}"
         automation_name: str = automation.get("alias", "Unknown")
 
         self._extract_service_calls_from_actions(
-            cast(list[dict[str, Any]], actions),
+            actions,
             automation_id,
             automation_name,
             "action",
