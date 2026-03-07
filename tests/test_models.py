@@ -275,6 +275,7 @@ def test_service_call_template_detection() -> None:
         ("SERVICE_MISSING_REQUIRED_PARAM", "service_missing_required_param"),
         ("SERVICE_INVALID_PARAM_TYPE", "service_invalid_param_type"),
         ("SERVICE_UNKNOWN_PARAM", "service_unknown_param"),
+        ("RUNTIME_AUTOMATION_OVERDUE", "runtime_automation_overdue"),
         ("RUNTIME_AUTOMATION_OVERACTIVE", "runtime_automation_overactive"),
         ("RUNTIME_AUTOMATION_BURST", "runtime_automation_burst"),
     ],
@@ -283,6 +284,7 @@ def test_service_call_template_detection() -> None:
         "missing-required-param",
         "invalid-param-type",
         "unknown-param",
+        "runtime-automation-overdue",
         "runtime-automation-overactive",
         "runtime-automation-burst",
     ],
@@ -348,12 +350,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 18 members.
+    """Guard: Verify IssueType has exactly 19 members.
 
     This guards against accidental reintroduction of removed types.
-    Count: 8 entity_state + 5 services + 3 templates + 2 runtime = 18 total.
+    Count: 8 entity_state + 5 services + 3 templates + 3 runtime = 19 total.
     """
-    assert len(IssueType) == 18, f"Expected 18 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 19, f"Expected 19 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:
@@ -703,6 +705,7 @@ def test_runtime_group_contains_runtime_issue_types() -> None:
     runtime_group = VALIDATION_GROUPS["runtime_health"]["issue_types"]
     assert runtime_group == frozenset(
         {
+            IssueType.RUNTIME_AUTOMATION_OVERDUE,
             IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
             IssueType.RUNTIME_AUTOMATION_BURST,
         }

@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from custom_components.autodoctor.models import IssueType
 from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
 from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+from tests.conftest import build_runtime_monitor
 
 
 class _FixedScoreDetector:
@@ -373,6 +374,271 @@ def test_get_event_store_diagnostics_returns_runtime_store_state(
     assert diag["pending_jobs"] == 5
     assert diag["write_failures"] == 3
     assert diag["dropped_events"] == 2
+
+
+def test_build_overdue_profile_marks_weekly_pattern_predictable() -> None:
+    """Weekly same-time histories should produce a predictable overdue profile."""
+    now = datetime(2026, 3, 4, 9, 0, tzinfo=UTC)  # Wednesday
+    monitor = build_runtime_monitor(now, baseline_days=90)
+    baseline_start = now - timedelta(days=90)
+    weekday_offset = (now.weekday() - baseline_start.weekday()) % 7
+    series_start = (baseline_start + timedelta(days=weekday_offset)).replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    events = [series_start + timedelta(days=(7 * idx)) for idx in range(13)]
+
+    profile = monitor._build_overdue_profile(
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
+    )
+
+    assert profile["comparable_days"] >= 12
+    assert profile["active_comparable_days"] >= 12
+    assert profile["first_trigger_median_minute"] == pytest.approx(480.0, abs=5.0)
+    assert profile["median_gap_days"] == pytest.approx(7.0, abs=0.25)
+    assert profile["predictability_score"] >= 0.8
+    assert profile["is_predictable"] is True
+
+
+def test_build_overdue_profile_abstains_for_sparse_inconsistent_history() -> None:
+    """Sparse inconsistent timing should be treated as not predictable."""
+    now = datetime(2026, 3, 4, 9, 0, tzinfo=UTC)
+    monitor = build_runtime_monitor(now, baseline_days=90)
+    baseline_start = now - timedelta(days=90)
+    events = [
+        baseline_start + timedelta(days=3, hours=6),
+        baseline_start + timedelta(days=11, hours=17),
+        baseline_start + timedelta(days=19, hours=9),
+        baseline_start + timedelta(days=28, hours=22),
+        baseline_start + timedelta(days=37, hours=12),
+    ]
+
+    profile = monitor._build_overdue_profile(
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
+    )
+
+    assert profile["comparable_days"] >= 12
+    assert profile["active_comparable_days"] == 0
+    assert profile["predictability_score"] < 0.5
+    assert profile["is_predictable"] is False
+
+
+def test_build_overdue_profile_abstains_when_comparable_history_is_too_thin() -> None:
+    """Comparable-day overdue checks should abstain without enough prior examples."""
+    now = datetime(2026, 3, 4, 9, 0, tzinfo=UTC)
+    monitor = build_runtime_monitor(now, baseline_days=90)
+    baseline_start = now - timedelta(days=90)
+    events = [
+        datetime(2026, 1, 7, 8, 0, tzinfo=UTC),
+        datetime(2026, 1, 14, 8, 0, tzinfo=UTC),
+        datetime(2026, 1, 21, 8, 0, tzinfo=UTC),
+    ]
+
+    profile = monitor._build_overdue_profile(
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
+    )
+
+    assert profile["active_comparable_days"] == 3
+    assert profile["predictability_score"] < 0.6
+    assert profile["is_predictable"] is False
+
+
+def test_predict_overdue_marks_weekly_morning_automation_as_late() -> None:
+    """Predictable weekly patterns should be marked overdue after their window passes."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)  # Wednesday
+    monitor = build_runtime_monitor(now, baseline_days=90)
+    baseline_start = now - timedelta(days=90)
+    weekday_offset = (now.weekday() - baseline_start.weekday()) % 7
+    series_start = (baseline_start + timedelta(days=weekday_offset)).replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    events = [series_start + timedelta(days=(7 * idx)) for idx in range(12)]
+
+    decision = monitor._predict_overdue(
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
+    )
+
+    assert decision["status"] == "overdue"
+    assert float(decision["overdue_probability"]) >= 0.9
+    assert "usually fires by" in str(decision["reason"])
+
+
+def test_predict_overdue_returns_not_due_after_today_trigger() -> None:
+    """An automation that already fired today should not be marked overdue."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)
+    monitor = build_runtime_monitor(now, baseline_days=90)
+    baseline_start = now - timedelta(days=90)
+    weekday_offset = (now.weekday() - baseline_start.weekday()) % 7
+    series_start = (baseline_start + timedelta(days=weekday_offset)).replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    events = [series_start + timedelta(days=(7 * idx)) for idx in range(12)]
+    events.append(now.replace(hour=8, minute=5))
+
+    decision = monitor._predict_overdue(
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
+    )
+
+    assert decision["status"] == "not_due"
+    assert decision["overdue_probability"] == pytest.approx(0.0)
+
+
+def test_predict_overdue_abstains_for_sparse_inconsistent_history() -> None:
+    """Inconsistent histories should abstain instead of guessing overdue."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)
+    monitor = build_runtime_monitor(now, baseline_days=90)
+    baseline_start = now - timedelta(days=90)
+    events = [
+        baseline_start + timedelta(days=2, hours=5),
+        baseline_start + timedelta(days=18, hours=15),
+        baseline_start + timedelta(days=31, hours=9),
+        baseline_start + timedelta(days=47, hours=22),
+        baseline_start + timedelta(days=63, hours=12),
+    ]
+
+    decision = monitor._predict_overdue(
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
+    )
+
+    assert decision["status"] == "abstain"
+    assert decision["overdue_probability"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_emits_overdue_issue_for_predictable_miss(
+    hass: HomeAssistant,
+) -> None:
+    """Predictable missed windows should emit a dedicated overdue issue."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)  # Wednesday
+    baseline_start = now - timedelta(days=90)
+    weekday_offset = (now.weekday() - baseline_start.weekday()) % 7
+    series_start = (baseline_start + timedelta(days=weekday_offset)).replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    history = {
+        "weekly_overdue": [
+            series_start + timedelta(days=(7 * idx)) for idx in range(12)
+        ]
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.0,
+        baseline_days=90,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("weekly_overdue", "Weekly Laundry")]
+    )
+
+    overdue = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
+    ]
+    assert len(overdue) == 1
+    assert "usually fires by" in overdue[0].message
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_abstains_on_unpredictable_overdue_candidate(
+    hass: HomeAssistant,
+) -> None:
+    """Irregular histories should not emit overdue runtime issues."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)
+    history = {
+        "irregular": [
+            now - timedelta(days=4, hours=1),
+            now - timedelta(days=17, hours=9),
+            now - timedelta(days=28, hours=14),
+            now - timedelta(days=41, hours=4),
+            now - timedelta(days=63, hours=11),
+        ]
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.0,
+        baseline_days=90,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("irregular", "Irregular")])
+
+    overdue = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
+    ]
+    assert overdue == []
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_persists_raw_score_separately_from_ema(
+    hass: HomeAssistant,
+    tmp_path: Path,
+) -> None:
+    """Runtime telemetry should retain raw BOCPD score alongside the smoothed EMA."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": baseline}
+    store = RuntimeEventStore(tmp_path / "autodoctor_runtime.db")
+    store.ensure_schema(target_version=1)
+    store.record_score(
+        "automation.runtime_test",
+        scored_at=now - timedelta(hours=1),
+        score=0.4,
+        ema_score=0.4,
+        features={"raw_bocpd_score": 0.4},
+    )
+    store.set_metadata("observation:start_at", (now - timedelta(days=120)).isoformat())
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=1.0,
+        runtime_event_store=store,
+        baseline_days=90,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+
+    await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
+    persisted = store.get_last_score("automation.runtime_test")
+    store.close()
+
+    assert persisted is not None
+    assert persisted.score == pytest.approx(1.0)
+    assert persisted.ema_score == pytest.approx(0.6, abs=1e-3)
+    assert persisted.features["raw_bocpd_score"] == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio
