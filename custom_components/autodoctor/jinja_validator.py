@@ -9,6 +9,8 @@ import jinja2.nodes as nodes
 from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
+from .action_walker import condition_location as _condition_location
+from .action_walker import ensure_list as _ensure_list
 from .ha_catalog import get_known_filters, get_known_tests
 from .models import IssueType, Severity, ValidationIssue
 from .template_utils import is_template_value
@@ -22,13 +24,6 @@ _LOGGER = logging.getLogger(__name__)
 # Intentionally lower than const.MAX_RECURSION_DEPTH (50) because templates
 # rarely nest deeply and this provides a tighter safety net for parsing.
 _TEMPLATE_MAX_NESTING_DEPTH = 20
-
-
-def _ensure_list(value: Any) -> list[Any]:
-    """Wrap a value in a list if it isn't one already."""
-    if not isinstance(value, list):
-        return [value] if value is not None else []
-    return cast(list[Any], value)
 
 
 class JinjaValidator:
@@ -165,6 +160,7 @@ class JinjaValidator:
     ) -> list[ValidationIssue]:
         """Validate templates in a condition."""
         issues: list[ValidationIssue] = []
+        condition_location = _condition_location(location_prefix, index)
 
         if _depth > _TEMPLATE_MAX_NESTING_DEPTH:
             _LOGGER.warning(
@@ -180,7 +176,7 @@ class JinjaValidator:
                 issues.extend(
                     self._check_template(
                         condition,
-                        f"{location_prefix}[{index}]",
+                        condition_location,
                         auto_id,
                         auto_name,
                     )
@@ -189,15 +185,15 @@ class JinjaValidator:
 
         if not isinstance(condition, dict):
             return issues
-        condition = cast(dict[str, Any], condition)
+        typed_condition = cast(dict[str, Any], condition)
 
         # Check value_template
-        value_template = condition.get("value_template")
+        value_template = typed_condition.get("value_template")
         if value_template and isinstance(value_template, str):
             issues.extend(
                 self._check_template(
                     value_template,
-                    f"{location_prefix}[{index}].value_template",
+                    f"{condition_location}.value_template",
                     auto_id,
                     auto_name,
                 )
@@ -205,7 +201,7 @@ class JinjaValidator:
 
         # Check nested conditions (and/or/not)
         for key in ("conditions", "and", "or", "not"):
-            nested = _ensure_list(condition.get(key, []))
+            nested = _ensure_list(typed_condition.get(key, []))
             for nested_idx, nested_cond in enumerate(nested):
                 issues.extend(
                     self._validate_condition(
@@ -213,7 +209,7 @@ class JinjaValidator:
                         nested_idx,
                         auto_id,
                         auto_name,
-                        f"{location_prefix}[{index}].{key}",
+                        f"{condition_location}.{key}",
                         _depth + 1,
                     )
                 )
@@ -309,7 +305,8 @@ class JinjaValidator:
                     )
                 )
             elif isinstance(value, list):
-                for idx, item in enumerate(cast(list[Any], value)):
+                list_value: list[Any] = list(value)
+                for idx, item in enumerate(list_value):
                     if isinstance(item, str) and self._is_template(item):
                         issues.extend(
                             self._check_template(

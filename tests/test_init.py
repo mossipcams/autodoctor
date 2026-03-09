@@ -181,6 +181,37 @@ async def test_validate_all_with_groups_classification(grouped_hass: MagicMock) 
 
 
 @pytest.mark.asyncio
+async def test_validate_all_with_groups_includes_reachability_issues(
+    grouped_hass: MagicMock,
+) -> None:
+    """Reachability issues should flow into entity_state group and flat list."""
+    reachability_issue = make_issue(
+        IssueType.UNREACHABLE_STATE_COMBINATION,
+        Severity.ERROR,
+    )
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["reachability_validator"] = MagicMock()
+    grouped_hass.data[DOMAIN][
+        "reachability_validator"
+    ].validate_automations.return_value = [reachability_issue]
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "test", "alias": "Test"}],
+    ):
+        result = await async_validate_all_with_groups(grouped_hass)
+
+    assert reachability_issue in result["group_issues"]["entity_state"]
+    assert reachability_issue in result["all_issues"]
+
+
+@pytest.mark.asyncio
 async def test_validate_all_with_groups_timing(grouped_hass: MagicMock) -> None:
     """Test that each group has a non-negative duration_ms value.
 
@@ -851,6 +882,55 @@ def test_get_automation_configs_entity_without_raw_config() -> None:
     result = _get_automation_configs(hass)
     assert len(result) == 1
     assert result[0]["id"] == "good"
+
+
+def test_get_automation_configs_skips_disabled_in_entity_component_mode() -> None:
+    """Disabled automations should be excluded from extracted configs."""
+    from custom_components.autodoctor import _get_automation_configs
+
+    enabled_entity = MagicMock()
+    enabled_entity.entity_id = "automation.enabled"
+    enabled_entity.raw_config = {"id": "enabled", "alias": "Enabled", "enabled": True}
+
+    disabled_entity = MagicMock()
+    disabled_entity.entity_id = "automation.disabled"
+    disabled_entity.raw_config = {
+        "id": "disabled",
+        "alias": "Disabled",
+        "enabled": False,
+    }
+
+    component = MagicMock()
+    component.entities = [enabled_entity, disabled_entity]
+
+    hass = MagicMock()
+    hass.data = {"automation": component}
+
+    result = _get_automation_configs(hass)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "enabled"
+    assert result[0]["__entity_id"] == "automation.enabled"
+
+
+def test_get_automation_configs_skips_disabled_in_dict_mode() -> None:
+    """Disabled automations should be excluded in dict-mode extraction too."""
+    from custom_components.autodoctor import _get_automation_configs
+
+    hass = MagicMock()
+    hass.data = {
+        "automation": {
+            "config": [
+                {"id": "enabled", "alias": "Enabled"},
+                {"id": "disabled", "alias": "Disabled", "enabled": False},
+            ]
+        }
+    }
+
+    result = _get_automation_configs(hass)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "enabled"
 
 
 # --- _async_register_card tests (mutation hardening) ---
@@ -3204,6 +3284,29 @@ async def test_async_setup_entry_registers_runtime_trigger_listener_and_ingests_
             occurred_at=event.time_fired,
             suppression_store=mock_suppression,
         )
+
+
+@pytest.mark.asyncio
+async def test_runtime_trigger_closure_does_not_lookup_suppression_store_per_event() -> (
+    None
+):
+    """The runtime trigger handler should not walk hass.data on every event."""
+    import inspect
+    import re
+
+    from custom_components.autodoctor import async_setup_entry
+
+    source = inspect.getsource(async_setup_entry)
+    # Extract the _handle_runtime_trigger function body using indentation
+    match = re.search(
+        r"(def _handle_runtime_trigger\(.*?\n)((?:[ \t]+.*\n)*)", source
+    )
+    assert match, "Could not find _handle_runtime_trigger"
+    handler_body = match.group(2)
+    assert "hass.data" not in handler_body, (
+        "_handle_runtime_trigger looks up suppression_store via hass.data on every event; "
+        "capture it in the closure at setup time instead"
+    )
 
 
 @pytest.mark.asyncio

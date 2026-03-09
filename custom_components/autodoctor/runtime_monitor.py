@@ -57,6 +57,9 @@ _RECENT_WINDOW_HOURS = 24
 _LOW_FREQUENCY_WARMUP_MINIMUM = 2
 _DEFAULT_MEDIAN_GAP_MINUTES = 60.0
 _MIN_MEDIAN_GAP_MINUTES = 1.0
+_OVERDUE_MIN_COMPARABLE_ACTIVE_DAYS = 4
+_OVERDUE_PREDICTABLE_SCORE_THRESHOLD = 0.7
+_OVERDUE_PROBABILITY_THRESHOLD = 0.85
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
 _EVENT_STORE_OBS_START_KEY = "observation:start_at"
@@ -67,6 +70,21 @@ _SENSITIVITY_THRESHOLDS: dict[str, float] = {
     "medium": 2.0,
     "high": 1.5,
 }
+
+
+def _linear_percentile(values: list[float], quantile: float) -> float | None:
+    """Return linear-interpolated percentile from sorted numeric values."""
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    clamped = min(1.0, max(0.0, float(quantile)))
+    position = clamped * float(len(ordered) - 1)
+    lower = int(position)
+    upper = min(len(ordered) - 1, lower + 1)
+    fraction = position - float(lower)
+    return ordered[lower] + ((ordered[upper] - ordered[lower]) * fraction)
 
 
 class RuntimeHealthMonitor:
@@ -629,6 +647,7 @@ class RuntimeHealthMonitor:
         if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
             return False
         prefixes = (
+            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERDUE.value}",
             f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value}",
             f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_BURST.value}",
         )
@@ -787,6 +806,12 @@ class RuntimeHealthMonitor:
         issues: list[ValidationIssue] = []
         all_events_by_automation = history
         bucket_index = self._build_5m_bucket_index(all_events_by_automation)
+        suppression_store = self._runtime_suppression_store()
+        observed_coverage_days: float | None = (
+            max(0.0, (now - observed_start).total_seconds() / 86400)
+            if observed_start is not None
+            else None
+        )
         for automation in automations:
             automation_entity_id = self._resolve_automation_entity_id(automation)
             if not automation_entity_id:
@@ -852,9 +877,6 @@ class RuntimeHealthMonitor:
                 stats["cold_start"] += 1
                 continue
 
-            observed_coverage_days = self._observed_coverage_days(
-                now=now,
-            )
             if observed_coverage_days is not None and observed_coverage_days < float(
                 self.min_coverage_days
             ):
@@ -902,6 +924,19 @@ class RuntimeHealthMonitor:
                 median_gap_override=median_gap,
                 bucket_index=bucket_index,
             )
+            overdue_decision = self._predict_overdue(
+                automation_events=timestamps,
+                now=now,
+                baseline_start=automation_baseline_start,
+            )
+            current_row["predictability_score"] = self._coerce_float(
+                overdue_decision.get("predictability_score"),
+                0.0,
+            )
+            current_row["overdue_probability"] = self._coerce_float(
+                overdue_decision.get("overdue_probability"),
+                0.0,
+            )
             train_rows.append(current_row)
             if len(train_rows) < 2:
                 _LOGGER.debug(
@@ -945,14 +980,17 @@ class RuntimeHealthMonitor:
             )
             if self._runtime_event_store is not None:
                 try:
+                    feature_payload = dict(current_row)
+                    feature_payload["raw_bocpd_score"] = score
+                    feature_payload["bocpd_ema_score"] = smoothed_score
                     await self.hass.async_add_executor_job(
                         partial(
                             self._runtime_event_store.record_score,
                             automation_entity_id,
                             scored_at=now,
-                            score=smoothed_score,
+                            score=score,
                             ema_score=smoothed_score,
-                            features=current_row,
+                            features=feature_payload,
                         )
                     )
                 except Exception as err:
@@ -970,12 +1008,43 @@ class RuntimeHealthMonitor:
                 smoothed_score,
             )
 
+            overdue_issue_type = IssueType.RUNTIME_AUTOMATION_OVERDUE
             issue_type = IssueType.RUNTIME_AUTOMATION_OVERACTIVE
             threshold = self._score_threshold_for(automation_entity_id)
-            suppression_store = self._runtime_suppression_store()
             is_suppressed = self._is_runtime_suppressed(
                 automation_entity_id, suppression_store
             )
+
+            overdue_status = str(overdue_decision.get("status", "abstain"))
+            overdue_probability = self._coerce_float(
+                overdue_decision.get("overdue_probability"),
+                0.0,
+            )
+            if overdue_status == "overdue" and not is_suppressed:
+                if self._allow_alert(automation_entity_id, now=now):
+                    overdue_confidence = (
+                        "high" if overdue_probability >= 0.95 else "medium"
+                    )
+                    issue = ValidationIssue(
+                        severity=Severity.WARNING,
+                        automation_id=automation_entity_id,
+                        automation_name=automation_name,
+                        entity_id=automation_entity_id,
+                        location="runtime.health.overdue",
+                        message=str(
+                            overdue_decision.get(
+                                "reason",
+                                "Automation appears overdue based on recent timing history.",
+                            )
+                        ),
+                        issue_type=overdue_issue_type,
+                        confidence=overdue_confidence,
+                    )
+                    self._register_runtime_alert(issue)
+                    issues.append(issue)
+                    stats["overdue_alerts"] += 1
+            else:
+                self._clear_runtime_alert(automation_entity_id, overdue_issue_type)
 
             if smoothed_score >= threshold and not is_suppressed:
                 if self._allow_alert(automation_entity_id, now=now):
@@ -1110,6 +1179,177 @@ class RuntimeHealthMonitor:
             for idx in range(1, len(sorted_events))
         ]
         return max(_MIN_MEDIAN_GAP_MINUTES, float(median(gaps)))
+
+    def _build_overdue_profile(
+        self,
+        *,
+        automation_events: list[datetime],
+        now: datetime,
+        baseline_start: datetime,
+    ) -> dict[str, Any]:
+        """Summarize 90-day timing regularity for overdue prediction."""
+        baseline_events = sorted(
+            ts for ts in automation_events if baseline_start <= ts < now
+        )
+        total_days = max(0, (now.date() - baseline_start.date()).days)
+        full_weeks, remaining = divmod(total_days, 7)
+        offset = (now.weekday() - baseline_start.date().weekday()) % 7
+        comparable_days = full_weeks + (1 if offset < remaining else 0)
+        comparable_events = [
+            ts for ts in baseline_events if ts.weekday() == now.weekday()
+        ]
+        comparable_by_day: dict[date, list[datetime]] = defaultdict(list)
+        for ts in comparable_events:
+            comparable_by_day[ts.date()].append(ts)
+
+        first_trigger_minutes = sorted(
+            float(ts.hour * 60 + ts.minute + (ts.second / 60.0))
+            for ts_list in comparable_by_day.values()
+            for ts in [min(ts_list)]
+        )
+        active_comparable_days = len(first_trigger_minutes)
+
+        gap_days = [
+            (baseline_events[idx] - baseline_events[idx - 1]).total_seconds() / 86400.0
+            for idx in range(1, len(baseline_events))
+        ]
+        median_gap_days = float(median(gap_days)) if gap_days else None
+        gap_p90_days = _linear_percentile(gap_days, 0.9)
+
+        timing_spread = (
+            (max(first_trigger_minutes) - min(first_trigger_minutes))
+            if len(first_trigger_minutes) >= 2
+            else 0.0
+        )
+        activity_ratio = (
+            float(active_comparable_days) / float(comparable_days)
+            if comparable_days > 0
+            else 0.0
+        )
+        timing_consistency = max(0.0, 1.0 - min(1.0, timing_spread / 180.0))
+        sample_strength = min(
+            1.0,
+            float(active_comparable_days) / float(_OVERDUE_MIN_COMPARABLE_ACTIVE_DAYS),
+        )
+        predictability_score = activity_ratio * (
+            (0.6 * timing_consistency) + (0.4 * sample_strength)
+        )
+        is_predictable = (
+            active_comparable_days >= _OVERDUE_MIN_COMPARABLE_ACTIVE_DAYS
+            and predictability_score >= _OVERDUE_PREDICTABLE_SCORE_THRESHOLD
+        )
+
+        return {
+            "comparable_days": float(comparable_days),
+            "active_comparable_days": float(active_comparable_days),
+            "first_trigger_median_minute": (
+                float(median(first_trigger_minutes)) if first_trigger_minutes else None
+            ),
+            "first_trigger_p90_minute": _linear_percentile(first_trigger_minutes, 0.9),
+            "first_trigger_minutes": first_trigger_minutes,
+            "median_gap_days": median_gap_days,
+            "gap_p90_days": gap_p90_days,
+            "predictability_score": float(predictability_score),
+            "is_predictable": is_predictable,
+        }
+
+    def _predict_overdue(
+        self,
+        *,
+        automation_events: list[datetime],
+        now: datetime,
+        baseline_start: datetime,
+    ) -> dict[str, float | str | bool | None]:
+        """Return an overdue decision for predictable automations."""
+        observed_days = max(0, (now.date() - baseline_start.date()).days)
+        if self.baseline_days < _BOOTSTRAP_MIN_HISTORY_DAYS or observed_days < _BOOTSTRAP_MIN_HISTORY_DAYS:
+            return {
+                "status": "abstain",
+                "overdue_probability": 0.0,
+                "predictability_score": 0.0,
+                "reason": "Overdue detection requires a full 90-day timing baseline.",
+            }
+        today_events = sorted(
+            ts for ts in automation_events if ts.date() == now.date() and ts <= now
+        )
+        if today_events:
+            return {
+                "status": "not_due",
+                "overdue_probability": 0.0,
+                "predictability_score": 0.0,
+                "reason": "Automation already fired today.",
+            }
+
+        profile = self._build_overdue_profile(
+            automation_events=automation_events,
+            now=now,
+            baseline_start=baseline_start,
+        )
+        predictability_score = float(profile["predictability_score"] or 0.0)
+        if not bool(profile["is_predictable"]):
+            return {
+                "status": "abstain",
+                "overdue_probability": 0.0,
+                "predictability_score": predictability_score,
+                "reason": "Automation history is not predictable enough for overdue assessment.",
+            }
+
+        raw_minutes = profile.get("first_trigger_minutes")
+        first_trigger_minutes: list[float] = (
+            list(raw_minutes) if isinstance(raw_minutes, list) else []
+        )
+        active_comparable_days = len(first_trigger_minutes)
+        comparable_days = max(1, int(float(profile["comparable_days"] or 0.0)))
+        if active_comparable_days <= 0:
+            return {
+                "status": "abstain",
+                "overdue_probability": 0.0,
+                "predictability_score": predictability_score,
+                "reason": "No comparable historical trigger days found.",
+            }
+
+        now_minute = float(now.hour * 60 + now.minute + (now.second / 60.0))
+        p_active_today_type = float(active_comparable_days) / float(comparable_days)
+        p_fired_by_now = float(
+            sum(1 for minute in first_trigger_minutes if minute <= now_minute)
+        ) / float(active_comparable_days)
+        overdue_probability = p_active_today_type * p_fired_by_now
+
+        median_minute = float(profile["first_trigger_median_minute"] or now_minute)
+        p90_minute = float(profile["first_trigger_p90_minute"] or median_minute)
+        spread_minutes = max(0.0, p90_minute - median_minute)
+        grace_minutes = max(15.0, min(90.0, spread_minutes + 15.0))
+        deadline_minute = min((24.0 * 60.0) - 1.0, p90_minute + grace_minutes)
+
+        if now_minute < deadline_minute:
+            return {
+                "status": "not_due",
+                "overdue_probability": overdue_probability,
+                "predictability_score": predictability_score,
+                "reason": (
+                    f"Typical firing window remains open until about "
+                    f"{int(deadline_minute // 60):02d}:{int(deadline_minute % 60):02d}."
+                ),
+            }
+        if overdue_probability < _OVERDUE_PROBABILITY_THRESHOLD:
+            return {
+                "status": "abstain",
+                "overdue_probability": overdue_probability,
+                "predictability_score": predictability_score,
+                "reason": "Comparable history is still too weak to call this overdue with confidence.",
+            }
+
+        deadline_hour = int(deadline_minute // 60)
+        deadline_remainder = int(deadline_minute % 60)
+        return {
+            "status": "overdue",
+            "overdue_probability": overdue_probability,
+            "predictability_score": predictability_score,
+            "reason": (
+                f"Automation usually fires by {deadline_hour:02d}:{deadline_remainder:02d} "
+                f"on this day type and has not run yet."
+            ),
+        }
 
     @staticmethod
     def _build_5m_bucket_index(
