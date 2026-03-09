@@ -1262,7 +1262,10 @@ class RuntimeHealthMonitor:
     ) -> dict[str, float | str | bool | None]:
         """Return an overdue decision for predictable automations."""
         observed_days = max(0, (now.date() - baseline_start.date()).days)
-        if self.baseline_days < _BOOTSTRAP_MIN_HISTORY_DAYS or observed_days < _BOOTSTRAP_MIN_HISTORY_DAYS:
+        if (
+            self.baseline_days < _BOOTSTRAP_MIN_HISTORY_DAYS
+            or observed_days < _BOOTSTRAP_MIN_HISTORY_DAYS
+        ):
             return {
                 "status": "abstain",
                 "overdue_probability": 0.0,

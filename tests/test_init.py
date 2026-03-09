@@ -3298,9 +3298,7 @@ async def test_runtime_trigger_closure_does_not_lookup_suppression_store_per_eve
 
     source = inspect.getsource(async_setup_entry)
     # Extract the _handle_runtime_trigger function body using indentation
-    match = re.search(
-        r"(def _handle_runtime_trigger\(.*?\n)((?:[ \t]+.*\n)*)", source
-    )
+    match = re.search(r"(def _handle_runtime_trigger\(.*?\n)((?:[ \t]+.*\n)*)", source)
     assert match, "Could not find _handle_runtime_trigger"
     handler_body = match.group(2)
     assert "hass.data" not in handler_body, (

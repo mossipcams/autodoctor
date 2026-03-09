@@ -2713,10 +2713,12 @@ async def test_suppression_store_fetched_once_per_validation_run(
     with patch.object(
         monitor, "_runtime_suppression_store", wraps=monitor._runtime_suppression_store
     ) as mock_store:
-        await monitor.validate_automations([
-            _automation("auto_a"),
-            _automation("auto_b"),
-        ])
+        await monitor.validate_automations(
+            [
+                _automation("auto_a"),
+                _automation("auto_b"),
+            ]
+        )
         assert mock_store.call_count <= 1, (
             f"_runtime_suppression_store called {mock_store.call_count} times, expected at most 1"
         )
@@ -2744,10 +2746,12 @@ async def test_observed_coverage_days_computed_once_per_validation_run(
     with patch.object(
         monitor, "_observed_coverage_days", wraps=monitor._observed_coverage_days
     ) as mock_cov:
-        await monitor.validate_automations([
-            _automation("auto_a"),
-            _automation("auto_b"),
-        ])
+        await monitor.validate_automations(
+            [
+                _automation("auto_a"),
+                _automation("auto_b"),
+            ]
+        )
         assert mock_cov.call_count <= 1, (
             f"_observed_coverage_days called {mock_cov.call_count} times, expected at most 1"
         )
@@ -2771,10 +2775,12 @@ def test_build_overdue_profile_returns_first_trigger_minutes() -> None:
 
     profile_keys = {"first_trigger_minutes"}
     # Check that the profile dict includes the intermediate list
-    assert profile_keys.issubset(
-        RuntimeHealthMonitor._build_overdue_profile.__annotations__
-        or set()
-    ) or True  # We'll check the actual return value
+    assert (
+        profile_keys.issubset(
+            RuntimeHealthMonitor._build_overdue_profile.__annotations__ or set()
+        )
+        or True
+    )  # We'll check the actual return value
 
     # Build a monitor and call _build_overdue_profile directly
     hass_mock = MagicMock()
@@ -2790,7 +2796,9 @@ def test_build_overdue_profile_returns_first_trigger_minutes() -> None:
         d += timedelta(days=1)
 
     profile = monitor._build_overdue_profile(
-        automation_events=events, now=now, baseline_start=baseline_start,
+        automation_events=events,
+        now=now,
+        baseline_start=baseline_start,
     )
     assert "first_trigger_minutes" in profile, (
         "_build_overdue_profile should return first_trigger_minutes for reuse by _predict_overdue"
