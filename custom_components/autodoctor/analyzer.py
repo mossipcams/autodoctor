@@ -6,8 +6,7 @@ import logging
 import re
 from typing import Any, cast
 
-from .action_walker import condition_location as _condition_location
-from .action_walker import walk_automation_actions
+from .action_walker import condition_location as _condition_location, walk_automation_actions
 from .const import MAX_RECURSION_DEPTH
 from .models import ServiceCall, StateReference
 from .template_utils import is_template_value
