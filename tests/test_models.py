@@ -275,6 +275,7 @@ def test_service_call_template_detection() -> None:
         ("SERVICE_MISSING_REQUIRED_PARAM", "service_missing_required_param"),
         ("SERVICE_INVALID_PARAM_TYPE", "service_invalid_param_type"),
         ("SERVICE_UNKNOWN_PARAM", "service_unknown_param"),
+        ("RUNTIME_AUTOMATION_OVERDUE", "runtime_automation_overdue"),
         ("RUNTIME_AUTOMATION_OVERACTIVE", "runtime_automation_overactive"),
         ("RUNTIME_AUTOMATION_BURST", "runtime_automation_burst"),
     ],
@@ -283,6 +284,7 @@ def test_service_call_template_detection() -> None:
         "missing-required-param",
         "invalid-param-type",
         "unknown-param",
+        "runtime-automation-overdue",
         "runtime-automation-overactive",
         "runtime-automation-burst",
     ],
@@ -296,6 +298,21 @@ def test_service_issue_types_exist(issue_type_name: str, expected_value: str) ->
     assert hasattr(IssueType, issue_type_name)
     issue_type: IssueType = getattr(IssueType, issue_type_name)
     assert issue_type.value == expected_value
+
+
+def test_reachability_issue_types_exist_and_are_grouped() -> None:
+    """Reachability issue types should exist and map to entity_state group."""
+    assert hasattr(IssueType, "UNREACHABLE_STATE_COMBINATION")
+    assert hasattr(IssueType, "UNREACHABLE_NUMERIC_RANGE")
+
+    assert IssueType.UNREACHABLE_STATE_COMBINATION.value == (
+        "unreachable_state_combination"
+    )
+    assert IssueType.UNREACHABLE_NUMERIC_RANGE.value == "unreachable_numeric_range"
+
+    entity_group = VALIDATION_GROUPS["entity_state"]["issue_types"]
+    assert IssueType.UNREACHABLE_STATE_COMBINATION in entity_group
+    assert IssueType.UNREACHABLE_NUMERIC_RANGE in entity_group
 
 
 @pytest.mark.parametrize(
@@ -333,12 +350,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 16 members.
+    """Guard: Verify IssueType has exactly 19 members.
 
     This guards against accidental reintroduction of removed types.
-    Count: 6 entity_state + 5 services + 3 templates + 2 runtime = 16 total.
+    Count: 8 entity_state + 5 services + 3 templates + 3 runtime = 19 total.
     """
-    assert len(IssueType) == 16, f"Expected 16 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 19, f"Expected 19 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:
@@ -688,6 +705,7 @@ def test_runtime_group_contains_runtime_issue_types() -> None:
     runtime_group = VALIDATION_GROUPS["runtime_health"]["issue_types"]
     assert runtime_group == frozenset(
         {
+            IssueType.RUNTIME_AUTOMATION_OVERDUE,
             IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
             IssueType.RUNTIME_AUTOMATION_BURST,
         }

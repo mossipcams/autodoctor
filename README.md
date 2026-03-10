@@ -216,6 +216,40 @@ When you dismiss an issue as a false positive, Autodoctor learns that the state 
 - Home Assistant 2024.1 or newer
 - Recorder integration (for history analysis and runtime health)
 
+## Mutation Workflow (Critical Paths)
+
+The repository now includes `scripts/mutation_workflow.py` to support this mutation-testing loop:
+
+1. **Baseline coverage**
+   - `./.venv/bin/python scripts/mutation_workflow.py baseline`
+2. **Type checks**
+   - `scripts/mutation_workflow.py run` hard-gates on both:
+     - `pyright custom_components/`
+     - `mypy --strict --follow-imports=skip` on core mutation paths only
+   - Existing `pyright` usage also remains in `scripts/pre_pr_checks.sh`
+3. **Fresh-process mutation runner**
+   - `scripts/mutation_workflow.py run` now delegates mutation execution to `scripts/mutmut_subprocess_runner.py`
+   - The runner still uses `mutmut` for mutation generation, apply, diffs, and test mapping
+   - Each mutant is validated by launching `pytest` in a brand-new Python subprocess, which avoids the `mutmut run` worker segfaults seen with the Home Assistant pytest/plugin stack
+4. **Canary mutant before full runs**
+   - `./.venv/bin/python scripts/mutation_workflow.py run custom_components.autodoctor.action_walker.x_walk_automation_actions__mutmut_1`
+   - Use this first and confirm you get a normal result such as `killed` or `survived`, not `💥`
+5. **Only mutate covered lines**
+   - `setup.cfg` sets `mutate_only_covered_lines = true`
+6. **Run mutations on core logic scope**
+   - `./.venv/bin/python scripts/mutation_workflow.py run`
+   - Scope is configured in `[tool.mutmut].paths_to_mutate`
+   - It is intentionally narrowed to `custom_components/autodoctor/action_walker.py`, which keeps the active mutation set in the `200-300` range while we focus on the recursion/walk critical path
+7. **Export survivors for test generation**
+   - `./.venv/bin/python scripts/mutation_workflow.py show-survivors`
+   - Survivor export reads `mutants/workflow/mutation_results.json` from the subprocess runner and writes `survivor_prompt.md`
+   - Paste `mutants/workflow/survivor_prompt.md` into Claude Code with: `write tests to kill these mutants`
+8. **Re-run only survivors**
+   - `./.venv/bin/python scripts/mutation_workflow.py rerun-survivors`
+9. **Stop condition**
+   - Stop when kill-rate on critical paths reaches `>= 70%` or progress plateaus
+   - Plateau helper logic is implemented in `should_stop(...)` in `scripts/mutation_workflow.py`
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

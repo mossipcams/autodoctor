@@ -188,6 +188,29 @@ async def test_websocket_get_issues_applies_suppression_filtering_on_read(
     assert result["issues"] == []
 
 
+def test_format_issues_with_fixes_handles_reachability_issue_without_fix(
+    hass: HomeAssistant,
+) -> None:
+    """Reachability issues should serialize cleanly even when no fix applies."""
+    issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="sensor.office_temp",
+        location="condition[0]",
+        message="Unreachable numeric range",
+        issue_type=IssueType.UNREACHABLE_NUMERIC_RANGE,
+    )
+
+    formatted = _format_issues_with_fixes(hass, [issue], all_entity_ids=[])
+
+    assert len(formatted) == 1
+    assert (
+        formatted[0]["issue"]["issue_type"] == IssueType.UNREACHABLE_NUMERIC_RANGE.value
+    )
+    assert formatted[0]["fix"] is None
+
+
 @pytest.mark.asyncio
 async def test_websocket_get_validation(hass: HomeAssistant) -> None:
     """Test that websocket_get_validation returns cached validation results.

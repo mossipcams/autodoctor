@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any, cast
 
+from .action_walker import condition_location as _condition_location
 from .action_walker import walk_automation_actions
 from .const import MAX_RECURSION_DEPTH
 from .models import ServiceCall, StateReference
@@ -510,13 +511,14 @@ class AutomationAnalyzer:
     ) -> list[StateReference]:
         """Extract state references from a condition."""
         refs: list[StateReference] = []
+        condition_location = _condition_location(location_prefix, index)
 
         # Handle string conditions (template shorthand)
         if isinstance(condition, str):
             refs.extend(
                 self._extract_from_template(
                     condition,
-                    f"{location_prefix}[{index}]",
+                    condition_location,
                     automation_id,
                     automation_name,
                 )
@@ -552,7 +554,7 @@ class AutomationAnalyzer:
                             entity_id=entity_id,
                             expected_state=state,
                             expected_attribute=condition_attribute,
-                            location=f"{location_prefix}[{index}].state",
+                            location=f"{condition_location}.state",
                         )
                     )
 
@@ -561,7 +563,7 @@ class AutomationAnalyzer:
             refs.extend(
                 self._extract_from_template(
                     value_template,
-                    f"{location_prefix}[{index}]",
+                    condition_location,
                     automation_id,
                     automation_name,
                 )
@@ -582,7 +584,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=attribute,
-                        location=f"{location_prefix}[{index}]",
+                        location=condition_location,
                         reference_type="direct",
                     )
                 )
@@ -592,7 +594,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         value_template,
-                        f"{location_prefix}[{index}].value_template",
+                        f"{condition_location}.value_template",
                         automation_id,
                         automation_name,
                     )
@@ -612,7 +614,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].entity_id",
+                        location=f"{condition_location}.entity_id",
                         reference_type="direct",
                     )
                 )
@@ -625,7 +627,7 @@ class AutomationAnalyzer:
                         entity_id=zone_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].zone",
+                        location=f"{condition_location}.zone",
                         reference_type="zone",
                     )
                 )
@@ -638,7 +640,7 @@ class AutomationAnalyzer:
                     entity_id="sun.sun",
                     expected_state=None,
                     expected_attribute=None,
-                    location=f"{location_prefix}[{index}]",
+                    location=condition_location,
                     reference_type="direct",
                 )
             )
@@ -662,7 +664,7 @@ class AutomationAnalyzer:
                         entity_id=after_value,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].after",
+                        location=f"{condition_location}.after",
                         reference_type="direct",
                     )
                 )
@@ -680,7 +682,7 @@ class AutomationAnalyzer:
                         entity_id=before_value,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].before",
+                        location=f"{condition_location}.before",
                         reference_type="direct",
                     )
                 )
@@ -696,22 +698,23 @@ class AutomationAnalyzer:
                         entity_id=device_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"{location_prefix}[{index}].device_id",
+                        location=f"{condition_location}.device_id",
                         reference_type="device",
                     )
                 )
 
         elif cond_type in ("and", "or", "not"):
-            nested_conditions = condition.get("conditions", [])
-            if isinstance(nested_conditions, list):
-                for i, nested in enumerate(cast(list[Any], nested_conditions)):
+            nested_conditions_raw = condition.get("conditions", [])
+            if isinstance(nested_conditions_raw, list):
+                nested_conditions: list[Any] = list(nested_conditions_raw)
+                for i, nested in enumerate(nested_conditions):
                     refs.extend(
                         self._extract_from_condition(
                             nested,
                             i,
                             automation_id,
                             automation_name,
-                            f"{location_prefix}[{index}].{cond_type}",
+                            f"{condition_location}.{cond_type}",
                         )
                     )
 
@@ -929,6 +932,7 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
+        location: str | None = None,
     ) -> list[StateReference]:
         """Extract entity references from service calls.
 
@@ -937,11 +941,13 @@ class AutomationAnalyzer:
             index: Action index in the automation
             automation_id: Automation entity ID
             automation_name: Automation friendly name
+            location: Full walker action location
 
         Returns:
             List of StateReference objects for entities in service call
         """
         refs: list[StateReference] = []
+        action_location = location or f"action[{index}]"
 
         # Get service name (both 'service' and 'action' keys)
         service = action.get("service") or action.get("action")
@@ -965,7 +971,7 @@ class AutomationAnalyzer:
                     entity_id=service,  # e.g., "script.bedtime_routine"
                     expected_state=None,
                     expected_attribute=None,
-                    location=f"action[{index}].service",
+                    location=f"{action_location}.service",
                     reference_type="script",
                 )
             )
@@ -1038,7 +1044,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         entity_id,
-                        f"action[{index}].data.entity_id",
+                        f"{action_location}.data.entity_id",
                         automation_id,
                         automation_name,
                     )
@@ -1052,7 +1058,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"action[{index}].service.entity_id",
+                        location=f"{action_location}.service.entity_id",
                         reference_type=reference_type,
                     )
                 )
@@ -1062,7 +1068,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         device_id,
-                        f"action[{index}].data.device_id",
+                        f"{action_location}.data.device_id",
                         automation_id,
                         automation_name,
                     )
@@ -1075,7 +1081,7 @@ class AutomationAnalyzer:
                         entity_id=device_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"action[{index}].service.device_id",
+                        location=f"{action_location}.service.device_id",
                         reference_type="device",
                     )
                 )
@@ -1085,7 +1091,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         area_id,
-                        f"action[{index}].data.area_id",
+                        f"{action_location}.data.area_id",
                         automation_id,
                         automation_name,
                     )
@@ -1098,7 +1104,7 @@ class AutomationAnalyzer:
                         entity_id=area_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"action[{index}].service.area_id",
+                        location=f"{action_location}.service.area_id",
                         reference_type="area",
                     )
                 )
@@ -1122,6 +1128,7 @@ class AutomationAnalyzer:
                     idx,
                     automation_id,
                     automation_name,
+                    location,
                 )
             )
             if "wait_template" in action:
@@ -1163,18 +1170,21 @@ class AutomationAnalyzer:
     def extract_service_calls(self, automation: dict[str, Any]) -> list[ServiceCall]:
         """Extract all service calls from automation actions."""
         service_calls: list[ServiceCall] = []
-        actions = cast(
-            list[dict[str, Any]],
-            automation.get("actions") or automation.get("action") or [],
-        )
-        if not isinstance(actions, list):  # pyright: ignore[reportUnnecessaryIsInstance]
-            actions = [actions]
+        raw_actions: Any = automation.get("actions") or automation.get("action") or []
+        actions: list[dict[str, Any]]
+        if isinstance(raw_actions, list):
+            raw_action_items: list[Any] = list(raw_actions)
+            actions = [item for item in raw_action_items if isinstance(item, dict)]
+        elif isinstance(raw_actions, dict):
+            actions = [raw_actions]
+        else:
+            actions = []
 
-        automation_id: str = automation.get("id", "unknown")
+        automation_id = f"automation.{automation.get('id', 'unknown')}"
         automation_name: str = automation.get("alias", "Unknown")
 
         self._extract_service_calls_from_actions(
-            cast(list[dict[str, Any]], actions),
+            actions,
             automation_id,
             automation_name,
             "action",

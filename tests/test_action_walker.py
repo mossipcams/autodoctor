@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 
+def _nested_choose_action(
+    depth: int, leaf_action: dict[str, str]
+) -> list[dict[str, object]]:
+    action: dict[str, object] = leaf_action
+    for _ in range(depth):
+        action = {"choose": [{"sequence": [action]}]}
+    return [action]
+
+
 def test_walk_automation_actions_visits_leaf_actions() -> None:
     """walk_automation_actions should call visit_action for each action dict."""
     from custom_components.autodoctor.action_walker import walk_automation_actions
@@ -155,19 +164,22 @@ def test_walk_calls_visit_condition_for_choose_and_if_and_repeat() -> None:
     """Walker should call visit_condition for conditions in choose, if, repeat."""
     from custom_components.autodoctor.action_walker import walk_automation_actions
 
-    condition_locations: list[str] = []
+    condition_calls: list[tuple[int, str]] = []
 
     def on_action(action: dict, idx: int, location: str) -> None:
         pass
 
     def on_condition(condition: dict, idx: int, location: str) -> None:
-        condition_locations.append(location)
+        condition_calls.append((idx, location))
 
     actions = [
         {
             "choose": [
                 {
-                    "conditions": [{"condition": "state"}],
+                    "conditions": [
+                        {"condition": "state"},
+                        {"condition": "template"},
+                    ],
                     "sequence": [],
                 },
             ],
@@ -186,43 +198,118 @@ def test_walk_calls_visit_condition_for_choose_and_if_and_repeat() -> None:
     walk_automation_actions(
         actions, visit_action=on_action, visit_condition=on_condition
     )
-    assert "action[0].choose[0].conditions[0]" in condition_locations
-    assert "action[1].if[0]" in condition_locations
-    assert "action[2].repeat.while[0]" in condition_locations
+    assert condition_calls == [
+        (0, "action[0].choose[0].conditions[0]"),
+        (1, "action[0].choose[0].conditions[1]"),
+        (0, "action[1].if[0]"),
+        (0, "action[2].repeat.while[0]"),
+    ]
 
 
-def test_analyzer_extract_service_calls_uses_walk_automation_actions() -> None:
-    """_extract_service_calls_from_actions should not contain its own recursion."""
-    import inspect
+def test_walk_propagates_visit_condition_into_nested_branches() -> None:
+    """Nested branch actions should keep visit_condition wired through recursion."""
+    from custom_components.autodoctor.action_walker import walk_automation_actions
 
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
+    condition_calls: list[tuple[int, str]] = []
 
-    source = inspect.getsource(AutomationAnalyzer._extract_service_calls_from_actions)
-    # Should not contain structural recursion keywords anymore
-    assert "choose" not in source, (
-        "_extract_service_calls_from_actions should delegate to walk_automation_actions"
+    def on_action(action: dict, idx: int, location: str) -> None:
+        pass
+
+    def on_condition(condition: dict, idx: int, location: str) -> None:
+        condition_calls.append((idx, location))
+
+    actions = [
+        {
+            "choose": [{"sequence": [{"if": [{"condition": "state"}], "then": []}]}],
+            "default": [{"if": [{"condition": "template"}], "then": []}],
+        },
+        {
+            "if": [{"condition": "state"}],
+            "then": [
+                {
+                    "choose": [
+                        {
+                            "conditions": [{"condition": "numeric_state"}],
+                            "sequence": [],
+                        }
+                    ]
+                }
+            ],
+            "else": [{"if": [{"condition": "template"}], "then": []}],
+        },
+        {
+            "repeat": {
+                "sequence": [{"if": [{"condition": "state"}], "then": []}],
+            }
+        },
+        {
+            "parallel": [
+                [{"if": [{"condition": "state"}], "then": []}],
+                [
+                    {
+                        "repeat": {
+                            "until": [{"condition": "numeric_state"}],
+                            "sequence": [],
+                        }
+                    }
+                ],
+            ]
+        },
+    ]
+
+    walk_automation_actions(
+        actions, visit_action=on_action, visit_condition=on_condition
     )
 
+    assert condition_calls == [
+        (0, "action[0].choose[0].sequence[0].if[0]"),
+        (0, "action[0].default[0].if[0]"),
+        (0, "action[1].if[0]"),
+        (0, "action[1].then[0].choose[0].conditions[0]"),
+        (0, "action[1].else[0].if[0]"),
+        (0, "action[2].repeat.sequence[0].if[0]"),
+        (0, "action[3].parallel[0][0].if[0]"),
+        (0, "action[3].parallel[1][0].repeat.until[0]"),
+    ]
 
-def test_analyzer_extract_from_actions_uses_walk_automation_actions() -> None:
-    """_extract_from_actions should not contain its own recursion."""
-    import inspect
 
-    from custom_components.autodoctor.analyzer import AutomationAnalyzer
+def test_ensure_list_is_public_export() -> None:
+    """action_walker should export ensure_list as a public helper."""
+    from custom_components.autodoctor.action_walker import ensure_list
 
-    source = inspect.getsource(AutomationAnalyzer._extract_from_actions)
-    assert '"parallel"' not in source, (
-        "_extract_from_actions should delegate to walk_automation_actions"
-    )
+    assert ensure_list(None) == []
+    assert ensure_list("a") == ["a"]
+    assert ensure_list([1, 2]) == [1, 2]
 
 
-def test_jinja_validator_validate_actions_uses_walk_automation_actions() -> None:
-    """_validate_actions should not contain its own recursion."""
-    import inspect
+def test_condition_location_is_public_export() -> None:
+    """action_walker should export condition_location as a public helper."""
+    from custom_components.autodoctor.action_walker import condition_location
 
-    from custom_components.autodoctor.jinja_validator import JinjaValidator
+    assert condition_location("condition", 0) == "condition[0]"
+    assert condition_location("condition[0]", 0) == "condition[0]"
+    assert condition_location("condition[0]", 1) == "condition[0][1]"
 
-    source = inspect.getsource(JinjaValidator._validate_actions)
-    assert '"parallel"' not in source, (
-        "_validate_actions should delegate to walk_automation_actions"
-    )
+
+def test_walk_automation_actions_default_max_depth_stops_before_depth_50() -> None:
+    """The public default max_depth should stop before visiting depth-50 leaf actions."""
+    from custom_components.autodoctor.action_walker import walk_automation_actions
+
+    actions = _nested_choose_action(50, {"service": "light.turn_on"})
+    default_leaf_locations: list[str] = []
+    deeper_leaf_locations: list[str] = []
+
+    def on_default_action(action: dict, idx: int, location: str) -> None:
+        if action.get("service") == "light.turn_on":
+            default_leaf_locations.append(location)
+
+    def on_deeper_action(action: dict, idx: int, location: str) -> None:
+        if action.get("service") == "light.turn_on":
+            deeper_leaf_locations.append(location)
+
+    walk_automation_actions(actions, visit_action=on_default_action)
+    walk_automation_actions(actions, visit_action=on_deeper_action, max_depth=51)
+
+    expected_leaf_location = "action[0]" + ".choose[0].sequence[0]" * 50
+    assert default_leaf_locations == []
+    assert deeper_leaf_locations == [expected_leaf_location]

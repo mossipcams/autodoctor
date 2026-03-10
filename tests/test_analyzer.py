@@ -430,6 +430,223 @@ def test_extract_from_nested_action_structures(
     assert matching_refs[0].expected_state == expected_state
 
 
+def test_extract_state_references_from_nested_actions_reports_exact_locations() -> None:
+    """Nested action refs should keep the real field locations across branches."""
+    automation = {
+        "id": "nested_locations",
+        "alias": "Nested Locations",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ is_state('sensor.mode', 'day') }}",
+                            }
+                        ],
+                        "sequence": [
+                            {
+                                "wait_template": "{{ is_state('binary_sensor.door', 'off') }}",
+                            }
+                        ],
+                    }
+                ],
+                "default": [
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ is_state('switch.fallback', 'on') }}",
+                            }
+                        ],
+                        "then": [],
+                    }
+                ],
+            },
+            {
+                "if": [
+                    {
+                        "condition": "template",
+                        "value_template": "{{ is_state('binary_sensor.presence', 'on') }}",
+                    }
+                ],
+                "then": [
+                    {
+                        "repeat": {
+                            "while": [
+                                {
+                                    "condition": "template",
+                                    "value_template": "{{ is_state('sensor.temp', 'high') }}",
+                                }
+                            ],
+                            "sequence": [],
+                        }
+                    }
+                ],
+                "else": [
+                    {
+                        "parallel": [
+                            [
+                                {
+                                    "wait_template": "{{ is_state('lock.front', 'locked') }}",
+                                }
+                            ]
+                        ]
+                    }
+                ],
+            },
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    relevant_refs = {
+        (ref.entity_id, ref.expected_state, ref.location)
+        for ref in refs
+        if ref.entity_id
+        in {
+            "sensor.mode",
+            "binary_sensor.door",
+            "switch.fallback",
+            "binary_sensor.presence",
+            "sensor.temp",
+            "lock.front",
+        }
+    }
+
+    assert relevant_refs == {
+        ("sensor.mode", "day", "action[0].choose[0].conditions[0].is_state"),
+        (
+            "binary_sensor.door",
+            "off",
+            "action[0].choose[0].sequence[0].wait_template.is_state",
+        ),
+        ("switch.fallback", "on", "action[0].default[0].if[0].is_state"),
+        ("binary_sensor.presence", "on", "action[1].if[0].is_state"),
+        ("sensor.temp", "high", "action[1].then[0].repeat.while[0].is_state"),
+        (
+            "lock.front",
+            "locked",
+            "action[1].else[0].parallel[0][0].wait_template.is_state",
+        ),
+    }
+
+
+def test_extract_service_calls_from_nested_actions_reports_locations_and_payloads() -> (
+    None
+):
+    """Nested action service calls should preserve their branch locations."""
+    automation = {
+        "id": "nested_services",
+        "alias": "Nested Services",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [],
+                        "sequence": [
+                            {
+                                "service": "light.turn_on",
+                                "data": {"brightness_pct": 10},
+                            }
+                        ],
+                    }
+                ],
+                "default": [
+                    {
+                        "service": "light.turn_off",
+                        "target": {"entity_id": "light.kitchen"},
+                    }
+                ],
+            },
+            {
+                "if": [{"condition": "state", "entity_id": "binary_sensor.motion"}],
+                "then": [
+                    {
+                        "repeat": {
+                            "sequence": [
+                                {
+                                    "service": "switch.turn_on",
+                                    "data": {"transition": 1},
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "else": [
+                    {
+                        "parallel": [
+                            [
+                                {
+                                    "service": "notify.mobile_app_phone",
+                                    "data": {"message": "Hi"},
+                                }
+                            ],
+                            [
+                                {
+                                    "service": "script.run",
+                                    "data": {"speed": "fast"},
+                                }
+                            ],
+                        ]
+                    }
+                ],
+            },
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert [
+        (call.service, call.location, call.target, call.data)
+        for call in calls
+        if call.service
+        in {
+            "light.turn_on",
+            "light.turn_off",
+            "switch.turn_on",
+            "notify.mobile_app_phone",
+            "script.run",
+        }
+    ] == [
+        (
+            "light.turn_on",
+            "action[0].choose[0].sequence[0]",
+            None,
+            {"brightness_pct": 10},
+        ),
+        (
+            "light.turn_off",
+            "action[0].default[0]",
+            {"entity_id": "light.kitchen"},
+            None,
+        ),
+        (
+            "switch.turn_on",
+            "action[1].then[0].repeat.sequence[0]",
+            None,
+            {"transition": 1},
+        ),
+        (
+            "notify.mobile_app_phone",
+            "action[1].else[0].parallel[0][0]",
+            None,
+            {"message": "Hi"},
+        ),
+        (
+            "script.run",
+            "action[1].else[0].parallel[1][0]",
+            None,
+            {"speed": "fast"},
+        ),
+    ]
+
+
 def test_extract_from_parallel_action() -> None:
     """Test extraction from parallel action branches."""
     automation = {
@@ -1632,6 +1849,21 @@ def test_extract_direct_service_call() -> None:
     assert calls[0].is_template is False
 
 
+def test_extract_service_calls_normalizes_automation_id() -> None:
+    """Service call extraction should use automation.<id> format."""
+    automation = {
+        "id": "normalize_id",
+        "alias": "Normalize ID",
+        "action": [{"service": "light.turn_on"}],
+    }
+
+    analyzer = AutomationAnalyzer()
+    calls = analyzer.extract_service_calls(automation)
+
+    assert len(calls) == 1
+    assert calls[0].automation_id == "automation.normalize_id"
+
+
 def test_extract_templated_service_call() -> None:
     """Test extracting a templated service call."""
     automation = {
@@ -1969,6 +2201,106 @@ def test_extract_service_call_inline_device_and_area_ids() -> None:
     assert device_refs[0].reference_type == "device"
     assert len(area_refs) == 1
     assert area_refs[0].reference_type == "area"
+
+
+def test_extract_service_reference_location_from_choose_branch() -> None:
+    """Service references should preserve full choose branch location."""
+    automation = {
+        "id": "choose_location",
+        "alias": "Choose Location",
+        "action": [
+            {
+                "choose": [
+                    {
+                        "sequence": [
+                            {
+                                "service": "light.turn_on",
+                                "target": {"entity_id": "light.choose_nested"},
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.choose_nested")
+    assert target_ref.location == "action[0].choose[0].sequence[0].service.entity_id"
+
+
+def test_extract_service_reference_location_from_if_branch() -> None:
+    """Service references should preserve full if branch location."""
+    automation = {
+        "id": "if_location",
+        "alias": "If Location",
+        "action": [
+            {
+                "if": [{"condition": "template", "value_template": "{{ true }}"}],
+                "then": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.if_nested"},
+                    }
+                ],
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.if_nested")
+    assert target_ref.location == "action[0].then[0].service.entity_id"
+
+
+def test_extract_service_reference_location_from_repeat_sequence() -> None:
+    """Service references should preserve full repeat sequence location."""
+    automation = {
+        "id": "repeat_location",
+        "alias": "Repeat Location",
+        "action": [
+            {
+                "repeat": {
+                    "count": 2,
+                    "sequence": [
+                        {
+                            "service": "light.turn_on",
+                            "target": {"entity_id": "light.repeat_nested"},
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.repeat_nested")
+    assert target_ref.location == "action[0].repeat.sequence[0].service.entity_id"
+
+
+def test_extract_service_reference_location_from_parallel_branch() -> None:
+    """Service references should preserve full parallel branch location."""
+    automation = {
+        "id": "parallel_location",
+        "alias": "Parallel Location",
+        "action": [
+            {
+                "parallel": [
+                    {
+                        "service": "light.turn_on",
+                        "target": {"entity_id": "light.parallel_nested"},
+                    }
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+    target_ref = next(r for r in refs if r.entity_id == "light.parallel_nested")
+    assert target_ref.location == "action[0].parallel[0][0].service.entity_id"
 
 
 def test_extract_service_call_target_entity_id_none_placeholder_kept() -> None:
@@ -2617,6 +2949,16 @@ def test_extract_multi_key_action_service_and_choose() -> None:
     # And the nested service call
     bedroom_refs = [r for r in refs if r.entity_id == "light.bedroom"]
     assert len(bedroom_refs) >= 1, "Choose branch sequence service entity not extracted"
+
+
+def test_condition_location_uses_shared_helper() -> None:
+    """analyzer._condition_location should be the shared action_walker helper."""
+    from custom_components.autodoctor.action_walker import condition_location
+    from custom_components.autodoctor.analyzer import (
+        _condition_location,
+    )
+
+    assert _condition_location is condition_location
 
 
 def test_extract_null_wait_template_does_not_crash() -> None:

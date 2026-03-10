@@ -575,6 +575,76 @@ def test_choose_options_loop_finds_template_error() -> None:
     assert issues[0].issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
 
 
+def test_nested_action_templates_report_exact_issue_locations() -> None:
+    """Nested action template issues should surface at their real branch locations."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "nested_action_templates",
+        "alias": "Nested Action Templates",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ broken > }}",
+                            }
+                        ],
+                        "sequence": [{"wait_template": "{{ broken > }}"}],
+                    }
+                ],
+                "default": [{"data": {"message": "{{ broken > }}"}}],
+            },
+            {
+                "if": [
+                    {
+                        "condition": "template",
+                        "value_template": "{{ broken > }}",
+                    }
+                ],
+                "then": [
+                    {"repeat": {"sequence": [{"data": {"note": "{{ broken > }}"}}]}}
+                ],
+                "else": [
+                    {
+                        "parallel": [[{"wait_template": "{{ broken > }}"}]],
+                    }
+                ],
+            },
+        ],
+    }
+
+    issues = validator.validate_automations([automation])
+
+    assert {
+        (issue.location, issue.issue_type)
+        for issue in issues
+        if issue.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+    } == {
+        (
+            "action[0].choose[0].conditions[0].value_template",
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+        ),
+        (
+            "action[0].choose[0].sequence[0].wait_template",
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+        ),
+        ("action[0].default[0].data.message", IssueType.TEMPLATE_SYNTAX_ERROR),
+        ("action[1].if[0].value_template", IssueType.TEMPLATE_SYNTAX_ERROR),
+        (
+            "action[1].then[0].repeat.sequence[0].data.note",
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+        ),
+        (
+            "action[1].else[0].parallel[0][0].wait_template",
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+        ),
+    }
+
+
 def test_if_conditions_loop_finds_template_error() -> None:
     """Test that if action conditions are validated.
 
