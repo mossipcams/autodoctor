@@ -41,6 +41,8 @@ def test_burst_detector_emits_immediate_critical_issue() -> None:
     ]
     assert burst_issues
     assert burst_issues[0].severity == Severity.ERROR
+    assert burst_issues[0].message.startswith("Burst:")
+    assert "baseline" in burst_issues[0].message
     assert "5m" in burst_issues[0].message
 
 
@@ -85,4 +87,69 @@ def test_burst_alert_clears_after_quiet_period() -> None:
             and issue.issue_type == IssueType.RUNTIME_AUTOMATION_BURST
         )
         for issue in monitor.get_active_runtime_alerts()
+    )
+
+
+def test_burst_detector_respects_bucket_specific_baseline() -> None:
+    """A historically busy bucket should require a higher burst threshold."""
+    now = datetime(2026, 2, 16, 8, 30, tzinfo=UTC)  # Monday morning
+    monitor = build_runtime_monitor(
+        now,
+        burst_multiplier=2.0,
+        max_alerts_per_day=20,
+    )
+    aid = "automation.bucketed_burst"
+
+    recent_triggers = [
+        (now - timedelta(minutes=40 + idx)).isoformat() for idx in range(10)
+    ] + [(now - timedelta(seconds=(idx * 20))).isoformat() for idx in range(6)]
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["burst_model"] = {
+        "recent_triggers": recent_triggers,
+        "baseline_rate_5m": 1.0,
+        "baseline_rate_5m_by_bucket": {
+            "weekday_morning": 4.0,
+            "weekend_morning": 0.5,
+        },
+    }
+
+    issues = monitor._detect_burst_anomaly(
+        automation_entity_id=aid,
+        automation_state=automation_state,
+        now=now,
+    )
+
+    assert issues == []
+
+
+def test_burst_detector_falls_back_to_global_baseline_when_bucket_is_quiet() -> None:
+    """Off-schedule spikes should still alert when bucket baseline is missing or low."""
+    now = datetime(2026, 2, 15, 8, 30, tzinfo=UTC)  # Sunday morning
+    monitor = build_runtime_monitor(
+        now,
+        burst_multiplier=2.0,
+        max_alerts_per_day=20,
+    )
+    aid = "automation.off_schedule_burst"
+
+    recent_triggers = [
+        (now - timedelta(minutes=40 + idx)).isoformat() for idx in range(10)
+    ] + [(now - timedelta(seconds=(idx * 20))).isoformat() for idx in range(6)]
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["burst_model"] = {
+        "recent_triggers": recent_triggers,
+        "baseline_rate_5m": 1.0,
+        "baseline_rate_5m_by_bucket": {
+            "weekday_morning": 4.0,
+        },
+    }
+
+    issues = monitor._detect_burst_anomaly(
+        automation_entity_id=aid,
+        automation_state=automation_state,
+        now=now,
+    )
+
+    assert any(
+        issue.issue_type == IssueType.RUNTIME_AUTOMATION_BURST for issue in issues
     )

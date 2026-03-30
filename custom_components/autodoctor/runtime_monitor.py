@@ -448,6 +448,7 @@ class RuntimeHealthMonitor:
             "burst_model": {
                 "recent_triggers": [],
                 "baseline_rate_5m": 0.0,
+                "baseline_rate_5m_by_bucket": {},
             },
             "rate_limit": {
                 "date": "",
@@ -506,6 +507,51 @@ class RuntimeHealthMonitor:
 
         return state
 
+    @staticmethod
+    def _resolve_burst_bucket_baseline(
+        *,
+        bucket_name: str,
+        baseline_by_bucket: dict[str, Any],
+        global_baseline: float,
+    ) -> tuple[float, str]:
+        """Resolve burst baseline with bucket-aware fallback."""
+        exact = RuntimeHealthMonitor._coerce_float(
+            baseline_by_bucket.get(bucket_name),
+            0.0,
+        )
+        if exact > 0.0:
+            return exact, RuntimeHealthMonitor._bucket_label(bucket_name)
+
+        current_daypart = RuntimeHealthMonitor._bucket_daypart(bucket_name)
+        daypart_values = [
+            RuntimeHealthMonitor._coerce_float(value, 0.0)
+            for key, value in baseline_by_bucket.items()
+            if RuntimeHealthMonitor._bucket_daypart(key) == current_daypart
+        ]
+        daypart_values = [value for value in daypart_values if value > 0.0]
+        if len(daypart_values) >= 2:
+            return fmean(daypart_values), current_daypart
+
+        if bucket_name.startswith("weekday_"):
+            prefix = "weekday_"
+            label = "weekday"
+        elif bucket_name.startswith("weekend_"):
+            prefix = "weekend_"
+            label = "weekend"
+        else:
+            prefix = ""
+            label = "same day type"
+        day_type_values = [
+            RuntimeHealthMonitor._coerce_float(value, 0.0)
+            for key, value in baseline_by_bucket.items()
+            if prefix and key.startswith(prefix)
+        ]
+        day_type_values = [value for value in day_type_values if value > 0.0]
+        if len(day_type_values) >= 2:
+            return fmean(day_type_values), label
+
+        return global_baseline, "all history"
+
     def _detect_burst_anomaly(
         self,
         *,
@@ -549,21 +595,43 @@ class RuntimeHealthMonitor:
             if baseline_segment_count
             else 0.0
         )
+        bucket_name = classify_time_bucket(now)
         previous_baseline = self._coerce_float(burst_model.get("baseline_rate_5m"), 0.0)
-        baseline_rate = (
+        baseline_by_bucket_raw = cast(
+            Any, burst_model.get("baseline_rate_5m_by_bucket")
+        )
+        baseline_by_bucket = (
+            cast(dict[str, Any], baseline_by_bucket_raw)
+            if isinstance(baseline_by_bucket_raw, dict)
+            else {}
+        )
+        global_baseline = (
             previous_baseline
             if previous_baseline > 0
             else max(1.0, baseline_from_history if baseline_from_history > 0 else 1.0)
         )
+        baseline_rate, baseline_context_label = self._resolve_burst_bucket_baseline(
+            bucket_name=bucket_name,
+            baseline_by_bucket=baseline_by_bucket,
+            global_baseline=global_baseline,
+        )
         threshold = max(_BURST_THRESHOLD_FLOOR, baseline_rate * self.burst_multiplier)
 
         burst_model["recent_triggers"] = [ts.isoformat() for ts in recent]
+        burst_model["baseline_rate_5m_by_bucket"] = baseline_by_bucket
         if baseline_from_history > 0:
             burst_model["baseline_rate_5m"] = (
-                _BURST_BASELINE_EMA_DECAY * baseline_rate
+                _BURST_BASELINE_EMA_DECAY * global_baseline
+            ) + (_BURST_BASELINE_EMA_NEW * baseline_from_history)
+            previous_bucket_baseline = self._coerce_float(
+                baseline_by_bucket.get(bucket_name),
+                global_baseline,
+            )
+            baseline_by_bucket[bucket_name] = (
+                _BURST_BASELINE_EMA_DECAY * previous_bucket_baseline
             ) + (_BURST_BASELINE_EMA_NEW * baseline_from_history)
         else:
-            burst_model["baseline_rate_5m"] = baseline_rate
+            burst_model["baseline_rate_5m"] = global_baseline
 
         if not allow_alerts:
             return []
@@ -583,8 +651,8 @@ class RuntimeHealthMonitor:
             entity_id=automation_entity_id,
             location="runtime.health.burst",
             message=(
-                f"Runtime burst detected in 5m window: observed {current_5m_count} "
-                f"triggers vs baseline {baseline_rate:.2f}/5m"
+                f"Burst: runtime burst detected in 5m window: observed {current_5m_count} "
+                f"triggers vs {baseline_context_label} baseline {baseline_rate:.2f}/5m"
             ),
             issue_type=issue_type,
             confidence="medium",
@@ -929,6 +997,14 @@ class RuntimeHealthMonitor:
                 now=now,
                 baseline_start=automation_baseline_start,
             )
+            bucket_context = self._build_bucket_baseline_context(
+                now=now,
+                baseline_events=baseline_events,
+                baseline_window_start=max(
+                    automation_baseline_start,
+                    now - timedelta(days=max(1, self.hour_ratio_days)),
+                ),
+            )
             current_row["predictability_score"] = self._coerce_float(
                 overdue_decision.get("predictability_score"),
                 0.0,
@@ -1031,11 +1107,9 @@ class RuntimeHealthMonitor:
                         automation_name=automation_name,
                         entity_id=automation_entity_id,
                         location="runtime.health.overdue",
-                        message=str(
-                            overdue_decision.get(
-                                "reason",
-                                "Automation appears overdue based on recent timing history.",
-                            )
+                        message=(
+                            f"Overdue: "
+                            f"{overdue_decision.get('reason', 'Automation appears overdue based on recent timing history.')!s}"
                         ),
                         issue_type=overdue_issue_type,
                         confidence=overdue_confidence,
@@ -1060,7 +1134,8 @@ class RuntimeHealthMonitor:
                         entity_id=automation_entity_id,
                         location="runtime.health.anomaly",
                         message=(
-                            f"Anomalous trigger pattern detected: "
+                            f"Overactive: anomalous trigger pattern detected vs "
+                            f"{bucket_context.get('context_label', 'all history')} baseline: "
                             f"score {smoothed_score:.2f} exceeds threshold {threshold:.2f}"
                         ),
                         issue_type=issue_type,
@@ -1330,7 +1405,7 @@ class RuntimeHealthMonitor:
                 "overdue_probability": overdue_probability,
                 "predictability_score": predictability_score,
                 "reason": (
-                    f"Typical firing window remains open until about "
+                    f"Typical {now.strftime('%A')} firing window remains open until about "
                     f"{int(deadline_minute // 60):02d}:{int(deadline_minute % 60):02d}."
                 ),
             }
@@ -1350,7 +1425,7 @@ class RuntimeHealthMonitor:
             "predictability_score": predictability_score,
             "reason": (
                 f"Automation usually fires by {deadline_hour:02d}:{deadline_remainder:02d} "
-                f"on this day type and has not run yet."
+                f"on {now.strftime('%A')} and has not run yet."
             ),
         }
 
@@ -1390,6 +1465,162 @@ class RuntimeHealthMonitor:
             if any(bucket_start <= ts < bucket_end for ts in events):
                 count += 1
         return float(count)
+
+    @staticmethod
+    def _count_comparable_bucket_days(
+        *,
+        bucket_name: str,
+        start: datetime,
+        end: datetime,
+    ) -> int:
+        """Count comparable calendar days for the current bucket in a range."""
+        if end <= start:
+            return 0
+
+        current = start.date()
+        end_date = end.date()
+        comparable_days = 0
+        while current < end_date:
+            if RuntimeHealthMonitor._bucket_matches_day_type(bucket_name, current):
+                comparable_days += 1
+            current += timedelta(days=1)
+        return comparable_days
+
+    @staticmethod
+    def _bucket_daypart(bucket_name: str) -> str:
+        """Return daypart suffix from bucket name."""
+        if "_" not in bucket_name:
+            return bucket_name
+        return bucket_name.split("_", 1)[1]
+
+    @staticmethod
+    def _bucket_label(bucket_name: str) -> str:
+        """Return human-friendly label for a bucket name."""
+        return bucket_name.replace("_", " ")
+
+    @staticmethod
+    def _count_matching_days(
+        *,
+        start: datetime,
+        end: datetime,
+        predicate: Callable[[date], bool],
+    ) -> int:
+        """Count calendar days in [start, end) matching the predicate."""
+        if end <= start:
+            return 0
+
+        current = start.date()
+        end_date = end.date()
+        matching_days = 0
+        while current < end_date:
+            if predicate(current):
+                matching_days += 1
+            current += timedelta(days=1)
+        return matching_days
+
+    @staticmethod
+    def _build_bucket_baseline_context(
+        *,
+        now: datetime,
+        baseline_events: list[datetime],
+        baseline_window_start: datetime,
+    ) -> dict[str, Any]:
+        """Build comparable time-context baseline with conservative fallback."""
+        current_bucket = classify_time_bucket(now)
+        current_daypart = RuntimeHealthMonitor._bucket_daypart(current_bucket)
+        current_weekday = now.weekday()
+
+        strategies: list[
+            tuple[str, str, Callable[[datetime], bool], Callable[[date], bool]]
+        ] = [
+            (
+                "same_weekday_daypart",
+                f"{now.strftime('%A')} {current_daypart}",
+                lambda ts: (
+                    ts.weekday() == current_weekday
+                    and RuntimeHealthMonitor._bucket_daypart(classify_time_bucket(ts))
+                    == current_daypart
+                ),
+                lambda day: day.weekday() == current_weekday,
+            ),
+            (
+                "same_day_type_daypart",
+                RuntimeHealthMonitor._bucket_label(current_bucket),
+                lambda ts: (
+                    RuntimeHealthMonitor._bucket_matches_day_type(
+                        current_bucket, ts.date()
+                    )
+                    and RuntimeHealthMonitor._bucket_daypart(classify_time_bucket(ts))
+                    == current_daypart
+                ),
+                lambda day: RuntimeHealthMonitor._bucket_matches_day_type(
+                    current_bucket, day
+                ),
+            ),
+            (
+                "same_daypart",
+                current_daypart,
+                lambda ts: (
+                    RuntimeHealthMonitor._bucket_daypart(classify_time_bucket(ts))
+                    == current_daypart
+                ),
+                lambda _day: True,
+            ),
+            (
+                "same_day_type",
+                "weekend" if now.weekday() >= 5 else "weekday",
+                lambda ts: RuntimeHealthMonitor._bucket_matches_day_type(
+                    current_bucket, ts.date()
+                ),
+                lambda day: RuntimeHealthMonitor._bucket_matches_day_type(
+                    current_bucket, day
+                ),
+            ),
+            (
+                "global",
+                "all history",
+                lambda _ts: True,
+                lambda _day: True,
+            ),
+        ]
+
+        minimum_samples = {
+            "same_weekday_daypart": 2,
+            "same_day_type_daypart": 2,
+            "same_daypart": 2,
+            "same_day_type": 1,
+            "global": 1,
+        }
+
+        for strategy, label, event_matcher, day_matcher in strategies:
+            matched_events = [ts for ts in baseline_events if event_matcher(ts)]
+            comparable_days = RuntimeHealthMonitor._count_matching_days(
+                start=baseline_window_start,
+                end=now,
+                predicate=day_matcher,
+            )
+            if (
+                len(matched_events) >= minimum_samples.get(strategy, 1)
+                and comparable_days > 0
+            ):
+                expected_count = float(len(matched_events)) / float(comparable_days)
+                return {
+                    "strategy": strategy,
+                    "context_label": label,
+                    "bucket_name": current_bucket,
+                    "matched_event_count": len(matched_events),
+                    "comparable_days": comparable_days,
+                    "expected_count": expected_count,
+                }
+
+        return {
+            "strategy": "global",
+            "context_label": "all history",
+            "bucket_name": current_bucket,
+            "matched_event_count": 0,
+            "comparable_days": 0,
+            "expected_count": 0.0,
+        }
 
     @staticmethod
     def _build_feature_row(
@@ -1435,6 +1666,21 @@ class RuntimeHealthMonitor:
             current_hour_count / hour_avg if hour_avg > 0 else current_hour_count
         )
 
+        bucket_context = RuntimeHealthMonitor._build_bucket_baseline_context(
+            now=now,
+            baseline_events=baseline_30d,
+            baseline_window_start=baseline_window_start,
+        )
+        bucket_expected_30d = RuntimeHealthMonitor._coerce_float(
+            bucket_context.get("expected_count"),
+            0.0,
+        )
+        bucket_ratio_30d = (
+            current_hour_count / bucket_expected_30d
+            if bucket_expected_30d > 0
+            else current_hour_count
+        )
+
         minutes_since_last = (
             (now - max(events_up_to_now)).total_seconds() / 60.0
             if events_up_to_now
@@ -1464,6 +1710,8 @@ class RuntimeHealthMonitor:
             "rolling_24h_count": rolling_24h_count,
             "rolling_7d_count": rolling_7d_count,
             "hour_ratio_30d": hour_ratio_30d,
+            "bucket_expected_30d": bucket_expected_30d,
+            "bucket_ratio_30d": bucket_ratio_30d,
             "gap_vs_median": gap_vs_median,
             "is_weekend": 1.0 if now.weekday() >= 5 else 0.0,
             "other_automations_5m": other_5m,
