@@ -39,6 +39,8 @@ _GAP_BOOST_CAP = 0.40
 _GAP_BOOST_SCALE = 0.18
 _HOUR_BOOST_CAP = 0.35
 _HOUR_BOOST_SCALE = 0.20
+_BUCKET_BOOST_CAP = 0.55
+_BUCKET_BOOST_SCALE = 0.24
 _DAMPENING_CAP = 0.45
 _DAMPENING_SCALE = 0.14
 _DAMPENING_FLOOR = 0.55
@@ -269,6 +271,9 @@ class BOCPDDetector:
         hour_ratio = max(
             0.0, self._coerce_numeric(current_row.get("hour_ratio_30d"), 1.0)
         )
+        bucket_ratio = max(
+            0.0, self._coerce_numeric(current_row.get("bucket_ratio_30d"), 1.0)
+        )
         other_automations = max(
             0.0,
             self._coerce_numeric(current_row.get("other_automations_5m"), 0.0),
@@ -287,6 +292,11 @@ class BOCPDDetector:
                 _HOUR_BOOST_SCALE * math.log1p(max(0.0, hour_ratio - 1.0)),
             )
             multiplier *= 1.0 + hour_boost
+            bucket_boost = min(
+                _BUCKET_BOOST_CAP,
+                _BUCKET_BOOST_SCALE * math.log1p(max(0.0, bucket_ratio - 1.0)),
+            )
+            multiplier *= 1.0 + bucket_boost
             dampening = min(
                 _DAMPENING_CAP, _DAMPENING_SCALE * math.log1p(other_automations)
             )

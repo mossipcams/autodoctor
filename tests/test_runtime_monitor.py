@@ -563,7 +563,8 @@ async def test_validate_automations_emits_overdue_issue_for_predictable_miss(
         if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
     ]
     assert len(overdue) == 1
-    assert "usually fires by" in overdue[0].message
+    assert overdue[0].message.startswith("Overdue:")
+    assert "Wednesday" in overdue[0].message
 
 
 @pytest.mark.asyncio
@@ -877,6 +878,8 @@ def test_bocpd_detector_scores_tail_events_higher_than_normal() -> None:
             "rolling_24h_count": count_24h,
             "rolling_7d_count": count_24h * 6.0,
             "hour_ratio_30d": 1.0,
+            "bucket_expected_30d": 1.0,
+            "bucket_ratio_30d": 1.0,
             "gap_vs_median": 1.0,
             "is_weekend": 0.0,
             "other_automations_5m": 0.0,
@@ -892,6 +895,37 @@ def test_bocpd_detector_scores_tail_events_higher_than_normal() -> None:
     assert score_normal >= 0.0
     assert score_stalled > score_normal
     assert score_overactive > score_normal
+
+
+def test_bocpd_detector_boosts_overactive_score_for_off_schedule_bucket() -> None:
+    """Bucket ratio should raise overactive score when the spike is off-schedule."""
+    from custom_components.autodoctor.runtime_monitor import BOCPDDetector
+
+    detector = BOCPDDetector()
+
+    def _row(count_24h: float, bucket_ratio: float) -> dict[str, float]:
+        return {
+            "rolling_24h_count": count_24h,
+            "rolling_7d_count": count_24h * 6.0,
+            "hour_ratio_30d": 1.0,
+            "bucket_expected_30d": 1.0,
+            "bucket_ratio_30d": bucket_ratio,
+            "gap_vs_median": 1.0,
+            "is_weekend": 0.0,
+            "other_automations_5m": 0.0,
+        }
+
+    training = [_row(9.0 + float(i % 3), 1.0) for i in range(23)]
+    score_in_regime = detector.score_current(
+        "automation.weekday_morning",
+        [*training, _row(18.0, 1.2)],
+    )
+    score_off_schedule = detector.score_current(
+        "automation.weekend_morning",
+        [*training, _row(18.0, 6.0)],
+    )
+
+    assert score_off_schedule > score_in_regime
 
 
 def test_runtime_monitor_defaults_to_bocpd_detector(
@@ -1243,10 +1277,97 @@ def test_feature_row_includes_expanded_runtime_features() -> None:
         "rolling_24h_count",
         "rolling_7d_count",
         "hour_ratio_30d",
+        "bucket_expected_30d",
+        "bucket_ratio_30d",
         "gap_vs_median",
         "is_weekend",
         "other_automations_5m",
     }
+
+
+def test_bucket_baseline_context_prefers_same_weekday_and_daypart() -> None:
+    """Comparable context should prefer exact weekday/daypart history when present."""
+    now = datetime(2026, 2, 16, 8, 30, tzinfo=UTC)  # Monday morning
+    baseline_start = now - timedelta(days=30)
+    baseline_events = [
+        datetime(2026, 2, 2, 8, 10, tzinfo=UTC),
+        datetime(2026, 2, 9, 8, 5, tzinfo=UTC),
+        datetime(2026, 2, 10, 8, 5, tzinfo=UTC),
+        datetime(2026, 2, 15, 8, 5, tzinfo=UTC),
+    ]
+
+    context = RuntimeHealthMonitor._build_bucket_baseline_context(
+        now=now,
+        baseline_events=baseline_events,
+        baseline_window_start=baseline_start,
+    )
+
+    assert context["strategy"] == "same_weekday_daypart"
+    assert context["context_label"] == "Monday morning"
+    assert context["matched_event_count"] == 2
+
+
+def test_bucket_baseline_context_falls_back_to_same_day_type_daypart() -> None:
+    """Comparable context should fall back to weekday/weekend daypart history."""
+    now = datetime(2026, 2, 16, 8, 30, tzinfo=UTC)  # Monday morning
+    baseline_start = now - timedelta(days=30)
+    baseline_events = [
+        datetime(2026, 2, 11, 8, 5, tzinfo=UTC),
+        datetime(2026, 2, 12, 8, 10, tzinfo=UTC),
+    ]
+
+    context = RuntimeHealthMonitor._build_bucket_baseline_context(
+        now=now,
+        baseline_events=baseline_events,
+        baseline_window_start=baseline_start,
+    )
+
+    assert context["strategy"] == "same_day_type_daypart"
+    assert context["context_label"] == "weekday morning"
+    assert context["matched_event_count"] == 2
+
+
+def test_bucket_baseline_context_falls_back_to_same_daypart_then_day_type_then_global() -> (
+    None
+):
+    """Comparable context should degrade conservatively when time-specific history is sparse."""
+    now = datetime(2026, 2, 16, 8, 30, tzinfo=UTC)  # Monday morning
+    baseline_start = now - timedelta(days=30)
+
+    daypart_only = [
+        datetime(2026, 2, 15, 8, 5, tzinfo=UTC),
+        datetime(2026, 2, 14, 8, 10, tzinfo=UTC),
+    ]
+    daypart_context = RuntimeHealthMonitor._build_bucket_baseline_context(
+        now=now,
+        baseline_events=daypart_only,
+        baseline_window_start=baseline_start,
+    )
+    assert daypart_context["strategy"] == "same_daypart"
+    assert daypart_context["context_label"] == "morning"
+
+    weekday_only = [
+        datetime(2026, 2, 11, 17, 5, tzinfo=UTC),
+        datetime(2026, 2, 12, 18, 10, tzinfo=UTC),
+    ]
+    day_type_context = RuntimeHealthMonitor._build_bucket_baseline_context(
+        now=now,
+        baseline_events=weekday_only,
+        baseline_window_start=baseline_start,
+    )
+    assert day_type_context["strategy"] == "same_day_type"
+    assert day_type_context["context_label"] == "weekday"
+
+    global_only = [
+        datetime(2026, 2, 15, 21, 5, tzinfo=UTC),
+    ]
+    global_context = RuntimeHealthMonitor._build_bucket_baseline_context(
+        now=now,
+        baseline_events=global_only,
+        baseline_window_start=baseline_start,
+    )
+    assert global_context["strategy"] == "global"
+    assert global_context["context_label"] == "all history"
 
 
 def test_feature_row_hour_ratio_uses_configured_window() -> None:
@@ -1309,6 +1430,70 @@ def test_feature_row_hour_ratio_uses_current_clock_hour_bucket() -> None:
     )
 
     assert row["hour_ratio_30d"] == 0.0
+
+
+def test_feature_row_exposes_bucket_ratio_for_same_hour_different_day_types() -> None:
+    """Bucket ratio should distinguish weekday and weekend behavior in the same hour."""
+    weekday_now = datetime(2026, 2, 16, 8, 30, tzinfo=UTC)  # Monday
+    weekend_now = datetime(2026, 2, 14, 8, 30, tzinfo=UTC)  # Saturday
+
+    weekday_baseline = [
+        datetime(2026, 2, 13, 8, 5, tzinfo=UTC),
+        datetime(2026, 2, 13, 8, 25, tzinfo=UTC),
+        datetime(2026, 2, 12, 8, 10, tzinfo=UTC),
+        datetime(2026, 2, 12, 8, 28, tzinfo=UTC),
+        datetime(2026, 2, 11, 8, 20, tzinfo=UTC),
+        datetime(2026, 2, 11, 8, 29, tzinfo=UTC),
+        datetime(2026, 2, 10, 8, 15, tzinfo=UTC),
+        datetime(2026, 2, 10, 8, 27, tzinfo=UTC),
+        datetime(2026, 2, 9, 8, 25, tzinfo=UTC),
+        datetime(2026, 2, 9, 8, 29, tzinfo=UTC),
+        datetime(2026, 2, 7, 8, 5, tzinfo=UTC),
+    ]
+    weekend_baseline = [
+        datetime(2026, 2, 8, 8, 5, tzinfo=UTC),
+    ]
+
+    weekday_events = (
+        weekday_baseline
+        + weekend_baseline
+        + [
+            datetime(2026, 2, 16, 8, 5, tzinfo=UTC),
+            datetime(2026, 2, 16, 8, 10, tzinfo=UTC),
+            datetime(2026, 2, 16, 8, 20, tzinfo=UTC),
+        ]
+    )
+    weekend_events = (
+        weekday_baseline
+        + weekend_baseline
+        + [
+            datetime(2026, 2, 14, 8, 5, tzinfo=UTC),
+            datetime(2026, 2, 14, 8, 10, tzinfo=UTC),
+            datetime(2026, 2, 14, 8, 20, tzinfo=UTC),
+        ]
+    )
+
+    row_weekday = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.same_hour",
+        now=weekday_now,
+        automation_events=weekday_events,
+        baseline_events=weekday_baseline + weekend_baseline,
+        expected_daily=1.0,
+        all_events_by_automation={"automation.same_hour": weekday_events},
+        hour_ratio_days=30,
+    )
+    row_weekend = RuntimeHealthMonitor._build_feature_row(
+        automation_id="automation.same_hour",
+        now=weekend_now,
+        automation_events=weekend_events,
+        baseline_events=weekday_baseline + weekend_baseline,
+        expected_daily=1.0,
+        all_events_by_automation={"automation.same_hour": weekend_events},
+        hour_ratio_days=30,
+    )
+
+    assert row_weekday["hour_ratio_30d"] == row_weekend["hour_ratio_30d"]
+    assert row_weekday["bucket_ratio_30d"] < row_weekend["bucket_ratio_30d"]
 
 
 def test_median_gap_minutes_uses_adjacent_trigger_deltas() -> None:
@@ -2484,6 +2669,8 @@ async def test_validate_automations_emits_overactive_when_score_exceeds_threshol
         i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
     assert len(overactive) == 1
+    assert overactive[0].message.startswith("Overactive:")
+    assert "weekday baseline" in overactive[0].message
     assert "score 3.00" in overactive[0].message
     assert "threshold 2.00" in overactive[0].message
     assert overactive[0].confidence == "medium"
