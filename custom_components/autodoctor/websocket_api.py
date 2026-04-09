@@ -606,6 +606,117 @@ def _compute_group_status(issues: list[ValidationIssue]) -> str:
     return "pass"
 
 
+def _build_coverage_gaps(skip_reasons: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert skip telemetry into user-visible coverage gap summaries."""
+    gaps: list[dict[str, Any]] = []
+
+    def _add(group: str, reason: str, count: int, message: str) -> None:
+        if count <= 0:
+            return
+        gaps.append(
+            {
+                "group": group,
+                "reason": reason,
+                "count": count,
+                "message": message,
+            }
+        )
+
+    services = cast(dict[str, int], skip_reasons.get("services", {}))
+    _add(
+        "services",
+        "templated_service_name",
+        int(services.get("templated_service_name", 0)),
+        "Skipped deep validation for templated service names.",
+    )
+    _add(
+        "services",
+        "missing_service_descriptions",
+        int(services.get("missing_service_descriptions", 0)),
+        "Service parameter validation was limited because service descriptions were unavailable.",
+    )
+    _add(
+        "services",
+        "uninspectable_target",
+        int(services.get("uninspectable_target", 0)),
+        "Some service target checks were skipped because the target was dynamic or not inspectable.",
+    )
+    _add(
+        "services",
+        "validator_unavailable",
+        int(services.get("validator_unavailable", 0)),
+        "Service validation is unavailable.",
+    )
+    _add(
+        "services",
+        "validation_exception",
+        int(services.get("validation_exception", 0)),
+        "Service validation could not complete because a validator raised an exception.",
+    )
+
+    templates = cast(dict[str, int], skip_reasons.get("templates", {}))
+    _add(
+        "templates",
+        "validator_unavailable",
+        int(templates.get("validator_unavailable", 0)),
+        "Template validation is unavailable.",
+    )
+    _add(
+        "templates",
+        "validation_exception",
+        int(templates.get("validation_exception", 0)),
+        "Template validation could not complete because a validator raised an exception.",
+    )
+
+    entity_state = cast(dict[str, int], skip_reasons.get("entity_state", {}))
+    _add(
+        "entity_state",
+        "validator_unavailable",
+        int(entity_state.get("validator_unavailable", 0)),
+        "Entity and state validation is unavailable.",
+    )
+    _add(
+        "entity_state",
+        "reachability_validator_unavailable",
+        int(entity_state.get("reachability_validator_unavailable", 0)),
+        "Reachability checks are unavailable.",
+    )
+    _add(
+        "entity_state",
+        "validation_exception",
+        int(entity_state.get("validation_exception", 0)),
+        "Entity and state validation could not complete because a validator raised an exception.",
+    )
+    _add(
+        "entity_state",
+        "reachability_validation_exception",
+        int(entity_state.get("reachability_validation_exception", 0)),
+        "Reachability validation could not complete because a validator raised an exception.",
+    )
+
+    runtime = cast(dict[str, int], skip_reasons.get("runtime_health", {}))
+    _add(
+        "runtime_health",
+        "disabled",
+        int(runtime.get("disabled", 0)),
+        "Runtime health monitoring is disabled.",
+    )
+    _add(
+        "runtime_health",
+        "monitor_unavailable",
+        int(runtime.get("monitor_unavailable", 0)),
+        "Runtime health monitoring is unavailable.",
+    )
+    _add(
+        "runtime_health",
+        "validation_exception",
+        int(runtime.get("validation_exception", 0)),
+        "Runtime health validation could not complete because a validator raised an exception.",
+    )
+
+    return gaps
+
+
 async def _async_reconcile_visible_issues(hass: HomeAssistant) -> None:
     """Recompute visible issues from raw cache and update reporter-backed surfaces."""
     data = hass.data.get(DOMAIN, {})
@@ -830,6 +941,9 @@ async def websocket_run_validation_steps(
                 "analyzed_automations": result.get("analyzed_automations", 0),
                 "failed_automations": result.get("failed_automations", 0),
                 "skip_reasons": result.get("skip_reasons", {}),
+                "coverage_gaps": _build_coverage_gaps(
+                    cast(dict[str, Any], result.get("skip_reasons", {}))
+                ),
             },
         )
     except Exception as err:
@@ -924,6 +1038,9 @@ async def websocket_get_validation_steps(
             "analyzed_automations": run_stats.get("analyzed_automations", 0),
             "failed_automations": run_stats.get("failed_automations", 0),
             "skip_reasons": run_stats.get("skip_reasons", {}),
+            "coverage_gaps": _build_coverage_gaps(
+                cast(dict[str, Any], run_stats.get("skip_reasons", {}))
+            ),
         },
     )
 

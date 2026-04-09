@@ -11,6 +11,7 @@ def walk_automation_actions(
     *,
     visit_action: Callable[[dict[str, Any], int, str], None],
     visit_condition: Callable[[dict[str, Any], int, str], None] | None = None,
+    visit_trigger: Callable[[dict[str, Any], int, str], None] | None = None,
     location_prefix: str = "action",
     max_depth: int = 50,
 ) -> None:
@@ -19,6 +20,7 @@ def walk_automation_actions(
         actions,
         visit_action=visit_action,
         visit_condition=visit_condition,
+        visit_trigger=visit_trigger,
         location_prefix=location_prefix,
         max_depth=max_depth,
         _depth=0,
@@ -67,6 +69,7 @@ def _walk(
     *,
     visit_action: Callable[[dict[str, Any], int, str], None],
     visit_condition: Callable[[dict[str, Any], int, str], None] | None,
+    visit_trigger: Callable[[dict[str, Any], int, str], None] | None,
     location_prefix: str,
     max_depth: int,
     _depth: int,
@@ -78,6 +81,17 @@ def _walk(
             continue
         location = f"{location_prefix}[{idx}]"
         visit_action(action, idx, location)
+
+        if visit_trigger and "wait_for_trigger" in action:
+            for trigger_idx, trigger in enumerate(
+                _ensure_list(action.get("wait_for_trigger"))
+            ):
+                if isinstance(trigger, dict):
+                    visit_trigger(
+                        trigger,
+                        trigger_idx,
+                        f"{location}.wait_for_trigger[{trigger_idx}]",
+                    )
 
         if "choose" in action:
             options = _ensure_list(action.get("choose"))
@@ -94,6 +108,7 @@ def _walk(
                         sequence,
                         visit_action=visit_action,
                         visit_condition=visit_condition,
+                        visit_trigger=visit_trigger,
                         location_prefix=f"{location}.choose[{opt_idx}].sequence",
                         max_depth=max_depth,
                         _depth=_depth + 1,
@@ -104,6 +119,7 @@ def _walk(
                     default,
                     visit_action=visit_action,
                     visit_condition=visit_condition,
+                    visit_trigger=visit_trigger,
                     location_prefix=f"{location}.default",
                     max_depth=max_depth,
                     _depth=_depth + 1,
@@ -121,6 +137,7 @@ def _walk(
                 then_actions,
                 visit_action=visit_action,
                 visit_condition=visit_condition,
+                visit_trigger=visit_trigger,
                 location_prefix=f"{location}.then",
                 max_depth=max_depth,
                 _depth=_depth + 1,
@@ -131,6 +148,7 @@ def _walk(
                     else_actions,
                     visit_action=visit_action,
                     visit_condition=visit_condition,
+                    visit_trigger=visit_trigger,
                     location_prefix=f"{location}.else",
                     max_depth=max_depth,
                     _depth=_depth + 1,
@@ -151,6 +169,7 @@ def _walk(
                     sequence,
                     visit_action=visit_action,
                     visit_condition=visit_condition,
+                    visit_trigger=visit_trigger,
                     location_prefix=f"{location}.repeat.sequence",
                     max_depth=max_depth,
                     _depth=_depth + 1,
@@ -164,6 +183,7 @@ def _walk(
                     branch_actions,
                     visit_action=visit_action,
                     visit_condition=visit_condition,
+                    visit_trigger=visit_trigger,
                     location_prefix=f"{location}.parallel[{branch_idx}]",
                     max_depth=max_depth,
                     _depth=_depth + 1,

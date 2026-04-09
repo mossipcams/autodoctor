@@ -168,3 +168,159 @@ def test_as_list_delegates_to_shared_ensure_list() -> None:
     # Verify identical behavior for all edge cases
     for value in [None, "a", [1, 2], 42]:
         assert rv._as_list(value) == ensure_list(value)
+
+
+def test_allows_reused_trigger_ids() -> None:
+    """Home Assistant allows multiple triggers to share the same ID."""
+    automation = {
+        "id": "duplicate_trigger_ids",
+        "alias": "Duplicate Trigger IDs",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.front",
+                "to": "on",
+                "id": "arrival",
+            },
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.back",
+                "to": "on",
+                "id": "arrival",
+            },
+        ],
+        "action": [],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert issues == []
+
+
+def test_accepts_implicit_trigger_index_ids() -> None:
+    """Trigger conditions may reference HA's implicit zero-based trigger IDs."""
+    automation = {
+        "id": "implicit_trigger_id",
+        "alias": "Implicit Trigger ID",
+        "trigger": [
+            {"platform": "time", "at": "08:00:00"},
+            {"platform": "time", "at": "09:00:00"},
+        ],
+        "action": [
+            {
+                "if": [
+                    {"condition": "trigger", "id": "1"},
+                ],
+                "then": [],
+            }
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert issues == []
+
+
+def test_detects_unknown_trigger_id_references_in_nested_branches() -> None:
+    """Trigger conditions should only reference declared trigger IDs."""
+    automation = {
+        "id": "unknown_trigger_id",
+        "alias": "Unknown Trigger ID",
+        "trigger": [
+            {"platform": "time", "at": "08:00:00", "id": "morning"},
+        ],
+        "action": [
+            {
+                "if": [
+                    {"condition": "trigger", "id": "missing_id"},
+                ],
+                "then": [],
+            }
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.issue_type == IssueType.UNKNOWN_TRIGGER_ID
+    assert issue.severity == Severity.ERROR
+    assert issue.entity_id == "missing_id"
+    assert issue.location == "action[0].if[0].id"
+
+
+def test_detects_impossible_state_combination_within_if_branch() -> None:
+    """Sibling if conditions that require conflicting states are unreachable."""
+    automation = {
+        "id": "if_branch_state_contradiction",
+        "alias": "If Branch State Contradiction",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "if": [
+                    {
+                        "condition": "state",
+                        "entity_id": "binary_sensor.window",
+                        "state": "on",
+                    },
+                    {
+                        "condition": "state",
+                        "entity_id": "binary_sensor.window",
+                        "state": "off",
+                    },
+                ],
+                "then": [{"service": "light.turn_on"}],
+            }
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
+    assert issue.entity_id == "binary_sensor.window"
+    assert issue.location == "action[0].if[1].state"
+
+
+def test_detects_impossible_numeric_range_within_choose_branch() -> None:
+    """Sibling choose conditions that collapse to an empty numeric range are unreachable."""
+    automation = {
+        "id": "choose_branch_numeric_contradiction",
+        "alias": "Choose Branch Numeric Contradiction",
+        "trigger": [{"platform": "time", "at": "09:00:00"}],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "numeric_state",
+                                "entity_id": "sensor.pool_temp",
+                                "above": 30,
+                            },
+                            {
+                                "condition": "numeric_state",
+                                "entity_id": "sensor.pool_temp",
+                                "below": 20,
+                            },
+                        ],
+                        "sequence": [{"service": "switch.turn_on"}],
+                    }
+                ]
+            }
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.issue_type == IssueType.UNREACHABLE_NUMERIC_RANGE
+    assert issue.entity_id == "sensor.pool_temp"
+    assert issue.location == "action[0].choose[0].conditions[1]"

@@ -81,6 +81,8 @@ def test_severity_ordering() -> None:
         (IssueType.INVALID_STATE, "invalid_state"),
         (IssueType.CASE_MISMATCH, "case_mismatch"),
         (IssueType.ATTRIBUTE_NOT_FOUND, "attribute_not_found"),
+        (IssueType.DUPLICATE_TRIGGER_ID, "duplicate_trigger_id"),
+        (IssueType.UNKNOWN_TRIGGER_ID, "unknown_trigger_id"),
     ],
     ids=[
         "entity-not-found",
@@ -88,6 +90,8 @@ def test_severity_ordering() -> None:
         "invalid-state",
         "case-mismatch",
         "attribute-not-found",
+        "duplicate-trigger-id",
+        "unknown-trigger-id",
     ],
 )
 def test_issue_type_enum_values(issue_type: IssueType, expected_value: str) -> None:
@@ -350,12 +354,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 19 members.
+    """Guard: Verify IssueType has exactly 21 members.
 
     This guards against accidental reintroduction of removed types.
     Count: 8 entity_state + 5 services + 3 templates + 3 runtime = 19 total.
     """
-    assert len(IssueType) == 19, f"Expected 19 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 21, f"Expected 21 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:

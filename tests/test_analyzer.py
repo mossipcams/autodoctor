@@ -647,6 +647,77 @@ def test_extract_service_calls_from_nested_actions_reports_locations_and_payload
     ]
 
 
+def test_extract_state_references_from_wait_for_trigger_reports_exact_locations() -> (
+    None
+):
+    """wait_for_trigger refs should reuse trigger extraction with nested locations."""
+    automation = {
+        "id": "wait_for_trigger_locations",
+        "alias": "Wait For Trigger Locations",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "action": [
+            {
+                "wait_for_trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "binary_sensor.door",
+                        "to": "on",
+                    },
+                    {
+                        "platform": "numeric_state",
+                        "entity_id": "sensor.temperature",
+                        "attribute": "temperature",
+                    },
+                    {
+                        "platform": "zone",
+                        "entity_id": "person.matt",
+                        "zone": "zone.home",
+                    },
+                    {
+                        "platform": "device",
+                        "device_id": "device-123",
+                    },
+                    {
+                        "platform": "template",
+                        "value_template": "{{ is_state('switch.kettle', 'on') }}",
+                    },
+                ]
+            }
+        ],
+    }
+
+    analyzer = AutomationAnalyzer()
+    refs = analyzer.extract_state_references(automation)
+
+    relevant_refs = {
+        (ref.entity_id, ref.expected_state, ref.expected_attribute, ref.location)
+        for ref in refs
+        if ref.entity_id
+        in {
+            "binary_sensor.door",
+            "sensor.temperature",
+            "person.matt",
+            "zone.home",
+            "device-123",
+            "switch.kettle",
+        }
+    }
+
+    assert relevant_refs == {
+        ("binary_sensor.door", "on", None, "action[0].wait_for_trigger[0].to"),
+        (
+            "sensor.temperature",
+            None,
+            "temperature",
+            "action[0].wait_for_trigger[1]",
+        ),
+        ("person.matt", None, None, "action[0].wait_for_trigger[2].entity_id"),
+        ("zone.home", None, None, "action[0].wait_for_trigger[2].zone"),
+        ("device-123", None, None, "action[0].wait_for_trigger[3].device_id"),
+        ("switch.kettle", "on", None, "action[0].wait_for_trigger[4].is_state"),
+    }
+
+
 def test_extract_from_parallel_action() -> None:
     """Test extraction from parallel action branches."""
     automation = {

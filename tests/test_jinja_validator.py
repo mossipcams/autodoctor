@@ -645,6 +645,49 @@ def test_nested_action_templates_report_exact_issue_locations() -> None:
     }
 
 
+def test_wait_for_trigger_templates_report_exact_issue_locations() -> None:
+    """wait_for_trigger template issues should surface at nested trigger locations."""
+    validator = JinjaValidator()
+    automation = {
+        "id": "wait_for_trigger_templates",
+        "alias": "Wait For Trigger Templates",
+        "triggers": [{"platform": "time", "at": "12:00:00"}],
+        "conditions": [],
+        "actions": [
+            {
+                "wait_for_trigger": [
+                    {
+                        "platform": "template",
+                        "value_template": "{{ broken > }}",
+                    },
+                    {
+                        "platform": "state",
+                        "entity_id": "binary_sensor.door",
+                        "to": "{{ broken > }}",
+                    },
+                ]
+            }
+        ],
+    }
+
+    issues = validator.validate_automations([automation])
+
+    assert {
+        (issue.location, issue.issue_type)
+        for issue in issues
+        if issue.issue_type == IssueType.TEMPLATE_SYNTAX_ERROR
+    } == {
+        (
+            "action[0].wait_for_trigger[0].value_template",
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+        ),
+        (
+            "action[0].wait_for_trigger[1].to",
+            IssueType.TEMPLATE_SYNTAX_ERROR,
+        ),
+    }
+
+
 def test_if_conditions_loop_finds_template_error() -> None:
     """Test that if action conditions are validated.
 

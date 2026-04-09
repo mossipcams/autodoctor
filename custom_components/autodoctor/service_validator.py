@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any, cast
 
+from .const import DOMAIN
 from .models import IssueType, Severity, ValidationIssue
 from .template_utils import is_template_value as _is_template_value
 from .validator import get_entity_suggestion
@@ -401,6 +403,7 @@ class ServiceCallValidator:
         else:
             target = {}
             target_uninspectable = True
+            self._increment_skip_reason("uninspectable_target")
 
         for field_name, field_schema in fields.items():
             if not isinstance(field_schema, dict):
@@ -900,7 +903,14 @@ class ServiceCallValidator:
                 continue
             if self.hass.states.get(entity_id) is None:
                 suggestion = self._suggest_target_entity(entity_id)
-                msg = f"Entity '{entity_id}' in service target does not exist"
+                historical_ids = self._get_historical_target_entity_ids()
+                if entity_id in historical_ids:
+                    msg = (
+                        f"Entity '{entity_id}' in service target existed in history "
+                        "but is now missing (removed or renamed)"
+                    )
+                else:
+                    msg = f"Entity '{entity_id}' in service target does not exist"
                 if suggestion:
                     msg += f". Did you mean '{suggestion}'?"
                 issues.append(
@@ -1013,6 +1023,33 @@ class ServiceCallValidator:
             )
         )
         return [], issues
+
+    def _get_historical_target_entity_ids(self) -> set[str]:
+        """Get historical entity ids from the integration knowledge base if available."""
+        domain_data = self.hass.data.get(DOMAIN, {})
+        if not isinstance(domain_data, dict):
+            return set()
+        knowledge_base = cast(Any, domain_data.get("knowledge_base"))
+        getter = getattr(knowledge_base, "get_historical_entity_ids", None)
+        if not callable(getter):
+            return set()
+        try:
+            result = getter()
+        except Exception:
+            return set()
+        if isinstance(result, set):
+            values: set[str] = set()
+            for item in cast(Iterable[Any], result):
+                if isinstance(item, str):
+                    values.add(item)
+            return values
+        if isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+            values: set[str] = set()
+            for item in cast(Iterable[Any], result):
+                if isinstance(item, str):
+                    values.add(item)
+            return values
+        return set()
 
     def _suggest_target_entity(self, invalid: str) -> str | None:
         """Suggest a correction for an invalid entity ID in target."""

@@ -114,9 +114,11 @@ class JinjaValidator:
         index: int,
         auto_id: str,
         auto_name: str,
+        location_base: str | None = None,
     ) -> list[ValidationIssue]:
         """Validate templates in a trigger."""
         issues: list[ValidationIssue] = []
+        base_location = location_base or f"trigger[{index}]"
 
         # Check value_template
         value_template = trigger.get("value_template")
@@ -124,7 +126,7 @@ class JinjaValidator:
             issues.extend(
                 self._check_template(
                     value_template,
-                    f"trigger[{index}].value_template",
+                    f"{base_location}.value_template",
                     auto_id,
                     auto_name,
                 )
@@ -141,7 +143,7 @@ class JinjaValidator:
                 issues.extend(
                     self._check_template(
                         field_value,
-                        f"trigger[{index}].{field_name}",
+                        f"{base_location}.{field_name}",
                         auto_id,
                         auto_name,
                     )
@@ -266,10 +268,24 @@ class JinjaValidator:
                 )
             )
 
+        def _visit_trigger(
+            trigger: dict[str, Any], trigger_idx: int, location: str
+        ) -> None:
+            issues.extend(
+                self._validate_trigger(
+                    trigger,
+                    trigger_idx,
+                    auto_id,
+                    auto_name,
+                    location,
+                )
+            )
+
         walk_automation_actions(
             _ensure_list(actions),
             visit_action=_visit_action,
             visit_condition=_visit_condition,
+            visit_trigger=_visit_trigger,
             location_prefix=location_prefix,
             max_depth=_TEMPLATE_MAX_NESTING_DEPTH + 1,
         )

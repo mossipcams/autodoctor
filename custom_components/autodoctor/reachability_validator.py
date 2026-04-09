@@ -33,6 +33,9 @@ class ReachabilityValidator:
         issues: list[ValidationIssue] = []
         global_constraints: dict[tuple[str, str | None], StateConstraint] = {}
         global_numeric: dict[tuple[str, str | None], NumericConstraint] = {}
+        declared_trigger_ids = self._collect_trigger_ids(
+            automation=automation,
+        )
 
         # Do not treat trigger states/thresholds as global facts.
         # Triggers are OR paths in Home Assistant and would cause false positives.
@@ -48,6 +51,7 @@ class ReachabilityValidator:
                 automation_name=automation_name,
                 constraints=global_constraints,
                 numeric_constraints=global_numeric,
+                declared_trigger_ids=declared_trigger_ids,
                 issues=issues,
             )
 
@@ -60,6 +64,14 @@ class ReachabilityValidator:
             if isinstance(action, dict)
         ]
 
+        issues.extend(
+            self._validate_action_condition_blocks(
+                actions=actions,
+                automation_id=automation_id,
+                automation_name=automation_name,
+            )
+        )
+
         def _visit_condition(cond: dict[str, Any], _idx: int, location: str) -> None:
             self._process_branch_condition(
                 condition=cond,
@@ -68,6 +80,7 @@ class ReachabilityValidator:
                 automation_name=automation_name,
                 global_constraints=global_constraints,
                 global_numeric=global_numeric,
+                declared_trigger_ids=declared_trigger_ids,
                 issues=issues,
             )
 
@@ -76,6 +89,215 @@ class ReachabilityValidator:
             visit_action=lambda _a, _i, _l: None,
             visit_condition=_visit_condition,
         )
+
+        return issues
+
+    def _validate_action_condition_blocks(
+        self,
+        *,
+        actions: list[dict[str, Any]],
+        automation_id: str,
+        automation_name: str,
+        location_prefix: str = "action",
+    ) -> list[ValidationIssue]:
+        """Validate contradictions within action-local condition blocks."""
+        issues: list[ValidationIssue] = []
+
+        for idx, action in enumerate(actions):
+            location = f"{location_prefix}[{idx}]"
+
+            if "choose" in action:
+                options = self._as_list(action.get("choose"))
+                for opt_idx, option in enumerate(options):
+                    if not isinstance(option, dict):
+                        continue
+                    issues.extend(
+                        self._validate_condition_block(
+                            conditions=option.get("conditions"),
+                            location_prefix=f"{location}.choose[{opt_idx}].conditions",
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                        )
+                    )
+                    issues.extend(
+                        self._validate_action_condition_blocks(
+                            actions=[
+                                cast(dict[str, Any], branch_action)
+                                for branch_action in self._as_list(
+                                    option.get("sequence")
+                                )
+                                if isinstance(branch_action, dict)
+                            ],
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            location_prefix=f"{location}.choose[{opt_idx}].sequence",
+                        )
+                    )
+                issues.extend(
+                    self._validate_action_condition_blocks(
+                        actions=[
+                            cast(dict[str, Any], branch_action)
+                            for branch_action in self._as_list(action.get("default"))
+                            if isinstance(branch_action, dict)
+                        ],
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        location_prefix=f"{location}.default",
+                    )
+                )
+
+            if "if" in action:
+                issues.extend(
+                    self._validate_condition_block(
+                        conditions=action.get("if"),
+                        location_prefix=f"{location}.if",
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                    )
+                )
+                issues.extend(
+                    self._validate_action_condition_blocks(
+                        actions=[
+                            cast(dict[str, Any], branch_action)
+                            for branch_action in self._as_list(action.get("then"))
+                            if isinstance(branch_action, dict)
+                        ],
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        location_prefix=f"{location}.then",
+                    )
+                )
+                issues.extend(
+                    self._validate_action_condition_blocks(
+                        actions=[
+                            cast(dict[str, Any], branch_action)
+                            for branch_action in self._as_list(action.get("else"))
+                            if isinstance(branch_action, dict)
+                        ],
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        location_prefix=f"{location}.else",
+                    )
+                )
+
+            if "repeat" in action:
+                repeat_config = action.get("repeat")
+                if isinstance(repeat_config, dict):
+                    for cond_key in ("while", "until"):
+                        issues.extend(
+                            self._validate_condition_block(
+                                conditions=repeat_config.get(cond_key),
+                                location_prefix=f"{location}.repeat.{cond_key}",
+                                automation_id=automation_id,
+                                automation_name=automation_name,
+                            )
+                        )
+                    issues.extend(
+                        self._validate_action_condition_blocks(
+                            actions=[
+                                cast(dict[str, Any], branch_action)
+                                for branch_action in self._as_list(
+                                    repeat_config.get("sequence")
+                                )
+                                if isinstance(branch_action, dict)
+                            ],
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            location_prefix=f"{location}.repeat.sequence",
+                        )
+                    )
+
+            if "parallel" in action:
+                branches = self._as_list(action.get("parallel"))
+                for branch_idx, branch in enumerate(branches):
+                    issues.extend(
+                        self._validate_action_condition_blocks(
+                            actions=[
+                                cast(dict[str, Any], branch_action)
+                                for branch_action in self._as_list(branch)
+                                if isinstance(branch_action, dict)
+                            ],
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            location_prefix=f"{location}.parallel[{branch_idx}]",
+                        )
+                    )
+
+        return issues
+
+    def _validate_condition_block(
+        self,
+        *,
+        conditions: Any,
+        location_prefix: str,
+        automation_id: str,
+        automation_name: str,
+    ) -> list[ValidationIssue]:
+        """Validate contradictions within a list of sibling conditions."""
+        issues: list[ValidationIssue] = []
+        local_constraints: dict[tuple[str, str | None], StateConstraint] = {}
+        local_numeric: dict[tuple[str, str | None], NumericConstraint] = {}
+        block_conditions = self._as_list(conditions)
+        has_multiple_siblings = (
+            sum(1 for condition in block_conditions if isinstance(condition, dict)) > 1
+        )
+
+        for cond_idx, condition in enumerate(block_conditions):
+            if not isinstance(condition, dict):
+                continue
+            typed_condition = cast(dict[str, Any], condition)
+            location = f"{location_prefix}[{cond_idx}]"
+            cond_type_obj = typed_condition.get("condition")
+            cond_type = cond_type_obj if isinstance(cond_type_obj, str) else ""
+            is_state_condition = cond_type == "state" or (
+                not cond_type
+                and "entity_id" in typed_condition
+                and "state" in typed_condition
+            )
+            if is_state_condition and has_multiple_siblings:
+                states = self._normalize_values(typed_condition.get("state"))
+                if len(states) != 1 or is_template_value(states[0]):
+                    continue
+                attribute_obj = typed_condition.get("attribute")
+                attribute = attribute_obj if isinstance(attribute_obj, str) else None
+                for entity_id in self._normalize_entity_ids(
+                    typed_condition.get("entity_id")
+                ):
+                    self._add_state_constraint(
+                        constraints=local_constraints,
+                        issues=issues,
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        attribute=attribute,
+                        state=states[0],
+                        location=f"{location}.state",
+                    )
+                continue
+
+            if cond_type == "numeric_state" and has_multiple_siblings:
+                self._process_numeric_constraint(
+                    constraint=typed_condition,
+                    location=location,
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    numeric_constraints=local_numeric,
+                    issues=issues,
+                )
+                continue
+
+            # Only recurse into nested AND-style groups; OR/NOT would require
+            # different semantics and are skipped to stay conservative.
+            for key in ("conditions", "and"):
+                if key in typed_condition:
+                    issues.extend(
+                        self._validate_condition_block(
+                            conditions=typed_condition.get(key),
+                            location_prefix=f"{location}.{key}",
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                        )
+                    )
 
         return issues
 
@@ -88,6 +310,7 @@ class ReachabilityValidator:
         automation_name: str,
         constraints: dict[tuple[str, str | None], StateConstraint],
         numeric_constraints: dict[tuple[str, str | None], NumericConstraint],
+        declared_trigger_ids: set[str],
         issues: list[ValidationIssue],
     ) -> None:
         if not isinstance(condition, dict):
@@ -127,6 +350,17 @@ class ReachabilityValidator:
                 numeric_constraints=numeric_constraints,
                 issues=issues,
             )
+            return
+
+        if cond_type == "trigger":
+            self._validate_trigger_condition_ids(
+                condition=cond,
+                location=f"condition[{idx}]",
+                automation_id=automation_id,
+                automation_name=automation_name,
+                declared_trigger_ids=declared_trigger_ids,
+                issues=issues,
+            )
 
     def _process_branch_condition(
         self,
@@ -137,6 +371,7 @@ class ReachabilityValidator:
         automation_name: str,
         global_constraints: dict[tuple[str, str | None], StateConstraint],
         global_numeric: dict[tuple[str, str | None], NumericConstraint],
+        declared_trigger_ids: set[str],
         issues: list[ValidationIssue],
     ) -> None:
         cond_type_obj = condition.get("condition")
@@ -182,6 +417,76 @@ class ReachabilityValidator:
                 global_numeric=global_numeric,
                 issues=issues,
             )
+            return
+
+        if cond_type == "trigger":
+            self._validate_trigger_condition_ids(
+                condition=condition,
+                location=location,
+                automation_id=automation_id,
+                automation_name=automation_name,
+                declared_trigger_ids=declared_trigger_ids,
+                issues=issues,
+            )
+
+    def _collect_trigger_ids(
+        self,
+        *,
+        automation: dict[str, Any],
+    ) -> set[str]:
+        """Collect declared trigger IDs, including HA's implicit index IDs."""
+        declared_ids: set[str] = set()
+        triggers = self._as_list(
+            automation.get("triggers") or automation.get("trigger")
+        )
+        for idx, trigger in enumerate(triggers):
+            declared_ids.add(str(idx))
+            if not isinstance(trigger, dict):
+                continue
+            for trigger_id in self._normalize_trigger_ids(trigger.get("id")):
+                declared_ids.add(trigger_id)
+        return declared_ids
+
+    def _validate_trigger_condition_ids(
+        self,
+        *,
+        condition: dict[str, Any],
+        location: str,
+        automation_id: str,
+        automation_name: str,
+        declared_trigger_ids: set[str],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Validate condition: trigger IDs against declared trigger IDs."""
+        for trigger_id in self._normalize_trigger_ids(condition.get("id")):
+            if trigger_id in declared_trigger_ids:
+                continue
+            issues.append(
+                ValidationIssue(
+                    issue_type=IssueType.UNKNOWN_TRIGGER_ID,
+                    severity=Severity.ERROR,
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=trigger_id,
+                    location=f"{location}.id",
+                    message=f"Trigger condition references unknown trigger id '{trigger_id}'",
+                )
+            )
+
+    def _normalize_trigger_ids(self, value: Any) -> list[str]:
+        """Normalize trigger id values to a list of non-template strings."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [] if is_template_value(value) or value == "" else [value]
+        if isinstance(value, Iterable):
+            ids: list[str] = []
+            iterable = cast(Iterable[Any], value)
+            for item in iterable:
+                if isinstance(item, str) and item and not is_template_value(item):
+                    ids.append(item)
+            return ids
+        return []
 
     def _add_state_constraint(
         self,

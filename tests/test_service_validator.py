@@ -10,10 +10,13 @@ Tests cover service validation including:
 - Fuzzy matching for suggestions
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.core import ServiceCall as HAServiceCall
 
+from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.models import IssueType, ServiceCall, Severity
 from custom_components.autodoctor.service_validator import ServiceCallValidator
 
@@ -1349,6 +1352,39 @@ async def test_non_template_entity_validated(hass: HomeAssistant) -> None:
     assert len(target_issues) == 1
     assert target_issues[0].severity == Severity.WARNING
     assert target_issues[0].entity_id == "light.nonexistent"
+
+
+async def test_historical_target_entity_uses_removed_message(
+    hass: HomeAssistant,
+) -> None:
+    """Historically known service targets should surface a removed/renamed hint."""
+
+    hass.services.async_register("light", "turn_on", _noop_service_handler)
+    hass.data[DOMAIN] = {
+        "knowledge_base": MagicMock(
+            get_historical_entity_ids=MagicMock(return_value={"light.old_name"})
+        )
+    }
+
+    validator = ServiceCallValidator(hass)
+    validator._service_descriptions = {
+        "light": {"turn_on": {"fields": {"brightness": {"required": False}}}}
+    }
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="light.turn_on",
+        location="action[0]",
+        target={"entity_id": "light.old_name"},
+    )
+
+    issues = validator.validate_service_calls([call])
+    target_issues = [
+        i for i in issues if i.issue_type == IssueType.SERVICE_TARGET_NOT_FOUND
+    ]
+    assert len(target_issues) == 1
+    assert "existed in history" in target_issues[0].message
 
 
 async def test_existing_target_entity_no_issue(hass: HomeAssistant) -> None:
