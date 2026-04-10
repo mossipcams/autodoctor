@@ -206,6 +206,42 @@ def test_walk_calls_visit_condition_for_choose_and_if_and_repeat() -> None:
     ]
 
 
+def test_walk_calls_visit_trigger_for_wait_for_trigger() -> None:
+    """Walker should call visit_trigger for wait_for_trigger entries."""
+    from custom_components.autodoctor.action_walker import walk_automation_actions
+
+    trigger_calls: list[tuple[int, str, str]] = []
+
+    def on_action(action: dict, idx: int, location: str) -> None:
+        pass
+
+    def on_trigger(trigger: dict, idx: int, location: str) -> None:
+        trigger_calls.append((idx, location, str(trigger.get("platform"))))
+
+    actions = [
+        {
+            "wait_for_trigger": [
+                {
+                    "platform": "state",
+                    "entity_id": "binary_sensor.door",
+                    "to": "on",
+                },
+                {
+                    "platform": "template",
+                    "value_template": "{{ is_state('switch.kettle', 'on') }}",
+                },
+            ]
+        }
+    ]
+
+    walk_automation_actions(actions, visit_action=on_action, visit_trigger=on_trigger)
+
+    assert trigger_calls == [
+        (0, "action[0].wait_for_trigger[0]", "state"),
+        (1, "action[0].wait_for_trigger[1]", "template"),
+    ]
+
+
 def test_walk_propagates_visit_condition_into_nested_branches() -> None:
     """Nested branch actions should keep visit_condition wired through recursion."""
     from custom_components.autodoctor.action_walker import walk_automation_actions

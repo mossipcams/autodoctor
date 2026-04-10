@@ -28,6 +28,8 @@ class IssueType(StrEnum):
     CASE_MISMATCH = "case_mismatch"
     ATTRIBUTE_NOT_FOUND = "attribute_not_found"
     INVALID_ATTRIBUTE_VALUE = "invalid_attribute_value"
+    DUPLICATE_TRIGGER_ID = "duplicate_trigger_id"
+    UNKNOWN_TRIGGER_ID = "unknown_trigger_id"
     TEMPLATE_SYNTAX_ERROR = "template_syntax_error"
     TEMPLATE_UNKNOWN_FILTER = "template_unknown_filter"
     TEMPLATE_UNKNOWN_TEST = "template_unknown_test"
@@ -144,6 +146,8 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
                 IssueType.CASE_MISMATCH,
                 IssueType.ATTRIBUTE_NOT_FOUND,
                 IssueType.INVALID_ATTRIBUTE_VALUE,
+                IssueType.DUPLICATE_TRIGGER_ID,
+                IssueType.UNKNOWN_TRIGGER_ID,
                 IssueType.UNREACHABLE_STATE_COMBINATION,
                 IssueType.UNREACHABLE_NUMERIC_RANGE,
             }

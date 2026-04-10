@@ -575,6 +575,99 @@ async def test_websocket_get_validation_steps_no_prior_run(hass: HomeAssistant) 
         assert group["duration_ms"] == 0
     assert result["last_run"] is None
     assert result["suppressed_count"] == 0
+    assert result["coverage_gaps"] == []
+
+
+@pytest.mark.asyncio
+async def test_websocket_get_validation_steps_surfaces_coverage_gaps(
+    hass: HomeAssistant,
+) -> None:
+    """Cached steps should expose user-visible coverage gaps from skip telemetry."""
+    hass.data[DOMAIN] = {
+        "suppression_store": None,
+        "validation_last_run": "2026-01-30T12:00:00+00:00",
+        "validation_run_stats": {
+            "analyzed_automations": 2,
+            "failed_automations": 0,
+            "skip_reasons": {
+                "services": {
+                    "templated_service_name": 2,
+                    "missing_service_descriptions": 1,
+                    "uninspectable_target": 1,
+                    "validation_exception": 1,
+                },
+                "templates": {"validation_exception": 2},
+                "entity_state": {"reachability_validation_exception": 1},
+                "runtime_health": {
+                    "disabled": 1,
+                    "validation_exception": 1,
+                },
+            },
+        },
+        "validation_groups": {
+            "entity_state": {"issues": [], "duration_ms": 10},
+            "services": {"issues": [], "duration_ms": 20},
+            "templates": {"issues": [], "duration_ms": 30},
+            "runtime_health": {"issues": [], "duration_ms": 40},
+        },
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
+
+    await invoke_command(websocket_get_validation_steps, hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    assert result["coverage_gaps"] == [
+        {
+            "group": "services",
+            "reason": "templated_service_name",
+            "count": 2,
+            "message": "Skipped deep validation for templated service names.",
+        },
+        {
+            "group": "services",
+            "reason": "missing_service_descriptions",
+            "count": 1,
+            "message": "Service parameter validation was limited because service descriptions were unavailable.",
+        },
+        {
+            "group": "services",
+            "reason": "uninspectable_target",
+            "count": 1,
+            "message": "Some service target checks were skipped because the target was dynamic or not inspectable.",
+        },
+        {
+            "group": "services",
+            "reason": "validation_exception",
+            "count": 1,
+            "message": "Service validation could not complete because a validator raised an exception.",
+        },
+        {
+            "group": "templates",
+            "reason": "validation_exception",
+            "count": 2,
+            "message": "Template validation could not complete because a validator raised an exception.",
+        },
+        {
+            "group": "entity_state",
+            "reason": "reachability_validation_exception",
+            "count": 1,
+            "message": "Reachability validation could not complete because a validator raised an exception.",
+        },
+        {
+            "group": "runtime_health",
+            "reason": "disabled",
+            "count": 1,
+            "message": "Runtime health monitoring is disabled.",
+        },
+        {
+            "group": "runtime_health",
+            "reason": "validation_exception",
+            "count": 1,
+            "message": "Runtime health validation could not complete because a validator raised an exception.",
+        },
+    ]
 
 
 @pytest.mark.asyncio

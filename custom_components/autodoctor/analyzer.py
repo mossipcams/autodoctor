@@ -210,6 +210,7 @@ class AutomationAnalyzer:
         index: int,
         automation_id: str,
         automation_name: str,
+        location_base: str | None = None,
     ) -> list[StateReference]:
         """Extract state references from a trigger."""
         refs: list[StateReference] = []
@@ -223,6 +224,8 @@ class AutomationAnalyzer:
                 type(trigger).__name__,
             )
             return refs
+
+        base_location = location_base or f"trigger[{index}]"
 
         # Support both 'platform' (old format) and 'trigger' (new format) keys
         platform = trigger.get("platform") or trigger.get("trigger", "")
@@ -245,7 +248,7 @@ class AutomationAnalyzer:
                             entity_id=entity_id,
                             expected_state=state,
                             expected_attribute=trigger_attribute,
-                            location=f"trigger[{index}].to",
+                            location=f"{base_location}.to",
                             transition_from=from_states[0] if from_states else None,
                         )
                     )
@@ -257,7 +260,7 @@ class AutomationAnalyzer:
                             entity_id=entity_id,
                             expected_state=state,
                             expected_attribute=trigger_attribute,
-                            location=f"trigger[{index}].from",
+                            location=f"{base_location}.from",
                         )
                     )
 
@@ -276,7 +279,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=attribute,
-                        location=f"trigger[{index}]",
+                        location=base_location,
                     )
                 )
 
@@ -284,7 +287,7 @@ class AutomationAnalyzer:
             value_template = trigger.get("value_template", "")
             refs.extend(
                 self._extract_from_template(
-                    value_template, f"trigger[{index}]", automation_id, automation_name
+                    value_template, base_location, automation_id, automation_name
                 )
             )
 
@@ -302,7 +305,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].entity_id",
+                        location=f"{base_location}.entity_id",
                         reference_type="direct",
                     )
                 )
@@ -315,7 +318,7 @@ class AutomationAnalyzer:
                         entity_id=zone_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].zone",
+                        location=f"{base_location}.zone",
                         reference_type="zone",
                     )
                 )
@@ -328,7 +331,7 @@ class AutomationAnalyzer:
                     entity_id="sun.sun",
                     expected_state=None,
                     expected_attribute=None,
-                    location=f"trigger[{index}]",
+                    location=base_location,
                     reference_type="direct",
                 )
             )
@@ -346,7 +349,7 @@ class AutomationAnalyzer:
                         entity_id=entity_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].entity_id",
+                        location=f"{base_location}.entity_id",
                         reference_type="direct",
                     )
                 )
@@ -361,7 +364,7 @@ class AutomationAnalyzer:
                         entity_id=device_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].device_id",
+                        location=f"{base_location}.device_id",
                         reference_type="device",
                     )
                 )
@@ -376,7 +379,7 @@ class AutomationAnalyzer:
                         entity_id=tag_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].tag_id",
+                        location=f"{base_location}.tag_id",
                         reference_type="tag",
                     )
                 )
@@ -390,7 +393,7 @@ class AutomationAnalyzer:
                         entity_id=device_id,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].device_id",
+                        location=f"{base_location}.device_id",
                         reference_type="device",
                     )
                 )
@@ -405,7 +408,7 @@ class AutomationAnalyzer:
                         entity_id=zone,
                         expected_state=None,
                         expected_attribute=None,
-                        location=f"trigger[{index}].zone",
+                        location=f"{base_location}.zone",
                         reference_type="zone",
                     )
                 )
@@ -419,7 +422,7 @@ class AutomationAnalyzer:
                         refs.extend(
                             self._extract_from_template(
                                 value,
-                                f"trigger[{index}].event_data.{key}",
+                                f"{base_location}.event_data.{key}",
                                 automation_id,
                                 automation_name,
                             )
@@ -433,7 +436,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         topic,
-                        f"trigger[{index}].topic",
+                        f"{base_location}.topic",
                         automation_id,
                         automation_name,
                     )
@@ -443,7 +446,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         payload,
-                        f"trigger[{index}].payload",
+                        f"{base_location}.payload",
                         automation_id,
                         automation_name,
                     )
@@ -456,7 +459,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         webhook_id,
-                        f"trigger[{index}].webhook_id",
+                        f"{base_location}.webhook_id",
                         automation_id,
                         automation_name,
                     )
@@ -469,7 +472,7 @@ class AutomationAnalyzer:
                 refs.extend(
                     self._extract_from_template(
                         notification_id,
-                        f"trigger[{index}].notification_id",
+                        f"{base_location}.notification_id",
                         automation_id,
                         automation_name,
                     )
@@ -494,7 +497,7 @@ class AutomationAnalyzer:
                             entity_id=at_value,
                             expected_state=None,
                             expected_attribute=None,
-                            location=f"trigger[{index}].at",
+                            location=f"{base_location}.at",
                             reference_type="direct",
                         )
                     )
@@ -1158,10 +1161,24 @@ class AutomationAnalyzer:
                 )
             )
 
+        def _visit_trigger(
+            trigger: dict[str, Any], trigger_idx: int, location: str
+        ) -> None:
+            refs.extend(
+                self._extract_from_trigger(
+                    trigger,
+                    trigger_idx,
+                    automation_id,
+                    automation_name,
+                    location,
+                )
+            )
+
         walk_automation_actions(
             actions if isinstance(actions, list) else [actions],  # pyright: ignore[reportUnnecessaryIsInstance]
             visit_action=_visit_action,
             visit_condition=_visit_condition,
+            visit_trigger=_visit_trigger,
             location_prefix="action",
             max_depth=MAX_RECURSION_DEPTH,
         )

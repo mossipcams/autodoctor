@@ -151,6 +151,18 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "current_activity",
         "supported_features",
     ],
+    "update": [
+        "auto_update",
+        "display_precision",
+        "in_progress",
+        "installed_version",
+        "latest_version",
+        "release_summary",
+        "release_url",
+        "skipped_version",
+        "title",
+        "update_percentage",
+    ],
     "camera": [
         "is_streaming",
         "frontend_stream_type",

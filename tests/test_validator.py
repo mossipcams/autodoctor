@@ -280,6 +280,68 @@ async def test_no_false_positive_for_climate_temperature(hass: HomeAssistant) ->
 
 
 @pytest.mark.asyncio
+async def test_no_false_positive_for_update_in_progress_attribute(
+    hass: HomeAssistant,
+) -> None:
+    """Test that update entities allow standard attributes not in current state.
+
+    Update entities often expose firmware metadata via domain support even when a
+    specific snapshot does not include every attribute in state.attributes.
+    """
+    hass.states.async_set(
+        "update.firmware",
+        "off",
+        {
+            "installed_version": "2026.3.3",
+            "latest_version": "2026.3.3",
+        },
+    )
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="update.firmware",
+        expected_state=None,
+        expected_attribute="in_progress",
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attribute", ["installed_version", "latest_version"])
+async def test_update_domain_attributes_are_valid_when_not_in_state(
+    hass: HomeAssistant, attribute: str
+) -> None:
+    """Test update domain attributes are recognized without current-state presence."""
+    hass.states.async_set("update.firmware", "off", {})
+    await hass.async_block_till_done()
+
+    kb = StateKnowledgeBase(hass)
+    validator = ValidationEngine(kb)
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="update.firmware",
+        expected_state=None,
+        expected_attribute=attribute,
+        location="condition[0].attribute",
+    )
+
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 0
+
+
+@pytest.mark.asyncio
 async def test_invalid_attribute_sets_issue_type(hass: HomeAssistant) -> None:
     """Test that invalid attributes set ATTRIBUTE_NOT_FOUND issue type.
 
