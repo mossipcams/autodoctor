@@ -51,6 +51,7 @@ _BURST_THRESHOLD_FLOOR = 2.0
 _BURST_BASELINE_EMA_DECAY = 0.8
 _BURST_BASELINE_EMA_NEW = 0.2
 _BURST_MIN_RECENT_TRIGGERS = 6
+_BURST_MIN_SHORT_WINDOW_COUNT = 3
 
 # Validation scoring
 _RECENT_WINDOW_HOURS = 24
@@ -70,6 +71,8 @@ _SENSITIVITY_THRESHOLDS: dict[str, float] = {
     "medium": 2.0,
     "high": 1.5,
 }
+_OVERACTIVE_PROMOTION_MARGIN = 0.5
+_OVERACTIVE_IMMEDIATE_MARGIN = 0.5
 
 
 def _linear_percentile(values: list[float], quantile: float) -> float | None:
@@ -459,6 +462,9 @@ class RuntimeHealthMonitor:
                 "threshold_multiplier": 1.0,
                 "dismissed_count": 0,
             },
+            "overactive_confirmation": {
+                "pending": False,
+            },
         }
 
     def _ensure_automation_state(self, automation_entity_id: str) -> dict[str, Any]:
@@ -637,6 +643,7 @@ class RuntimeHealthMonitor:
             return []
         if (
             len(recent) < _BURST_MIN_RECENT_TRIGGERS
+            or current_5m_count < _BURST_MIN_SHORT_WINDOW_COUNT
             or float(current_5m_count) < threshold
         ):
             self._clear_runtime_alert(automation_entity_id, issue_type)
@@ -1086,10 +1093,20 @@ class RuntimeHealthMonitor:
 
             overdue_issue_type = IssueType.RUNTIME_AUTOMATION_OVERDUE
             issue_type = IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+            automation_state = self._ensure_automation_state(automation_entity_id)
             threshold = self._score_threshold_for(automation_entity_id)
+            promotion_threshold = threshold + _OVERACTIVE_PROMOTION_MARGIN
+            immediate_threshold = promotion_threshold + _OVERACTIVE_IMMEDIATE_MARGIN
             is_suppressed = self._is_runtime_suppressed(
                 automation_entity_id, suppression_store
             )
+            overactive_confirmation = automation_state.setdefault(
+                "overactive_confirmation",
+                {"pending": False},
+            )
+            if not isinstance(overactive_confirmation, dict):
+                overactive_confirmation = {"pending": False}
+                automation_state["overactive_confirmation"] = overactive_confirmation
 
             overdue_status = str(overdue_decision.get("status", "abstain"))
             overdue_probability = self._coerce_float(
@@ -1120,31 +1137,44 @@ class RuntimeHealthMonitor:
             else:
                 self._clear_runtime_alert(automation_entity_id, overdue_issue_type)
 
-            if smoothed_score >= threshold and not is_suppressed:
-                if self._allow_alert(automation_entity_id, now=now):
-                    confidence = (
-                        "high"
-                        if threshold > 0 and smoothed_score / threshold >= 2.0
-                        else "medium"
-                    )
-                    issue = ValidationIssue(
-                        severity=Severity.WARNING,
-                        automation_id=automation_entity_id,
-                        automation_name=automation_name,
-                        entity_id=automation_entity_id,
-                        location="runtime.health.anomaly",
-                        message=(
-                            f"Overactive: anomalous trigger pattern detected vs "
-                            f"{bucket_context.get('context_label', 'all history')} baseline: "
-                            f"score {smoothed_score:.2f} exceeds threshold {threshold:.2f}"
-                        ),
-                        issue_type=issue_type,
-                        confidence=confidence,
-                    )
-                    self._register_runtime_alert(issue)
-                    issues.append(issue)
-                    stats["overactive_alerts"] += 1
+            if smoothed_score >= promotion_threshold and not is_suppressed:
+                overactive_key = (
+                    f"{automation_entity_id}:{automation_entity_id}:{issue_type.value}"
+                )
+                has_active_overactive = overactive_key in self._active_runtime_alerts
+                pending_confirmation = bool(overactive_confirmation.get("pending"))
+                if has_active_overactive:
+                    overactive_confirmation["pending"] = False
+                elif smoothed_score >= immediate_threshold or pending_confirmation:
+                    overactive_confirmation["pending"] = False
+                    if self._allow_alert(automation_entity_id, now=now):
+                        confidence = (
+                            "high"
+                            if threshold > 0 and smoothed_score / threshold >= 2.0
+                            else "medium"
+                        )
+                        issue = ValidationIssue(
+                            severity=Severity.WARNING,
+                            automation_id=automation_entity_id,
+                            automation_name=automation_name,
+                            entity_id=automation_entity_id,
+                            location="runtime.health.anomaly",
+                            message=(
+                                f"Overactive: anomalous trigger pattern detected vs "
+                                f"{bucket_context.get('context_label', 'all history')} baseline: "
+                                f"score {smoothed_score:.2f} exceeds threshold {threshold:.2f}"
+                            ),
+                            issue_type=issue_type,
+                            confidence=confidence,
+                        )
+                        self._register_runtime_alert(issue)
+                        issues.append(issue)
+                        stats["overactive_alerts"] += 1
+                else:
+                    overactive_confirmation["pending"] = True
+                    stats["overactive_candidates"] += 1
             else:
+                overactive_confirmation["pending"] = False
                 self._clear_runtime_alert(automation_entity_id, issue_type)
 
         evaluated_automation_ids = set(automation_ids)

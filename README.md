@@ -116,7 +116,7 @@ Access via Settings → Devices & Services → Autodoctor → Configure
 | Warmup samples | 3 | Minimum active baseline days before scoring starts |
 | Min expected events/day | 0 | Minimum daily trigger count needed before scoring starts |
 | Hour ratio lookback (days) | 30 | Days of same-hour history used for time-of-day context scoring |
-| Sensitivity | medium | Overall sensitivity (low/medium/high) |
+| Sensitivity | medium | Overall sensitivity (low/medium/high); higher sensitivity surfaces more borderline anomalies |
 | Burst multiplier | 4.0 | Short-window trigger rate multiplier for burst detection |
 | Max alerts/day | 10 | Per-automation alert cap to limit noise |
 | Smoothing window | 5 | Moving average window for score smoothing |
@@ -179,6 +179,8 @@ Key behaviors:
 - **Time-bucket awareness** -- Models are segmented by weekday/weekend and morning/afternoon/evening/night to account for natural schedule variation
 - **Recorder bootstrap** -- On first enable, bulk-imports trigger history from the recorder into SQLite so detection starts immediately rather than waiting for a full baseline window
 - **Restart exclusion** -- Ignores triggers shortly after HA restarts to avoid false positives from startup activity
+- **Conservative promotion** -- Borderline anomalies must clear an extra score margin, and moderate overactive patterns must repeat before they become user-visible alerts
+- **Low-volume burst protection** -- Tiny 5-minute windows do not alert unless they clear both the burst multiplier and a minimum absolute trigger count
 - **Alert caps** -- Per-automation and global daily alert limits prevent alert fatigue
 - **Auto-adapt** -- Baselines automatically adjust as automation patterns evolve
 - **State persistence** -- Trigger events are stored in a local SQLite database; BOCPD models are rebuilt from this store on startup
@@ -187,7 +189,9 @@ Practical guidance:
 - Use baseline windows of 21–30 days for stable scoring
 - Keep warmup samples less than or equal to baseline days
 - Start with the default "medium" sensitivity and adjust from there
+- Prefer `medium` unless you specifically want earlier, noisier alerts; `high` sensitivity is best treated as exploratory tuning
 - Tune the burst multiplier if you have automations with legitimate traffic spikes
+- If runtime health appears quiet, check coverage gaps: the UI will report when scoring is abstaining because the automation lacks warmup, baseline activity, coverage, or enough training windows
 - Hour ratio lookback should match or exceed the baseline window for best results
 
 ### What Is NOT Validated
