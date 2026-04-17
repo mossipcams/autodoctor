@@ -671,6 +671,68 @@ async def test_websocket_get_validation_steps_surfaces_coverage_gaps(
 
 
 @pytest.mark.asyncio
+async def test_websocket_get_validation_steps_surfaces_runtime_maturity_gaps(
+    hass: HomeAssistant,
+) -> None:
+    """Cached steps should explain runtime-health abstention reasons."""
+    hass.data[DOMAIN] = {
+        "suppression_store": None,
+        "validation_last_run": "2026-01-30T12:00:00+00:00",
+        "validation_run_stats": {
+            "analyzed_automations": 2,
+            "failed_automations": 0,
+            "skip_reasons": {
+                "runtime_health": {
+                    "insufficient_warmup": 2,
+                    "insufficient_coverage": 3,
+                    "insufficient_baseline": 4,
+                    "insufficient_training_rows": 1,
+                },
+            },
+        },
+        "validation_groups": {
+            "entity_state": {"issues": [], "duration_ms": 10},
+            "services": {"issues": [], "duration_ms": 20},
+            "templates": {"issues": [], "duration_ms": 30},
+            "runtime_health": {"issues": [], "duration_ms": 40},
+        },
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {"id": 1, "type": "autodoctor/validation/steps"}
+
+    await invoke_command(websocket_get_validation_steps, hass, connection, msg)
+
+    result = connection.send_result.call_args[0][1]
+    assert result["coverage_gaps"] == [
+        {
+            "group": "runtime_health",
+            "reason": "insufficient_warmup",
+            "count": 2,
+            "message": "Runtime health is still learning this automation's normal activity.",
+        },
+        {
+            "group": "runtime_health",
+            "reason": "insufficient_coverage",
+            "count": 3,
+            "message": "Runtime health needs more observed history before it can judge this automation reliably.",
+        },
+        {
+            "group": "runtime_health",
+            "reason": "insufficient_baseline",
+            "count": 4,
+            "message": "Runtime health skipped automations without enough normal activity to build a baseline.",
+        },
+        {
+            "group": "runtime_health",
+            "reason": "insufficient_training_rows",
+            "count": 1,
+            "message": "Runtime health could not build enough training windows to score this automation yet.",
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_websocket_get_validation_steps_applies_suppression_at_read_time(
     hass: HomeAssistant,
 ) -> None:

@@ -713,6 +713,30 @@ def _build_coverage_gaps(skip_reasons: dict[str, Any]) -> list[dict[str, Any]]:
         int(runtime.get("validation_exception", 0)),
         "Runtime health validation could not complete because a validator raised an exception.",
     )
+    _add(
+        "runtime_health",
+        "insufficient_warmup",
+        int(runtime.get("insufficient_warmup", 0)),
+        "Runtime health is still learning this automation's normal activity.",
+    )
+    _add(
+        "runtime_health",
+        "insufficient_coverage",
+        int(runtime.get("insufficient_coverage", 0)),
+        "Runtime health needs more observed history before it can judge this automation reliably.",
+    )
+    _add(
+        "runtime_health",
+        "insufficient_baseline",
+        int(runtime.get("insufficient_baseline", 0)),
+        "Runtime health skipped automations without enough normal activity to build a baseline.",
+    )
+    _add(
+        "runtime_health",
+        "insufficient_training_rows",
+        int(runtime.get("insufficient_training_rows", 0)),
+        "Runtime health could not build enough training windows to score this automation yet.",
+    )
 
     return gaps
 

@@ -153,3 +153,39 @@ def test_burst_detector_falls_back_to_global_baseline_when_bucket_is_quiet() -> 
     assert any(
         issue.issue_type == IssueType.RUNTIME_AUTOMATION_BURST for issue in issues
     )
+
+
+def test_burst_detector_ignores_two_trigger_low_volume_window() -> None:
+    """Two-trigger low-volume windows should not emit a burst alert."""
+    now = datetime(2026, 2, 16, 8, 30, tzinfo=UTC)  # Monday morning
+    monitor = build_runtime_monitor(
+        now,
+        burst_multiplier=2.0,
+        max_alerts_per_day=20,
+    )
+    aid = "automation.low_volume_burst"
+
+    recent_triggers = [
+        (now - timedelta(minutes=59)).isoformat(),
+        (now - timedelta(minutes=55)).isoformat(),
+        (now - timedelta(minutes=45)).isoformat(),
+        (now - timedelta(minutes=35)).isoformat(),
+        (now - timedelta(minutes=15)).isoformat(),
+        (now - timedelta(minutes=4, seconds=30)).isoformat(),
+    ]
+    automation_state = monitor._ensure_automation_state(aid)
+    automation_state["burst_model"] = {
+        "recent_triggers": recent_triggers,
+        "baseline_rate_5m": 0.26,
+        "baseline_rate_5m_by_bucket": {
+            "weekday_morning": 0.26,
+        },
+    }
+
+    issues = monitor._detect_burst_anomaly(
+        automation_entity_id=aid,
+        automation_state=automation_state,
+        now=now,
+    )
+
+    assert issues == []

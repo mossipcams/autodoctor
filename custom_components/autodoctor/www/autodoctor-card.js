@@ -1844,7 +1844,7 @@ if (!customElements.get("autodoc-suppressions")) {
     customElements.define("autodoc-suppressions", AutodocSuppressions);
 }
 
-const CARD_VERSION = "2.31.0";
+const CARD_VERSION = "2.32.0";
 console.info(`%c AUTODOCTOR-CARD %c ${CARD_VERSION} `, "color: white; background: #3498db; font-weight: bold;", "color: #3498db; background: white; font-weight: bold;");
 class AutodoctorCard extends i {
     constructor() {
