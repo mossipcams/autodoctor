@@ -42,6 +42,10 @@ jobs:
         working-directory: www/autodoctor
         run: npm test
 
+      - name: Run frontend code health checks
+        working-directory: www/autodoctor
+        run: npm run quality:code-health
+
       - name: Build card
         working-directory: www/autodoctor
         run: npm run build
