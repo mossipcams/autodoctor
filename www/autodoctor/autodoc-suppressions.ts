@@ -3,7 +3,7 @@ import { HomeAssistant } from "custom-card-helpers";
 import { autodocTokens } from "./styles.js";
 import type { SuppressionEntry, SuppressionsResponse } from "./types.js";
 
-export class AutodocSuppressions extends LitElement {
+class AutodocSuppressions extends LitElement {
   static properties = {
     hass: { attribute: false },
     _suppressions: { state: true },

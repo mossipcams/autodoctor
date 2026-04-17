@@ -250,6 +250,20 @@ The repository now includes `scripts/mutation_workflow.py` to support this mutat
    - Stop when kill-rate on critical paths reaches `>= 70%` or progress plateaus
    - Plateau helper logic is implemented in `should_stop(...)` in `scripts/mutation_workflow.py`
 
+## Frontend Code Health
+
+The dashboard card frontend in `www/autodoctor/` now has a combined code-health gate:
+
+- `npm run quality:code-health`
+
+That command runs three focused checks:
+
+- `dependency-cruiser` to catch circular imports, orphaned modules, and runtime code pulling in dev-only dependencies
+- `knip` to surface unused exports and other dead frontend code
+- `jscpd` to detect duplicated frontend source blocks above the configured token threshold
+
+These checks are also wired into `scripts/pre_pr_checks.sh` and `.github/workflows/build-card.yml`, so local parity and card CI both enforce the same frontend quality gate before the build step.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
