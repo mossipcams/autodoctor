@@ -20,7 +20,7 @@ dev = [
     "tdd-guard-pytest",
     "mutmut>=3.4.0",
     "hypothesis>=6.0.0",
-    "mypy>=1.11.0",
+    "mypy>=1.20.1",
 ]
 
 [tool.pytest.ini_options]
