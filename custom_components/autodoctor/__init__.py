@@ -899,7 +899,7 @@ async def _async_run_validators(
     entity_validator_available = analyzer is not None and validator is not None
     failed_automations = 0
     total_automations = len(automations)
-    if entity_validator_available:
+    if analyzer is not None and validator is not None:
         for automation in automations:
             auto_id = automation.get("id", "unknown")
             auto_name = automation.get("alias", auto_id)
