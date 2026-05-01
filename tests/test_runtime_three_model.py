@@ -140,6 +140,34 @@ async def test_bootstrap_from_recorder_populates_sqlite_when_empty(
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_from_recorder_sets_observation_start_to_imported_history(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should age coverage from imported history, not process startup."""
+    now = datetime(2026, 2, 13, 12, 0, tzinfo=UTC)
+    earliest = now - timedelta(days=89, hours=2)
+    store = RuntimeEventStore(str(tmp_path / "autodoctor_runtime.db"))
+    store.ensure_schema(target_version=1)
+    store.set_metadata("observation:start_at", now.isoformat())
+
+    monitor = _build_monitor(tmp_path, now, runtime_event_store=store)
+
+    history: dict[str, list[datetime]] = {
+        "automation.kitchen": [
+            earliest,
+            now - timedelta(days=1, hours=2),
+        ],
+    }
+    monitor._async_fetch_trigger_history = AsyncMock(return_value=history)  # type: ignore[method-assign]
+
+    await monitor.async_bootstrap_from_recorder(
+        [{"id": "kitchen", "entity_id": "automation.kitchen"}],
+    )
+
+    assert store.get_metadata("observation:start_at") == earliest.isoformat()
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_from_recorder_skips_when_already_complete(
     tmp_path: Path,
 ) -> None:

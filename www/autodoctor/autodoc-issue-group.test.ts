@@ -111,6 +111,64 @@ describe("AutodocIssueGroup", () => {
     el.remove();
   });
 
+  it("renders runtime evidence for overactive, burst, and overdue issues", async () => {
+    const group = makeGroup();
+    group.issues = [
+      {
+        issue: {
+          ...group.issues[0].issue,
+          issue_type: "runtime_automation_overactive",
+          message: "Overactive",
+          evidence: {
+            observed_24h_count: 14,
+            expected_daily_count: 2,
+          },
+        },
+        fix: null,
+        edit_url: null,
+      },
+      {
+        issue: {
+          ...group.issues[0].issue,
+          issue_type: "runtime_automation_burst",
+          message: "Burst",
+          evidence: {
+            observed_5m_count: 6,
+            threshold: 4,
+          },
+        },
+        fix: null,
+        edit_url: null,
+      },
+      {
+        issue: {
+          ...group.issues[0].issue,
+          issue_type: "runtime_automation_overdue",
+          message: "Overdue",
+          evidence: {
+            usual_deadline: "08:45",
+          },
+        },
+        fix: null,
+        edit_url: null,
+      },
+    ];
+
+    const el = new AutodocIssueGroup();
+    el.group = group;
+    document.body.appendChild(el);
+    await el.updateComplete;
+
+    const content = el.shadowRoot?.textContent || "";
+    expect(content).toContain("14 times in 24h");
+    expect(content).toContain("normal is about 2/day");
+    expect(content).toContain("6 triggers in 5m");
+    expect(content).toContain("threshold 4");
+    expect(content).toContain("Usually fires by 08:45");
+
+    el.remove();
+  });
+
   it("does not render dismiss button for non-runtime issues", async () => {
     const el = new AutodocIssueGroup();
     el.group = makeGroup(); // issue_type is "case_mismatch"

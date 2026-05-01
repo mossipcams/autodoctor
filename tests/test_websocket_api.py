@@ -920,7 +920,8 @@ async def test_websocket_suppress_runtime_issue_records_dismissal(
         "automation.runtime_test:automation.runtime_test:runtime_automation_overactive"
     )
     runtime_monitor.record_issue_dismissed.assert_called_once_with(
-        "automation.runtime_test"
+        "automation.runtime_test",
+        "runtime_automation_overactive",
     )
 
 
@@ -1658,10 +1659,38 @@ async def test_websocket_dismiss_calls_record_issue_dismissed(
 
     await invoke_command(websocket_dismiss, hass, connection, msg)
 
-    runtime_monitor.record_issue_dismissed.assert_called_once_with("automation.garage")
+    runtime_monitor.record_issue_dismissed.assert_called_once_with(
+        "automation.garage",
+        "runtime_automation_overactive",
+    )
     connection.send_result.assert_called_once()
     result = connection.send_result.call_args[0][1]
     assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_websocket_dismiss_accepts_overdue_issue_type(
+    hass: HomeAssistant,
+) -> None:
+    """Dismiss WS command should adapt overdue runtime alerts independently."""
+    runtime_monitor = MagicMock()
+    hass.data[DOMAIN] = {"runtime_monitor": runtime_monitor}
+
+    connection = MagicMock(spec=ActiveConnection)
+    msg: dict[str, Any] = {
+        "id": 1,
+        "type": "autodoctor/dismiss",
+        "automation_id": "automation.garage",
+        "issue_type": "runtime_automation_overdue",
+    }
+
+    await invoke_command(websocket_dismiss, hass, connection, msg)
+
+    runtime_monitor.record_issue_dismissed.assert_called_once_with(
+        "automation.garage",
+        "runtime_automation_overdue",
+    )
+    connection.send_result.assert_called_once()
 
 
 @pytest.mark.asyncio
