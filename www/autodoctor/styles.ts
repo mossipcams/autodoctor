@@ -126,7 +126,6 @@ export const badgeStyles = css`
       flex-wrap: wrap;
     }
   }
-
 `;
 
 /**
@@ -243,6 +242,14 @@ export const issueGroupStyles = css`
     color: var(--secondary-text-color);
     line-height: 1.4;
     word-break: break-word;
+  }
+
+  .issue-evidence {
+    margin: 4px 0 0 1.15rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--secondary-text-color);
+    opacity: 0.82;
   }
 
   .suppress-btn {
@@ -858,7 +865,9 @@ export const cardLayoutStyles = css`
     font-weight: 500;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--autodoc-transition-normal), transform var(--autodoc-transition-normal);
+    transition:
+      opacity var(--autodoc-transition-normal),
+      transform var(--autodoc-transition-normal);
     z-index: 10;
     white-space: nowrap;
   }
@@ -867,7 +876,6 @@ export const cardLayoutStyles = css`
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
-
 `;
 
 /**
@@ -892,7 +900,11 @@ export const pipelineStyles = css`
     background: rgba(127, 127, 127, 0.06);
     border-left: 3px solid transparent;
     opacity: 1;
-    transition: opacity 200ms ease, border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
+    transition:
+      opacity 200ms ease,
+      border-color 200ms ease,
+      background-color 200ms ease,
+      box-shadow 200ms ease;
   }
 
   /* Neutral: dimmed "waiting" state before this group is checked */
@@ -969,8 +981,15 @@ export const pipelineStyles = css`
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.75); }
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: scale(0.75);
+    }
   }
 
   .group-label {
@@ -984,9 +1003,15 @@ export const pipelineStyles = css`
     font-size: var(--autodoc-meta-size);
     font-weight: 500;
   }
-  .group-count.pass-text { color: var(--autodoc-success); }
-  .group-count.warning-text { color: var(--autodoc-warning); }
-  .group-count.fail-text { color: var(--autodoc-error); }
+  .group-count.pass-text {
+    color: var(--autodoc-success);
+  }
+  .group-count.warning-text {
+    color: var(--autodoc-warning);
+  }
+  .group-count.fail-text {
+    color: var(--autodoc-error);
+  }
 
   /* Summary rollup bar -- visibility controlled by JS _showSummary */
   .pipeline-summary {

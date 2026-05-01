@@ -250,6 +250,7 @@ def test_validation_issue_to_dict_never_crashes(
         "issue_type",
         "suggestion",
         "valid_states",
+        "evidence",
     }
     assert set(result.keys()) == expected_keys
 
