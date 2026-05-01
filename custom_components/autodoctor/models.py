@@ -45,6 +45,11 @@ class IssueType(StrEnum):
     RUNTIME_AUTOMATION_BURST = "runtime_automation_burst"
 
 
+def _empty_evidence() -> dict[str, Any]:
+    """Return an empty structured evidence payload."""
+    return {}
+
+
 @dataclass
 class StateReference:
     """A reference to an entity state found in an automation."""
@@ -74,6 +79,7 @@ class ValidationIssue:
     confidence: str = "high"
     suggestion: str | None = None
     valid_states: list[str] = field(default_factory=lambda: list[str]())
+    evidence: dict[str, Any] = field(default_factory=_empty_evidence)
 
     def __hash__(self) -> int:
         """Hash for deduplication."""
@@ -112,6 +118,7 @@ class ValidationIssue:
             "message": self.message,
             "suggestion": self.suggestion,
             "valid_states": self.valid_states,
+            "evidence": self.evidence,
         }
 
     def get_suppression_key(self) -> str:

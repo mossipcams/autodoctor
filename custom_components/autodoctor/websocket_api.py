@@ -1125,6 +1125,7 @@ async def websocket_suppress(
     runtime_issue_types = {
         IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value,
         IssueType.RUNTIME_AUTOMATION_BURST.value,
+        IssueType.RUNTIME_AUTOMATION_OVERDUE.value,
     }
     if msg["issue_type"] in runtime_issue_types:
         runtime_monitor = data.get("runtime_monitor")
@@ -1132,7 +1133,10 @@ async def websocket_suppress(
             runtime_monitor, "record_issue_dismissed"
         ):
             try:
-                runtime_monitor.record_issue_dismissed(msg["automation_id"])
+                runtime_monitor.record_issue_dismissed(
+                    msg["automation_id"],
+                    msg["issue_type"],
+                )
             except Exception as err:
                 _LOGGER.debug("Failed recording runtime dismissal learning: %s", err)
 
@@ -1546,6 +1550,7 @@ async def websocket_fix_undo(
             [
                 IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value,
                 IssueType.RUNTIME_AUTOMATION_BURST.value,
+                IssueType.RUNTIME_AUTOMATION_OVERDUE.value,
             ]
         ),
     }
@@ -1565,7 +1570,10 @@ async def websocket_dismiss(
         connection.send_error(msg["id"], "not_ready", "Runtime monitor not initialized")
         return
 
-    runtime_monitor.record_issue_dismissed(msg["automation_id"])
+    runtime_monitor.record_issue_dismissed(
+        msg["automation_id"],
+        msg["issue_type"],
+    )
 
     # Remove the dismissed issue from the raw cache and update repairs
     automation_id = msg["automation_id"]

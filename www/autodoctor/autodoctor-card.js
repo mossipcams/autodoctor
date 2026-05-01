@@ -153,7 +153,6 @@ const badgeStyles = i$3 `
       flex-wrap: wrap;
     }
   }
-
 `;
 /**
  * Issue group styles: automation group container, issues, fix suggestions,
@@ -269,6 +268,14 @@ const issueGroupStyles = i$3 `
     color: var(--secondary-text-color);
     line-height: 1.4;
     word-break: break-word;
+  }
+
+  .issue-evidence {
+    margin: 4px 0 0 1.15rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--secondary-text-color);
+    opacity: 0.82;
   }
 
   .suppress-btn {
@@ -883,7 +890,9 @@ const cardLayoutStyles = i$3 `
     font-weight: 500;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--autodoc-transition-normal), transform var(--autodoc-transition-normal);
+    transition:
+      opacity var(--autodoc-transition-normal),
+      transform var(--autodoc-transition-normal);
     z-index: 10;
     white-space: nowrap;
   }
@@ -892,7 +901,6 @@ const cardLayoutStyles = i$3 `
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
-
 `;
 /**
  * Pipeline styles: validation group panels with neutral/active/result states,
@@ -916,7 +924,11 @@ const pipelineStyles = i$3 `
     background: rgba(127, 127, 127, 0.06);
     border-left: 3px solid transparent;
     opacity: 1;
-    transition: opacity 200ms ease, border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
+    transition:
+      opacity 200ms ease,
+      border-color 200ms ease,
+      background-color 200ms ease,
+      box-shadow 200ms ease;
   }
 
   /* Neutral: dimmed "waiting" state before this group is checked */
@@ -993,8 +1005,15 @@ const pipelineStyles = i$3 `
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.75); }
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: scale(0.75);
+    }
   }
 
   .group-label {
@@ -1008,9 +1027,15 @@ const pipelineStyles = i$3 `
     font-size: var(--autodoc-meta-size);
     font-weight: 500;
   }
-  .group-count.pass-text { color: var(--autodoc-success); }
-  .group-count.warning-text { color: var(--autodoc-warning); }
-  .group-count.fail-text { color: var(--autodoc-error); }
+  .group-count.pass-text {
+    color: var(--autodoc-success);
+  }
+  .group-count.warning-text {
+    color: var(--autodoc-warning);
+  }
+  .group-count.fail-text {
+    color: var(--autodoc-error);
+  }
 
   /* Summary rollup bar -- visibility controlled by JS _showSummary */
   .pipeline-summary {
@@ -1161,17 +1186,21 @@ class AutodocIssueGroup extends i {
           <span class="automation-severity-icon" aria-hidden="true"
             >${group.has_error ? "\u2715" : "!"}</span
           >
-          <span class="automation-name" title="${group.automation_name}">${group.automation_name}</span>
+          <span class="automation-name" title="${group.automation_name}"
+            >${group.automation_name}</span
+          >
           <span class="automation-badge">${group.issues.length}</span>
         </div>
-        <div class="automation-issues">
-          ${group.issues.map((item) => this._renderIssue(item))}
-        </div>
+        <div class="automation-issues">${group.issues.map((item) => this._renderIssue(item))}</div>
         ${group.edit_url
             ? b `
-              <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
+              <a
+                href="${group.edit_url}"
+                class="edit-link"
+                aria-label="Edit ${group.automation_name}"
+              >
                 <span class="edit-text">Edit automation</span>
-                <span class="edit-arrow" aria-hidden="true">\u2192</span>
+                <span class="edit-arrow" aria-hidden="true">→</span>
               </a>
             `
             : A}
@@ -1195,7 +1224,8 @@ class AutodocIssueGroup extends i {
                   aria-label="Dismiss this alert"
                   title="Mark as false positive (adapts threshold)"
                 >
-                  <span aria-hidden="true">\u2715</span><span class="dismiss-runtime-label">Dismiss</span>
+                  <span aria-hidden="true">✕</span
+                  ><span class="dismiss-runtime-label">Dismiss</span>
                 </button>
               `
             : A}
@@ -1205,13 +1235,19 @@ class AutodocIssueGroup extends i {
             aria-label="Suppress this issue"
             title="Don't show this issue again"
           >
-            <span aria-hidden="true">\u2298</span><span class="suppress-label">Suppress</span>
+            <span aria-hidden="true">⊘</span><span class="suppress-label">Suppress</span>
           </button>
         </div>
+        ${this._renderRuntimeEvidence(issue)}
         ${fix && !isDismissed
             ? b `
               <div class="fix-suggestion">
-                <ha-icon class="fix-icon" icon="mdi:lightbulb-on-outline" style="--mdc-icon-size: 16px; color: var(--primary-color);" aria-hidden="true"></ha-icon>
+                <ha-icon
+                  class="fix-icon"
+                  icon="mdi:lightbulb-on-outline"
+                  style="--mdc-icon-size: 16px; color: var(--primary-color);"
+                  aria-hidden="true"
+                ></ha-icon>
                 <div class="fix-content">
                   <span class="fix-description">${fix.description}</span>
                   ${this._renderFixReplacement(fix)}
@@ -1247,7 +1283,7 @@ class AutodocIssueGroup extends i {
                   @click=${() => this._dispatchDismiss(issue)}
                   aria-label="Dismiss suggestion"
                 >
-                  <span aria-hidden="true">\u2715</span><span class="dismiss-label">Dismiss</span>
+                  <span aria-hidden="true">✕</span><span class="dismiss-label">Dismiss</span>
                 </button>
               </div>
             `
@@ -1265,7 +1301,7 @@ class AutodocIssueGroup extends i {
         return b `
       <span class="fix-replacement">
         <code class="fix-before">${fix.current_value}</code>
-        <span class="fix-arrow" aria-hidden="true">\u2192</span>
+        <span class="fix-arrow" aria-hidden="true">→</span>
         <code class="fix-after">${suggested}</code>
       </span>
     `;
@@ -1283,7 +1319,47 @@ class AutodocIssueGroup extends i {
     }
     _isRuntimeIssue(issue) {
         return (issue.issue_type === "runtime_automation_overactive" ||
-            issue.issue_type === "runtime_automation_burst");
+            issue.issue_type === "runtime_automation_burst" ||
+            issue.issue_type === "runtime_automation_overdue");
+    }
+    _renderRuntimeEvidence(issue) {
+        const evidence = issue.evidence || {};
+        if (issue.issue_type === "runtime_automation_overactive") {
+            const observed = this._formatEvidenceNumber(evidence.observed_24h_count);
+            const expected = this._formatEvidenceNumber(evidence.expected_daily_count);
+            if (observed && expected) {
+                return b `
+          <div class="issue-evidence">
+            ${observed} times in 24h; normal is about ${expected}/day
+          </div>
+        `;
+            }
+        }
+        if (issue.issue_type === "runtime_automation_burst") {
+            const observed = this._formatEvidenceNumber(evidence.observed_5m_count);
+            const threshold = this._formatEvidenceNumber(evidence.threshold);
+            if (observed && threshold) {
+                return b `
+          <div class="issue-evidence">${observed} triggers in 5m; threshold ${threshold}</div>
+        `;
+            }
+        }
+        if (issue.issue_type === "runtime_automation_overdue") {
+            const deadline = evidence.usual_deadline;
+            if (typeof deadline === "string" && deadline.length > 0) {
+                return b `<div class="issue-evidence">Usually fires by ${deadline}</div>`;
+            }
+        }
+        return A;
+    }
+    _formatEvidenceNumber(value) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return Number.isInteger(value) ? String(value) : value.toFixed(1);
+        }
+        if (typeof value === "string" && value.trim().length > 0) {
+            return value;
+        }
+        return null;
     }
     _dispatchDismissRuntime(issue) {
         this.dispatchEvent(new CustomEvent("dismiss-runtime-issue", {

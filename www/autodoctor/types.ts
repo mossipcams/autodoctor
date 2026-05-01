@@ -8,6 +8,7 @@ export interface ValidationIssue {
   message: string;
   suggestion: string | null;
   valid_states: string[];
+  evidence?: Record<string, unknown>;
 }
 
 export interface FixSuggestion {

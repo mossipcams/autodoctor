@@ -35,17 +35,21 @@ export class AutodocIssueGroup extends LitElement {
           <span class="automation-severity-icon" aria-hidden="true"
             >${group.has_error ? "\u2715" : "!"}</span
           >
-          <span class="automation-name" title="${group.automation_name}">${group.automation_name}</span>
+          <span class="automation-name" title="${group.automation_name}"
+            >${group.automation_name}</span
+          >
           <span class="automation-badge">${group.issues.length}</span>
         </div>
-        <div class="automation-issues">
-          ${group.issues.map((item) => this._renderIssue(item))}
-        </div>
+        <div class="automation-issues">${group.issues.map((item) => this._renderIssue(item))}</div>
         ${group.edit_url
           ? html`
-              <a href="${group.edit_url}" class="edit-link" aria-label="Edit ${group.automation_name}">
+              <a
+                href="${group.edit_url}"
+                class="edit-link"
+                aria-label="Edit ${group.automation_name}"
+              >
                 <span class="edit-text">Edit automation</span>
-                <span class="edit-arrow" aria-hidden="true">\u2192</span>
+                <span class="edit-arrow" aria-hidden="true">→</span>
               </a>
             `
           : nothing}
@@ -71,7 +75,8 @@ export class AutodocIssueGroup extends LitElement {
                   aria-label="Dismiss this alert"
                   title="Mark as false positive (adapts threshold)"
                 >
-                  <span aria-hidden="true">\u2715</span><span class="dismiss-runtime-label">Dismiss</span>
+                  <span aria-hidden="true">✕</span
+                  ><span class="dismiss-runtime-label">Dismiss</span>
                 </button>
               `
             : nothing}
@@ -81,13 +86,19 @@ export class AutodocIssueGroup extends LitElement {
             aria-label="Suppress this issue"
             title="Don't show this issue again"
           >
-            <span aria-hidden="true">\u2298</span><span class="suppress-label">Suppress</span>
+            <span aria-hidden="true">⊘</span><span class="suppress-label">Suppress</span>
           </button>
         </div>
+        ${this._renderRuntimeEvidence(issue)}
         ${fix && !isDismissed
           ? html`
               <div class="fix-suggestion">
-                <ha-icon class="fix-icon" icon="mdi:lightbulb-on-outline" style="--mdc-icon-size: 16px; color: var(--primary-color);" aria-hidden="true"></ha-icon>
+                <ha-icon
+                  class="fix-icon"
+                  icon="mdi:lightbulb-on-outline"
+                  style="--mdc-icon-size: 16px; color: var(--primary-color);"
+                  aria-hidden="true"
+                ></ha-icon>
                 <div class="fix-content">
                   <span class="fix-description">${fix.description}</span>
                   ${this._renderFixReplacement(fix)}
@@ -123,7 +134,7 @@ export class AutodocIssueGroup extends LitElement {
                   @click=${() => this._dispatchDismiss(issue)}
                   aria-label="Dismiss suggestion"
                 >
-                  <span aria-hidden="true">\u2715</span><span class="dismiss-label">Dismiss</span>
+                  <span aria-hidden="true">✕</span><span class="dismiss-label">Dismiss</span>
                 </button>
               </div>
             `
@@ -145,7 +156,7 @@ export class AutodocIssueGroup extends LitElement {
     return html`
       <span class="fix-replacement">
         <code class="fix-before">${fix.current_value}</code>
-        <span class="fix-arrow" aria-hidden="true">\u2192</span>
+        <span class="fix-arrow" aria-hidden="true">→</span>
         <code class="fix-after">${suggested}</code>
       </span>
     `;
@@ -167,8 +178,50 @@ export class AutodocIssueGroup extends LitElement {
   private _isRuntimeIssue(issue: ValidationIssue): boolean {
     return (
       issue.issue_type === "runtime_automation_overactive" ||
-      issue.issue_type === "runtime_automation_burst"
+      issue.issue_type === "runtime_automation_burst" ||
+      issue.issue_type === "runtime_automation_overdue"
     );
+  }
+
+  private _renderRuntimeEvidence(issue: ValidationIssue): TemplateResult | typeof nothing {
+    const evidence = issue.evidence || {};
+    if (issue.issue_type === "runtime_automation_overactive") {
+      const observed = this._formatEvidenceNumber(evidence.observed_24h_count);
+      const expected = this._formatEvidenceNumber(evidence.expected_daily_count);
+      if (observed && expected) {
+        return html`
+          <div class="issue-evidence">
+            ${observed} times in 24h; normal is about ${expected}/day
+          </div>
+        `;
+      }
+    }
+    if (issue.issue_type === "runtime_automation_burst") {
+      const observed = this._formatEvidenceNumber(evidence.observed_5m_count);
+      const threshold = this._formatEvidenceNumber(evidence.threshold);
+      if (observed && threshold) {
+        return html`
+          <div class="issue-evidence">${observed} triggers in 5m; threshold ${threshold}</div>
+        `;
+      }
+    }
+    if (issue.issue_type === "runtime_automation_overdue") {
+      const deadline = evidence.usual_deadline;
+      if (typeof deadline === "string" && deadline.length > 0) {
+        return html`<div class="issue-evidence">Usually fires by ${deadline}</div>`;
+      }
+    }
+    return nothing;
+  }
+
+  private _formatEvidenceNumber(value: unknown): string | null {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Number.isInteger(value) ? String(value) : value.toFixed(1);
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+    return null;
   }
 
   private _dispatchDismissRuntime(issue: ValidationIssue): void {
