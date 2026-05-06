@@ -67,6 +67,79 @@ def test_does_not_flag_if_branch_from_trigger_only_constraint() -> None:
     assert issues == []
 
 
+def test_does_not_flag_branch_after_wait_for_trigger_changes_top_level_state() -> None:
+    """Top-level state facts expire after waits that can observe new state."""
+    automation = {
+        "id": "alarm_system_disabled",
+        "alias": "Alarm System Disabled",
+        "trigger": [{"platform": "state", "entity_id": "alarm_control_panel.house"}],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt_livesay",
+                "state": "not_home",
+            }
+        ],
+        "action": [
+            {
+                "wait_for_trigger": [
+                    {
+                        "platform": "state",
+                        "entity_id": "person.matt_livesay",
+                        "to": "home",
+                    }
+                ]
+            },
+            {
+                "if": [
+                    {
+                        "condition": "state",
+                        "entity_id": "person.matt_livesay",
+                        "state": "home",
+                    }
+                ],
+                "then": [{"service": "notify.mobile_app"}],
+            },
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert issues == []
+
+
+def test_detects_conflicting_top_level_state_conditions() -> None:
+    """Same-time top-level state conditions still form one condition context."""
+    automation = {
+        "id": "conflicting_top_level",
+        "alias": "Conflicting Top Level",
+        "trigger": [{"platform": "time", "at": "08:00:00"}],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "person.matt_livesay",
+                "state": "not_home",
+            },
+            {
+                "condition": "state",
+                "entity_id": "person.matt_livesay",
+                "state": "home",
+            },
+        ],
+        "action": [],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
+    assert issue.entity_id == "person.matt_livesay"
+    assert issue.location == "condition[1].state"
+
+
 def test_detects_impossible_numeric_range_in_single_condition() -> None:
     """Numeric condition with above >= below is unreachable."""
     automation = {
