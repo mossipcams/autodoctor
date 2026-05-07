@@ -18,7 +18,13 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_STATE_CHANGED
-from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
+from homeassistant.core import (
+    Event,
+    HomeAssistant,
+    ServiceCall,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
@@ -55,7 +61,9 @@ from .models import (
     VALIDATION_GROUP_ORDER,
     VALIDATION_GROUPS,
     IssueType,
+    Severity,
     ValidationIssue,
+    sort_issues_by_priority,
 )
 from .reachability_validator import ReachabilityValidator
 from .reporter import IssueReporter
@@ -209,6 +217,98 @@ def _filter_group_issues_for_suppressions(
         visible_group_issues[gid] = visible
         total_suppressed += suppressed_count
     return visible_group_issues, total_suppressed
+
+
+def _validation_group_for_issue(issue: ValidationIssue) -> str | None:
+    """Return the validation group id for an issue, if known."""
+    if issue.issue_type is None:
+        return None
+    for group_id, group_def in VALIDATION_GROUPS.items():
+        issue_types = cast(frozenset[IssueType], group_def["issue_types"])
+        if issue.issue_type in issue_types:
+            return group_id
+    return None
+
+
+def _validation_status_for_issues(issues: list[ValidationIssue]) -> str:
+    """Return a compact status for a group of issues."""
+    if any(issue.severity == Severity.ERROR for issue in issues):
+        return "error"
+    if any(issue.severity == Severity.WARNING for issue in issues):
+        return "warning"
+    if issues:
+        return "info"
+    return "pass"
+
+
+def _build_validation_service_response(
+    hass: HomeAssistant,
+    issues: list[ValidationIssue],
+) -> dict[str, Any]:
+    """Build a structured response for validation service calls."""
+    hass_data = getattr(hass, "data", {})
+    data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
+    raw_issues = data.get("validation_issues_raw", issues)
+    raw_issue_count = (
+        len(raw_issues) if isinstance(raw_issues, list) else len(issues)
+    )
+    visible_issues = sort_issues_by_priority(
+        [issue for issue in issues if isinstance(issue, ValidationIssue)]
+    )
+    run_stats = data.get("validation_run_stats", {})
+    if not isinstance(run_stats, dict):
+        run_stats = {}
+
+    group_issues: dict[str, list[ValidationIssue]] = {
+        group_id: [] for group_id in VALIDATION_GROUP_ORDER
+    }
+    for issue in visible_issues:
+        group_id = _validation_group_for_issue(issue)
+        if group_id is not None:
+            group_issues[group_id].append(issue)
+
+    groups: dict[str, dict[str, Any]] = {}
+    for group_id in VALIDATION_GROUP_ORDER:
+        issues_for_group = group_issues[group_id]
+        label = cast(str, VALIDATION_GROUPS[group_id]["label"])
+        groups[group_id] = {
+            "label": label,
+            "status": _validation_status_for_issues(issues_for_group),
+            "issue_count": len(issues_for_group),
+            "error_count": sum(
+                1 for issue in issues_for_group if issue.severity == Severity.ERROR
+            ),
+            "warning_count": sum(
+                1 for issue in issues_for_group if issue.severity == Severity.WARNING
+            ),
+            "info_count": sum(
+                1 for issue in issues_for_group if issue.severity == Severity.INFO
+            ),
+        }
+
+    return {
+        "success": True,
+        "issue_count": len(visible_issues),
+        "error_count": sum(
+            1 for issue in visible_issues if issue.severity == Severity.ERROR
+        ),
+        "warning_count": sum(
+            1 for issue in visible_issues if issue.severity == Severity.WARNING
+        ),
+        "info_count": sum(
+            1 for issue in visible_issues if issue.severity == Severity.INFO
+        ),
+        "suppressed_count": max(0, raw_issue_count - len(visible_issues)),
+        "last_run": data.get("validation_last_run"),
+        "analyzed_automations": run_stats.get("analyzed_automations", 0),
+        "failed_automations": run_stats.get("failed_automations", 0),
+        "skip_reasons": run_stats.get("skip_reasons", {}),
+        "affected_automations": sorted(
+            {issue.automation_id for issue in visible_issues if issue.automation_id}
+        ),
+        "groups": groups,
+        "issues": [issue.to_dict() for issue in visible_issues],
+    }
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -760,20 +860,27 @@ def _setup_periodic_scan_listener(
 async def _async_setup_services(hass: HomeAssistant) -> None:
     """Set up services."""
 
-    async def handle_validate(call: ServiceCall) -> None:
+    async def handle_validate(call: ServiceCall) -> dict[str, Any]:
         automation_id = call.data.get("automation_id")
         if automation_id:
-            await async_validate_automation(hass, automation_id)
-        else:
-            await async_validate_all(hass)
+            result = await async_validate_automation(hass, automation_id)
+            issues = result if isinstance(result, list) else []
+            return _build_validation_service_response(hass, issues)
 
-    async def handle_refresh(call: ServiceCall) -> None:
+        await async_validate_all(hass)
+        cached_issues = hass.data.get(DOMAIN, {}).get("validation_issues")
+        issues = cached_issues if isinstance(cached_issues, list) else []
+        return _build_validation_service_response(hass, issues)
+
+    async def handle_refresh(call: ServiceCall) -> dict[str, Any]:
         data = hass.data.get(DOMAIN, {})
         kb = data.get("knowledge_base")
         if kb:
             kb.clear_cache()
             await kb.async_load_history()
             _LOGGER.info("Knowledge base refreshed")
+            return {"success": True, "refreshed": True}
+        return {"success": True, "refreshed": False}
 
     async_register_admin_service(
         hass,
@@ -781,6 +888,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         "validate",
         handle_validate,
         schema=SERVICE_VALIDATE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     async_register_admin_service(
         hass,
@@ -788,6 +896,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         "validate_automation",
         handle_validate,
         schema=SERVICE_VALIDATE_AUTOMATION_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     async_register_admin_service(
         hass,
@@ -795,6 +904,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         "refresh_knowledge_base",
         handle_refresh,
         schema=SERVICE_REFRESH_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
 
@@ -997,6 +1107,9 @@ async def _async_run_validators(
         _LOGGER.debug("Runtime health: disabled")
         skip_reasons["runtime_health"]["disabled"] = 1
     group_durations["runtime_health"] = round((time.monotonic() - t0) * 1000)
+
+    for gid in VALIDATION_GROUP_ORDER:
+        group_issues[gid] = sort_issues_by_priority(group_issues[gid])
 
     # Combine all issues in canonical group order for flat list
     all_issues: list[ValidationIssue] = []

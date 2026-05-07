@@ -201,3 +201,55 @@ VALIDATION_GROUP_ORDER: list[str] = [
     "templates",
     "runtime_health",
 ]
+
+
+_ISSUE_TYPE_PRIORITY: dict[IssueType, int] = {
+    IssueType.ENTITY_NOT_FOUND: 0,
+    IssueType.SERVICE_NOT_FOUND: 1,
+    IssueType.TEMPLATE_SYNTAX_ERROR: 2,
+    IssueType.UNREACHABLE_STATE_COMBINATION: 3,
+    IssueType.UNREACHABLE_NUMERIC_RANGE: 4,
+    IssueType.SERVICE_MISSING_REQUIRED_PARAM: 5,
+    IssueType.SERVICE_TARGET_NOT_FOUND: 6,
+    IssueType.INVALID_STATE: 7,
+    IssueType.RUNTIME_AUTOMATION_BURST: 8,
+    IssueType.RUNTIME_AUTOMATION_OVERDUE: 9,
+    IssueType.RUNTIME_AUTOMATION_OVERACTIVE: 10,
+    IssueType.SERVICE_INVALID_PARAM_TYPE: 11,
+    IssueType.INVALID_ATTRIBUTE_VALUE: 12,
+    IssueType.ENTITY_REMOVED: 13,
+    IssueType.ATTRIBUTE_NOT_FOUND: 14,
+    IssueType.CASE_MISMATCH: 15,
+    IssueType.SERVICE_UNKNOWN_PARAM: 16,
+    IssueType.TEMPLATE_UNKNOWN_FILTER: 17,
+    IssueType.TEMPLATE_UNKNOWN_TEST: 18,
+}
+
+_CONFIDENCE_PRIORITY: dict[str, int] = {
+    "high": 0,
+    "medium": 1,
+    "low": 2,
+}
+
+
+def issue_priority(issue: ValidationIssue) -> tuple[int, int, int, str, str, str]:
+    """Return a stable sort key that puts the most actionable issues first."""
+    issue_type_priority = (
+        _ISSUE_TYPE_PRIORITY.get(issue.issue_type, 99)
+        if issue.issue_type is not None
+        else 99
+    )
+    confidence_priority = _CONFIDENCE_PRIORITY.get(issue.confidence, 3)
+    return (
+        -int(issue.severity),
+        issue_type_priority,
+        confidence_priority,
+        issue.automation_name,
+        issue.entity_id,
+        issue.location,
+    )
+
+
+def sort_issues_by_priority(issues: list[ValidationIssue]) -> list[ValidationIssue]:
+    """Return validation issues ordered by user impact and actionability."""
+    return sorted(issues, key=issue_priority)

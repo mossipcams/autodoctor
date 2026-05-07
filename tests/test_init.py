@@ -310,6 +310,38 @@ async def test_validate_all_with_groups_status_logic(grouped_hass: MagicMock) ->
 
 
 @pytest.mark.asyncio
+async def test_validate_all_with_groups_prioritizes_high_impact_issues(
+    grouped_hass: MagicMock,
+) -> None:
+    """Validation output should rank high-impact errors ahead of warnings."""
+    warning_issue = make_issue(IssueType.CASE_MISMATCH, Severity.WARNING)
+    warning_issue.message = "Lower-impact warning"
+    error_issue = make_issue(IssueType.ENTITY_NOT_FOUND, Severity.ERROR)
+    error_issue.message = "High-impact missing entity"
+
+    grouped_hass.data[DOMAIN]["validator"].validate_all.return_value = [
+        warning_issue,
+        error_issue,
+    ]
+    grouped_hass.data[DOMAIN]["analyzer"].extract_state_references.return_value = []
+    grouped_hass.data[DOMAIN]["jinja_validator"].validate_automations.return_value = []
+    grouped_hass.data[DOMAIN][
+        "service_validator"
+    ].validate_service_calls.return_value = []
+    grouped_hass.data[DOMAIN]["analyzer"].extract_service_calls.return_value = []
+
+    with patch(
+        "custom_components.autodoctor._get_automation_configs",
+        return_value=[{"id": "test", "alias": "Test"}],
+    ):
+        result = await async_validate_all_with_groups(grouped_hass)
+
+    assert result["all_issues"][0] is error_issue
+    assert result["all_issues"][1] is warning_issue
+    assert result["group_issues"]["entity_state"][0] is error_issue
+
+
+@pytest.mark.asyncio
 async def test_validate_all_with_groups_empty_automations(
     grouped_hass: MagicMock,
 ) -> None:
@@ -1667,6 +1699,89 @@ async def test_handle_validate_with_automation_id() -> None:
 
     mock_targeted.assert_called_once_with(hass, "automation.test123")
     mock_all.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_validate_returns_structured_response() -> None:
+    """Validate service should return dashboard- and automation-ready data."""
+    from custom_components.autodoctor import _async_setup_services
+
+    error_issue = make_issue(
+        IssueType.ENTITY_NOT_FOUND,
+        Severity.ERROR,
+        automation_id="automation.kitchen",
+        automation_name="Kitchen Lights",
+        entity_id="light.missing",
+    )
+    warning_issue = make_issue(
+        IssueType.INVALID_STATE,
+        Severity.WARNING,
+        automation_id="automation.hallway",
+        automation_name="Hallway Lights",
+        entity_id="binary_sensor.motion",
+    )
+    suppressed_issue = make_issue(
+        IssueType.CASE_MISMATCH,
+        Severity.WARNING,
+        automation_id="automation.kitchen",
+        automation_name="Kitchen Lights",
+        entity_id="light.kitchen",
+    )
+
+    hass = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "validation_issues": [error_issue, warning_issue],
+            "validation_issues_raw": [
+                error_issue,
+                warning_issue,
+                suppressed_issue,
+            ],
+            "validation_last_run": "2026-05-06T20:00:00+00:00",
+            "validation_run_stats": {
+                "analyzed_automations": 7,
+                "failed_automations": 1,
+                "skip_reasons": {
+                    "runtime_health": {"insufficient_warmup": 2},
+                },
+            },
+        }
+    }
+
+    with patch("custom_components.autodoctor.async_register_admin_service") as mock_reg:
+        await _async_setup_services(hass)
+    validate_handler = mock_reg.call_args_list[0].args[3]
+
+    call = MagicMock()
+    call.data = {}
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+        return_value=[error_issue, warning_issue, suppressed_issue],
+    ):
+        response = await validate_handler(call)
+
+    assert response["success"] is True
+    assert response["issue_count"] == 2
+    assert response["error_count"] == 1
+    assert response["warning_count"] == 1
+    assert response["suppressed_count"] == 1
+    assert response["last_run"] == "2026-05-06T20:00:00+00:00"
+    assert response["analyzed_automations"] == 7
+    assert response["failed_automations"] == 1
+    assert response["skip_reasons"]["runtime_health"]["insufficient_warmup"] == 2
+    assert response["affected_automations"] == [
+        "automation.hallway",
+        "automation.kitchen",
+    ]
+    assert response["issues"][0]["issue_type"] == "entity_not_found"
+    assert response["groups"]["entity_state"]["status"] == "error"
+    assert response["groups"]["entity_state"]["issue_count"] == 2
+    assert response["groups"]["services"]["status"] == "pass"
+    assert all(
+        issue["issue_type"] != "case_mismatch" for issue in response["issues"]
+    )
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast
 
 from .const import DOMAIN
-from .models import Severity, ValidationIssue
+from .models import IssueType, Severity, ValidationIssue
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -73,15 +73,159 @@ class IssueReporter:
             return ir.IssueSeverity.ERROR
         return ir.IssueSeverity.WARNING
 
+    def _why_issue_matters(self, issue: ValidationIssue) -> str:
+        """Return a user-facing impact summary for an issue."""
+        match issue.issue_type:
+            case IssueType.ENTITY_NOT_FOUND | IssueType.ENTITY_REMOVED:
+                return (
+                    "Home Assistant cannot resolve this entity, so the automation "
+                    "may never trigger, may skip a condition, or may fail during "
+                    "an action."
+                )
+            case IssueType.INVALID_STATE | IssueType.CASE_MISMATCH:
+                return (
+                    "The automation is checking a state that may never match, so it "
+                    "can look enabled while doing nothing."
+                )
+            case IssueType.ATTRIBUTE_NOT_FOUND | IssueType.INVALID_ATTRIBUTE_VALUE:
+                return (
+                    "The automation depends on an attribute value that may not exist "
+                    "or may never match."
+                )
+            case IssueType.SERVICE_NOT_FOUND:
+                return (
+                    "The action calls a service Home Assistant does not currently "
+                    "provide."
+                )
+            case (
+                IssueType.SERVICE_MISSING_REQUIRED_PARAM
+                | IssueType.SERVICE_INVALID_PARAM_TYPE
+                | IssueType.SERVICE_UNKNOWN_PARAM
+                | IssueType.SERVICE_TARGET_NOT_FOUND
+            ):
+                return (
+                    "The action may fail when Home Assistant tries to call this "
+                    "service."
+                )
+            case (
+                IssueType.TEMPLATE_SYNTAX_ERROR
+                | IssueType.TEMPLATE_UNKNOWN_FILTER
+                | IssueType.TEMPLATE_UNKNOWN_TEST
+            ):
+                return (
+                    "The template may fail to render, preventing this automation "
+                    "path from working."
+                )
+            case (
+                IssueType.UNREACHABLE_STATE_COMBINATION
+                | IssueType.UNREACHABLE_NUMERIC_RANGE
+            ):
+                return (
+                    "The trigger or condition is logically unreachable, so this "
+                    "automation path is unlikely to run."
+                )
+            case (
+                IssueType.RUNTIME_AUTOMATION_OVERDUE
+                | IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+                | IssueType.RUNTIME_AUTOMATION_BURST
+            ):
+                return (
+                    "Recent runtime behavior differs from the learned baseline for "
+                    "this automation."
+                )
+            case _:
+                return (
+                    "This can make the automation behave differently than expected."
+                )
+
+    def _next_action_for_issue(self, issue: ValidationIssue) -> str:
+        """Return a concrete next step for an issue."""
+        match issue.issue_type:
+            case IssueType.ENTITY_NOT_FOUND | IssueType.ENTITY_REMOVED:
+                return (
+                    "Update the automation to use an existing entity or restore the "
+                    "missing entity."
+                )
+            case IssueType.INVALID_STATE | IssueType.CASE_MISMATCH:
+                return (
+                    "Change the expected state to one Home Assistant actually "
+                    "reports for this entity."
+                )
+            case IssueType.ATTRIBUTE_NOT_FOUND | IssueType.INVALID_ATTRIBUTE_VALUE:
+                return (
+                    "Check the entity attributes in Developer Tools and update this "
+                    "reference."
+                )
+            case IssueType.SERVICE_NOT_FOUND:
+                return (
+                    "Choose a registered service from Developer Tools > Services or "
+                    "update the integration that provides it."
+                )
+            case (
+                IssueType.SERVICE_MISSING_REQUIRED_PARAM
+                | IssueType.SERVICE_INVALID_PARAM_TYPE
+                | IssueType.SERVICE_UNKNOWN_PARAM
+            ):
+                return (
+                    "Compare the action data with the service schema and adjust the "
+                    "YAML or UI action fields."
+                )
+            case IssueType.SERVICE_TARGET_NOT_FOUND:
+                return (
+                    "Update the action target to an existing entity, device, or "
+                    "area."
+                )
+            case (
+                IssueType.TEMPLATE_SYNTAX_ERROR
+                | IssueType.TEMPLATE_UNKNOWN_FILTER
+                | IssueType.TEMPLATE_UNKNOWN_TEST
+            ):
+                return (
+                    "Test the template in Developer Tools > Template and fix the "
+                    "failing expression."
+                )
+            case (
+                IssueType.UNREACHABLE_STATE_COMBINATION
+                | IssueType.UNREACHABLE_NUMERIC_RANGE
+            ):
+                return (
+                    "Review the trigger and condition together; one likely "
+                    "contradicts the other."
+                )
+            case (
+                IssueType.RUNTIME_AUTOMATION_OVERDUE
+                | IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+                | IssueType.RUNTIME_AUTOMATION_BURST
+            ):
+                return (
+                    "Check whether the automation should still be following its "
+                    "usual schedule or trigger pattern."
+                )
+            case _:
+                return (
+                    "Open the automation and review the referenced entity, "
+                    "condition, template, or action."
+                )
+
     def _format_issues_for_repair(self, issues: list[ValidationIssue]) -> str:
         """Format multiple issues into a single repair description."""
         lines = []
         for issue in issues:
-            line = f"• **{issue.entity_id}** ({issue.location}): {issue.message}"
+            issue_lines = [
+                f"• **{issue.entity_id}** ({issue.location})",
+                f"  {issue.severity.name} / {issue.confidence} confidence",
+                f"  What is wrong: {issue.message}",
+                f"  Why it matters: {self._why_issue_matters(issue)}",
+                f"  Next action: {self._next_action_for_issue(issue)}",
+            ]
             if issue.suggestion:
-                line += f" -- Did you mean '{issue.suggestion}'?"
-            lines.append(line)
-        return "\n".join(lines)
+                issue_lines.append(f"  Did you mean '{issue.suggestion}'?")
+            if issue.valid_states:
+                issue_lines.append(
+                    f"  Known valid states: {', '.join(issue.valid_states)}"
+                )
+            lines.append("\n".join(issue_lines))
+        return "\n\n".join(lines)
 
     async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
         """Report validation issues grouped by automation."""

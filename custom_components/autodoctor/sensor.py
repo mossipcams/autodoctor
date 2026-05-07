@@ -12,6 +12,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, VERSION
+from .models import Severity, ValidationIssue
 
 
 async def async_setup_entry(
@@ -72,6 +73,67 @@ class ValidationIssuesSensor(SensorEntity):
         reporter = data.get("reporter")
         runtime_monitor = data.get("runtime_monitor")
         attrs: dict[str, Any] = {}
+
+        validation_issues = data.get("validation_issues")
+        if isinstance(validation_issues, list):
+            issues = [
+                issue
+                for issue in validation_issues
+                if isinstance(issue, ValidationIssue)
+            ]
+            raw_issues = data.get("validation_issues_raw")
+            raw_issue_count = (
+                len(raw_issues) if isinstance(raw_issues, list) else len(issues)
+            )
+            run_stats = data.get("validation_run_stats")
+            run_stats = run_stats if isinstance(run_stats, dict) else {}
+
+            attrs.update(
+                {
+                    "error_count": sum(
+                        1 for issue in issues if issue.severity == Severity.ERROR
+                    ),
+                    "warning_count": sum(
+                        1 for issue in issues if issue.severity == Severity.WARNING
+                    ),
+                    "info_count": sum(
+                        1 for issue in issues if issue.severity == Severity.INFO
+                    ),
+                    "suppressed_count": max(0, raw_issue_count - len(issues)),
+                    "last_run": data.get("validation_last_run"),
+                    "analyzed_automations": int(
+                        run_stats.get("analyzed_automations", 0)
+                    ),
+                    "failed_automations": int(run_stats.get("failed_automations", 0)),
+                    "skip_reasons": run_stats.get("skip_reasons", {}),
+                    "affected_automations": sorted(
+                        {issue.automation_id for issue in issues}
+                    ),
+                    "top_issues": [
+                        {
+                            "automation_id": issue.automation_id,
+                            "automation_name": issue.automation_name,
+                            "entity_id": issue.entity_id,
+                            "issue_type": (
+                                issue.issue_type.value if issue.issue_type else None
+                            ),
+                            "severity": issue.severity.name.lower(),
+                            "message": issue.message,
+                            "location": issue.location,
+                        }
+                        for issue in issues[:5]
+                    ],
+                }
+            )
+
+            validation_groups = data.get("validation_groups")
+            if isinstance(validation_groups, dict):
+                attrs["groups"] = {
+                    str(group_id): _summarize_group(bucket)
+                    for group_id, bucket in validation_groups.items()
+                    if isinstance(bucket, dict)
+                }
+
         if reporter:
             # Take snapshot - frozenset is immutable so this is safe
             issues = reporter.active_issues
@@ -127,6 +189,12 @@ class RuntimeHealthAlertsSensor(SensorEntity):
 
         runtime_alerts = runtime_monitor.get_active_runtime_alerts()
         attrs: dict[str, Any] = {
+            "error_count": sum(
+                1 for issue in runtime_alerts if issue.severity == Severity.ERROR
+            ),
+            "warning_count": sum(
+                1 for issue in runtime_alerts if issue.severity == Severity.WARNING
+            ),
             "active_runtime_alerts": [
                 {
                     "automation_id": issue.automation_id,
@@ -138,10 +206,78 @@ class RuntimeHealthAlertsSensor(SensorEntity):
                 for issue in runtime_alerts
             ]
         }
+        if hasattr(runtime_monitor, "get_last_run_stats"):
+            stats = runtime_monitor.get_last_run_stats()
+            if isinstance(stats, dict):
+                attrs["monitored_automations"] = int(
+                    stats.get("total_automations", 0)
+                )
+                attrs["skip_reasons"] = {
+                    str(key): int(value)
+                    for key, value in stats.items()
+                    if key
+                    not in {
+                        "total_automations",
+                        "overactive_alerts",
+                        "overdue_alerts",
+                        "burst_alerts",
+                    }
+                    and isinstance(value, int)
+                    and value > 0
+                }
+                attrs["runtime_detection_stats"] = {
+                    str(key): int(value)
+                    for key, value in stats.items()
+                    if isinstance(value, int)
+                }
+        if hasattr(runtime_monitor, "get_runtime_state"):
+            runtime_state = runtime_monitor.get_runtime_state()
+            if isinstance(runtime_state, dict):
+                attrs["last_weekly_maintenance"] = runtime_state.get(
+                    "last_weekly_maintenance"
+                )
+                alert_state = runtime_state.get("alerts")
+                if isinstance(alert_state, dict):
+                    attrs["runtime_alerts_today"] = int(
+                        alert_state.get("global_count", 0)
+                    )
         if hasattr(runtime_monitor, "get_event_store_diagnostics"):
             store_diag = runtime_monitor.get_event_store_diagnostics()
-            attrs["runtime_event_store_degraded"] = store_diag["degraded"]
-            attrs["runtime_event_store_pending_jobs"] = store_diag["pending_jobs"]
-            attrs["runtime_event_store_write_failures"] = store_diag["write_failures"]
-            attrs["runtime_event_store_dropped_events"] = store_diag["dropped_events"]
+            if isinstance(store_diag, dict):
+                attrs["runtime_event_store_degraded"] = store_diag["degraded"]
+                attrs["runtime_event_store_pending_jobs"] = store_diag[
+                    "pending_jobs"
+                ]
+                attrs["runtime_event_store_write_failures"] = store_diag[
+                    "write_failures"
+                ]
+                attrs["runtime_event_store_dropped_events"] = store_diag[
+                    "dropped_events"
+                ]
         return attrs
+
+
+def _group_status(issues: list[ValidationIssue]) -> str:
+    """Return a compact pass/warning/fail status for sensor attributes."""
+    if any(issue.severity == Severity.ERROR for issue in issues):
+        return "fail"
+    if any(issue.severity == Severity.WARNING for issue in issues):
+        return "warning"
+    return "pass"
+
+
+def _summarize_group(bucket: dict[str, Any]) -> dict[str, Any]:
+    """Summarize one validation group for dashboard attributes."""
+    raw_issues = bucket.get("issues", [])
+    issues = [
+        issue for issue in raw_issues if isinstance(issue, ValidationIssue)
+    ] if isinstance(raw_issues, list) else []
+    return {
+        "status": _group_status(issues),
+        "issue_count": len(issues),
+        "error_count": sum(1 for issue in issues if issue.severity == Severity.ERROR),
+        "warning_count": sum(
+            1 for issue in issues if issue.severity == Severity.WARNING
+        ),
+        "duration_ms": int(bucket.get("duration_ms", 0)),
+    }

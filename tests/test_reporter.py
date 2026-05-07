@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from custom_components.autodoctor.models import Severity, ValidationIssue
+from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
 from custom_components.autodoctor.reporter import IssueReporter
 
 
@@ -522,6 +522,37 @@ def test_format_issues_for_repair_includes_suggestion(hass: HomeAssistant) -> No
     result = reporter._format_issues_for_repair(issues)
 
     assert "Did you mean 'not_home'?" in result
+
+
+def test_format_issues_for_repair_includes_actionable_context(
+    hass: HomeAssistant,
+) -> None:
+    """Repair text should explain impact, next action, and confidence."""
+    reporter = IssueReporter(hass)
+
+    issues = [
+        ValidationIssue(
+            severity=Severity.ERROR,
+            issue_type=IssueType.ENTITY_NOT_FOUND,
+            confidence="medium",
+            automation_id="automation.test",
+            automation_name="Test",
+            entity_id="light.old_kitchen",
+            location="condition[0].entity_id",
+            message="Entity 'light.old_kitchen' does not exist",
+            suggestion="light.kitchen",
+            valid_states=["on", "off"],
+        )
+    ]
+
+    result = reporter._format_issues_for_repair(issues)
+
+    assert "ERROR / medium confidence" in result
+    assert "Why it matters:" in result
+    assert "Next action:" in result
+    assert "restore the missing entity" in result
+    assert "Did you mean 'light.kitchen'?" in result
+    assert "Known valid states: on, off" in result
 
 
 def test_format_issues_for_repair_no_suggestion_unchanged(hass: HomeAssistant) -> None:
