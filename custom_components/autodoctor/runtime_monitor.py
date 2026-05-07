@@ -9,6 +9,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from statistics import fmean, median
@@ -75,6 +76,15 @@ _SENSITIVITY_THRESHOLDS: dict[str, float] = {
 }
 _OVERACTIVE_PROMOTION_MARGIN = 0.5
 _OVERACTIVE_IMMEDIATE_MARGIN = 0.5
+
+
+@dataclass(frozen=True)
+class _RuntimeHistoryFetchResult:
+    """Per-validation runtime history read result."""
+
+    history: dict[str, list[datetime]]
+    failed_automation_ids: frozenset[str]
+    read_failure_count: int = 0
 
 
 def _linear_percentile(values: list[float], quantile: float) -> float | None:
@@ -1060,17 +1070,15 @@ class RuntimeHealthMonitor:
         baseline_start_by_automation: dict[str, datetime] = dict.fromkeys(
             automation_ids, effective_baseline_start
         )
-        read_failures_before = self._runtime_event_store_read_failures
-        history = await self._async_fetch_trigger_history_from_store(
+        history_result = await self._async_fetch_trigger_history_from_store(
             automation_ids=automation_ids,
             start=baseline_start,
             end=now,
         )
-        read_failure_delta = (
-            self._runtime_event_store_read_failures - read_failures_before
-        )
-        if read_failure_delta > 0:
-            stats["event_store_read_failed"] = read_failure_delta
+        history = history_result.history
+        if history_result.read_failure_count > 0:
+            stats["event_store_read_failed"] = history_result.read_failure_count
+        failed_history_ids = history_result.failed_automation_ids
 
         issues: list[ValidationIssue] = []
         all_events_by_automation = history
@@ -1092,6 +1100,9 @@ class RuntimeHealthMonitor:
                 automation_entity_id,
                 baseline_start,
             )
+            if automation_entity_id in failed_history_ids:
+                stats["event_store_read_abstained"] += 1
+                continue
             timestamps = sorted(history.get(automation_entity_id, []))
 
             baseline_events = [
@@ -2470,11 +2481,16 @@ class RuntimeHealthMonitor:
         automation_ids: list[str],
         start: datetime,
         end: datetime,
-    ) -> dict[str, list[datetime]]:
+    ) -> _RuntimeHistoryFetchResult:
         """Fetch trigger history from local runtime event store."""
         if self._async_runtime_event_store is None:
-            return {automation_id: [] for automation_id in automation_ids}
+            return _RuntimeHistoryFetchResult(
+                history={automation_id: [] for automation_id in automation_ids},
+                failed_automation_ids=frozenset(),
+            )
         history: dict[str, list[datetime]] = {}
+        failed_automation_ids: set[str] = set()
+        read_failure_count = 0
         for automation_id in automation_ids:
             try:
                 epochs = await self._async_runtime_event_store.async_get_events(
@@ -2484,6 +2500,8 @@ class RuntimeHealthMonitor:
                 )
             except Exception as err:
                 self._runtime_event_store_read_failures += 1
+                read_failure_count += 1
+                failed_automation_ids.add(automation_id)
                 self._runtime_event_store_degraded = True
                 _LOGGER.debug(
                     "Failed reading runtime event store history for '%s': %s",
@@ -2495,4 +2513,8 @@ class RuntimeHealthMonitor:
             history[automation_id] = [
                 datetime.fromtimestamp(float(ts), tz=UTC) for ts in epochs
             ]
-        return history
+        return _RuntimeHistoryFetchResult(
+            history=history,
+            failed_automation_ids=frozenset(failed_automation_ids),
+            read_failure_count=read_failure_count,
+        )

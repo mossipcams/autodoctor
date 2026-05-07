@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -14,7 +15,10 @@ from homeassistant.core import HomeAssistant
 from custom_components.autodoctor.const import DOMAIN
 from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
 from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
-from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
+from custom_components.autodoctor.runtime_monitor import (
+    RuntimeHealthMonitor,
+    _RuntimeHistoryFetchResult,
+)
 from tests.conftest import build_runtime_monitor
 
 
@@ -76,8 +80,11 @@ class _TestRuntimeMonitor(RuntimeHealthMonitor):
         automation_ids: list[str],
         start: datetime,
         end: datetime,
-    ) -> dict[str, list[datetime]]:
-        return await self._async_fetch_trigger_history(automation_ids, start, end)
+    ) -> _RuntimeHistoryFetchResult:
+        return _RuntimeHistoryFetchResult(
+            history=await self._async_fetch_trigger_history(automation_ids, start, end),
+            failed_automation_ids=frozenset(),
+        )
 
 
 def _automation(automation_id: str, name: str = "Test Automation") -> dict[str, str]:
@@ -136,19 +143,25 @@ async def test_runtime_monitor_uses_single_fetch_for_sparse_warmup(
             automation_ids: list[str],
             start: datetime,
             end: datetime,
-        ) -> dict[str, list[datetime]]:
+        ) -> _RuntimeHistoryFetchResult:
             fetch_calls.append((start, end, tuple(automation_ids)))
-            return {
-                automation_id: [
-                    ts
-                    for ts in self._history.get(
-                        automation_id,
-                        self._history.get(automation_id.replace("automation.", ""), []),
-                    )
-                    if start <= ts <= end
-                ]
-                for automation_id in automation_ids
-            }
+            return _RuntimeHistoryFetchResult(
+                history={
+                    automation_id: [
+                        ts
+                        for ts in self._history.get(
+                            automation_id,
+                            self._history.get(
+                                automation_id.replace("automation.", ""),
+                                [],
+                            ),
+                        )
+                        if start <= ts <= end
+                    ]
+                    for automation_id in automation_ids
+                },
+                failed_automation_ids=frozenset(),
+            )
 
     monitor = _TrackingRuntimeMonitor(
         hass,
@@ -2013,8 +2026,15 @@ async def test_validate_automations_does_not_persist_periodic_model(
             automation_ids: list[str],
             start: datetime,
             end: datetime,
-        ) -> dict[str, list[datetime]]:
-            return await self._async_fetch_trigger_history(automation_ids, start, end)
+        ) -> _RuntimeHistoryFetchResult:
+            return _RuntimeHistoryFetchResult(
+                history=await self._async_fetch_trigger_history(
+                    automation_ids,
+                    start,
+                    end,
+                ),
+                failed_automation_ids=frozenset(),
+            )
 
     monitor = _HistoryRuntimeMonitor()
     await monitor.validate_automations([_automation("runtime_test", "Kitchen")])
@@ -3329,6 +3349,159 @@ async def test_validate_automations_clears_overactive_when_score_drops(
     monitor._score_history.clear()
     await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
     assert len(monitor.get_active_runtime_alerts()) == 0
+
+
+async def test_validate_automations_reports_event_store_read_failures(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime validation should distinguish read failures from empty history."""
+
+    class _FailingAsyncStore:
+        pending_jobs = 0
+
+        async def async_get_events(
+            self, *args: object, **kwargs: object
+        ) -> list[float]:
+            raise RuntimeError("sqlite unavailable")
+
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        async_runtime_event_store=_FailingAsyncStore(),  # type: ignore[arg-type]
+        now_factory=lambda: now,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_test")])
+
+    assert issues == []
+    assert monitor.get_last_run_stats()["event_store_read_failed"] == 1
+    diagnostics = monitor.get_event_store_diagnostics()
+    assert diagnostics["degraded"] is True
+    assert diagnostics["read_failures"] == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_preserves_alerts_when_event_store_read_fails(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime validation should abstain instead of clearing alerts on read outage."""
+
+    class _FailingAsyncStore:
+        pending_jobs = 0
+
+        async def async_get_events(
+            self, *args: object, **kwargs: object
+        ) -> list[float]:
+            raise RuntimeError("sqlite unavailable")
+
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        async_runtime_event_store=_FailingAsyncStore(),  # type: ignore[arg-type]
+        now_factory=lambda: now,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+    existing_issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.runtime_test",
+        automation_name="Runtime Test",
+        entity_id="automation.runtime_test",
+        location="runtime.health.anomaly",
+        message="Existing runtime alert",
+        issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+        confidence="medium",
+    )
+    monitor._register_runtime_alert(existing_issue)
+
+    issues = await monitor.validate_automations([_automation("runtime_test")])
+
+    assert existing_issue in monitor.get_active_runtime_alerts()
+    assert issues == [existing_issue]
+    stats = monitor.get_last_run_stats()
+    assert stats["event_store_read_failed"] == 1
+    assert stats["event_store_read_abstained"] == 1
+    assert stats.get("insufficient_warmup", 0) == 0
+    assert stats.get("stale_alerts_cleared", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_overlapping_validations_keep_read_failures_isolated(
+    hass: HomeAssistant,
+) -> None:
+    """Concurrent validations should not overwrite each other's read failures."""
+
+    first_failure_seen = asyncio.Event()
+    second_validation_read_seen = asyncio.Event()
+    failed_once = False
+
+    class _InterleavedAsyncStore:
+        pending_jobs = 0
+
+        async def async_get_events(
+            self,
+            automation_id: str,
+            *args: object,
+            **kwargs: object,
+        ) -> list[float]:
+            nonlocal failed_once
+            if automation_id == "automation.runtime_test" and not failed_once:
+                failed_once = True
+                first_failure_seen.set()
+                raise RuntimeError("sqlite unavailable")
+            if automation_id == "automation.runtime_other":
+                await asyncio.wait_for(second_validation_read_seen.wait(), timeout=1.0)
+                return []
+            if automation_id == "automation.unrelated":
+                second_validation_read_seen.set()
+                return []
+            return []
+
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        async_runtime_event_store=_InterleavedAsyncStore(),  # type: ignore[arg-type]
+        detector=_FixedScoreDetector(0.0),
+        now_factory=lambda: now,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+    existing_issue = ValidationIssue(
+        severity=Severity.WARNING,
+        automation_id="automation.runtime_test",
+        automation_name="Runtime Test",
+        entity_id="automation.runtime_test",
+        location="runtime.health.anomaly",
+        message="Existing runtime alert",
+        issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+        confidence="medium",
+    )
+    monitor._register_runtime_alert(existing_issue)
+
+    first_validation = asyncio.create_task(
+        monitor.validate_automations(
+            [
+                _automation("runtime_test", "Runtime Test"),
+                _automation("runtime_other", "Other Runtime"),
+            ]
+        )
+    )
+    await asyncio.wait_for(first_failure_seen.wait(), timeout=1.0)
+
+    second_validation = asyncio.create_task(
+        monitor.validate_automations([_automation("unrelated", "Unrelated")])
+    )
+
+    first_issues, second_issues = await asyncio.gather(
+        first_validation,
+        second_validation,
+    )
+
+    assert second_issues == []
+    assert existing_issue in monitor.get_active_runtime_alerts()
+    assert first_issues == [existing_issue]
 
 
 @pytest.mark.asyncio

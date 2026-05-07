@@ -20,6 +20,13 @@ Fix runtime false positives by making runtime checks respect 30-day cadence and 
 **Complete**
 
 ### Completed
+- Runtime read-outage abstention:
+  - Added regression coverage for preserving active runtime alerts when the event
+    store cannot read history.
+  - Validation now uses per-run event-store read results, so overlapping scans
+    cannot overwrite each other's failed automation IDs.
+  - Automations with read failures abstain instead of treating missing history as
+    insufficient warmup.
 - Step 1: Added gap cadence test `test_gap_check_respects_learned_active_weekdays`.
 - Step 2: Added weekday-specific runtime tests:
   - `test_stalled_skipped_when_no_baseline_events_on_current_weekday`
@@ -32,6 +39,7 @@ Fix runtime false positives by making runtime checks respect 30-day cadence and 
 - Step 5: Ran broader runtime regression tests.
 
 ### Verification
+- `./.venv/bin/pytest -q tests/test_runtime_monitor.py -k "event_store_read"` → `2 passed`
 - `./.venv/bin/pytest -q tests/test_runtime_monitor.py -k "current_day_type or current_weekday"` → `6 passed`
 - `./.venv/bin/pytest -q tests/test_runtime_gap_detector.py -k "learned_active_weekdays or cadence"` → `2 passed`
 - `./.venv/bin/pytest -q` → `1080 passed`
