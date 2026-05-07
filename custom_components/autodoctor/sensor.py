@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
@@ -13,6 +13,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, VERSION
 from .models import Severity, ValidationIssue
+
+
+def _validation_issue_list(value: Any) -> list[ValidationIssue]:
+    """Return validation issues from an untyped Home Assistant data payload."""
+    if not isinstance(value, list):
+        return []
+    return [
+        issue for issue in cast(list[Any], value) if isinstance(issue, ValidationIssue)
+    ]
 
 
 async def async_setup_entry(
@@ -55,7 +64,7 @@ class ValidationIssuesSensor(SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the issue count."""
-        data = self.hass.data.get(DOMAIN, {})
+        data = cast(dict[str, Any], self.hass.data.get(DOMAIN, {}))
         validation_issues = data.get("validation_issues")
         if isinstance(validation_issues, list):
             return len(validation_issues)
@@ -69,24 +78,24 @@ class ValidationIssuesSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra attributes."""
-        data = self.hass.data.get(DOMAIN, {})
+        data = cast(dict[str, Any], self.hass.data.get(DOMAIN, {}))
         reporter = data.get("reporter")
         runtime_monitor = data.get("runtime_monitor")
         attrs: dict[str, Any] = {}
 
         validation_issues = data.get("validation_issues")
         if isinstance(validation_issues, list):
-            issues = [
-                issue
-                for issue in validation_issues
-                if isinstance(issue, ValidationIssue)
-            ]
+            issues = _validation_issue_list(validation_issues)
             raw_issues = data.get("validation_issues_raw")
             raw_issue_count = (
                 len(raw_issues) if isinstance(raw_issues, list) else len(issues)
             )
-            run_stats = data.get("validation_run_stats")
-            run_stats = run_stats if isinstance(run_stats, dict) else {}
+            run_stats_obj: Any = data.get("validation_run_stats")
+            run_stats = (
+                cast(dict[str, Any], run_stats_obj)
+                if isinstance(run_stats_obj, dict)
+                else {}
+            )
 
             attrs.update(
                 {
@@ -126,8 +135,9 @@ class ValidationIssuesSensor(SensorEntity):
                 }
             )
 
-            validation_groups = data.get("validation_groups")
-            if isinstance(validation_groups, dict):
+            validation_groups_obj: Any = data.get("validation_groups")
+            if isinstance(validation_groups_obj, dict):
+                validation_groups = cast(dict[str, Any], validation_groups_obj)
                 attrs["groups"] = {
                     str(group_id): _summarize_group(bucket)
                     for group_id, bucket in validation_groups.items()
@@ -173,7 +183,7 @@ class RuntimeHealthAlertsSensor(SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the active runtime alert count."""
-        data = self.hass.data.get(DOMAIN, {})
+        data = cast(dict[str, Any], self.hass.data.get(DOMAIN, {}))
         runtime_monitor = data.get("runtime_monitor")
         if runtime_monitor:
             return len(runtime_monitor.get_active_runtime_alerts())
@@ -182,12 +192,15 @@ class RuntimeHealthAlertsSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return runtime alert metadata for diagnostics."""
-        data = self.hass.data.get(DOMAIN, {})
+        data = cast(dict[str, Any], self.hass.data.get(DOMAIN, {}))
         runtime_monitor = data.get("runtime_monitor")
         if not runtime_monitor:
             return {}
 
-        runtime_alerts = runtime_monitor.get_active_runtime_alerts()
+        runtime_alerts = cast(
+            list[ValidationIssue],
+            runtime_monitor.get_active_runtime_alerts(),
+        )
         attrs: dict[str, Any] = {
             "error_count": sum(
                 1 for issue in runtime_alerts if issue.severity == Severity.ERROR
@@ -204,14 +217,13 @@ class RuntimeHealthAlertsSensor(SensorEntity):
                     "location": issue.location,
                 }
                 for issue in runtime_alerts
-            ]
+            ],
         }
         if hasattr(runtime_monitor, "get_last_run_stats"):
-            stats = runtime_monitor.get_last_run_stats()
-            if isinstance(stats, dict):
-                attrs["monitored_automations"] = int(
-                    stats.get("total_automations", 0)
-                )
+            stats_obj: Any = runtime_monitor.get_last_run_stats()
+            if isinstance(stats_obj, dict):
+                stats = cast(dict[str, Any], stats_obj)
+                attrs["monitored_automations"] = int(stats.get("total_automations", 0))
                 attrs["skip_reasons"] = {
                     str(key): int(value)
                     for key, value in stats.items()
@@ -231,13 +243,15 @@ class RuntimeHealthAlertsSensor(SensorEntity):
                     if isinstance(value, int)
                 }
         if hasattr(runtime_monitor, "get_runtime_state"):
-            runtime_state = runtime_monitor.get_runtime_state()
-            if isinstance(runtime_state, dict):
+            runtime_state_obj: Any = runtime_monitor.get_runtime_state()
+            if isinstance(runtime_state_obj, dict):
+                runtime_state = cast(dict[str, Any], runtime_state_obj)
                 attrs["last_weekly_maintenance"] = runtime_state.get(
                     "last_weekly_maintenance"
                 )
-                alert_state = runtime_state.get("alerts")
-                if isinstance(alert_state, dict):
+                alert_state_obj: Any = runtime_state.get("alerts")
+                if isinstance(alert_state_obj, dict):
+                    alert_state = cast(dict[str, Any], alert_state_obj)
                     attrs["runtime_alerts_today"] = int(
                         alert_state.get("global_count", 0)
                     )
@@ -245,9 +259,7 @@ class RuntimeHealthAlertsSensor(SensorEntity):
             store_diag = runtime_monitor.get_event_store_diagnostics()
             if isinstance(store_diag, dict):
                 attrs["runtime_event_store_degraded"] = store_diag["degraded"]
-                attrs["runtime_event_store_pending_jobs"] = store_diag[
-                    "pending_jobs"
-                ]
+                attrs["runtime_event_store_pending_jobs"] = store_diag["pending_jobs"]
                 attrs["runtime_event_store_write_failures"] = store_diag[
                     "write_failures"
                 ]
@@ -269,9 +281,7 @@ def _group_status(issues: list[ValidationIssue]) -> str:
 def _summarize_group(bucket: dict[str, Any]) -> dict[str, Any]:
     """Summarize one validation group for dashboard attributes."""
     raw_issues = bucket.get("issues", [])
-    issues = [
-        issue for issue in raw_issues if isinstance(issue, ValidationIssue)
-    ] if isinstance(raw_issues, list) else []
+    issues = _validation_issue_list(raw_issues)
     return {
         "status": _group_status(issues),
         "issue_count": len(issues),

@@ -246,18 +246,16 @@ def _build_validation_service_response(
     issues: list[ValidationIssue],
 ) -> dict[str, Any]:
     """Build a structured response for validation service calls."""
-    hass_data = getattr(hass, "data", {})
-    data = hass_data.get(DOMAIN, {}) if isinstance(hass_data, dict) else {}
-    raw_issues = data.get("validation_issues_raw", issues)
+    data = cast(dict[str, Any], hass.data.get(DOMAIN, {}))
+    raw_issues_obj: Any = data.get("validation_issues_raw", issues)
     raw_issue_count = (
-        len(raw_issues) if isinstance(raw_issues, list) else len(issues)
+        len(raw_issues_obj) if isinstance(raw_issues_obj, list) else len(issues)
     )
-    visible_issues = sort_issues_by_priority(
-        [issue for issue in issues if isinstance(issue, ValidationIssue)]
+    visible_issues = sort_issues_by_priority(issues)
+    run_stats_obj: Any = data.get("validation_run_stats", {})
+    run_stats = (
+        cast(dict[str, Any], run_stats_obj) if isinstance(run_stats_obj, dict) else {}
     )
-    run_stats = data.get("validation_run_stats", {})
-    if not isinstance(run_stats, dict):
-        run_stats = {}
 
     group_issues: dict[str, list[ValidationIssue]] = {
         group_id: [] for group_id in VALIDATION_GROUP_ORDER
@@ -863,13 +861,17 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
     async def handle_validate(call: ServiceCall) -> dict[str, Any]:
         automation_id = call.data.get("automation_id")
         if automation_id:
-            result = await async_validate_automation(hass, automation_id)
-            issues = result if isinstance(result, list) else []
+            issues = await async_validate_automation(hass, automation_id)
             return _build_validation_service_response(hass, issues)
 
         await async_validate_all(hass)
-        cached_issues = hass.data.get(DOMAIN, {}).get("validation_issues")
-        issues = cached_issues if isinstance(cached_issues, list) else []
+        data = cast(dict[str, Any], hass.data.get(DOMAIN, {}))
+        cached_issues_obj: Any = data.get("validation_issues")
+        issues = (
+            cast(list[ValidationIssue], cached_issues_obj)
+            if isinstance(cached_issues_obj, list)
+            else []
+        )
         return _build_validation_service_response(hass, issues)
 
     async def handle_refresh(call: ServiceCall) -> dict[str, Any]:

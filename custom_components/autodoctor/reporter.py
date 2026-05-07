@@ -134,9 +134,7 @@ class IssueReporter:
                     "this automation."
                 )
             case _:
-                return (
-                    "This can make the automation behave differently than expected."
-                )
+                return "This can make the automation behave differently than expected."
 
     def _next_action_for_issue(self, issue: ValidationIssue) -> str:
         """Return a concrete next step for an issue."""
@@ -172,8 +170,7 @@ class IssueReporter:
                 )
             case IssueType.SERVICE_TARGET_NOT_FOUND:
                 return (
-                    "Update the action target to an existing entity, device, or "
-                    "area."
+                    "Update the action target to an existing entity, device, or area."
                 )
             case (
                 IssueType.TEMPLATE_SYNTAX_ERROR

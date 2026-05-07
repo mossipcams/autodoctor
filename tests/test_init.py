@@ -1779,9 +1779,7 @@ async def test_handle_validate_returns_structured_response() -> None:
     assert response["groups"]["entity_state"]["status"] == "error"
     assert response["groups"]["entity_state"]["issue_count"] == 2
     assert response["groups"]["services"]["status"] == "pass"
-    assert all(
-        issue["issue_type"] != "case_mismatch" for issue in response["issues"]
-    )
+    assert all(issue["issue_type"] != "case_mismatch" for issue in response["issues"])
 
 
 @pytest.mark.asyncio
