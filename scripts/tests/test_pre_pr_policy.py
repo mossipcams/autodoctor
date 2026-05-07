@@ -13,10 +13,16 @@ def _load_module():
     return module
 
 
-def test_dev_branch_skips_base_sync():
+def test_dev_branch_requires_dev_base_sync():
     policy = _load_module()
 
-    assert policy.resolve_required_base_branch("dev", "main") is None
+    assert policy.resolve_required_base_branch("dev", "main") == "dev"
+
+
+def test_dev_branch_defaults_to_dev_without_pr_base():
+    policy = _load_module()
+
+    assert policy.resolve_required_base_branch("dev", None) == "dev"
 
 
 def test_non_dev_branch_uses_pr_base_when_available():

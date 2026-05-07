@@ -8,7 +8,7 @@ def resolve_required_base_branch(
 ) -> str | None:
     """Return the branch that must be up to date, or None to skip the check."""
     if current_branch == "dev":
-        return None
+        return "dev"
     if pr_base_branch:
         return pr_base_branch
     return "main"
