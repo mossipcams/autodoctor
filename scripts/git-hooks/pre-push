@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+if [[ "${SKIP_AUTODOCTOR_PRE_PR_CHECKS:-0}" == "1" ]]; then
+  echo "Skipping Autodoctor pre-PR checks because SKIP_AUTODOCTOR_PRE_PR_CHECKS=1."
+  exit 0
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/dev" ]]; then
+    echo "Running Autodoctor pre-PR checks before pushing to dev..."
+    AUTODOCTOR_PRE_PR_BASE_BRANCH=dev scripts/pre_pr_checks.sh
+    exit 0
+  fi
+done
+
+exit 0

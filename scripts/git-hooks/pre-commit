@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+if [[ "${SKIP_AUTODOCTOR_PRE_PR_CHECKS:-0}" == "1" ]]; then
+  echo "Skipping Autodoctor pre-PR checks because SKIP_AUTODOCTOR_PRE_PR_CHECKS=1."
+  exit 0
+fi
+
+current_branch="$(git branch --show-current)"
+upstream_ref="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+run_pre_pr_checks=0
+
+if [[ "$current_branch" == "dev" || "$upstream_ref" == "origin/dev" || "$upstream_ref" == "refs/remotes/origin/dev" ]]; then
+  run_pre_pr_checks=1
+fi
+
+if [[ "$run_pre_pr_checks" == "1" ]]; then
+  echo "Running Autodoctor pre-PR checks before committing to dev..."
+  AUTODOCTOR_PRE_PR_BASE_BRANCH=dev scripts/pre_pr_checks.sh
+fi
+
+STRUCTURAL_PATTERNS=(
+  "custom_components/autodoctor/[^/]*\.py$"
+  "custom_components/autodoctor/manifest.json"
+  "custom_components/autodoctor/services.yaml"
+  "tests/test_[^/]*\.py$"
+)
+
+check_structural_changes() {
+  local staged_files
+  staged_files="$(git diff --cached --name-only)"
+
+  for pattern in "${STRUCTURAL_PATTERNS[@]}"; do
+    if echo "$staged_files" | grep -qE "$pattern"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_file_additions_deletions() {
+  local changes
+  changes="$(git diff --cached --name-status)"
+
+  if echo "$changes" | grep -E "^[AD][[:space:]]+custom_components/autodoctor/[^/]*\.py$" >/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+if check_file_additions_deletions; then
+  echo ""
+  echo "=================================================="
+  echo "INDEX VERIFICATION REQUIRED"
+  echo "=================================================="
+  echo ""
+  echo "Detected addition or deletion of modules in custom_components/autodoctor/"
+  echo ""
+  echo "Please verify that index.md is updated to reflect:"
+  echo "  - New modules added to Directory Structure"
+  echo "  - Removed modules deleted from Directory Structure"
+  echo "  - Updated Core Modules section if needed"
+  echo ""
+  echo "To proceed without updating, use: git commit --no-verify"
+  echo "=================================================="
+  echo ""
+  exit 1
+elif check_structural_changes; then
+  echo ""
+  echo "--------------------------------------------------"
+  echo "Reminder: Structural files changed."
+  echo "Verify index.md is current if you modified:"
+  echo "  - WebSocket API commands"
+  echo "  - Services"
+  echo "  - Test files"
+  echo "--------------------------------------------------"
+  echo ""
+fi
+
+exit 0
