@@ -49,7 +49,10 @@ class ValidationEngine:
             entity_is_disabled = getattr(
                 self.knowledge_base, "entity_is_disabled", None
             )
-            if callable(entity_is_disabled) and entity_is_disabled(ref.entity_id) is True:
+            if (
+                callable(entity_is_disabled)
+                and entity_is_disabled(ref.entity_id) is True
+            ):
                 issues.append(
                     ValidationIssue(
                         issue_type=IssueType.ENTITY_DISABLED,
