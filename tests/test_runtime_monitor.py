@@ -3351,7 +3351,7 @@ async def test_validate_automations_clears_overactive_when_score_drops(
     assert len(monitor.get_active_runtime_alerts()) == 0
 
 
-async def test_validate_automations_reports_event_store_read_failures(
+async def test_validate_automations_preserves_alerts_on_event_store_read_failures(
     hass: HomeAssistant,
 ) -> None:
     """Runtime validation should distinguish read failures from empty history."""
