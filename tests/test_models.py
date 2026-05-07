@@ -354,12 +354,12 @@ def test_removed_template_entity_issue_types(removed_member: str) -> None:
 
 
 def test_issue_type_count_after_removals() -> None:
-    """Guard: Verify IssueType has exactly 21 members.
+    """Guard: Verify IssueType has exactly 22 members.
 
     This guards against accidental reintroduction of removed types.
-    Count: 8 entity_state + 5 services + 3 templates + 3 runtime = 19 total.
+    Count: 11 entity_state + 5 services + 3 templates + 3 runtime = 22 total.
     """
-    assert len(IssueType) == 21, f"Expected 21 IssueType members, got {len(IssueType)}"
+    assert len(IssueType) == 22, f"Expected 22 IssueType members, got {len(IssueType)}"
 
 
 def test_templates_validation_group_narrowed() -> None:

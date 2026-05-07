@@ -726,6 +726,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         },
         "entry": entry,
         "debounce_task": None,
+        "entity_registry_validation_task": None,
         "unsub_reload_listener": None,
         "unsub_periodic_scan_listener": None,
         "unsub_entity_registry_listener": None,
@@ -782,19 +783,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_load_history)
 
-    # Invalidate entity cache when entities are added/removed/renamed
-    @callback
-    def _handle_entity_registry_change(_: Event) -> None:
-        try:
-            validator.invalidate_entity_cache()
-        except Exception:
-            _LOGGER.debug("Entity registry change handler failed", exc_info=True)
-
-    unsub_entity_reg = hass.bus.async_listen(
-        er.EVENT_ENTITY_REGISTRY_UPDATED,  # pyright: ignore[reportArgumentType]
-        _handle_entity_registry_change,
+    hass.data[DOMAIN]["unsub_entity_registry_listener"] = (
+        _setup_entity_registry_listener(hass)
     )
-    hass.data[DOMAIN]["unsub_entity_registry_listener"] = unsub_entity_reg
 
     @callback
     def _handle_zone_state_change(event: Event) -> None:
@@ -891,6 +882,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if debounce_task is not None and not debounce_task.done():
         debounce_task.cancel()
 
+    entity_registry_validation_task = data.get("entity_registry_validation_task")
+    if (
+        entity_registry_validation_task is not None
+        and not entity_registry_validation_task.done()
+    ):
+        entity_registry_validation_task.cancel()
+
     # Remove event listeners
     for key in (
         "unsub_reload_listener",
@@ -970,6 +968,48 @@ def _setup_reload_listener(
         data["debounce_task"] = new_task
 
     return hass.bus.async_listen("automation_reloaded", _handle_automation_reload)
+
+
+def _setup_entity_registry_listener(
+    hass: HomeAssistant,
+    debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
+) -> Callable[[], None]:
+    """Set up listener for entity registry updates."""
+
+    @callback
+    def _handle_entity_registry_change(_: Event) -> None:
+        try:
+            data = hass.data.get(DOMAIN, {})
+            validator = data.get("validator")
+            if validator is not None and hasattr(validator, "invalidate_entity_cache"):
+                validator.invalidate_entity_cache()
+
+            existing_task = data.get("entity_registry_validation_task")
+            if existing_task is not None and not existing_task.done():
+                existing_task.cancel()
+
+            async def _validate_after_entity_registry_change() -> None:
+                try:
+                    await asyncio.sleep(debounce_seconds)
+                    await async_validate_all(hass)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    _LOGGER.warning(
+                        "Entity registry validation scan failed: %s",
+                        err,
+                    )
+
+            data["entity_registry_validation_task"] = hass.async_create_task(
+                _validate_after_entity_registry_change()
+            )
+        except Exception:
+            _LOGGER.debug("Entity registry change handler failed", exc_info=True)
+
+    return hass.bus.async_listen(
+        er.EVENT_ENTITY_REGISTRY_UPDATED,  # pyright: ignore[reportArgumentType]
+        _handle_entity_registry_change,
+    )
 
 
 _MAINTENANCE_INTERVAL_DAYS = 7

@@ -241,6 +241,34 @@ async def test_async_load_keeps_reachability_issue_types(hass: HomeAssistant) ->
 
 
 @pytest.mark.asyncio
+async def test_async_load_keeps_disabled_entity_issue_type(
+    hass: HomeAssistant,
+) -> None:
+    """Disabled-entity suppressions should survive integration restarts."""
+    store = SuppressionStore(hass)
+
+    stored_data: dict[str, Any] = {
+        "suppressions": [
+            "automation.a:binary_sensor.disabled_motion:entity_disabled",
+        ]
+    }
+
+    with (
+        patch.object(
+            store._store, "async_load", new_callable=AsyncMock, return_value=stored_data
+        ),
+        patch.object(store._store, "async_save", new_callable=AsyncMock) as mock_save,
+    ):
+        await store.async_load()
+
+    assert store.count == 1
+    assert store.is_suppressed(
+        "automation.a:binary_sensor.disabled_motion:entity_disabled"
+    )
+    mock_save.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_async_load_with_malformed_keys(hass: HomeAssistant) -> None:
     """Test async_load handles malformed keys (no colons) without crashing.
 

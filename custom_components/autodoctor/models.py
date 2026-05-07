@@ -23,6 +23,7 @@ class IssueType(StrEnum):
     """
 
     ENTITY_NOT_FOUND = "entity_not_found"
+    ENTITY_DISABLED = "entity_disabled"
     ENTITY_REMOVED = "entity_removed"
     INVALID_STATE = "invalid_state"
     CASE_MISMATCH = "case_mismatch"
@@ -148,6 +149,7 @@ VALIDATION_GROUPS: dict[str, dict[str, str | frozenset[IssueType]]] = {
         "issue_types": frozenset(
             {
                 IssueType.ENTITY_NOT_FOUND,
+                IssueType.ENTITY_DISABLED,
                 IssueType.ENTITY_REMOVED,
                 IssueType.INVALID_STATE,
                 IssueType.CASE_MISMATCH,

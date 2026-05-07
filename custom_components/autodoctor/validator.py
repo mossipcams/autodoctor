@@ -46,6 +46,23 @@ class ValidationEngine:
             if ref.reference_type in _NON_ENTITY_REFERENCE_TYPES:
                 return self._validate_non_entity_reference(ref)
 
+            entity_is_disabled = getattr(
+                self.knowledge_base, "entity_is_disabled", None
+            )
+            if callable(entity_is_disabled) and entity_is_disabled(ref.entity_id) is True:
+                issues.append(
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_DISABLED,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Entity '{ref.entity_id}' is disabled in the entity registry",
+                    )
+                )
+                return issues
+
             if not self.knowledge_base.entity_exists(ref.entity_id):
                 # Check if entity existed in history (removed/renamed vs typo)
                 historical_ids = self.knowledge_base.get_historical_entity_ids()

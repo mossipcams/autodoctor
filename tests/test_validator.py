@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.autodoctor.knowledge_base import StateKnowledgeBase
 from custom_components.autodoctor.models import IssueType, Severity, StateReference
@@ -50,6 +51,100 @@ async def test_validate_missing_entity(
     assert issues[0].entity_id == "binary_sensor.nonexistent"
     assert "does not exist" in issues[0].message.lower()
     assert issues[0].suggestion is None
+
+
+async def test_validate_referenced_disabled_entity_reports_single_error(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
+    """Disabled entities should report one error when referenced by automation."""
+    entity_registry = er.async_get(hass)
+    entry = entity_registry.async_get_or_create(
+        "binary_sensor",
+        "test",
+        "disabled-motion",
+        suggested_object_id="disabled_motion",
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=entry.entity_id,
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    validator = ValidationEngine(knowledge_base)
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_DISABLED
+    assert issues[0].severity == Severity.ERROR
+    assert issues[0].entity_id == "binary_sensor.disabled_motion"
+    assert "disabled" in issues[0].message.lower()
+
+
+async def test_validate_disabled_entity_even_if_stale_state_exists(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
+    """Registry-disabled entities should be errors even if a stale state remains."""
+    entity_registry = er.async_get(hass)
+    entry = entity_registry.async_get_or_create(
+        "binary_sensor",
+        "test",
+        "disabled-motion",
+        suggested_object_id="disabled_motion",
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+    hass.states.async_set(entry.entity_id, "off")
+    await hass.async_block_till_done()
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id=entry.entity_id,
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    validator = ValidationEngine(knowledge_base)
+    issues = validator.validate_reference(ref)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.ENTITY_DISABLED
+    assert issues[0].severity == Severity.ERROR
+
+
+async def test_unreferenced_disabled_entity_does_not_affect_valid_reference(
+    hass: HomeAssistant, knowledge_base: StateKnowledgeBase
+) -> None:
+    """Only disabled entities used by automations should produce issues."""
+    entity_registry = er.async_get(hass)
+    entity_registry.async_get_or_create(
+        "binary_sensor",
+        "test",
+        "disabled-motion",
+        suggested_object_id="disabled_motion",
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+    hass.states.async_set("binary_sensor.active_motion", "off")
+    await hass.async_block_till_done()
+
+    ref = StateReference(
+        automation_id="automation.test",
+        automation_name="Test",
+        entity_id="binary_sensor.active_motion",
+        expected_state="on",
+        expected_attribute=None,
+        location="trigger[0].to",
+    )
+
+    validator = ValidationEngine(knowledge_base)
+    issues = validator.validate_reference(ref)
+
+    assert issues == []
 
 
 async def test_validate_person_away_is_valid(

@@ -812,6 +812,91 @@ async def test_snapshot_updated_after_validation(mock_hass: MagicMock) -> None:
         assert mock_hass.data[DOMAIN]["_automation_snapshot"] == expected
 
 
+@pytest.mark.asyncio
+async def test_entity_registry_listener_schedules_validation_scan(
+    mock_hass: MagicMock,
+) -> None:
+    """Entity registry changes should revalidate after state can settle."""
+    from custom_components.autodoctor import _setup_entity_registry_listener
+
+    validator = MagicMock()
+    mock_hass.data[DOMAIN] = {
+        "validator": validator,
+        "entity_registry_validation_task": None,
+    }
+    mock_hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+
+    listener_callback = None
+
+    def mock_async_listen(event_type, callback):
+        nonlocal listener_callback
+        listener_callback = callback
+        return MagicMock()
+
+    mock_hass.bus.async_listen = mock_async_listen
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_validate_all:
+        _setup_entity_registry_listener(mock_hass, debounce_seconds=0.05)
+        assert listener_callback is not None
+
+        listener_callback(MagicMock())
+        await asyncio.sleep(0)
+
+        validator.invalidate_entity_cache.assert_called_once_with()
+        mock_validate_all.assert_not_awaited()
+
+        await asyncio.sleep(0.1)
+
+    mock_validate_all.assert_awaited_once_with(mock_hass)
+
+
+@pytest.mark.asyncio
+async def test_entity_registry_listener_debounces_validation_scans(
+    mock_hass: MagicMock,
+) -> None:
+    """Repeated entity registry changes should collapse into one scan."""
+    from custom_components.autodoctor import _setup_entity_registry_listener
+
+    validator = MagicMock()
+    mock_hass.data[DOMAIN] = {
+        "validator": validator,
+        "entity_registry_validation_task": None,
+    }
+    mock_hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+
+    listener_callback = None
+
+    def mock_async_listen(event_type, callback):
+        nonlocal listener_callback
+        listener_callback = callback
+        return MagicMock()
+
+    mock_hass.bus.async_listen = mock_async_listen
+
+    with patch(
+        "custom_components.autodoctor.async_validate_all",
+        new_callable=AsyncMock,
+    ) as mock_validate_all:
+        _setup_entity_registry_listener(mock_hass, debounce_seconds=0.05)
+        assert listener_callback is not None
+
+        listener_callback(MagicMock())
+        first_task = mock_hass.data[DOMAIN]["entity_registry_validation_task"]
+        await asyncio.sleep(0)
+
+        listener_callback(MagicMock())
+        second_task = mock_hass.data[DOMAIN]["entity_registry_validation_task"]
+        await asyncio.sleep(0.1)
+
+    assert second_task is not first_task
+    assert first_task.cancelled()
+    assert validator.invalidate_entity_cache.call_count == 2
+    mock_validate_all.assert_awaited_once_with(mock_hass)
+
+
 # --- _get_automation_configs tests (mutation hardening) ---
 
 

@@ -972,6 +972,55 @@ async def test_websocket_suppress_reconciles_visible_issue_cache_and_reporter(
 
 
 @pytest.mark.asyncio
+async def test_websocket_suppress_disabled_entity_removes_repair(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressing a disabled-entity issue should remove its visible repair."""
+    issue = make_issue(
+        IssueType.ENTITY_DISABLED,
+        Severity.ERROR,
+        entity_id="binary_sensor.disabled_motion",
+    )
+    suppression_store = MagicMock()
+    suppression_store.async_suppress = AsyncMock()
+    suppression_store.is_suppressed = MagicMock(
+        side_effect=lambda key: key == issue.get_suppression_key()
+    )
+    suppression_store.count = 1
+    reporter = MagicMock()
+    reporter.async_report_issues = AsyncMock()
+
+    hass.data[DOMAIN] = {
+        "suppression_store": suppression_store,
+        "learned_states_store": None,
+        "runtime_monitor": None,
+        "reporter": reporter,
+        "validation_issues_raw": [issue],
+        "validation_issues": [issue],
+        "issues": [issue],
+    }
+
+    connection = MagicMock(spec=ActiveConnection)
+    connection.send_result = MagicMock()
+    msg: dict[str, Any] = {
+        "id": 6,
+        "type": "autodoctor/suppress",
+        "automation_id": issue.automation_id,
+        "entity_id": issue.entity_id,
+        "issue_type": "entity_disabled",
+    }
+
+    await invoke_command(websocket_suppress, hass, connection, msg)
+
+    suppression_store.async_suppress.assert_awaited_once_with(
+        "automation.test:binary_sensor.disabled_motion:entity_disabled"
+    )
+    assert hass.data[DOMAIN]["issues"] == []
+    assert hass.data[DOMAIN]["validation_issues"] == []
+    reporter.async_report_issues.assert_awaited_once_with([])
+
+
+@pytest.mark.asyncio
 async def test_websocket_list_suppressions(hass: HomeAssistant) -> None:
     """Test that websocket_list_suppressions returns suppressed issues with metadata.
 

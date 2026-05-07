@@ -130,6 +130,16 @@ class StateKnowledgeBase:
         """
         return self.hass.states.get(entity_id) is not None
 
+    def entity_is_disabled(self, entity_id: str) -> bool:
+        """Return True if the entity exists in the registry but is disabled."""
+        try:
+            entity_registry = er.async_get(self.hass)
+            entry = entity_registry.async_get(entity_id)
+        except Exception as err:
+            _LOGGER.debug("Failed to check disabled status for %s: %s", entity_id, err)
+            return False
+        return bool(entry and entry.disabled_by is not None)
+
     def get_domain(self, entity_id: str) -> str:
         """Extract domain from entity ID.
 
