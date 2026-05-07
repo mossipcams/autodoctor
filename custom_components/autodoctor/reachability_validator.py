@@ -485,6 +485,7 @@ class ReachabilityValidator:
         global_numeric: dict[tuple[str, str | None], NumericConstraint],
         declared_trigger_ids: set[str],
         issues: list[ValidationIssue],
+        mutated_state_keys: set[tuple[str, str | None]] | None = None,
     ) -> None:
         cond_type_obj = condition.get("condition")
         cond_type = cond_type_obj if isinstance(cond_type_obj, str) else ""
@@ -498,6 +499,8 @@ class ReachabilityValidator:
             entity_ids = self._normalize_entity_ids(condition.get("entity_id"))
             for entity_id in entity_ids:
                 key = (entity_id, attr_name)
+                if mutated_state_keys is not None and key in mutated_state_keys:
+                    continue
                 existing = global_constraints.get(key)
                 if existing and existing[0] != state:
                     existing_state, existing_location = existing
@@ -524,6 +527,7 @@ class ReachabilityValidator:
                 automation_id=automation_id,
                 automation_name=automation_name,
                 global_numeric=global_numeric,
+                mutated_state_keys=mutated_state_keys,
                 issues=issues,
             )
             return
@@ -757,6 +761,7 @@ class ReachabilityValidator:
         automation_id: str,
         automation_name: str,
         global_numeric: dict[tuple[str, str | None], NumericConstraint],
+        mutated_state_keys: set[tuple[str, str | None]] | None,
         issues: list[ValidationIssue],
     ) -> None:
         entity_ids = self._normalize_entity_ids(condition.get("entity_id"))
@@ -768,6 +773,11 @@ class ReachabilityValidator:
             return
 
         for entity_id in entity_ids:
+            if (
+                mutated_state_keys is not None
+                and (entity_id, attr_name) in mutated_state_keys
+            ):
+                continue
             existing = global_numeric.get((entity_id, attr_name))
             combined_lower = existing[0] if existing else None
             combined_upper = existing[1] if existing else None

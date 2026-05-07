@@ -309,6 +309,158 @@ def _build_validation_service_response(
     }
 
 
+def _issue_group_id(issue: ValidationIssue) -> str:
+    """Return the validation group id for an issue."""
+    for gid, group in VALIDATION_GROUPS.items():
+        if issue.issue_type in cast(frozenset[IssueType], group["issue_types"]):
+            return gid
+    return "entity_state"
+
+
+def _empty_group_cache() -> dict[str, dict[str, Any]]:
+    """Return an empty validation group cache."""
+    return {gid: {"issues": [], "duration_ms": 0} for gid in VALIDATION_GROUP_ORDER}
+
+
+def _without_replaced_runtime_issues(
+    existing: list[ValidationIssue],
+    runtime_issues: list[ValidationIssue],
+) -> list[ValidationIssue]:
+    """Remove existing issues replaced by incoming runtime issues."""
+    replacement_keys = {issue.get_suppression_key() for issue in runtime_issues}
+    if not replacement_keys:
+        return list(existing)
+    return [
+        issue
+        for issue in existing
+        if issue.get_suppression_key() not in replacement_keys
+    ]
+
+
+def _is_runtime_issue_for_automation(
+    issue: ValidationIssue,
+    automation_id: str,
+) -> bool:
+    """Return whether an issue is a runtime alert for one automation."""
+    return issue.automation_id == automation_id and issue.issue_type in {
+        IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+        IssueType.RUNTIME_AUTOMATION_BURST,
+        IssueType.RUNTIME_AUTOMATION_OVERDUE,
+    }
+
+
+def _without_runtime_issues_for_automation(
+    existing: list[ValidationIssue],
+    automation_id: str,
+) -> list[ValidationIssue]:
+    """Remove runtime issues owned by one automation."""
+    return [
+        issue
+        for issue in existing
+        if not _is_runtime_issue_for_automation(issue, automation_id)
+    ]
+
+
+async def _async_merge_runtime_issues(
+    hass: HomeAssistant,
+    runtime_issues: list[ValidationIssue],
+    *,
+    automation_id: str | None = None,
+    active_runtime_issues: list[ValidationIssue] | None = None,
+) -> None:
+    """Merge live runtime issues into cached validation/reporter surfaces."""
+    if not runtime_issues and automation_id is None:
+        return
+
+    data = hass.data.get(DOMAIN, {})
+    replacement_runtime_issues = (
+        [
+            issue
+            for issue in (active_runtime_issues or runtime_issues)
+            if _is_runtime_issue_for_automation(issue, automation_id)
+        ]
+        if automation_id is not None
+        else runtime_issues
+    )
+    raw_existing: list[ValidationIssue] = data.get(
+        "validation_issues_raw",
+        data.get("validation_issues", data.get("issues", [])),
+    )
+    raw_issues = (
+        _without_runtime_issues_for_automation(raw_existing, automation_id)
+        if automation_id is not None
+        else _without_replaced_runtime_issues(raw_existing, replacement_runtime_issues)
+    )
+    raw_issues.extend(replacement_runtime_issues)
+
+    groups_raw = cast(
+        dict[str, dict[str, Any]] | None,
+        data.get("validation_groups_raw"),
+    )
+    if groups_raw is None:
+        groups_raw = _empty_group_cache()
+    else:
+        groups_raw = {
+            gid: {
+                "issues": list(cast(list[ValidationIssue], bucket.get("issues", []))),
+                "duration_ms": int(bucket.get("duration_ms", 0)),
+            }
+            for gid, bucket in groups_raw.items()
+        }
+        for gid in VALIDATION_GROUP_ORDER:
+            groups_raw.setdefault(gid, {"issues": [], "duration_ms": 0})
+
+    for gid in VALIDATION_GROUP_ORDER:
+        group_existing = cast(list[ValidationIssue], groups_raw[gid]["issues"])
+        groups_raw[gid]["issues"] = (
+            _without_runtime_issues_for_automation(group_existing, automation_id)
+            if automation_id is not None
+            else _without_replaced_runtime_issues(
+                group_existing,
+                replacement_runtime_issues,
+            )
+        )
+    for issue in replacement_runtime_issues:
+        bucket_issues = cast(
+            list[ValidationIssue],
+            groups_raw[_issue_group_id(issue)]["issues"],
+        )
+        bucket_issues.append(issue)
+
+    suppression_store: SuppressionStore | None = data.get("suppression_store")
+    group_issues = {
+        gid: cast(list[ValidationIssue], groups_raw[gid]["issues"])
+        for gid in VALIDATION_GROUP_ORDER
+    }
+    visible_group_issues, _ = _filter_group_issues_for_suppressions(
+        group_issues,
+        suppression_store,
+    )
+    visible_all_issues: list[ValidationIssue] = []
+    for gid in VALIDATION_GROUP_ORDER:
+        visible_all_issues.extend(visible_group_issues[gid])
+
+    data.update(
+        {
+            "issues": visible_all_issues,
+            "validation_issues": visible_all_issues,
+            "validation_issues_raw": raw_issues,
+            "validation_groups": {
+                gid: {
+                    "issues": visible_group_issues[gid],
+                    "duration_ms": groups_raw[gid]["duration_ms"],
+                }
+                for gid in VALIDATION_GROUP_ORDER
+            },
+            "validation_groups_raw": groups_raw,
+        }
+    )
+
+    reporter = data.get("reporter")
+    if reporter is not None and hasattr(reporter, "async_report_issues"):
+        await reporter.async_report_issues(visible_all_issues)
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate config entry from an older version.
 
@@ -687,10 +839,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ):
                 return
             try:
-                runtime_monitor.ingest_trigger_event(
+                runtime_issues = runtime_monitor.ingest_trigger_event(
                     entity_id,
                     occurred_at=event.time_fired,
                     suppression_store=suppression_store,
+                )
+                active_runtime_issues = runtime_issues
+                if hasattr(runtime_monitor, "get_active_runtime_alerts"):
+                    active_runtime_issues = runtime_monitor.get_active_runtime_alerts()
+                hass.async_create_task(
+                    _async_merge_runtime_issues(
+                        hass,
+                        runtime_issues,
+                        automation_id=entity_id,
+                        active_runtime_issues=active_runtime_issues,
+                    )
                 )
             except Exception:
                 _LOGGER.debug(
@@ -1305,6 +1468,29 @@ async def async_validate_automation(
     ]
     merged_raw_issues = other_raw_issues + result["all_issues"]
 
+    merged_raw_groups = _empty_group_cache()
+    existing_groups_raw = data.get("validation_groups_raw")
+    if isinstance(existing_groups_raw, dict):
+        for gid, bucket in cast(dict[str, dict[str, Any]], existing_groups_raw).items():
+            if gid in merged_raw_groups:
+                merged_raw_groups[gid]["duration_ms"] = int(
+                    bucket.get("duration_ms", 0)
+                )
+    for gid in VALIDATION_GROUP_ORDER:
+        merged_raw_groups[gid]["duration_ms"] = int(
+            result["group_durations"].get(gid, merged_raw_groups[gid]["duration_ms"])
+        )
+    for issue in merged_raw_issues:
+        merged_raw_groups[_issue_group_id(issue)]["issues"].append(issue)
+
+    merged_visible_groups, _ = _filter_group_issues_for_suppressions(
+        {
+            gid: cast(list[ValidationIssue], merged_raw_groups[gid]["issues"])
+            for gid in VALIDATION_GROUP_ORDER
+        },
+        suppression_store,
+    )
+
     await reporter.async_report_issues(merged_issues)
 
     hass.data[DOMAIN].update(
@@ -1313,6 +1499,14 @@ async def async_validate_automation(
             "validation_issues": merged_issues,
             "validation_issues_raw": merged_raw_issues,
             "validation_last_run": result["timestamp"],
+            "validation_groups": {
+                gid: {
+                    "issues": merged_visible_groups[gid],
+                    "duration_ms": merged_raw_groups[gid]["duration_ms"],
+                }
+                for gid in VALIDATION_GROUP_ORDER
+            },
+            "validation_groups_raw": merged_raw_groups,
             "validation_run_stats": {
                 "analyzed_automations": result.get("analyzed_automations", 0),
                 "failed_automations": result.get("failed_automations", 0),

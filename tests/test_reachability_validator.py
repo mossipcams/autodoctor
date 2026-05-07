@@ -109,6 +109,47 @@ def test_does_not_flag_branch_after_wait_for_trigger_changes_top_level_state() -
     assert issues == []
 
 
+def test_does_not_flag_branch_after_prior_action_can_change_state() -> None:
+    """Action-time branches should not be constrained by stale startup facts."""
+    automation = {
+        "id": "reachability_action_mutation",
+        "alias": "Reachability Action Mutation",
+        "trigger": [{"platform": "time", "at": "09:00:00"}],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "light.office",
+                "state": "off",
+            }
+        ],
+        "action": [
+            {
+                "service": "light.turn_on",
+                "target": {"entity_id": "light.office"},
+            },
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "light.office",
+                                "state": "on",
+                            }
+                        ],
+                        "sequence": [],
+                    }
+                ],
+            },
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert issues == []
+
+
 def test_detects_conflicting_top_level_state_conditions() -> None:
     """Same-time top-level state conditions still form one condition context."""
     automation = {
@@ -138,6 +179,44 @@ def test_detects_conflicting_top_level_state_conditions() -> None:
     assert issue.issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
     assert issue.entity_id == "person.matt_livesay"
     assert issue.location == "condition[1].state"
+
+
+def test_flags_branch_contradiction_when_no_prior_action_can_change_state() -> None:
+    """Static branch contradictions should still be reported."""
+    automation = {
+        "id": "reachability_static_branch",
+        "alias": "Reachability Static Branch",
+        "trigger": [{"platform": "time", "at": "09:00:00"}],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "light.office",
+                "state": "off",
+            }
+        ],
+        "action": [
+            {
+                "choose": [
+                    {
+                        "conditions": [
+                            {
+                                "condition": "state",
+                                "entity_id": "light.office",
+                                "state": "on",
+                            }
+                        ],
+                        "sequence": [],
+                    }
+                ],
+            },
+        ],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
 
 
 def test_detects_impossible_numeric_range_in_single_condition() -> None:

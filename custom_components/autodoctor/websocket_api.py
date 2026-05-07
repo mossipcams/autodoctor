@@ -1139,6 +1139,16 @@ async def websocket_suppress(
                 )
             except Exception as err:
                 _LOGGER.debug("Failed recording runtime dismissal learning: %s", err)
+        if runtime_monitor is not None and hasattr(
+            runtime_monitor, "clear_runtime_alert"
+        ):
+            try:
+                runtime_monitor.clear_runtime_alert(
+                    msg["automation_id"],
+                    msg["issue_type"],
+                )
+            except Exception as err:
+                _LOGGER.debug("Failed clearing active runtime alert: %s", err)
 
     connection.send_result(
         msg["id"], {"success": True, "suppressed_count": suppression_store.count}
@@ -1574,6 +1584,11 @@ async def websocket_dismiss(
         msg["automation_id"],
         msg["issue_type"],
     )
+    if hasattr(runtime_monitor, "clear_runtime_alert"):
+        runtime_monitor.clear_runtime_alert(
+            msg["automation_id"],
+            msg["issue_type"],
+        )
 
     # Remove the dismissed issue from the raw cache and update repairs
     automation_id = msg["automation_id"]

@@ -61,9 +61,11 @@ _MIN_MEDIAN_GAP_MINUTES = 1.0
 _OVERDUE_MIN_COMPARABLE_ACTIVE_DAYS = 4
 _OVERDUE_PREDICTABLE_SCORE_THRESHOLD = 0.7
 _OVERDUE_PROBABILITY_THRESHOLD = 0.85
+_OVERDUE_PROBABILITY_THRESHOLD_CEILING = 0.99
 _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
 _EVENT_STORE_OBS_START_KEY = "observation:start_at"
+_OVERACTIVE_MIN_COMPARABLE_ACTIVE_DAYS = 2
 
 # BOCPD anomaly score sensitivity thresholds
 _SENSITIVITY_THRESHOLDS: dict[str, float] = {
@@ -144,6 +146,7 @@ class RuntimeHealthMonitor:
         self._runtime_event_store_degraded = False
         self._runtime_event_store_pending_jobs = 0
         self._runtime_event_store_write_failures = 0
+        self._runtime_event_store_read_failures = 0
         self._runtime_event_store_dropped_events = 0
         self._runtime_event_store: RuntimeEventStore | None = runtime_event_store
         self._async_runtime_event_store: AsyncRuntimeEventStore | None = (
@@ -235,8 +238,10 @@ class RuntimeHealthMonitor:
             return []
         event_time = occurred_at or self._now_factory()
         automation_state = self._ensure_automation_state(automation_entity_id)
-        runtime_suppressed = self._is_runtime_suppressed(
-            automation_entity_id, suppression_store
+        burst_suppressed = self._is_runtime_suppressed(
+            automation_entity_id,
+            IssueType.RUNTIME_AUTOMATION_BURST,
+            suppression_store,
         )
 
         last_trigger = self._coerce_datetime(automation_state.get("last_trigger"))
@@ -265,10 +270,11 @@ class RuntimeHealthMonitor:
         ):
             return []
 
-        if runtime_suppressed:
-            self._clear_runtime_alert(
-                automation_entity_id, IssueType.RUNTIME_AUTOMATION_OVERACTIVE
-            )
+        self._clear_runtime_alert(
+            automation_entity_id, IssueType.RUNTIME_AUTOMATION_OVERDUE
+        )
+
+        if burst_suppressed:
             self._clear_runtime_alert(
                 automation_entity_id, IssueType.RUNTIME_AUTOMATION_BURST
             )
@@ -344,6 +350,7 @@ class RuntimeHealthMonitor:
             "degraded": self._runtime_event_store_degraded,
             "pending_jobs": self._runtime_event_store_pending_jobs,
             "write_failures": self._runtime_event_store_write_failures,
+            "read_failures": self._runtime_event_store_read_failures,
             "dropped_events": self._runtime_event_store_dropped_events,
         }
 
@@ -788,9 +795,27 @@ class RuntimeHealthMonitor:
 
     def _overdue_probability_threshold_for(self, automation_id: str) -> float:
         """Return effective overdue probability threshold for an automation."""
-        return _OVERDUE_PROBABILITY_THRESHOLD * self._threshold_multiplier_for(
-            automation_id, "overdue"
+        dismissed_count = self._dismissed_count_for(automation_id, "overdue")
+        if dismissed_count <= 0:
+            return _OVERDUE_PROBABILITY_THRESHOLD
+        adaptation_fraction = 1.0 - (1.0 / (float(dismissed_count) + 1.5))
+        return _OVERDUE_PROBABILITY_THRESHOLD + (
+            (_OVERDUE_PROBABILITY_THRESHOLD_CEILING - _OVERDUE_PROBABILITY_THRESHOLD)
+            * adaptation_fraction
         )
+
+    def _dismissed_count_for(self, automation_id: str, detector_key: str) -> int:
+        """Return dismissal count for one runtime detector bucket."""
+        automation_state = self._ensure_automation_state(automation_id)
+        adaptation_raw = automation_state.get("adaptation", {})
+        if not isinstance(adaptation_raw, dict):
+            return 0
+        adaptation = cast(dict[str, Any], adaptation_raw)
+        bucket_raw = adaptation.get(detector_key)
+        if not isinstance(bucket_raw, dict):
+            return 0
+        bucket = cast(dict[str, Any], bucket_raw)
+        return max(0, int(self._coerce_float(bucket.get("dismissed_count"), 0.0)))
 
     def _register_runtime_alert(self, issue: ValidationIssue) -> None:
         self._active_runtime_alerts[issue.get_suppression_key()] = issue
@@ -798,6 +823,38 @@ class RuntimeHealthMonitor:
     def _clear_runtime_alert(self, automation_id: str, issue_type: IssueType) -> None:
         key = f"{automation_id}:{automation_id}:{issue_type.value}"
         self._active_runtime_alerts.pop(key, None)
+
+    def _clear_runtime_alerts_for(self, automation_id: str) -> int:
+        """Clear all active runtime alerts for one automation."""
+        before = len(self._active_runtime_alerts)
+        for issue_type in (
+            IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            IssueType.RUNTIME_AUTOMATION_BURST,
+            IssueType.RUNTIME_AUTOMATION_OVERDUE,
+        ):
+            self._clear_runtime_alert(automation_id, issue_type)
+        return max(0, before - len(self._active_runtime_alerts))
+
+    def _clear_historical_runtime_alerts_for(self, automation_id: str) -> int:
+        """Clear validation-scored runtime alerts while preserving live burst alerts."""
+        before = len(self._active_runtime_alerts)
+        for issue_type in (
+            IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            IssueType.RUNTIME_AUTOMATION_OVERDUE,
+        ):
+            self._clear_runtime_alert(automation_id, issue_type)
+        return max(0, before - len(self._active_runtime_alerts))
+
+    def clear_runtime_alert(
+        self,
+        automation_id: str,
+        issue_type: IssueType | str,
+    ) -> None:
+        """Clear one active runtime alert by automation and issue type."""
+        resolved_issue_type = (
+            issue_type if isinstance(issue_type, IssueType) else IssueType(issue_type)
+        )
+        self._clear_runtime_alert(automation_id, resolved_issue_type)
 
     def _allow_alert(self, automation_id: str, *, now: datetime) -> bool:
         alerts = self._runtime_state.setdefault("alerts", {})
@@ -833,24 +890,20 @@ class RuntimeHealthMonitor:
     def _is_runtime_suppressed(
         self,
         automation_id: str,
+        issue_type: IssueType,
         suppression_store: SuppressionStore | None,
     ) -> bool:
         if suppression_store is None or not hasattr(suppression_store, "is_suppressed"):
             return False
-        prefixes = (
-            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERDUE.value}",
-            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_OVERACTIVE.value}",
-            f"{automation_id}:{automation_id}:{IssueType.RUNTIME_AUTOMATION_BURST.value}",
-        )
-        for prefix in prefixes:
-            try:
-                if bool(suppression_store.is_suppressed(prefix)):
-                    return True
-            except Exception:
-                _LOGGER.debug(
-                    "Suppression check failed for '%s'", prefix, exc_info=True
-                )
-                continue
+        prefixes = (f"{automation_id}:{automation_id}:{issue_type.value}",)
+        try:
+            return any(
+                bool(suppression_store.is_suppressed(prefix)) for prefix in prefixes
+            )
+        except Exception:
+            _LOGGER.debug(
+                "Suppression check failed for '%s'", prefixes[0], exc_info=True
+            )
         return False
 
     def _runtime_suppression_store(self) -> SuppressionStore | None:
@@ -1007,11 +1060,17 @@ class RuntimeHealthMonitor:
         baseline_start_by_automation: dict[str, datetime] = dict.fromkeys(
             automation_ids, effective_baseline_start
         )
+        read_failures_before = self._runtime_event_store_read_failures
         history = await self._async_fetch_trigger_history_from_store(
             automation_ids=automation_ids,
             start=baseline_start,
             end=now,
         )
+        read_failure_delta = (
+            self._runtime_event_store_read_failures - read_failures_before
+        )
+        if read_failure_delta > 0:
+            stats["event_store_read_failed"] = read_failure_delta
 
         issues: list[ValidationIssue] = []
         all_events_by_automation = history
@@ -1073,6 +1132,9 @@ class RuntimeHealthMonitor:
                     required_warmup,
                 )
                 stats["insufficient_warmup"] += 1
+                stats["stale_alerts_cleared"] += (
+                    self._clear_historical_runtime_alerts_for(automation_entity_id)
+                )
                 continue
 
             if timestamps and (now - timestamps[0]) < timedelta(
@@ -1085,6 +1147,9 @@ class RuntimeHealthMonitor:
                     self.cold_start_days,
                 )
                 stats["cold_start"] += 1
+                stats["stale_alerts_cleared"] += (
+                    self._clear_historical_runtime_alerts_for(automation_entity_id)
+                )
                 continue
 
             if observed_coverage_days is not None and observed_coverage_days < float(
@@ -1097,9 +1162,44 @@ class RuntimeHealthMonitor:
                     self.min_coverage_days,
                 )
                 stats["insufficient_coverage"] += 1
+                stats["stale_alerts_cleared"] += (
+                    self._clear_historical_runtime_alerts_for(automation_entity_id)
+                )
                 continue
 
+            overdue_decision = self._predict_overdue(
+                automation_events=timestamps,
+                now=now,
+                baseline_start=automation_baseline_start,
+                overdue_probability_threshold=self._overdue_probability_threshold_for(
+                    automation_entity_id
+                ),
+            )
+            overdue_issue_type = IssueType.RUNTIME_AUTOMATION_OVERDUE
+            overdue_suppressed = self._is_runtime_suppressed(
+                automation_entity_id,
+                overdue_issue_type,
+                suppression_store,
+            )
+
             if expected < float(self.min_expected_events):
+                if self._handle_overdue_decision(
+                    issues=issues,
+                    stats=stats,
+                    automation_entity_id=automation_entity_id,
+                    automation_name=automation_name,
+                    timestamps=timestamps,
+                    baseline_events=baseline_events,
+                    recent_events=recent_events,
+                    day_counts=day_counts,
+                    active_days=active_days,
+                    training_rows_count=0,
+                    overdue_decision=overdue_decision,
+                    overdue_suppressed=overdue_suppressed,
+                    data_quality="cadence",
+                    now=now,
+                ):
+                    continue
                 _LOGGER.debug(
                     "Automation '%s': skipped (insufficient baseline: "
                     "%.1f events/day < %d required)",
@@ -1108,6 +1208,9 @@ class RuntimeHealthMonitor:
                     self.min_expected_events,
                 )
                 stats["insufficient_baseline"] += 1
+                stats["stale_alerts_cleared"] += (
+                    self._clear_historical_runtime_alerts_for(automation_entity_id)
+                )
                 continue
 
             median_gap = self._median_gap_minutes(baseline_events)
@@ -1134,14 +1237,6 @@ class RuntimeHealthMonitor:
                 median_gap_override=median_gap,
                 bucket_index=bucket_index,
             )
-            overdue_decision = self._predict_overdue(
-                automation_events=timestamps,
-                now=now,
-                baseline_start=automation_baseline_start,
-                overdue_probability_threshold=self._overdue_probability_threshold_for(
-                    automation_entity_id
-                ),
-            )
             bucket_context = self._build_bucket_baseline_context(
                 now=now,
                 baseline_events=baseline_events,
@@ -1166,6 +1261,9 @@ class RuntimeHealthMonitor:
                     len(train_rows),
                 )
                 stats["insufficient_training_rows"] += 1
+                stats["stale_alerts_cleared"] += (
+                    self._clear_historical_runtime_alerts_for(automation_entity_id)
+                )
                 continue
             _LOGGER.debug(
                 "Automation '%s': scoring with %d training rows, "
@@ -1228,15 +1326,17 @@ class RuntimeHealthMonitor:
                 score,
                 smoothed_score,
             )
+            stats["scored_automations"] += 1
 
-            overdue_issue_type = IssueType.RUNTIME_AUTOMATION_OVERDUE
             issue_type = IssueType.RUNTIME_AUTOMATION_OVERACTIVE
             automation_state = self._ensure_automation_state(automation_entity_id)
             threshold = self._score_threshold_for(automation_entity_id)
             promotion_threshold = threshold + _OVERACTIVE_PROMOTION_MARGIN
             immediate_threshold = promotion_threshold + _OVERACTIVE_IMMEDIATE_MARGIN
-            is_suppressed = self._is_runtime_suppressed(
-                automation_entity_id, suppression_store
+            overactive_suppressed = self._is_runtime_suppressed(
+                automation_entity_id,
+                issue_type,
+                suppression_store,
             )
             overactive_confirmation = automation_state.setdefault(
                 "overactive_confirmation",
@@ -1246,81 +1346,52 @@ class RuntimeHealthMonitor:
                 overactive_confirmation = {"pending": False}
                 automation_state["overactive_confirmation"] = overactive_confirmation
 
-            overdue_status = str(overdue_decision.get("status", "abstain"))
-            overdue_probability = self._coerce_float(
-                overdue_decision.get("overdue_probability"),
-                0.0,
+            self._handle_overdue_decision(
+                issues=issues,
+                stats=stats,
+                automation_entity_id=automation_entity_id,
+                automation_name=automation_name,
+                timestamps=timestamps,
+                baseline_events=baseline_events,
+                recent_events=recent_events,
+                day_counts=day_counts,
+                active_days=active_days,
+                training_rows_count=len(train_rows) - 1,
+                overdue_decision=overdue_decision,
+                overdue_suppressed=overdue_suppressed,
+                data_quality="trained",
+                now=now,
             )
-            if overdue_status == "overdue" and not is_suppressed:
-                if self._allow_alert(automation_entity_id, now=now):
-                    overdue_confidence = (
-                        "high" if overdue_probability >= 0.95 else "medium"
-                    )
-                    issue = ValidationIssue(
-                        severity=Severity.WARNING,
-                        automation_id=automation_entity_id,
-                        automation_name=automation_name,
-                        entity_id=automation_entity_id,
-                        location="runtime.health.overdue",
-                        message=(
-                            f"Overdue: "
-                            f"{overdue_decision.get('reason', 'Automation appears overdue based on recent timing history.')!s}"
-                        ),
-                        issue_type=overdue_issue_type,
-                        confidence=overdue_confidence,
-                        evidence={
-                            "detector": "overdue",
-                            "overdue_probability": overdue_probability,
-                            "overdue_probability_threshold": self._coerce_float(
-                                overdue_decision.get("overdue_probability_threshold"),
-                                _OVERDUE_PROBABILITY_THRESHOLD,
-                            ),
-                            "predictability_score": self._coerce_float(
-                                overdue_decision.get("predictability_score"),
-                                0.0,
-                            ),
-                            "comparable_days": self._coerce_float(
-                                overdue_decision.get("comparable_days"),
-                                0.0,
-                            ),
-                            "active_comparable_days": self._coerce_float(
-                                overdue_decision.get("active_comparable_days"),
-                                0.0,
-                            ),
-                            "usual_deadline": overdue_decision.get("usual_deadline"),
-                            "last_trigger": (
-                                max(timestamps).isoformat() if timestamps else None
-                            ),
-                        },
-                    )
-                    self._register_runtime_alert(issue)
-                    issues.append(issue)
-                    stats["overdue_alerts"] += 1
-            else:
-                if overdue_status == "abstain":
-                    abstain_reason = str(
-                        overdue_decision.get("abstain_reason", "unknown")
-                    )
-                    if abstain_reason == "unpredictable":
-                        stats["overdue_unpredictable"] += 1
-                    elif abstain_reason == "multi_run_unsupported":
-                        stats["overdue_multi_run_unsupported"] += 1
-                self._clear_runtime_alert(automation_entity_id, overdue_issue_type)
 
             current_24h_count = self._coerce_float(
                 current_row.get("rolling_24h_count"), 0.0
             )
             is_high_activity = current_24h_count > expected
-            comparable_counts = self._overactive_comparable_counts(baseline_events, now)
+            comparable_counts = self._overactive_comparable_counts(
+                baseline_events,
+                now,
+                automation_baseline_start,
+                recent_start,
+            )
             has_comparable_context = (
                 comparable_counts["same_day_type_events"] > 0
                 and comparable_counts["same_weekday_events"] > 0
             )
+            has_comparable_active_days = (
+                comparable_counts["same_weekday_active_days"]
+                >= _OVERACTIVE_MIN_COMPARABLE_ACTIVE_DAYS
+                and comparable_counts["same_day_type_active_days"]
+                >= _OVERACTIVE_MIN_COMPARABLE_ACTIVE_DAYS
+            )
+            required_overactive_count = comparable_counts["required_overactive_count"]
+            exceeds_comparable_count = current_24h_count > required_overactive_count
             if (
                 smoothed_score >= promotion_threshold
                 and is_high_activity
                 and has_comparable_context
-                and not is_suppressed
+                and has_comparable_active_days
+                and exceeds_comparable_count
+                and not overactive_suppressed
             ):
                 overactive_key = (
                     f"{automation_entity_id}:{automation_entity_id}:{issue_type.value}"
@@ -1361,12 +1432,31 @@ class RuntimeHealthMonitor:
                                 "promotion_threshold": promotion_threshold,
                                 "immediate_threshold": immediate_threshold,
                                 "window_hours": _RECENT_WINDOW_HOURS,
+                                "baseline_active_days": active_days,
+                                "baseline_event_count": len(baseline_events),
+                                "baseline_days": len(day_counts),
+                                "recent_event_count": len(recent_events),
+                                "training_rows": len(train_rows) - 1,
+                                "data_quality": "trained",
                                 "comparable_day_type_events": comparable_counts[
                                     "same_day_type_events"
                                 ],
                                 "comparable_weekday_events": comparable_counts[
                                     "same_weekday_events"
                                 ],
+                                "comparable_day_type_active_days": comparable_counts[
+                                    "same_day_type_active_days"
+                                ],
+                                "comparable_weekday_active_days": comparable_counts[
+                                    "same_weekday_active_days"
+                                ],
+                                "comparable_day_type_p95_count": comparable_counts[
+                                    "same_day_type_p95_count"
+                                ],
+                                "comparable_weekday_p95_count": comparable_counts[
+                                    "same_weekday_p95_count"
+                                ],
+                                "required_overactive_count": required_overactive_count,
                             },
                         )
                         self._register_runtime_alert(issue)
@@ -1385,6 +1475,21 @@ class RuntimeHealthMonitor:
                     and not has_comparable_context
                 ):
                     stats["overactive_insufficient_comparable_context"] += 1
+                elif (
+                    smoothed_score >= threshold
+                    and is_high_activity
+                    and has_comparable_context
+                    and not has_comparable_active_days
+                ):
+                    stats["overactive_insufficient_comparable_active_days"] += 1
+                elif (
+                    smoothed_score >= threshold
+                    and is_high_activity
+                    and has_comparable_context
+                    and has_comparable_active_days
+                    and not exceeds_comparable_count
+                ):
+                    stats["overactive_below_comparable_threshold"] += 1
                 self._clear_runtime_alert(automation_entity_id, issue_type)
 
         evaluated_automation_ids = set(automation_ids)
@@ -1401,6 +1506,104 @@ class RuntimeHealthMonitor:
         self._last_run_stats = dict(stats)
         return issues
 
+    def _handle_overdue_decision(
+        self,
+        *,
+        issues: list[ValidationIssue],
+        stats: dict[str, int],
+        automation_entity_id: str,
+        automation_name: str,
+        timestamps: list[datetime],
+        baseline_events: list[datetime],
+        recent_events: list[datetime],
+        day_counts: list[int],
+        active_days: int,
+        training_rows_count: int,
+        overdue_decision: dict[str, float | str | bool | None],
+        overdue_suppressed: bool,
+        data_quality: str,
+        now: datetime,
+    ) -> bool:
+        """Apply one overdue decision and return whether it emitted an alert."""
+        overdue_issue_type = IssueType.RUNTIME_AUTOMATION_OVERDUE
+        overdue_status = str(overdue_decision.get("status", "abstain"))
+        overdue_probability = self._coerce_float(
+            overdue_decision.get("overdue_probability"),
+            0.0,
+        )
+        if overdue_status == "overdue" and not overdue_suppressed:
+            if self._allow_alert(automation_entity_id, now=now):
+                overdue_confidence = "high" if overdue_probability >= 0.95 else "medium"
+                issue = ValidationIssue(
+                    severity=Severity.WARNING,
+                    automation_id=automation_entity_id,
+                    automation_name=automation_name,
+                    entity_id=automation_entity_id,
+                    location="runtime.health.overdue",
+                    message=(
+                        f"Overdue: "
+                        f"{overdue_decision.get('reason', 'Automation appears overdue based on recent timing history.')!s}"
+                    ),
+                    issue_type=overdue_issue_type,
+                    confidence=overdue_confidence,
+                    evidence={
+                        "detector": "overdue",
+                        "overdue_probability": overdue_probability,
+                        "overdue_probability_threshold": self._coerce_float(
+                            overdue_decision.get("overdue_probability_threshold"),
+                            _OVERDUE_PROBABILITY_THRESHOLD,
+                        ),
+                        "predictability_score": self._coerce_float(
+                            overdue_decision.get("predictability_score"),
+                            0.0,
+                        ),
+                        "comparable_days": self._coerce_float(
+                            overdue_decision.get("comparable_days"),
+                            0.0,
+                        ),
+                        "active_comparable_days": self._coerce_float(
+                            overdue_decision.get("active_comparable_days"),
+                            0.0,
+                        ),
+                        "usual_deadline": overdue_decision.get("usual_deadline"),
+                        "expected_trigger_index": int(
+                            self._coerce_float(
+                                overdue_decision.get("expected_trigger_index"),
+                                1.0,
+                            )
+                        ),
+                        "last_trigger": (
+                            max(timestamps).isoformat() if timestamps else None
+                        ),
+                        "baseline_active_days": active_days,
+                        "baseline_event_count": len(baseline_events),
+                        "baseline_days": len(day_counts),
+                        "recent_event_count": len(recent_events),
+                        "training_rows": training_rows_count,
+                        "data_quality": data_quality,
+                    },
+                )
+                self._register_runtime_alert(issue)
+                issues.append(issue)
+                stats["overdue_alerts"] += 1
+                if bool(overdue_decision.get("repeated_run")):
+                    stats["overdue_repeated_run_supported"] += 1
+                return True
+            return False
+
+        if overdue_status == "abstain":
+            abstain_reason = str(overdue_decision.get("abstain_reason", "unknown"))
+            if abstain_reason == "unpredictable":
+                stats["overdue_unpredictable"] += 1
+            elif abstain_reason == "multi_run_unsupported":
+                stats["overdue_multi_run_unsupported"] += 1
+        elif overdue_status == "not_due":
+            not_due_reason = str(overdue_decision.get("not_due_reason", "unknown"))
+            if not_due_reason == "next_window_open":
+                stats["overdue_next_window_open"] += 1
+        self._clear_runtime_alert(automation_entity_id, overdue_issue_type)
+        return False
+
     def _score_current(
         self,
         automation_id: str,
@@ -1412,7 +1615,9 @@ class RuntimeHealthMonitor:
     def _overactive_comparable_counts(
         baseline_events: list[datetime],
         now: datetime,
-    ) -> dict[str, int]:
+        baseline_start: datetime | None = None,
+        baseline_end: datetime | None = None,
+    ) -> dict[str, float]:
         """Return baseline event counts comparable to current timing."""
         current_is_weekend = now.weekday() >= 5
         same_day_type_events = sum(
@@ -1423,9 +1628,46 @@ class RuntimeHealthMonitor:
         same_weekday_events = sum(
             1 for event in baseline_events if event.weekday() == now.weekday()
         )
+        start = (baseline_start or min(baseline_events, default=now)).date()
+        end = (baseline_end or now).date()
+        counts_by_day: dict[date, int] = defaultdict(int)
+        for event in baseline_events:
+            counts_by_day[event.date()] += 1
+
+        same_day_type_counts: list[float] = []
+        same_weekday_counts: list[float] = []
+        current = start
+        while current < end:
+            count = float(counts_by_day.get(current, 0))
+            if (current.weekday() >= 5) == current_is_weekend:
+                same_day_type_counts.append(count)
+            if current.weekday() == now.weekday():
+                same_weekday_counts.append(count)
+            current += timedelta(days=1)
+
+        same_day_type_active_days = sum(
+            1 for count in same_day_type_counts if count > 0
+        )
+        same_weekday_active_days = sum(1 for count in same_weekday_counts if count > 0)
+        same_day_type_active_counts = [
+            count for count in same_day_type_counts if count > 0
+        ]
+        same_weekday_active_counts = [
+            count for count in same_weekday_counts if count > 0
+        ]
+        same_day_type_p95 = _linear_percentile(same_day_type_active_counts, 0.95) or 0.0
+        same_weekday_p95 = _linear_percentile(same_weekday_active_counts, 0.95) or 0.0
+        required_overactive_count = (
+            max(same_day_type_p95, same_weekday_p95) * 1.25
+        ) + 1.0
         return {
-            "same_day_type_events": same_day_type_events,
-            "same_weekday_events": same_weekday_events,
+            "same_day_type_events": float(same_day_type_events),
+            "same_weekday_events": float(same_weekday_events),
+            "same_day_type_active_days": float(same_day_type_active_days),
+            "same_weekday_active_days": float(same_weekday_active_days),
+            "same_day_type_p95_count": float(same_day_type_p95),
+            "same_weekday_p95_count": float(same_weekday_p95),
+            "required_overactive_count": float(required_overactive_count),
         }
 
     def _smoothed_score(
@@ -1553,6 +1795,26 @@ class RuntimeHealthMonitor:
         multi_run_comparable_days = sum(
             1 for ts_list in comparable_by_day.values() if len(ts_list) > 1
         )
+        sorted_comparable_days = [
+            sorted(ts_list) for ts_list in comparable_by_day.values()
+        ]
+        max_trigger_count = max(
+            (len(ts_list) for ts_list in sorted_comparable_days),
+            default=0,
+        )
+        trigger_minutes_by_index: list[list[float]] = []
+        for trigger_index in range(max_trigger_count):
+            trigger_minutes_by_index.append(
+                sorted(
+                    float(
+                        ts_list[trigger_index].hour * 60
+                        + ts_list[trigger_index].minute
+                        + (ts_list[trigger_index].second / 60.0)
+                    )
+                    for ts_list in sorted_comparable_days
+                    if len(ts_list) > trigger_index
+                )
+            )
 
         gap_days = [
             (baseline_events[idx] - baseline_events[idx - 1]).total_seconds() / 86400.0
@@ -1593,6 +1855,7 @@ class RuntimeHealthMonitor:
             "first_trigger_p90_minute": _linear_percentile(first_trigger_minutes, 0.9),
             "first_trigger_minutes": first_trigger_minutes,
             "last_trigger_minutes": last_trigger_minutes,
+            "trigger_minutes_by_index": trigger_minutes_by_index,
             "multi_run_comparable_days": float(multi_run_comparable_days),
             "median_gap_days": median_gap_days,
             "gap_p90_days": gap_p90_days,
@@ -1625,83 +1888,83 @@ class RuntimeHealthMonitor:
             now=now,
             baseline_start=baseline_start,
         )
-        predictability_score = float(profile["predictability_score"] or 0.0)
         today_events = sorted(
             ts for ts in automation_events if ts.date() == now.date() and ts <= now
         )
-        if today_events:
-            multi_run_comparable_days = float(
-                profile.get("multi_run_comparable_days") or 0.0
-            )
-            if multi_run_comparable_days > 0:
-                return {
-                    "status": "abstain",
-                    "abstain_reason": "multi_run_unsupported",
-                    "overdue_probability": 0.0,
-                    "predictability_score": predictability_score,
-                    "comparable_days": float(profile["comparable_days"] or 0.0),
-                    "active_comparable_days": float(
-                        profile["active_comparable_days"] or 0.0
-                    ),
-                    "usual_deadline": None,
-                    "reason": (
-                        "Multiple daily trigger windows are not modeled for overdue "
-                        "assessment yet."
-                    ),
-                }
+        comparable_days = max(1, int(float(profile["comparable_days"] or 0.0)))
+        expected_trigger_index = len(today_events)
+        repeated_run = expected_trigger_index > 0
+        raw_trigger_windows = profile.get("trigger_minutes_by_index")
+        trigger_windows: list[list[float]] = (
+            cast(list[list[float]], raw_trigger_windows)
+            if isinstance(raw_trigger_windows, list)
+            else []
+        )
+        target_minutes: list[float] = (
+            trigger_windows[expected_trigger_index]
+            if expected_trigger_index < len(trigger_windows)
+            else []
+        )
+        if today_events and not target_minutes:
             return {
                 "status": "not_due",
                 "overdue_probability": 0.0,
-                "predictability_score": predictability_score,
-                "comparable_days": float(profile["comparable_days"] or 0.0),
+                "predictability_score": float(profile["predictability_score"] or 0.0),
+                "comparable_days": float(comparable_days),
                 "active_comparable_days": float(
                     profile["active_comparable_days"] or 0.0
                 ),
                 "usual_deadline": None,
+                "expected_trigger_index": float(expected_trigger_index + 1),
                 "reason": "Automation already fired today.",
             }
 
-        if not bool(profile["is_predictable"]):
-            return {
-                "status": "abstain",
-                "abstain_reason": "unpredictable",
-                "overdue_probability": 0.0,
-                "predictability_score": predictability_score,
-                "comparable_days": float(profile["comparable_days"] or 0.0),
-                "active_comparable_days": float(
-                    profile["active_comparable_days"] or 0.0
-                ),
-                "usual_deadline": None,
-                "reason": "Automation history is not predictable enough for overdue assessment.",
-            }
-
-        raw_minutes = profile.get("first_trigger_minutes")
-        first_trigger_minutes: list[float] = (
-            list(raw_minutes) if isinstance(raw_minutes, list) else []
+        active_comparable_days = len(target_minutes)
+        timing_spread = (
+            (max(target_minutes) - min(target_minutes))
+            if len(target_minutes) >= 2
+            else 0.0
         )
-        active_comparable_days = len(first_trigger_minutes)
-        comparable_days = max(1, int(float(profile["comparable_days"] or 0.0)))
-        if active_comparable_days <= 0:
+        activity_ratio = (
+            float(active_comparable_days) / float(comparable_days)
+            if comparable_days > 0
+            else 0.0
+        )
+        timing_consistency = max(0.0, 1.0 - min(1.0, timing_spread / 180.0))
+        sample_strength = min(
+            1.0,
+            float(active_comparable_days) / float(_OVERDUE_MIN_COMPARABLE_ACTIVE_DAYS),
+        )
+        predictability_score = activity_ratio * (
+            (0.6 * timing_consistency) + (0.4 * sample_strength)
+        )
+        is_predictable = (
+            active_comparable_days >= _OVERDUE_MIN_COMPARABLE_ACTIVE_DAYS
+            and predictability_score >= _OVERDUE_PREDICTABLE_SCORE_THRESHOLD
+        )
+
+        if not is_predictable:
             return {
                 "status": "abstain",
                 "abstain_reason": "unpredictable",
                 "overdue_probability": 0.0,
                 "predictability_score": predictability_score,
                 "comparable_days": float(comparable_days),
-                "active_comparable_days": 0.0,
+                "active_comparable_days": float(active_comparable_days),
                 "usual_deadline": None,
-                "reason": "No comparable historical trigger days found.",
+                "expected_trigger_index": float(expected_trigger_index + 1),
+                "reason": "Automation history is not predictable enough for overdue assessment.",
             }
 
         now_minute = float(now.hour * 60 + now.minute + (now.second / 60.0))
         p_active_today_type = float(active_comparable_days) / float(comparable_days)
         p_fired_by_now = float(
-            sum(1 for minute in first_trigger_minutes if minute <= now_minute)
+            sum(1 for minute in target_minutes if minute <= now_minute)
         ) / float(active_comparable_days)
         overdue_probability = p_active_today_type * p_fired_by_now
 
-        median_minute = float(profile["first_trigger_median_minute"] or now_minute)
-        p90_minute = float(profile["first_trigger_p90_minute"] or median_minute)
+        median_minute = float(median(target_minutes))
+        p90_minute = float(_linear_percentile(target_minutes, 0.9) or median_minute)
         spread_minutes = max(0.0, p90_minute - median_minute)
         grace_minutes = max(15.0, min(90.0, spread_minutes + 15.0))
         deadline_minute = min((24.0 * 60.0) - 1.0, p90_minute + grace_minutes)
@@ -1713,9 +1976,12 @@ class RuntimeHealthMonitor:
                 "predictability_score": predictability_score,
                 "comparable_days": float(comparable_days),
                 "active_comparable_days": float(active_comparable_days),
+                "not_due_reason": "next_window_open",
                 "usual_deadline": (
                     f"{int(deadline_minute // 60):02d}:{int(deadline_minute % 60):02d}"
                 ),
+                "expected_trigger_index": float(expected_trigger_index + 1),
+                "repeated_run": repeated_run,
                 "reason": (
                     f"Typical {now.strftime('%A')} firing window remains open until about "
                     f"{int(deadline_minute // 60):02d}:{int(deadline_minute % 60):02d}."
@@ -1732,6 +1998,8 @@ class RuntimeHealthMonitor:
                 "usual_deadline": (
                     f"{int(deadline_minute // 60):02d}:{int(deadline_minute % 60):02d}"
                 ),
+                "expected_trigger_index": float(expected_trigger_index + 1),
+                "repeated_run": repeated_run,
                 "reason": "Comparable history is still too weak to call this overdue with confidence.",
             }
 
@@ -1745,6 +2013,8 @@ class RuntimeHealthMonitor:
             "comparable_days": float(comparable_days),
             "active_comparable_days": float(active_comparable_days),
             "usual_deadline": f"{deadline_hour:02d}:{deadline_remainder:02d}",
+            "expected_trigger_index": float(expected_trigger_index + 1),
+            "repeated_run": repeated_run,
             "reason": (
                 f"Automation usually fires by {deadline_hour:02d}:{deadline_remainder:02d} "
                 f"on {now.strftime('%A')} and has not run yet."
@@ -2213,6 +2483,8 @@ class RuntimeHealthMonitor:
                     end,
                 )
             except Exception as err:
+                self._runtime_event_store_read_failures += 1
+                self._runtime_event_store_degraded = True
                 _LOGGER.debug(
                     "Failed reading runtime event store history for '%s': %s",
                     automation_id,

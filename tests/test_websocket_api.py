@@ -923,6 +923,10 @@ async def test_websocket_suppress_runtime_issue_records_dismissal(
         "automation.runtime_test",
         "runtime_automation_overactive",
     )
+    runtime_monitor.clear_runtime_alert.assert_called_once_with(
+        "automation.runtime_test",
+        "runtime_automation_overactive",
+    )
 
 
 @pytest.mark.asyncio
@@ -1660,6 +1664,10 @@ async def test_websocket_dismiss_calls_record_issue_dismissed(
     await invoke_command(websocket_dismiss, hass, connection, msg)
 
     runtime_monitor.record_issue_dismissed.assert_called_once_with(
+        "automation.garage",
+        "runtime_automation_overactive",
+    )
+    runtime_monitor.clear_runtime_alert.assert_called_once_with(
         "automation.garage",
         "runtime_automation_overactive",
     )

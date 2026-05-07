@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.core import HomeAssistant
 
-from custom_components.autodoctor.models import IssueType
+from custom_components.autodoctor.const import DOMAIN
+from custom_components.autodoctor.models import IssueType, Severity, ValidationIssue
 from custom_components.autodoctor.runtime_event_store import RuntimeEventStore
 from custom_components.autodoctor.runtime_monitor import RuntimeHealthMonitor
 from tests.conftest import build_runtime_monitor
@@ -577,6 +578,50 @@ async def test_validate_automations_emits_overdue_issue_for_predictable_miss(
     assert evidence["active_comparable_days"] >= 12
     assert evidence["overdue_probability"] >= 0.9
     assert evidence["usual_deadline"] is not None
+    assert evidence["baseline_event_count"] == 12
+    assert evidence["training_rows"] >= 2
+    assert evidence["data_quality"] == "trained"
+
+
+@pytest.mark.asyncio
+async def test_weekly_overdue_runs_with_default_daily_baseline_gate(
+    hass: HomeAssistant,
+) -> None:
+    """Low-frequency predictable schedules should still receive overdue checks."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)  # Wednesday
+    baseline_start = now - timedelta(days=90)
+    weekday_offset = (now.weekday() - baseline_start.weekday()) % 7
+    series_start = (baseline_start + timedelta(days=weekday_offset)).replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    history = {
+        "weekly_overdue": [
+            series_start + timedelta(days=(7 * idx)) for idx in range(12)
+        ]
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.0,
+        baseline_days=90,
+        warmup_samples=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("weekly_overdue", "Weekly Laundry")]
+    )
+
+    overdue = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
+    ]
+    assert len(overdue) == 1
+    assert monitor.get_last_run_stats().get("insufficient_baseline", 0) == 0
 
 
 @pytest.mark.asyncio
@@ -616,10 +661,10 @@ async def test_validate_automations_abstains_on_unpredictable_overdue_candidate(
 
 
 @pytest.mark.asyncio
-async def test_overdue_abstains_for_multi_run_daily_pattern_until_supported(
+async def test_overdue_emits_for_missed_second_run_in_daily_pattern(
     hass: HomeAssistant,
 ) -> None:
-    """Multi-run daily patterns should abstain instead of silently passing."""
+    """Multi-run daily patterns should alert when the next expected run is late."""
     now = datetime(2026, 3, 4, 20, 0, tzinfo=UTC)
     history_events: list[datetime] = []
     for days_back in range(2, 90):
@@ -649,8 +694,49 @@ async def test_overdue_abstains_for_multi_run_daily_pattern_until_supported(
         for issue in issues
         if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
     ]
+    assert len(overdue) == 1
+    assert "usually fires by" in overdue[0].message
+    assert overdue[0].evidence["expected_trigger_index"] == 2
+    assert overdue[0].evidence["overdue_probability"] >= 0.9
+    assert monitor.get_last_run_stats()["overdue_repeated_run_supported"] == 1
+
+
+@pytest.mark.asyncio
+async def test_overdue_not_due_when_next_multi_run_window_is_still_open(
+    hass: HomeAssistant,
+) -> None:
+    """Multi-run overdue support should not alert before the next window closes."""
+    now = datetime(2026, 3, 4, 16, 0, tzinfo=UTC)
+    history_events: list[datetime] = []
+    for days_back in range(2, 90):
+        day = now - timedelta(days=days_back)
+        if day.weekday() == now.weekday():
+            history_events.extend(
+                [
+                    day.replace(hour=8, minute=0),
+                    day.replace(hour=18, minute=0),
+                ]
+            )
+    history_events.append(now.replace(hour=8, minute=0))
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"multi_run": history_events},
+        now=now,
+        score=0.0,
+        baseline_days=90,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("multi_run", "Multi Run")])
+
+    overdue = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
+    ]
     assert overdue == []
-    assert monitor.get_last_run_stats()["overdue_multi_run_unsupported"] == 1
+    assert monitor.get_last_run_stats()["overdue_next_window_open"] == 1
 
 
 @pytest.mark.asyncio
@@ -2451,6 +2537,78 @@ async def test_dismissing_overdue_raises_effective_overdue_threshold(
     assert overdue == []
 
 
+def test_dismissing_overdue_keeps_probability_threshold_reachable(
+    hass: HomeAssistant,
+) -> None:
+    """Overdue dismissals should harden sensitivity without disabling alerts."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        dismissed_threshold_multiplier=1.25,
+    )
+    automation_id = "automation.weekly_overdue"
+
+    for _ in range(5):
+        monitor.record_issue_dismissed(
+            automation_id,
+            IssueType.RUNTIME_AUTOMATION_OVERDUE,
+        )
+
+    assert monitor._overdue_probability_threshold_for(automation_id) < 1.0
+    assert monitor._overdue_probability_threshold_for(automation_id) > 0.85
+
+
+@pytest.mark.asyncio
+async def test_dismissed_overdue_can_still_alert_on_certain_miss(
+    hass: HomeAssistant,
+) -> None:
+    """A dismissal should not permanently disable high-confidence overdue alerts."""
+    now = datetime(2026, 3, 4, 9, 30, tzinfo=UTC)
+    baseline_start = (now - timedelta(hours=24)) - timedelta(days=90)
+    comparable_days = [
+        baseline_start + timedelta(days=idx)
+        for idx in range(90)
+        if (baseline_start + timedelta(days=idx)).weekday() == now.weekday()
+    ]
+    history = {
+        "weekly_overdue": [
+            comparable_day.replace(
+                hour=now.hour if idx == 0 else 8,
+                minute=now.minute if idx == 0 else 0,
+                second=0,
+                microsecond=0,
+            )
+            for idx, comparable_day in enumerate(comparable_days)
+        ]
+    }
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=0.0,
+        baseline_days=90,
+        warmup_samples=0,
+        min_expected_events=0,
+        dismissed_threshold_multiplier=1.25,
+    )
+    monitor.record_issue_dismissed(
+        "automation.weekly_overdue",
+        IssueType.RUNTIME_AUTOMATION_OVERDUE,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("weekly_overdue", "Weekly Laundry")]
+    )
+
+    overdue = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERDUE
+    ]
+    assert len(overdue) == 1
+
+
 def test_adaptation_state_loads_from_event_store(tmp_path: Path) -> None:
     """New monitor should lazy-load persisted adaptation state from SQLite."""
     now = datetime(2026, 2, 20, 12, 0, tzinfo=UTC)
@@ -2945,6 +3103,80 @@ async def test_overactive_issue_serializes_runtime_evidence(
 
 
 @pytest.mark.asyncio
+async def test_overactive_abstains_when_current_count_is_within_comparable_history(
+    hass: HomeAssistant,
+) -> None:
+    """High scores should not alert when comparable days commonly reach this count."""
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    baseline: list[datetime] = []
+    for weeks_back, count in enumerate([6, 7, 8, 7, 6, 8, 7], start=1):
+        day = now - timedelta(days=weeks_back * 7)
+        baseline.extend(day.replace(hour=9, minute=minute) for minute in range(count))
+    for days_back in range(2, 31):
+        day = now - timedelta(days=days_back)
+        if day.weekday() != now.weekday():
+            baseline.append(day.replace(hour=9, minute=0))
+    recent = [now - timedelta(hours=1, minutes=minute) for minute in range(7)]
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"runtime_test": [*baseline, *recent]},
+        now=now,
+        score=4.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+    assert monitor.get_last_run_stats()["overactive_below_comparable_threshold"] == 1
+
+
+@pytest.mark.asyncio
+async def test_overactive_evidence_includes_comparable_threshold_context(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive evidence should expose comparable-count decision context."""
+    now = datetime(2026, 2, 17, 12, 0, tzinfo=UTC)
+    baseline: list[datetime] = []
+    for days_back in range(2, 32):
+        day = now - timedelta(days=days_back)
+        baseline.extend(day.replace(hour=9, minute=minute) for minute in range(2))
+    recent = [now - timedelta(hours=1, minutes=minute) for minute in range(12)]
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"runtime_test": [*baseline, *recent]},
+        now=now,
+        score=4.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+    overactive = next(
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    )
+
+    evidence = overactive.evidence
+    assert evidence["comparable_weekday_active_days"] >= 4
+    assert evidence["comparable_day_type_active_days"] >= 10
+    assert evidence["comparable_weekday_p95_count"] == pytest.approx(2.0)
+    assert evidence["comparable_day_type_p95_count"] == pytest.approx(2.0)
+    assert evidence["required_overactive_count"] >= 3.0
+
+
+@pytest.mark.asyncio
 async def test_validate_automations_overactive_high_confidence_when_score_far_above(
     hass: HomeAssistant,
 ) -> None:
@@ -3100,6 +3332,103 @@ async def test_validate_automations_clears_overactive_when_score_drops(
 
 
 @pytest.mark.asyncio
+async def test_validate_automations_clears_stale_alert_when_warmup_becomes_insufficient(
+    hass: HomeAssistant,
+) -> None:
+    """Previously active alerts should clear when current evidence is insufficient."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"runtime_test": [*baseline, *_recent_overactive_events(now)]},
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
+    assert len(monitor.get_active_runtime_alerts()) == 1
+
+    monitor._history = {"runtime_test": [now - timedelta(days=2, hours=1)]}
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    assert issues == []
+    assert len(monitor.get_active_runtime_alerts()) == 0
+    assert monitor.get_last_run_stats()["stale_alerts_cleared"] == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_preserves_live_burst_alert_when_warmup_insufficient(
+    hass: HomeAssistant,
+) -> None:
+    """Historical validation skips should not clear live burst detector state."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"runtime_test": [now - timedelta(days=2, hours=1)]},
+        now=now,
+        score=0.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+    burst_issue = ValidationIssue(
+        severity=Severity.ERROR,
+        automation_id="automation.runtime_test",
+        automation_name="Hallway Lights",
+        entity_id="automation.runtime_test",
+        location="runtime.health.burst",
+        message="Runtime burst detected",
+        issue_type=IssueType.RUNTIME_AUTOMATION_BURST,
+        confidence="medium",
+    )
+    monitor._register_runtime_alert(burst_issue)
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    assert burst_issue in monitor.get_active_runtime_alerts()
+    assert issues == [burst_issue]
+    assert monitor.get_last_run_stats()["insufficient_warmup"] == 1
+    assert monitor.get_last_run_stats().get("stale_alerts_cleared", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_validate_automations_reports_event_store_read_failures(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime validation should distinguish read failures from empty history."""
+
+    class _FailingAsyncStore:
+        pending_jobs = 0
+
+        async def async_get_events(
+            self, *args: object, **kwargs: object
+        ) -> list[float]:
+            raise RuntimeError("sqlite unavailable")
+
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    monitor = RuntimeHealthMonitor(
+        hass,
+        async_runtime_event_store=_FailingAsyncStore(),  # type: ignore[arg-type]
+        now_factory=lambda: now,
+        warmup_samples=0,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations([_automation("runtime_test")])
+
+    assert issues == []
+    assert monitor.get_last_run_stats()["event_store_read_failed"] == 1
+    diagnostics = monitor.get_event_store_diagnostics()
+    assert diagnostics["degraded"] is True
+    assert diagnostics["read_failures"] == 1
+
+
+@pytest.mark.asyncio
 async def test_validate_automations_rate_limits_overactive_emissions(
     hass: HomeAssistant,
 ) -> None:
@@ -3136,6 +3465,38 @@ async def test_validate_automations_rate_limits_overactive_emissions(
 
 
 @pytest.mark.asyncio
+async def test_overactive_alert_evidence_includes_data_quality_context(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive alerts should explain the training context behind the score."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"runtime_test": [*baseline, *_recent_overactive_events(now)]},
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+    issue = next(
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    )
+
+    assert issue.evidence["baseline_active_days"] == 29
+    assert issue.evidence["baseline_event_count"] == 29
+    assert issue.evidence["recent_event_count"] == 5
+    assert issue.evidence["training_rows"] >= 2
+    assert issue.evidence["data_quality"] == "trained"
+
+
+@pytest.mark.asyncio
 async def test_validate_automations_suppression_prevents_overactive(
     hass: HomeAssistant,
 ) -> None:
@@ -3165,6 +3526,76 @@ async def test_validate_automations_suppression_prevents_overactive(
         i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
     ]
     assert overactive == []
+
+
+@pytest.mark.asyncio
+async def test_overdue_suppression_does_not_suppress_overactive(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime suppressions should be scoped to the detector issue type."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=1) for d in range(2, 31)]
+    history = {"runtime_test": [*baseline, *_recent_overactive_events(now)]}
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(
+        side_effect=lambda key: key.endswith(IssueType.RUNTIME_AUTOMATION_OVERDUE.value)
+    )
+    hass.data[DOMAIN] = {"suppression_store": suppression_store}
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+
+
+def test_overdue_suppression_does_not_suppress_live_burst(
+    hass: HomeAssistant,
+) -> None:
+    """Suppressing overdue should not silence live burst detection."""
+    now = datetime(2026, 2, 18, 12, 0, tzinfo=UTC)
+    suppression_store = MagicMock()
+    suppression_store.is_suppressed = MagicMock(
+        side_effect=lambda key: key.endswith(IssueType.RUNTIME_AUTOMATION_OVERDUE.value)
+    )
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: now,
+        burst_multiplier=2.0,
+    )
+    automation_id = "automation.burst_test"
+    automation_state = monitor._ensure_automation_state(automation_id)
+    automation_state["burst_model"] = {
+        "recent_triggers": [
+            *[(now - timedelta(minutes=30 + idx)).isoformat() for idx in range(10)],
+            *[(now - timedelta(minutes=idx + 1)).isoformat() for idx in range(5)],
+        ],
+        "baseline_rate_5m": 1.0,
+        "baseline_samples": 1,
+    }
+
+    issues = monitor.ingest_trigger_event(
+        automation_id,
+        occurred_at=now,
+        suppression_store=suppression_store,
+    )
+
+    assert [issue.issue_type for issue in issues] == [
+        IssueType.RUNTIME_AUTOMATION_BURST
+    ]
 
 
 @pytest.mark.asyncio
