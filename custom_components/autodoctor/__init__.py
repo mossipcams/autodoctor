@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import time
@@ -735,6 +736,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_runtime_trigger_listener": None,
         "unsub_initial_scan": None,
     }
+
+    clear_stale_repairs = reporter.async_report_issues([])
+    if inspect.isawaitable(clear_stale_repairs):
+        await clear_stale_repairs
 
     if validate_on_reload:
         unsub = _setup_reload_listener(hass, debounce_seconds)

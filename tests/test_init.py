@@ -2420,6 +2420,7 @@ async def test_async_setup_entry_schedules_initial_scan_after_recovery() -> None
         patch("custom_components.autodoctor.SuppressionStore") as mock_suppression_cls,
         patch("custom_components.autodoctor.LearnedStatesStore") as mock_learned_cls,
         patch("custom_components.autodoctor.RuntimeHealthMonitor") as mock_runtime_cls,
+        patch("custom_components.autodoctor.IssueReporter") as mock_reporter_cls,
         patch(
             "custom_components.autodoctor._async_register_card", new_callable=AsyncMock
         ),
@@ -2441,6 +2442,9 @@ async def test_async_setup_entry_schedules_initial_scan_after_recovery() -> None
         mock_learned_cls.return_value = mock_learned
 
         mock_runtime_cls.return_value.async_init_event_store = AsyncMock()
+        mock_reporter = AsyncMock()
+        mock_reporter.async_report_issues = AsyncMock()
+        mock_reporter_cls.return_value = mock_reporter
         await async_setup_entry(hass, entry)
 
     mock_call_later.assert_called_once()
@@ -2449,6 +2453,7 @@ async def test_async_setup_entry_schedules_initial_scan_after_recovery() -> None
     expected_delay = (5 + 1) * 60
     assert delay_seconds == expected_delay
     assert hass.data[DOMAIN]["unsub_initial_scan"] == unsub_initial_scan
+    mock_reporter.async_report_issues.assert_awaited_once_with([])
 
 
 @pytest.mark.asyncio

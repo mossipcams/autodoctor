@@ -555,6 +555,31 @@ def test_format_issues_for_repair_includes_actionable_context(
     assert "Known valid states: on, off" in result
 
 
+def test_format_runtime_issue_uses_automation_name_in_bullet(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime repairs should not look like a different automation in the body."""
+    reporter = IssueReporter(hass)
+
+    issues = [
+        ValidationIssue(
+            severity=Severity.WARNING,
+            issue_type=IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+            confidence="high",
+            automation_id="automation.charging",
+            automation_name="Charging",
+            entity_id="automation.charging",
+            location="runtime.health.anomaly",
+            message="Overactive: Triggered 68 times in 24h",
+        )
+    ]
+
+    result = reporter._format_issues_for_repair(issues)
+
+    assert "• **Charging** (`automation.charging`, runtime.health.anomaly)" in result
+    assert "• **automation.charging** (runtime.health.anomaly)" not in result
+
+
 def test_format_issues_for_repair_no_suggestion_unchanged(hass: HomeAssistant) -> None:
     """Test that repair text is unchanged when issue.suggestion is None."""
     reporter = IssueReporter(hass)

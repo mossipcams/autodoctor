@@ -84,6 +84,24 @@ async def test_validate_service_exists_no_issues(hass: HomeAssistant) -> None:
     assert len(issues) == 0
 
 
+async def test_validate_skips_missing_pyscript_service(hass: HomeAssistant) -> None:
+    """Dynamically loaded pyscript services should not false-positive at startup."""
+    validator = ServiceCallValidator(hass)
+
+    call = ServiceCall(
+        automation_id="automation.test",
+        automation_name="Test",
+        service="pyscript.away_sequence",
+        location="action[0]",
+    )
+
+    issues = validator.validate_service_calls([call])
+
+    assert issues == []
+    stats = validator.get_last_run_stats()
+    assert stats["skipped_calls_by_reason"]["dynamic_service_domain"] == 1
+
+
 async def test_validate_skips_templated_service(hass: HomeAssistant) -> None:
     """Test that validation skips services with templated names.
 

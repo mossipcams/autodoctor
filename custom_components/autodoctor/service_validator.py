@@ -22,6 +22,11 @@ _LOGGER = logging.getLogger(__name__)
 # Target fields are separate from data fields
 _TARGET_FIELDS = frozenset({"entity_id", "device_id", "area_id"})
 
+# Custom script integrations may register services after Autodoctor's startup pass
+# or reload them independently. Treat missing dynamic script services as
+# uninspectable instead of actionable broken automation references.
+_DYNAMIC_SERVICE_DOMAINS = frozenset({"pyscript", "python_script"})
+
 # Entity-capability-dependent parameters that may not appear in service schemas.
 #
 # Home Assistant service descriptions advertise a base set of fields, but many
@@ -234,6 +239,9 @@ class ServiceCallValidator:
 
             # Check if service exists
             if not self.hass.services.has_service(domain, service):
+                if domain in _DYNAMIC_SERVICE_DOMAINS:
+                    self._increment_skip_reason("dynamic_service_domain")
+                    continue
                 msg = f"Service '{call.service}' not found"
                 suggestion = self._suggest_service(call.service)
                 if suggestion:

@@ -208,8 +208,9 @@ class IssueReporter:
         """Format multiple issues into a single repair description."""
         lines = []
         for issue in issues:
+            issue_heading = self._format_issue_heading(issue)
             issue_lines = [
-                f"• **{issue.entity_id}** ({issue.location})",
+                issue_heading,
                 f"  {issue.severity.name} / {issue.confidence} confidence",
                 f"  What is wrong: {issue.message}",
                 f"  Why it matters: {self._why_issue_matters(issue)}",
@@ -223,6 +224,23 @@ class IssueReporter:
                 )
             lines.append("\n".join(issue_lines))
         return "\n\n".join(lines)
+
+    def _format_issue_heading(self, issue: ValidationIssue) -> str:
+        """Format the first line for a Repair issue entry."""
+        if (
+            issue.issue_type
+            in {
+                IssueType.RUNTIME_AUTOMATION_OVERDUE,
+                IssueType.RUNTIME_AUTOMATION_OVERACTIVE,
+                IssueType.RUNTIME_AUTOMATION_BURST,
+            }
+            and issue.entity_id == issue.automation_id
+            and issue.automation_name
+        ):
+            return (
+                f"• **{issue.automation_name}** (`{issue.entity_id}`, {issue.location})"
+            )
+        return f"• **{issue.entity_id}** ({issue.location})"
 
     async def async_report_issues(self, issues: list[ValidationIssue]) -> None:
         """Report validation issues grouped by automation."""
