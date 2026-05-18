@@ -119,16 +119,19 @@ echo "[3/8] Pyright"
 echo "[4/8] Python tests"
 "$PYTEST_BIN" tests/ -v --tb=short
 
-echo "[5/8] Frontend tests"
+echo "[5/9] Frontend tests"
 pushd www/autodoctor >/dev/null
 "${NPM_CMD[@]}" ci
 "${NPM_CMD[@]}" test
 
-echo "[6/8] Frontend build"
+echo "[6/9] Frontend code health"
+"${NPM_CMD[@]}" run quality:code-health
+
+echo "[7/9] Frontend build"
 "${NPM_CMD[@]}" run build
 popd >/dev/null
 
-echo "[7/8] Verify generated card is committed and in sync"
+echo "[8/9] Verify generated card is committed and in sync"
 if ! git diff --quiet custom_components/autodoctor/www/autodoctor-card.js; then
   echo "ERROR: custom_components/autodoctor/www/autodoctor-card.js is out of date."
   echo "Run: cd www/autodoctor && npm run build"
@@ -146,5 +149,5 @@ if ! cmp -s \
   exit 1
 fi
 
-echo "[8/8] Done"
+echo "[9/9] Done"
 echo "All pre-PR checks passed."

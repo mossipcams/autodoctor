@@ -1,0 +1,14 @@
+{
+  "threshold": 0,
+  "minTokens": 80,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "ignore": [
+    "autodoctor-card.js",
+    "**/*.test.ts",
+    "node_modules/**"
+  ],
+  "files": [
+    "*.ts"
+  ]
+}

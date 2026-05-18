@@ -8,7 +8,7 @@ const ACTIVE_DURATION_MS = 300;
 /** Gap between one group resolving and the next group highlighting (ms). */
 const INTER_GROUP_DELAY_MS = 100;
 
-export class AutodocPipeline extends LitElement {
+class AutodocPipeline extends LitElement {
   static properties = {
     groups: { attribute: false },
     running: { type: Boolean },
