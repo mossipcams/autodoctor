@@ -861,6 +861,138 @@ async def test_runtime_monitor_does_not_flag_overactive_for_bursty_reminder_base
 
 
 @pytest.mark.asyncio
+async def test_runtime_monitor_suppresses_overactive_with_historical_high_volume_days(
+    hass: HomeAssistant,
+) -> None:
+    """Known high-volume days should not become overactive false positives."""
+    now = datetime(2026, 5, 18, 9, 0, tzinfo=UTC)
+    daily_counts = [
+        12,
+        12,
+        70,
+        12,
+        12,
+        66,
+        12,
+        12,
+        72,
+        12,
+        12,
+        68,
+        12,
+        12,
+        65,
+        12,
+        12,
+        70,
+        12,
+        12,
+        67,
+        12,
+        12,
+        69,
+        12,
+        12,
+        66,
+        12,
+        12,
+        70,
+    ]
+    history_events: list[datetime] = []
+    for days_back, day_count in enumerate(daily_counts, start=2):
+        day = now - timedelta(days=days_back, hours=2)
+        for minute in range(day_count):
+            history_events.append(day + timedelta(minutes=minute))
+    for minute in range(68):
+        history_events.append(now - timedelta(hours=1, minutes=minute))
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"charging": history_events},
+        now=now,
+        score=6.11,
+        warmup_samples=7,
+        min_expected_events=0,
+        sensitivity="high",
+    )
+
+    issues = await monitor.validate_automations([_automation("charging", "Charging")])
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert overactive == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_still_flags_overactive_above_historical_high_volume(
+    hass: HomeAssistant,
+) -> None:
+    """Counts above the historical busy-day envelope should still alert."""
+    now = datetime(2026, 5, 18, 9, 0, tzinfo=UTC)
+    daily_counts = [
+        12,
+        12,
+        70,
+        12,
+        12,
+        66,
+        12,
+        12,
+        72,
+        12,
+        12,
+        68,
+        12,
+        12,
+        65,
+        12,
+        12,
+        70,
+        12,
+        12,
+        67,
+        12,
+        12,
+        69,
+        12,
+        12,
+        66,
+        12,
+        12,
+        70,
+    ]
+    history_events: list[datetime] = []
+    for days_back, day_count in enumerate(daily_counts, start=2):
+        day = now - timedelta(days=days_back, hours=2)
+        for minute in range(day_count):
+            history_events.append(day + timedelta(minutes=minute))
+    for minute in range(95):
+        history_events.append(now - timedelta(hours=1, minutes=minute))
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history={"charging": history_events},
+        now=now,
+        score=6.11,
+        warmup_samples=7,
+        min_expected_events=0,
+        sensitivity="high",
+    )
+
+    issues = await monitor.validate_automations([_automation("charging", "Charging")])
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+
+
+@pytest.mark.asyncio
 async def test_runtime_monitor_does_not_flag_stalled_for_weekly_reminder_cadence(
     hass: HomeAssistant,
 ) -> None:
@@ -959,6 +1091,49 @@ async def test_runtime_monitor_uses_entity_id_over_config_id_for_history_lookup(
             }
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_monitor_uses_entity_friendly_name_for_runtime_issue(
+    hass: HomeAssistant,
+) -> None:
+    """Runtime issue title should match the canonical automation entity."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline = [now - timedelta(days=d, hours=2) for d in range(2, 31)]
+    recent = [now - timedelta(hours=1, minutes=i) for i in range(20)]
+    history = {"automation.charging": baseline + recent}
+    hass.states.async_set(
+        "automation.charging",
+        "on",
+        {"friendly_name": "Charging"},
+    )
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [
+            {
+                "id": "charging",
+                "alias": "Lights: Evening Routine",
+                "entity_id": "automation.charging",
+            }
+        ]
+    )
+
+    overactive = [
+        issue
+        for issue in issues
+        if issue.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert overactive[0].automation_id == "automation.charging"
+    assert overactive[0].automation_name == "Charging"
 
 
 @pytest.mark.asyncio

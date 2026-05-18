@@ -67,6 +67,7 @@ _BUCKET_GRANULARITY_MINUTES = 5
 _RECORDER_QUERY_CHUNK_SIZE = 200
 _EVENT_STORE_OBS_START_KEY = "observation:start_at"
 _OVERACTIVE_MIN_COMPARABLE_ACTIVE_DAYS = 2
+_HISTORICAL_HIGH_VOLUME_MIN_DAILY_COUNT = 10
 
 # BOCPD anomaly score sensitivity thresholds
 _SENSITIVITY_THRESHOLDS: dict[str, float] = {
@@ -1027,6 +1028,18 @@ class RuntimeHealthMonitor:
             )
         return None
 
+    def _resolve_automation_name(
+        self, automation_entity_id: str, automation: dict[str, Any]
+    ) -> str:
+        """Resolve display name from the canonical HA entity when possible."""
+        state = self.hass.states.get(automation_entity_id)
+        friendly_name = None
+        if state is not None:
+            friendly_name = state.attributes.get("friendly_name")
+        if isinstance(friendly_name, str) and friendly_name:
+            return friendly_name
+        return str(automation.get("alias", automation_entity_id))
+
     async def validate_automations(
         self, automations: list[dict[str, Any]]
     ) -> list[ValidationIssue]:
@@ -1095,7 +1108,9 @@ class RuntimeHealthMonitor:
                 stats["missing_identity"] += 1
                 continue
 
-            automation_name = str(automation.get("alias", automation_entity_id))
+            automation_name = self._resolve_automation_name(
+                automation_entity_id, automation
+            )
             automation_baseline_start = baseline_start_by_automation.get(
                 automation_entity_id,
                 baseline_start,
@@ -1396,6 +1411,21 @@ class RuntimeHealthMonitor:
             )
             required_overactive_count = comparable_counts["required_overactive_count"]
             exceeds_comparable_count = current_24h_count > required_overactive_count
+            if (
+                smoothed_score >= promotion_threshold
+                and is_high_activity
+                and has_comparable_context
+                and has_comparable_active_days
+                and not overactive_suppressed
+                and self._within_historical_high_volume_envelope(
+                    recent_count=int(current_24h_count),
+                    day_counts=day_counts,
+                )
+            ):
+                self._clear_runtime_alert(automation_entity_id, issue_type)
+                stats["within_historical_envelope"] += 1
+                continue
+
             if (
                 smoothed_score >= promotion_threshold
                 and is_high_activity
@@ -1723,6 +1753,21 @@ class RuntimeHealthMonitor:
         if expected_daily < 1.0:
             return min(required, _LOW_FREQUENCY_WARMUP_MINIMUM)
         return required
+
+    @staticmethod
+    def _within_historical_high_volume_envelope(
+        *,
+        recent_count: int,
+        day_counts: list[int],
+    ) -> bool:
+        """Return true when recent activity is comparable to known busy days."""
+        if recent_count <= 0 or not day_counts:
+            return False
+        historical_max = max(day_counts, default=0)
+        if historical_max < _HISTORICAL_HIGH_VOLUME_MIN_DAILY_COUNT:
+            return False
+        tolerated_max = max(historical_max + 1, int(historical_max * 1.10))
+        return recent_count <= tolerated_max
 
     def _observed_coverage_days(
         self,
