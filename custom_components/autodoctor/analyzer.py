@@ -34,6 +34,11 @@ STATES_OBJECT_PATTERN = re.compile(
     r"states\.([a-z_]+)\.([a-z0-9_]+)(?:\.state)?",
     re.DOTALL,
 )
+# Bracket form: states.light['kitchen'] / states.light["kitchen"].state
+STATES_BRACKET_PATTERN = re.compile(
+    rf"states\.([a-z_]+)\s*\[\s*['\"]({_QUOTED_STRING})['\"]\s*\]",
+    re.DOTALL,
+)
 # Pattern for states('entity_id') function calls
 # Matches: states('sensor.temperature'), states("light.bedroom") | default('unknown')
 STATES_FUNCTION_PATTERN = re.compile(
@@ -371,7 +376,7 @@ class AutomationAnalyzer:
 
         elif platform == "tag":
             tag_id = trigger.get("tag_id")
-            if tag_id:
+            if isinstance(tag_id, str) and tag_id and not is_template_value(tag_id):
                 refs.append(
                     StateReference(
                         automation_id=automation_id,
@@ -385,7 +390,11 @@ class AutomationAnalyzer:
                 )
 
             device_id = trigger.get("device_id")
-            if device_id:
+            if (
+                isinstance(device_id, str)
+                and device_id
+                and not is_template_value(device_id)
+            ):
                 refs.append(
                     StateReference(
                         automation_id=automation_id,
@@ -489,6 +498,7 @@ class AutomationAnalyzer:
                     isinstance(at_value, str)
                     and "." in at_value
                     and ":" not in at_value
+                    and not is_template_value(at_value)
                 ):
                     refs.append(
                         StateReference(
@@ -501,6 +511,50 @@ class AutomationAnalyzer:
                             reference_type="direct",
                         )
                     )
+
+        elif platform == "time_pattern":
+            # Pure cron-style patterns have no entity refs; only extract
+            # entity-bearing keys if HA ever supplies them as literals.
+            at_values: Any = trigger.get("at")
+            if not isinstance(at_values, list):
+                at_values = [at_values] if at_values else []
+            for at_value in cast(list[Any], at_values):
+                if (
+                    isinstance(at_value, str)
+                    and "." in at_value
+                    and ":" not in at_value
+                    and not is_template_value(at_value)
+                ):
+                    refs.append(
+                        StateReference(
+                            automation_id=automation_id,
+                            automation_name=automation_name,
+                            entity_id=at_value,
+                            expected_state=None,
+                            expected_attribute=None,
+                            location=f"trigger[{index}].at",
+                            reference_type="direct",
+                        )
+                    )
+
+        elif platform in ("sentence", "conversation"):
+            device_id = trigger.get("device_id")
+            if (
+                isinstance(device_id, str)
+                and device_id
+                and not is_template_value(device_id)
+            ):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=device_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"trigger[{index}].device_id",
+                        reference_type="device",
+                    )
+                )
 
         return refs
 
@@ -798,6 +852,22 @@ class AutomationAnalyzer:
                     )
                 )
 
+        # Extract states.domain['entity'] bracket references
+        for match in STATES_BRACKET_PATTERN.finditer(template):
+            domain, entity_name = match.groups()
+            entity_id = f"{domain}.{entity_name}"
+            if not any(r.entity_id == entity_id for r in refs):
+                refs.append(
+                    StateReference(
+                        automation_id=automation_id,
+                        automation_name=automation_name,
+                        entity_id=entity_id,
+                        expected_state=None,
+                        expected_attribute=None,
+                        location=f"{location}.states_bracket",
+                    )
+                )
+
         # Extract states('entity_id') function calls
         for match in STATES_FUNCTION_PATTERN.finditer(template):
             entity_id = match.group(1)
@@ -1033,6 +1103,32 @@ class AutomationAnalyzer:
                 target.get("area_id"),
             )
         )
+        label_ids = self._normalize_entity_ids(
+            action.get("label_id"),
+        )
+        label_ids.extend(
+            self._normalize_entity_ids(
+                data.get("label_id"),
+            )
+        )
+        label_ids.extend(
+            self._normalize_entity_ids(
+                target.get("label_id"),
+            )
+        )
+        floor_ids = self._normalize_entity_ids(
+            action.get("floor_id"),
+        )
+        floor_ids.extend(
+            self._normalize_entity_ids(
+                data.get("floor_id"),
+            )
+        )
+        floor_ids.extend(
+            self._normalize_entity_ids(
+                target.get("floor_id"),
+            )
+        )
 
         # Determine reference type based on service
         reference_type = "service_call"
@@ -1111,6 +1207,36 @@ class AutomationAnalyzer:
                         reference_type="area",
                     )
                 )
+
+        for label_id in label_ids:
+            if is_template_value(label_id):
+                continue  # templated — skip extraction (no FP)
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=label_id,
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"{action_location}.service.label_id",
+                    reference_type="label",
+                )
+            )
+
+        for floor_id in floor_ids:
+            if is_template_value(floor_id):
+                continue  # templated — skip extraction (no FP)
+            refs.append(
+                StateReference(
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=floor_id,
+                    expected_state=None,
+                    expected_attribute=None,
+                    location=f"{action_location}.service.floor_id",
+                    reference_type="floor",
+                )
+            )
 
         return refs
 

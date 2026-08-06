@@ -1,0 +1,12 @@
+id: valid_label_and_floor
+alias: Valid Label And Floor
+trigger:
+  - platform: time
+    at: "09:00:00"
+action:
+  - service: light.turn_on
+    target:
+      label_id: precision_label
+  - service: light.turn_off
+    target:
+      floor_id: precision_floor

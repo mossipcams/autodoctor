@@ -1,0 +1,10 @@
+id: jinja_statement_label_target
+alias: Jinja Statement Label Target
+trigger:
+  - platform: state
+    entity_id: binary_sensor.motion_kitchen
+    to: "on"
+action:
+  - service: light.turn_on
+    target:
+      label_id: "{% set x = 'kids' %}{{ x }}"

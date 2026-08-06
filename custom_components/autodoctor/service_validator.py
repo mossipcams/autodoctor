@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Target fields are separate from data fields
-_TARGET_FIELDS = frozenset({"entity_id", "device_id", "area_id"})
+_TARGET_FIELDS = frozenset(
+    {"entity_id", "device_id", "area_id", "label_id", "floor_id"}
+)
 
 # Custom script integrations may register services after Autodoctor's startup pass
 # or reload them independently. Treat missing dynamic script services as
@@ -348,7 +350,13 @@ class ServiceCallValidator:
         if not isinstance(call.target, dict) or not isinstance(call.data, dict):
             return issues
 
-        for field_name in ("entity_id", "device_id", "area_id"):
+        for field_name in (
+            "entity_id",
+            "device_id",
+            "area_id",
+            "label_id",
+            "floor_id",
+        ):
             data_values = self._extract_target_string_set(call.data.get(field_name))
             target_values = self._extract_target_string_set(call.target.get(field_name))
             if not data_values or not target_values:
@@ -863,7 +871,7 @@ class ServiceCallValidator:
         self,
         call: ServiceCall,
     ) -> list[ValidationIssue]:
-        """Validate entity/device/area IDs in target or data exist."""
+        """Validate entity/device/area/label/floor IDs in target or data exist."""
         issues: list[ValidationIssue] = []
         target = call.target if isinstance(call.target, dict) else {}
         data = call.data if isinstance(call.data, dict) else {}
@@ -871,39 +879,22 @@ class ServiceCallValidator:
         entity_ids: list[str] = []
         device_ids: list[str] = []
         area_ids: list[str] = []
+        label_ids: list[str] = []
+        floor_ids: list[str] = []
 
-        values, value_issues = self._normalize_target_strings(
-            call, "entity_id", target.get("entity_id")
-        )
-        entity_ids.extend(values)
-        issues.extend(value_issues)
-        values, value_issues = self._normalize_target_strings(
-            call, "entity_id", data.get("entity_id")
-        )
-        entity_ids.extend(values)
-        issues.extend(value_issues)
-
-        values, value_issues = self._normalize_target_strings(
-            call, "device_id", target.get("device_id")
-        )
-        device_ids.extend(values)
-        issues.extend(value_issues)
-        values, value_issues = self._normalize_target_strings(
-            call, "device_id", data.get("device_id")
-        )
-        device_ids.extend(values)
-        issues.extend(value_issues)
-
-        values, value_issues = self._normalize_target_strings(
-            call, "area_id", target.get("area_id")
-        )
-        area_ids.extend(values)
-        issues.extend(value_issues)
-        values, value_issues = self._normalize_target_strings(
-            call, "area_id", data.get("area_id")
-        )
-        area_ids.extend(values)
-        issues.extend(value_issues)
+        for field_name, bucket in (
+            ("entity_id", entity_ids),
+            ("device_id", device_ids),
+            ("area_id", area_ids),
+            ("label_id", label_ids),
+            ("floor_id", floor_ids),
+        ):
+            for source in (target, data):
+                values, value_issues = self._normalize_target_strings(
+                    call, field_name, source.get(field_name)
+                )
+                bucket.extend(values)
+                issues.extend(value_issues)
 
         for entity_id in entity_ids:
             # Skip templated entity IDs
@@ -972,6 +963,50 @@ class ServiceCallValidator:
                             entity_id=area_id,
                             location=call.location,
                             message=f"Area '{area_id}' in service target does not exist",
+                            issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                        )
+                    )
+
+        if label_ids:
+            from homeassistant.helpers import label_registry as label_reg_mod
+
+            label_reg = label_reg_mod.async_get(self.hass)
+            for label_id in label_ids:
+                if _is_template_value(label_id):
+                    continue
+                if label_reg.async_get_label(label_id) is None:
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id=label_id,
+                            location=call.location,
+                            message=(
+                                f"Label '{label_id}' in service target does not exist"
+                            ),
+                            issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
+                        )
+                    )
+
+        if floor_ids:
+            from homeassistant.helpers import floor_registry as floor_reg_mod
+
+            floor_reg = floor_reg_mod.async_get(self.hass)
+            for floor_id in floor_ids:
+                if _is_template_value(floor_id):
+                    continue
+                if floor_reg.async_get_floor(floor_id) is None:
+                    issues.append(
+                        ValidationIssue(
+                            severity=Severity.WARNING,
+                            automation_id=call.automation_id,
+                            automation_name=call.automation_name,
+                            entity_id=floor_id,
+                            location=call.location,
+                            message=(
+                                f"Floor '{floor_id}' in service target does not exist"
+                            ),
                             issue_type=IssueType.SERVICE_TARGET_NOT_FOUND,
                         )
                     )

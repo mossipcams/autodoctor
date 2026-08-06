@@ -1,0 +1,9 @@
+id: templated_floor_target
+alias: Templated Floor Target
+trigger:
+  - platform: time
+    at: "08:00:00"
+action:
+  - service: light.turn_off
+    target:
+      floor_id: "{{ floor_ref }}"

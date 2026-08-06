@@ -6,8 +6,8 @@ from custom_components.autodoctor.models import IssueType, Severity
 from custom_components.autodoctor.reachability_validator import ReachabilityValidator
 
 
-def test_does_not_flag_cross_trigger_state_values_as_contradictions() -> None:
-    """State trigger values are OR paths and must not become global facts."""
+def test_flags_single_trigger_top_level_condition_contradiction() -> None:
+    """Single state trigger contradicted by top-level condition is unreachable."""
     automation = {
         "id": "reachability_state",
         "alias": "Reachability State",
@@ -17,6 +17,40 @@ def test_does_not_flag_cross_trigger_state_values_as_contradictions() -> None:
                 "entity_id": "binary_sensor.motion_kitchen",
                 "to": "on",
             }
+        ],
+        "condition": [
+            {
+                "condition": "state",
+                "entity_id": "binary_sensor.motion_kitchen",
+                "state": "off",
+            }
+        ],
+        "action": [],
+    }
+
+    validator = ReachabilityValidator()
+    issues = validator.validate_automations([automation])
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == IssueType.UNREACHABLE_STATE_COMBINATION
+
+
+def test_does_not_flag_or_trigger_state_values_as_global_facts() -> None:
+    """Multiple triggers are OR paths and must not become global facts."""
+    automation = {
+        "id": "reachability_or_triggers",
+        "alias": "Reachability OR Triggers",
+        "trigger": [
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.motion_kitchen",
+                "to": "on",
+            },
+            {
+                "platform": "state",
+                "entity_id": "binary_sensor.motion_kitchen",
+                "to": "off",
+            },
         ],
         "condition": [
             {

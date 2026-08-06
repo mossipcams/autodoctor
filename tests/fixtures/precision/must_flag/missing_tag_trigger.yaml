@@ -1,0 +1,9 @@
+id: missing_tag_trigger
+alias: Missing Tag Trigger
+trigger:
+  - platform: tag
+    tag_id: nonexistent_tag_xyz
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.kitchen

@@ -1,0 +1,9 @@
+id: time_entity_at_missing
+alias: Time Entity At Missing
+trigger:
+  - platform: time
+    at: sensor.missing_alarm_time_xyz
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.kitchen

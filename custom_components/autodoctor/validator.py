@@ -4,13 +4,26 @@ from __future__ import annotations
 
 import logging
 from difflib import get_close_matches
+from typing import Any, cast
 
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import (
+    area_registry as ar,
+)
+from homeassistant.helpers import (
+    device_registry as dr,
+)
+from homeassistant.helpers import (
+    floor_registry as fr,
+)
+from homeassistant.helpers import (
+    label_registry as lr,
+)
 
 from .const import STATE_VALIDATION_WHITELIST
 from .domain_attributes import get_domain_attributes
 from .knowledge_base import StateKnowledgeBase
 from .models import IssueType, Severity, StateReference, ValidationIssue
+from .template_utils import is_template_value
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,8 +31,10 @@ _LOGGER = logging.getLogger(__name__)
 _NON_ENTITY_REFERENCE_TYPES = frozenset(
     {
         "device",  # device_id (hex hash) — validate against device registry
-        "tag",  # tag_id — no entity validation
+        "tag",  # tag_id — validate against tag storage when available
         "area",  # area_id — validate against area registry
+        "label",  # label_id — validate against label registry
+        "floor",  # floor_id — validate against floor registry
         "integration",  # integration name — no entity validation
     }
 )
@@ -36,6 +51,11 @@ class ValidationEngine:
         """
         self.knowledge_base = knowledge_base
         self._entity_cache: dict[str, list[str]] | None = None
+        self._skip_reasons: dict[str, int] = {}
+
+    def get_last_run_stats(self) -> dict[str, Any]:
+        """Return skip telemetry from the most recent validate_all run."""
+        return {"skip_reasons": dict(self._skip_reasons)}
 
     def validate_reference(self, ref: StateReference) -> list[ValidationIssue]:
         """Validate a single state reference."""
@@ -137,7 +157,7 @@ class ValidationEngine:
     def _validate_non_entity_reference(
         self, ref: StateReference
     ) -> list[ValidationIssue]:
-        """Validate references that aren't entity IDs (devices, areas, tags, etc.)."""
+        """Validate references that aren't entity IDs (devices, areas, labels, floors, tags)."""
         if ref.reference_type == "device":
             device_reg = dr.async_get(self.knowledge_base.hass)
             if not device_reg.async_get(ref.entity_id):
@@ -155,8 +175,6 @@ class ValidationEngine:
             return []
 
         if ref.reference_type == "area":
-            from homeassistant.helpers import area_registry as ar
-
             area_reg = ar.async_get(self.knowledge_base.hass)
             if not area_reg.async_get_area(ref.entity_id):
                 return [
@@ -172,8 +190,98 @@ class ValidationEngine:
                 ]
             return []
 
-        # tag, integration — skip entity validation (no reliable registry check)
+        if ref.reference_type == "label":
+            if is_template_value(ref.entity_id):
+                self._record_skip("labels.templated")
+                return []
+            label_reg = lr.async_get(self.knowledge_base.hass)
+            if not label_reg.async_get_label(ref.entity_id):
+                return [
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Label '{ref.entity_id}' does not exist",
+                        suggestion=self._suggest_registry_id(
+                            ref.entity_id,
+                            [entry.label_id for entry in label_reg.labels.values()],
+                        ),
+                    )
+                ]
+            return []
+
+        if ref.reference_type == "floor":
+            if is_template_value(ref.entity_id):
+                self._record_skip("floors.templated")
+                return []
+            floor_reg = fr.async_get(self.knowledge_base.hass)
+            if not floor_reg.async_get_floor(ref.entity_id):
+                return [
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Floor '{ref.entity_id}' does not exist",
+                        suggestion=self._suggest_registry_id(
+                            ref.entity_id,
+                            [entry.floor_id for entry in floor_reg.floors.values()],
+                        ),
+                    )
+                ]
+            return []
+
+        if ref.reference_type == "tag":
+            if is_template_value(ref.entity_id):
+                self._record_skip("tags.templated")
+                return []
+            tag_store = self.knowledge_base.hass.data.get("tag")
+            if tag_store is None or not hasattr(tag_store, "async_items"):
+                self._record_skip("tags.registry_unavailable")
+                return []
+            items: Any = tag_store.async_items()
+            known: set[str] = set()
+            if isinstance(items, dict):
+                known = set(cast(dict[str, Any], items))
+            elif isinstance(items, (list, tuple, set)):
+                for raw in cast(list[Any] | tuple[Any, ...] | set[Any], items):
+                    if not isinstance(raw, dict):
+                        continue
+                    tag_id = cast(dict[str, Any], raw).get("id")
+                    if isinstance(tag_id, str) and tag_id:
+                        known.add(tag_id)
+            if ref.entity_id not in known:
+                return [
+                    ValidationIssue(
+                        issue_type=IssueType.ENTITY_NOT_FOUND,
+                        severity=Severity.ERROR,
+                        automation_id=ref.automation_id,
+                        automation_name=ref.automation_name,
+                        entity_id=ref.entity_id,
+                        location=ref.location,
+                        message=f"Tag '{ref.entity_id}' does not exist",
+                        suggestion=self._suggest_registry_id(
+                            ref.entity_id, sorted(known)
+                        ),
+                    )
+                ]
+            return []
+
+        # integration — no reliable registry check
+        self._record_skip(f"{ref.reference_type}.skipped")
         return []
+
+    def _suggest_registry_id(self, invalid: str, known: list[str]) -> str | None:
+        """Suggest a close registry ID match when available."""
+        if not known:
+            return None
+        matches = get_close_matches(invalid, known, n=1, cutoff=0.75)
+        return matches[0] if matches else None
 
     def _check_state_value(
         self,
@@ -409,10 +517,14 @@ class ValidationEngine:
 
     def validate_all(self, refs: list[StateReference]) -> list[ValidationIssue]:
         """Validate a list of state references."""
+        self._skip_reasons = {}
         issues: list[ValidationIssue] = []
         for ref in refs:
             issues.extend(self.validate_reference(ref))
         return issues
+
+    def _record_skip(self, reason: str) -> None:
+        self._skip_reasons[reason] = self._skip_reasons.get(reason, 0) + 1
 
 
 def get_entity_suggestion(invalid_entity: str, all_entities: list[str]) -> str | None:

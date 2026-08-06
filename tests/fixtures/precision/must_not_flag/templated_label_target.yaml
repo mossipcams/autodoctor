@@ -1,0 +1,9 @@
+id: templated_label_target
+alias: Templated Label Target
+trigger:
+  - platform: time
+    at: "08:00:00"
+action:
+  - service: light.turn_on
+    target:
+      label_id: "{{ label_ref }}"

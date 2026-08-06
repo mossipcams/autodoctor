@@ -1,0 +1,14 @@
+id: trigger_condition_contradiction
+alias: Trigger Condition Contradiction
+trigger:
+  - platform: state
+    entity_id: binary_sensor.motion_kitchen
+    to: "on"
+condition:
+  - condition: state
+    entity_id: binary_sensor.motion_kitchen
+    state: "off"
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.kitchen

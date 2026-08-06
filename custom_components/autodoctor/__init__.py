@@ -1238,6 +1238,15 @@ async def _async_run_validators(
                 for issue in issues:
                     gid = issue_type_to_group.get(issue.issue_type, "entity_state")
                     group_issues[gid].append(issue)
+                if hasattr(validator, "get_last_run_stats"):
+                    entity_stats = cast(dict[str, Any], validator.get_last_run_stats())
+                    entity_skips = cast(
+                        dict[str, int], entity_stats.get("skip_reasons", {})
+                    )
+                    for reason, count in entity_skips.items():
+                        skip_reasons["entity_state"][reason] = skip_reasons[
+                            "entity_state"
+                        ].get(reason, 0) + int(count)
             except Exception as err:
                 failed_automations += 1
                 _LOGGER.warning(

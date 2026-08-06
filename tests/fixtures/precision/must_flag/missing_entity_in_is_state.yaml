@@ -1,0 +1,9 @@
+id: missing_entity_in_is_state
+alias: Missing Entity In Is State
+trigger:
+  - platform: template
+    value_template: "{{ is_state('light.does_not_exist_xyz', 'on') }}"
+action:
+  - service: persistent_notification.create
+    data:
+      message: fired

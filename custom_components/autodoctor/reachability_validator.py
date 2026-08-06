@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 from .action_walker import ensure_list
+from .const import STATE_VALIDATION_WHITELIST
 from .models import IssueType, Severity, ValidationIssue
 from .template_utils import is_template_value
 
@@ -37,9 +38,6 @@ class ReachabilityValidator:
             automation=automation,
         )
 
-        # Do not treat trigger states/thresholds as global facts.
-        # Triggers are OR paths in Home Assistant and would cause false positives.
-
         conditions = self._as_list(
             automation.get("conditions") or automation.get("condition")
         )
@@ -54,6 +52,32 @@ class ReachabilityValidator:
                 declared_trigger_ids=declared_trigger_ids,
                 issues=issues,
             )
+
+        # Single-trigger literal `to` vs top-level condition only.
+        # Do not seed trigger facts into branch globals (HA triggers are OR paths;
+        # if-branches must not inherit trigger-only constraints).
+        trigger_constraints: dict[tuple[str, str | None], StateConstraint] = {}
+        self._apply_single_trigger_state_facts(
+            automation=automation,
+            automation_id=automation_id,
+            automation_name=automation_name,
+            constraints=trigger_constraints,
+            issues=issues,
+        )
+        if trigger_constraints:
+            trigger_check = dict(initial_constraints)
+            for key, (state, location) in trigger_constraints.items():
+                entity_id, attribute = key
+                self._add_state_constraint(
+                    constraints=trigger_check,
+                    issues=issues,
+                    automation_id=automation_id,
+                    automation_name=automation_name,
+                    entity_id=entity_id,
+                    attribute=attribute,
+                    state=state,
+                    location=location,
+                )
 
         actions_raw = self._as_list(
             automation.get("actions") or automation.get("action")
@@ -414,6 +438,61 @@ class ReachabilityValidator:
                 "repeat",
                 "parallel",
             )
+        )
+
+    def _apply_single_trigger_state_facts(
+        self,
+        *,
+        automation: dict[str, Any],
+        automation_id: str,
+        automation_name: str,
+        constraints: dict[tuple[str, str | None], StateConstraint],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Seed constraints from a single literal state trigger when safe.
+
+        Only whitelist domains with a single discrete `to` value. Multiple
+        triggers are OR paths and must not become global facts.
+        """
+        triggers = self._as_list(
+            automation.get("triggers") or automation.get("trigger")
+        )
+        if len(triggers) != 1 or not isinstance(triggers[0], dict):
+            return
+
+        trigger = cast(dict[str, Any], triggers[0])
+        platform = trigger.get("platform") or trigger.get("trigger", "")
+        if platform != "state":
+            return
+
+        # Attribute transitions are not discrete entity-state facts.
+        if trigger.get("attribute") is not None:
+            return
+
+        to_states = self._normalize_values(trigger.get("to"))
+        if len(to_states) != 1 or is_template_value(to_states[0]):
+            return
+
+        entity_ids = self._normalize_entity_ids(trigger.get("entity_id"))
+        if len(entity_ids) != 1:
+            return
+
+        entity_id = entity_ids[0]
+        if is_template_value(entity_id) or "." not in entity_id:
+            return
+        domain = entity_id.split(".", 1)[0]
+        if domain not in STATE_VALIDATION_WHITELIST:
+            return
+
+        self._add_state_constraint(
+            constraints=constraints,
+            issues=issues,
+            automation_id=automation_id,
+            automation_name=automation_name,
+            entity_id=entity_id,
+            attribute=None,
+            state=to_states[0],
+            location="trigger[0].to",
         )
 
     def _process_top_level_condition(

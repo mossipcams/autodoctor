@@ -902,12 +902,10 @@ async def test_device_reference_reports_missing_device(hass: HomeAssistant) -> N
 
 
 @pytest.mark.asyncio
-async def test_tag_reference_skips_entity_validation(hass: HomeAssistant) -> None:
-    """Test that tag references are skipped (no entity validation).
-
-    NFC tags don't have entities, so tag_id references should not be
-    validated against the entity registry.
-    """
+async def test_tag_reference_skips_when_registry_unavailable(
+    hass: HomeAssistant,
+) -> None:
+    """Tag refs skip entity validation when tag storage is unavailable."""
     kb = StateKnowledgeBase(hass)
     validator = ValidationEngine(kb)
 

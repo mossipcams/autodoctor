@@ -1222,8 +1222,8 @@ async def test_unknown_target_key_flagged(hass: HomeAssistant) -> None:
 async def test_valid_target_keys_not_flagged(hass: HomeAssistant) -> None:
     """Test that standard target keys are not flagged.
 
-    entity_id, device_id, and area_id are all valid target keys and should
-    not produce unknown parameter warnings.
+    entity_id, device_id, area_id, label_id, and floor_id are all valid target
+    keys and should not produce unknown parameter warnings.
     """
 
     hass.services.async_register("light", "turn_on", _noop_service_handler)
@@ -1252,6 +1252,8 @@ async def test_valid_target_keys_not_flagged(hass: HomeAssistant) -> None:
             "entity_id": "light.kitchen",
             "device_id": "abc123",
             "area_id": "living_room",
+            "label_id": "precision_label",
+            "floor_id": "precision_floor",
         },
     )
 

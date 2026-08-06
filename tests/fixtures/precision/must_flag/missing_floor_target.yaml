@@ -1,0 +1,9 @@
+id: missing_floor_target
+alias: Missing Floor Target
+trigger:
+  - platform: time
+    at: "08:00:00"
+action:
+  - service: light.turn_off
+    target:
+      floor_id: nonexistent_floor_xyz

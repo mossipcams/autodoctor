@@ -1,0 +1,10 @@
+id: pure_time_pattern
+alias: Pure Time Pattern
+trigger:
+  - platform: time_pattern
+    hours: "/2"
+    minutes: "0"
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.kitchen

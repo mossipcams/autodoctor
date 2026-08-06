@@ -1,0 +1,17 @@
+id: or_triggers_not_global_contradiction
+alias: OR Triggers Not Global Contradiction
+trigger:
+  - platform: state
+    entity_id: binary_sensor.motion_kitchen
+    to: "on"
+  - platform: state
+    entity_id: binary_sensor.motion_kitchen
+    to: "off"
+condition:
+  - condition: state
+    entity_id: binary_sensor.motion_kitchen
+    state: "off"
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.kitchen

@@ -1,0 +1,9 @@
+id: templated_tag_trigger
+alias: Templated Tag Trigger
+trigger:
+  - platform: tag
+    tag_id: "{{ tag_id }}"
+action:
+  - service: light.turn_on
+    target:
+      entity_id: light.kitchen
