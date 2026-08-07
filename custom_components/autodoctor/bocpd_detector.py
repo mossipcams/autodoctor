@@ -146,9 +146,13 @@ class BOCPDDetector:
         current_count = self._coerce_count(current_row)
         score = self._score_tail_probability(state, current_count)
         training_counts = [self._coerce_count(row) for row in training]
-        score *= self._historical_envelope_factor(training_counts, current_count)
+        envelope_factor = self._historical_envelope_factor(
+            training_counts, current_count
+        )
+        score *= envelope_factor
         score *= self._cold_start_factor(training_counts, current_count)
-        score *= self._sparse_active_factor(training_counts, current_count)
+        if envelope_factor >= 1.0:
+            score *= self._sparse_active_factor(training_counts, current_count)
         score *= self._context_score_multiplier(
             state=state,
             current_row=current_row,

@@ -79,8 +79,6 @@ _OVERACTIVE_PROMOTION_MARGIN = 0.5
 _OVERACTIVE_IMMEDIATE_MARGIN = 0.5
 
 # EMA recovery: snap hangover when raw score is clearly normal again.
-_EMA_RECOVERY_RAW_CEILING = 2.0
-_EMA_RECOVERY_PREV_FLOOR = 2.5
 _EMA_RECOVERY_RATIO = 0.5
 
 
@@ -1749,10 +1747,12 @@ class RuntimeHealthMonitor:
                 self._score_ema[automation_id] = ema
 
         prev = self._score_ema.get(automation_id)
+        base_threshold = self._score_threshold_for(automation_id)
+        promotion_threshold = base_threshold + _OVERACTIVE_PROMOTION_MARGIN
         if (
             prev is not None
-            and score < _EMA_RECOVERY_RAW_CEILING
-            and prev >= _EMA_RECOVERY_PREV_FLOOR
+            and score < base_threshold
+            and prev >= promotion_threshold
             and score <= prev * _EMA_RECOVERY_RATIO
         ):
             history.clear()

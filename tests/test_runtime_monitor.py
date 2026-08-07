@@ -2100,6 +2100,48 @@ def test_smoothed_score_resets_after_clear_recovery() -> None:
     assert recovered == pytest.approx(0.3)
 
 
+def test_smoothed_score_recovery_snap_uses_high_sensitivity_promotion_floor() -> None:
+    """High sensitivity should snap at promote 2.0, not medium's hardcoded 2.5."""
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: datetime(2026, 2, 18, tzinfo=UTC),
+        sensitivity="high",
+    )
+    aid = "automation.recover.high"
+
+    monitor._smoothed_score(aid, 0.2)
+    # Spike lifts EMA past high promote (1.5 + 0.5) but under medium 2.5.
+    elevated = monitor._smoothed_score(aid, 6.0)
+    assert elevated >= 2.0
+    assert elevated < 2.5
+
+    recovered = monitor._smoothed_score(aid, 0.2)
+    assert recovered == pytest.approx(0.2)
+
+
+def test_smoothed_score_recovery_snap_respects_low_sensitivity_promotion_floor() -> (
+    None
+):
+    """Low sensitivity must not snap until EMA reaches low promote floor (3.5)."""
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
+        hass,
+        now_factory=lambda: datetime(2026, 2, 18, tzinfo=UTC),
+        sensitivity="low",
+    )
+    aid = "automation.recover.low"
+
+    monitor._smoothed_score(aid, 0.3)
+    # EMA lands above medium promote (2.5) but below low promote (3.5).
+    elevated = monitor._smoothed_score(aid, 8.0)
+    assert elevated >= 2.5
+    assert elevated < 3.5
+
+    not_snapped = monitor._smoothed_score(aid, 0.3)
+    assert not_snapped > 0.3
+
+
 def test_build_feature_row_uses_precomputed_median_gap() -> None:
     """_build_feature_row should use median_gap_override when provided."""
     now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)

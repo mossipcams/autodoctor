@@ -356,6 +356,40 @@ def test_bocpd_mature_history_unaffected() -> None:
     assert score >= 2.5
 
 
+def test_bocpd_sparse_envelope_dampening_does_not_compound() -> None:
+    """Envelope and sparse-active dampening must not multiply when both apply."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    active_levels = [12.0, 13.0, 14.0, 12.0, 13.0]
+    history: list[dict[str, float]] = []
+    active_idx = 0
+    for i in range(30):
+        if i % 6 == 0:
+            history.append(_feature_row(active_levels[active_idx]))
+            active_idx += 1
+        else:
+            history.append(_feature_row(0.0))
+
+    current_row = _feature_row(14.0)
+    train_rows = [*history, current_row]
+    training = train_rows[:-1]
+    state = detector.initial_state()
+    for row in training:
+        detector.update_state(state, detector._coerce_count(row))
+    raw = detector._score_tail_probability(state, detector._coerce_count(current_row))
+    raw *= detector._context_score_multiplier(
+        state=state,
+        current_row=current_row,
+        current_count=detector._coerce_count(current_row),
+    )
+
+    score = detector.score_current("automation.sparse.envelope", train_rows)
+
+    # Compound envelope (0.15) x sparse (0.25) ~ 0.04 would crush a recurring active night.
+    assert raw > 0.0
+    assert score / raw > 0.10
+    assert score / raw < 0.20
+
+
 def test_bocpd_sparse_active_recurring_night_stays_below_medium() -> None:
     """Zero-inflated history: recurring active-night levels must not promote."""
     detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
