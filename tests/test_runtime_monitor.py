@@ -25,8 +25,9 @@ from tests.conftest import build_runtime_monitor
 class _FixedScoreDetector:
     """Test detector that returns a fixed anomaly score."""
 
-    def __init__(self, score: float) -> None:
+    def __init__(self, score: float, *, expected_rate: float = 0.0) -> None:
         self._score = score
+        self.last_expected_rate = float(expected_rate)
 
     def score_current(
         self,
@@ -46,11 +47,12 @@ class _TestRuntimeMonitor(RuntimeHealthMonitor):
         history: dict[str, list[datetime]],
         now: datetime,
         score: float = 2.0,
+        expected_rate: float = 0.0,
         **kwargs: object,
     ) -> None:
         super().__init__(
             hass,
-            detector=_FixedScoreDetector(score),
+            detector=_FixedScoreDetector(score, expected_rate=expected_rate),
             now_factory=lambda: now,
             **kwargs,
         )
@@ -1606,6 +1608,7 @@ def test_feature_row_includes_expanded_runtime_features() -> None:
         "bucket_ratio_30d",
         "gap_vs_median",
         "is_weekend",
+        "weekday",
         "other_automations_5m",
     }
 
@@ -2065,6 +2068,36 @@ def test_smoothed_score_accepts_prefetched_persisted_ema(tmp_path: Path) -> None
     # score_ema_samples defaults to 5 => alpha = 2/6 ~= 0.3333
     # seeded ema: 0.4, then update with 0.8 => 0.5333
     assert ema == pytest.approx(0.5333333333, rel=1e-3)
+
+
+def test_smoothed_score_does_not_reseed_from_aged_spike() -> None:
+    """EMA should stay online — an aged spike must not re-seed the window."""
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
+        hass, now_factory=lambda: datetime(2026, 2, 18, tzinfo=UTC)
+    )
+
+    for score in (0.2, 0.3, 0.1, 0.4, 8.0, 0.3, 0.2, 0.1):
+        monitor._smoothed_score("automation.spike", score)
+
+    # Spike has aged to the front of the 5-sample window; online EMA must keep decaying.
+    ema = monitor._smoothed_score("automation.spike", 0.2)
+    assert ema < 1.0
+
+
+def test_smoothed_score_resets_after_clear_recovery() -> None:
+    """When score returns to normal after an elevated EMA, snap out of hangover."""
+    hass = MagicMock()
+    monitor = RuntimeHealthMonitor(
+        hass, now_factory=lambda: datetime(2026, 2, 18, tzinfo=UTC)
+    )
+
+    monitor._smoothed_score("automation.recover", 0.3)
+    spiked = monitor._smoothed_score("automation.recover", 8.0)
+    assert spiked >= 2.5
+
+    recovered = monitor._smoothed_score("automation.recover", 0.3)
+    assert recovered == pytest.approx(0.3)
 
 
 def test_build_feature_row_uses_precomputed_median_gap() -> None:
@@ -3256,6 +3289,46 @@ async def test_overactive_fires_for_high_count_anomaly_with_evidence(
 
 
 @pytest.mark.asyncio
+async def test_overactive_message_uses_detector_expected_rate(
+    hass: HomeAssistant,
+) -> None:
+    """Overactive copy should use detector expected rate when provided."""
+    now = datetime(2026, 2, 11, 12, 0, tzinfo=UTC)
+    baseline: list[datetime] = []
+    for days_back in range(2, 32):
+        day = now - timedelta(days=days_back)
+        baseline.extend(
+            [
+                day.replace(hour=13, minute=0),
+                day.replace(hour=18, minute=0),
+            ]
+        )
+    recent = [now - timedelta(hours=1, minutes=minute) for minute in range(20)]
+    history = {"runtime_test": baseline + recent}
+
+    monitor = _TestRuntimeMonitor(
+        hass,
+        history=history,
+        now=now,
+        score=3.0,
+        expected_rate=7.5,
+        warmup_samples=7,
+        min_expected_events=0,
+    )
+
+    issues = await monitor.validate_automations(
+        [_automation("runtime_test", "Hallway Lights")]
+    )
+
+    overactive = [
+        i for i in issues if i.issue_type == IssueType.RUNTIME_AUTOMATION_OVERACTIVE
+    ]
+    assert len(overactive) == 1
+    assert "normal is about 7.5/day" in overactive[0].message
+    assert overactive[0].evidence["expected_daily_count"] == pytest.approx(7.5)
+
+
+@pytest.mark.asyncio
 async def test_overactive_issue_serializes_runtime_evidence(
     hass: HomeAssistant,
 ) -> None:
@@ -3486,6 +3559,7 @@ async def test_validate_automations_requires_confirmation_for_moderate_overactiv
     assert first_overactive == []
 
     monitor._score_history.clear()
+    monitor._score_ema.clear()
     second_issues = await monitor.validate_automations(
         [_automation("runtime_test", "Hallway Lights")]
     )
@@ -3522,6 +3596,7 @@ async def test_validate_automations_clears_overactive_when_score_drops(
     # Switch to low score for second scan
     monitor._detector = _FixedScoreDetector(0.5)
     monitor._score_history.clear()
+    monitor._score_ema.clear()
     await monitor.validate_automations([_automation("runtime_test", "Hallway Lights")])
     assert len(monitor.get_active_runtime_alerts()) == 0
 
@@ -3994,6 +4069,7 @@ async def test_validate_automations_low_sensitivity_requires_higher_score(
     assert overactive_high == []
 
     monitor_high._score_history.clear()
+    monitor_high._score_ema.clear()
     confirmed_issues = await monitor_high.validate_automations(
         [_automation("runtime_test", "Test")]
     )

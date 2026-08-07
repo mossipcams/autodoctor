@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 
 import pytest
@@ -125,6 +126,16 @@ def test_bocpd_expected_rate_approximates_mean_in_stable_regime() -> None:
     assert expected_rate == pytest.approx(5.0, rel=0.35)
 
 
+def test_bocpd_score_current_exposes_last_expected_rate() -> None:
+    """score_current should publish the filtered-training expected rate."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    rows = [_feature_row(5.0) for _ in range(24)] + [_feature_row(5.0)]
+
+    detector.score_current("automation.expected", rows)
+
+    assert detector.last_expected_rate == pytest.approx(5.0, rel=0.35)
+
+
 def test_bocpd_score_current_implements_detector_protocol() -> None:
     """Detector should provide score_current compatible with Detector protocol."""
     detector = BOCPDDetector(hazard_rate=0.05, max_run_length=32)
@@ -141,6 +152,8 @@ def _feature_row(
     hour_ratio_30d: float = 1.0,
     gap_vs_median: float = 1.0,
     other_automations_5m: float = 0.0,
+    is_weekend: float = 0.0,
+    weekday: float = 0.0,
 ) -> dict[str, float]:
     """Build a runtime feature row aligned with monitor feature schema."""
     return {
@@ -148,13 +161,32 @@ def _feature_row(
         "rolling_7d_count": count_24h * 6.0,
         "hour_ratio_30d": hour_ratio_30d,
         "gap_vs_median": gap_vs_median,
-        "is_weekend": 0.0,
+        "is_weekend": is_weekend,
+        "weekday": weekday,
         "other_automations_5m": other_automations_5m,
     }
 
 
-def test_bocpd_context_gap_signal_amplifies_stalled_score() -> None:
-    """Large gap-vs-median should increase anomaly confidence for stalls."""
+def test_bocpd_upper_tail_under_count_scores_near_zero() -> None:
+    """Upper-tail scoring should not treat under-counts as overactive anomalies."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    baseline = [_feature_row(5.0 + float(i % 2)) for i in range(30)]
+
+    score_under = detector.score_current(
+        "automation.upper_tail.under",
+        [*baseline, _feature_row(0.0)],
+    )
+    score_over = detector.score_current(
+        "automation.upper_tail.over",
+        [*baseline, _feature_row(20.0)],
+    )
+
+    assert score_under < 1.0
+    assert score_over > score_under * 3.0
+
+
+def test_bocpd_context_gap_no_longer_amplifies_under_count() -> None:
+    """Gap context must not inflate under-count scores (stall path removed)."""
     detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
     baseline = [_feature_row(6.0 + float(i % 2)) for i in range(28)]
 
@@ -167,7 +199,270 @@ def test_bocpd_context_gap_signal_amplifies_stalled_score() -> None:
         [*baseline, _feature_row(0.0, gap_vs_median=8.0)],
     )
 
-    assert score_large_gap > score_small_gap
+    assert score_large_gap == pytest.approx(score_small_gap, abs=1e-9)
+
+
+def test_bocpd_day_type_filter_reduces_cross_weekend_false_alarm() -> None:
+    """Weekday scoring should ignore busy weekend history when enough weekdays exist."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    weekday_quiet = [
+        _feature_row(3.0 + float(i % 2), is_weekend=0.0) for i in range(20)
+    ]
+    weekend_busy = [
+        _feature_row(25.0 + float(i % 2), is_weekend=1.0) for i in range(10)
+    ]
+    mixed = weekday_quiet + weekend_busy
+    current = _feature_row(4.0, is_weekend=0.0)
+
+    score_filtered = detector.score_current(
+        "automation.day_type.filtered",
+        [*mixed, current],
+    )
+    # Relabel weekends as weekdays so the filter keeps the busy weekend counts.
+    mixed_as_weekday = [{**row, "is_weekend": 0.0} for row in mixed]
+    score_mixed = detector.score_current(
+        "automation.day_type.mixed",
+        [*mixed_as_weekday, current],
+    )
+
+    assert score_filtered < score_mixed
+    assert score_filtered < 2.0
+
+
+def test_bocpd_day_type_filter_falls_back_when_sparse() -> None:
+    """Sparse same day-type history should fall back to full training window."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    weekday_rows = [_feature_row(5.0 + float(i % 2), is_weekend=0.0) for i in range(20)]
+    weekend_rows = [_feature_row(6.0, is_weekend=1.0) for _ in range(3)]
+    current = _feature_row(30.0, is_weekend=1.0)
+
+    score = detector.score_current(
+        "automation.day_type.sparse",
+        [*weekday_rows, *weekend_rows, current],
+    )
+
+    assert math.isfinite(score)
+    assert score > 0.0
+
+
+def test_bocpd_recurring_busy_day_stays_below_medium_threshold() -> None:
+    """Recurring busy days inside the historical envelope must not promote."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    # ~80% quiet (~5), ~20% busy (~22) — current matches the busy pattern.
+    history = [_feature_row(22.0 if i % 5 == 0 else 5.0) for i in range(32)]
+
+    score = detector.score_current(
+        "automation.envelope.recurring",
+        [*history, _feature_row(22.0)],
+    )
+
+    assert score < 2.0
+
+
+def test_bocpd_true_spike_above_historical_envelope_still_high() -> None:
+    """Counts above the historical envelope must keep a high overactive score."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(22.0 if i % 5 == 0 else 5.0) for i in range(32)]
+
+    score_recurring = detector.score_current(
+        "automation.envelope.recurring",
+        [*history, _feature_row(22.0)],
+    )
+    score_spike = detector.score_current(
+        "automation.envelope.spike",
+        [*history, _feature_row(40.0)],
+    )
+
+    assert score_spike > score_recurring
+    assert score_spike >= 2.5
+
+
+def test_bocpd_envelope_dampen_skipped_when_sparse_history() -> None:
+    """Sparse training history should skip envelope dampening and stay finite."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    sparse = [_feature_row(5.0) for _ in range(4)]
+
+    score = detector.score_current(
+        "automation.envelope.sparse",
+        [*sparse, _feature_row(40.0)],
+    )
+
+    assert math.isfinite(score)
+    assert score > 2.5
+
+
+def test_bocpd_post_spike_return_to_normal_stays_low() -> None:
+    """Day after a lone spike returning to baseline must not promote."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(5.0) for _ in range(25)] + [_feature_row(80.0)]
+
+    score = detector.score_current(
+        "automation.hangover.return",
+        [*history, _feature_row(5.0)],
+    )
+
+    assert score < 2.0
+
+
+def test_bocpd_post_spike_continued_extreme_still_high() -> None:
+    """A lone spike must not set the envelope so a continued extreme is muted."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(5.0) for _ in range(25)] + [_feature_row(80.0)]
+
+    score = detector.score_current(
+        "automation.hangover.continued",
+        [*history, _feature_row(80.0)],
+    )
+
+    assert score >= 2.5
+
+
+def test_bocpd_cold_start_modest_count_stays_below_medium() -> None:
+    """Modest first activity with almost no prior active days must not promote."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(0.0) for _ in range(20)]
+
+    score = detector.score_current(
+        "automation.cold_start.modest",
+        [*history, _feature_row(5.0)],
+    )
+
+    assert score < 2.0
+
+
+def test_bocpd_cold_start_extreme_spike_still_high() -> None:
+    """Extreme first-day spikes must still clear the promote threshold."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(0.0) for _ in range(20)]
+
+    score = detector.score_current(
+        "automation.cold_start.extreme",
+        [*history, _feature_row(40.0)],
+    )
+
+    assert score >= 2.5
+
+
+def test_bocpd_mature_history_unaffected() -> None:
+    """Cold-start gate must not dampen spikes once history is mature."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(10.0 + float(i % 2)) for i in range(28)]
+
+    score = detector.score_current(
+        "automation.cold_start.mature",
+        [*history, _feature_row(30.0)],
+    )
+
+    assert score >= 2.5
+
+
+def test_bocpd_sparse_active_recurring_night_stays_below_medium() -> None:
+    """Zero-inflated history: recurring active-night levels must not promote."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    active_levels = [12.0, 13.0, 14.0, 12.0, 13.0]
+    history: list[dict[str, float]] = []
+    active_idx = 0
+    for i in range(30):
+        # ~1/6 days active at 12-14, rest quiet — matches late-night motion patterns.
+        if i % 6 == 0:
+            history.append(_feature_row(active_levels[active_idx]))
+            active_idx += 1
+        else:
+            history.append(_feature_row(0.0))
+
+    score = detector.score_current(
+        "automation.sparse.recurring",
+        [*history, _feature_row(14.0)],
+    )
+
+    assert score < 2.0
+
+
+def test_bocpd_sparse_active_true_spike_still_high() -> None:
+    """Zero-inflated history: counts above the active-day envelope still promote."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    active_levels = [12.0, 13.0, 14.0, 12.0, 13.0]
+    history: list[dict[str, float]] = []
+    active_idx = 0
+    for i in range(30):
+        if i % 6 == 0:
+            history.append(_feature_row(active_levels[active_idx]))
+            active_idx += 1
+        else:
+            history.append(_feature_row(0.0))
+
+    score_recurring = detector.score_current(
+        "automation.sparse.recurring",
+        [*history, _feature_row(14.0)],
+    )
+    score_spike = detector.score_current(
+        "automation.sparse.spike",
+        [*history, _feature_row(40.0)],
+    )
+
+    assert score_spike > score_recurring
+    assert score_spike >= 2.5
+
+
+def test_bocpd_dense_history_skips_sparse_active_gate() -> None:
+    """Everyday activity must not be treated as zero-inflated sparse-active."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history = [_feature_row(10.0 + float(i % 2)) for i in range(28)]
+
+    score = detector.score_current(
+        "automation.sparse.dense",
+        [*history, _feature_row(30.0)],
+    )
+
+    assert score >= 2.5
+
+
+def test_bocpd_same_weekday_filter_recovers_weekday_specific_spike() -> None:
+    """Same-weekday training should surface Monday spikes hidden by busy Fridays."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    history: list[dict[str, float]] = []
+    # 5 Mondays quiet (~3), 5 Fridays busy (~25).
+    for _ in range(5):
+        history.append(_feature_row(3.0, is_weekend=0.0, weekday=0.0))  # Mon
+        history.append(_feature_row(4.0, is_weekend=0.0, weekday=1.0))  # Tue
+        history.append(_feature_row(4.0, is_weekend=0.0, weekday=2.0))  # Wed
+        history.append(_feature_row(5.0, is_weekend=0.0, weekday=3.0))  # Thu
+        history.append(_feature_row(25.0, is_weekend=0.0, weekday=4.0))  # Fri
+
+    monday_spike = _feature_row(12.0, is_weekend=0.0, weekday=0.0)
+    score_same_weekday = detector.score_current(
+        "automation.weekday.same",
+        [*history, monday_spike],
+    )
+    # Collapse weekday labels so Friday highs stay in the Monday training envelope.
+    collapsed = [{**row, "weekday": 0.0} for row in history]
+    score_mixed = detector.score_current(
+        "automation.weekday.mixed",
+        [*collapsed, monday_spike],
+    )
+
+    assert score_same_weekday > score_mixed
+    assert score_same_weekday >= 2.5
+    assert score_mixed < 2.0
+
+
+def test_bocpd_same_weekday_filter_falls_back_when_sparse() -> None:
+    """Fewer than 4 same-weekday rows should fall back to day-type history."""
+    detector = BOCPDDetector(hazard_rate=0.05, max_run_length=64)
+    # 15 weekday rows cycling Mon-Fri => only 3 Mondays.
+    history = [
+        _feature_row(5.0 + float(i % 2), is_weekend=0.0, weekday=float(i % 5))
+        for i in range(15)
+    ]
+    current = _feature_row(30.0, is_weekend=0.0, weekday=0.0)
+
+    score = detector.score_current(
+        "automation.weekday.sparse",
+        [*history, current],
+    )
+
+    assert math.isfinite(score)
+    assert score > 0.0
 
 
 def test_bocpd_context_hour_ratio_amplifies_overactive_score() -> None:

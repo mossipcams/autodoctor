@@ -35,8 +35,6 @@ _HAZARD_MAX = 0.60
 # Context score multiplier bounds
 _CONTEXT_MULTIPLIER_MIN = 0.55
 _CONTEXT_MULTIPLIER_MAX = 1.75
-_GAP_BOOST_CAP = 0.40
-_GAP_BOOST_SCALE = 0.18
 _HOUR_BOOST_CAP = 0.35
 _HOUR_BOOST_SCALE = 0.20
 _BUCKET_BOOST_CAP = 0.55
@@ -44,6 +42,29 @@ _BUCKET_BOOST_SCALE = 0.24
 _DAMPENING_CAP = 0.45
 _DAMPENING_SCALE = 0.14
 _DAMPENING_FLOOR = 0.55
+
+# Prefer same day-type (weekday/weekend) training rows when enough exist.
+_MIN_DAY_TYPE_TRAINING_ROWS = 7
+# Prefer exact weekday (Mon=0..Sun=6) when enough same-weekday rows exist.
+_MIN_WEEKDAY_TRAINING_ROWS = 4
+
+# Dampen scores inside the empirical high-count envelope of training history.
+_ENVELOPE_IN_FACTOR = 0.15
+_ENVELOPE_RAMP_RATIO = 1.10
+# Lone outliers must not set the envelope (post-spike hangover / false muting).
+_ENVELOPE_NEAR_PEAK_RATIO = 0.90
+_ENVELOPE_MIN_NEAR_PEAK = 2
+
+# Cold-start: weak same-day-type history makes modest first activity look infinite.
+_MIN_ACTIVE_TRAINING_DAYS = 4
+_WEAK_ENVELOPE_MAX = 2
+_COLD_START_MODEST_MAX = 14
+_COLD_START_FACTOR = 0.10
+
+# Sparse-active (zero-inflated): compare against active-day highs, not the zero mass.
+_SPARSE_ACTIVE_MAX_DENSITY = 0.40
+_MIN_SPARSE_ACTIVE_DAYS = 3
+_SPARSE_ACTIVE_IN_FACTOR = 0.25
 
 # Probability normalization
 _PROB_TRIM_THRESHOLD = 1e-15
@@ -87,6 +108,7 @@ class BOCPDDetector:
         self._prior_alpha = max(_PRIOR_FLOOR, float(prior_alpha))
         self._prior_beta = max(_PRIOR_FLOOR, float(prior_beta))
         self._count_feature = count_feature
+        self.last_expected_rate = 0.0
 
     def initial_state(self) -> dict[str, Any]:
         """Return a default BOCPD bucket state."""
@@ -105,20 +127,28 @@ class BOCPDDetector:
         train_rows: list[dict[str, float]],
         window_size: int | None = None,
     ) -> float:
-        """Return two-sided tail score from BOCPD posterior predictive mass."""
+        """Return upper-tail score from BOCPD posterior predictive mass."""
         if len(train_rows) < 2:
+            self.last_expected_rate = 0.0
             return 0.0
 
         training = train_rows[:-1]
         if window_size is not None and window_size > 0 and len(training) > window_size:
             training = training[-window_size:]
 
+        current_row = train_rows[-1]
+        training = self._filter_training_by_day_type(training, current_row)
+
         state = self.initial_state()
         for row in training:
             self.update_state(state, self._coerce_count(row))
-        current_row = train_rows[-1]
+        self.last_expected_rate = self.expected_rate(state)
         current_count = self._coerce_count(current_row)
         score = self._score_tail_probability(state, current_count)
+        training_counts = [self._coerce_count(row) for row in training]
+        score *= self._historical_envelope_factor(training_counts, current_count)
+        score *= self._cold_start_factor(training_counts, current_count)
+        score *= self._sparse_active_factor(training_counts, current_count)
         score *= self._context_score_multiplier(
             state=state,
             current_row=current_row,
@@ -209,6 +239,7 @@ class BOCPDDetector:
     def _score_tail_probability(
         self, state: dict[str, Any], current_count: int
     ) -> float:
+        """Score overactive surprise via upper-tail predictive mass P(X >= count)."""
         pmf_floor = _PMF_FLOOR
         max_score = _MAX_ANOMALY_SCORE
         pmf_current = self.predictive_pmf_for_count(state, current_count)
@@ -233,9 +264,9 @@ class BOCPDDetector:
                 break
 
         cdf = min(1.0, max(0.0, cdf))
+        # P(X >= current) = 1 - P(X < current) = 1 - (cdf - pmf_current)
         upper_tail = min(1.0, max(0.0, 1.0 - (cdf - pmf_current)))
-        two_sided_p = min(1.0, 2.0 * min(cdf, upper_tail))
-        tail_score = min(max_score, -math.log10(max(two_sided_p, pmf_floor)))
+        tail_score = min(max_score, -math.log10(max(upper_tail, pmf_floor)))
         if surprise_score > tail_score:
             tail_score += _SURPRISE_BLEND_FACTOR * (surprise_score - tail_score)
         return max(0.0, min(max_score, float(tail_score)))
@@ -252,6 +283,139 @@ class BOCPDDetector:
         )
         return min(_HAZARD_MAX, max(self.hazard_rate, self.hazard_rate * (1.0 + boost)))
 
+    def _filter_training_by_day_type(
+        self,
+        training: list[dict[str, float]],
+        current_row: dict[str, float],
+    ) -> list[dict[str, float]]:
+        """Prefer same weekday, else same weekday/weekend, when enough history exists."""
+        if not training:
+            return training
+        current_is_weekend = self._is_weekend_flag(current_row)
+        day_type_rows = [
+            row for row in training if self._is_weekend_flag(row) == current_is_weekend
+        ]
+        pool = (
+            day_type_rows
+            if len(day_type_rows) >= _MIN_DAY_TYPE_TRAINING_ROWS
+            else training
+        )
+
+        current_weekday = self._weekday_value(current_row)
+        if current_weekday is None:
+            return pool
+        same_weekday = [
+            row for row in pool if self._weekday_value(row) == current_weekday
+        ]
+        if len(same_weekday) >= _MIN_WEEKDAY_TRAINING_ROWS:
+            return same_weekday
+        return pool
+
+    def _is_weekend_flag(self, row: dict[str, float]) -> bool:
+        return self._coerce_numeric(row.get("is_weekend"), 0.0) >= 0.5
+
+    def _weekday_value(self, row: dict[str, float]) -> int | None:
+        if "weekday" not in row:
+            return None
+        try:
+            value = round(float(row["weekday"]))
+        except (TypeError, ValueError):
+            return None
+        if 0 <= value <= 6:
+            return value
+        return None
+
+    def _historical_envelope_factor(
+        self,
+        training_counts: list[int],
+        current_count: int,
+    ) -> float:
+        """Dampen scores when current count sits inside historical high envelope."""
+        if len(training_counts) < _MIN_DAY_TYPE_TRAINING_ROWS:
+            return 1.0
+        ordered = sorted(max(0, int(value)) for value in training_counts)
+        if not ordered:
+            return 1.0
+        envelope = self._robust_envelope(ordered)
+        if envelope <= 0.0:
+            return 1.0
+
+        current = float(max(0, int(current_count)))
+        if current <= envelope:
+            return _ENVELOPE_IN_FACTOR
+
+        ramp_ceiling = envelope * _ENVELOPE_RAMP_RATIO
+        if current >= ramp_ceiling:
+            return 1.0
+
+        # Linear ramp from in-envelope factor → full score across the 10% band.
+        progress = (current - envelope) / max(ramp_ceiling - envelope, 1e-9)
+        return _ENVELOPE_IN_FACTOR + ((1.0 - _ENVELOPE_IN_FACTOR) * progress)
+
+    @staticmethod
+    def _robust_envelope(ordered_counts: list[int]) -> float:
+        """Return high envelope; ignore a lone peak so one spike cannot mute the next."""
+        p95_index = int(0.95 * float(len(ordered_counts) - 1))
+        p95 = float(ordered_counts[p95_index])
+        peak = float(ordered_counts[-1])
+        if peak <= 0.0:
+            return 0.0
+        near_peak = sum(
+            1
+            for value in ordered_counts
+            if float(value) >= peak * _ENVELOPE_NEAR_PEAK_RATIO
+        )
+        # Recurring highs can define the envelope; a solitary outlier must not
+        # (post-changepoint hangover that falsely mutes a continued extreme).
+        if near_peak >= _ENVELOPE_MIN_NEAR_PEAK:
+            return peak
+        return p95
+
+    def _cold_start_factor(
+        self,
+        training_counts: list[int],
+        current_count: int,
+    ) -> float:
+        """Dampen modest first activity when same-day-type history is too weak."""
+        if not training_counts:
+            return (
+                _COLD_START_FACTOR if current_count <= _COLD_START_MODEST_MAX else 1.0
+            )
+        active_days = sum(1 for value in training_counts if int(value) > 0)
+        peak = max(int(value) for value in training_counts)
+        weak = active_days < _MIN_ACTIVE_TRAINING_DAYS or peak <= _WEAK_ENVELOPE_MAX
+        if not weak:
+            return 1.0
+        if int(current_count) <= _COLD_START_MODEST_MAX:
+            return _COLD_START_FACTOR
+        return 1.0
+
+    def _sparse_active_factor(
+        self,
+        training_counts: list[int],
+        current_count: int,
+    ) -> float:
+        """Dampen recurring active levels when most training days are zeros."""
+        if len(training_counts) < _MIN_DAY_TYPE_TRAINING_ROWS:
+            return 1.0
+        active = [max(0, int(value)) for value in training_counts if int(value) > 0]
+        if len(active) < _MIN_SPARSE_ACTIVE_DAYS:
+            return 1.0
+        density = float(len(active)) / float(len(training_counts))
+        if density > _SPARSE_ACTIVE_MAX_DENSITY:
+            return 1.0
+
+        active_env = float(max(active))
+        current = float(max(0, int(current_count)))
+        if current <= active_env:
+            return _SPARSE_ACTIVE_IN_FACTOR
+
+        ramp_ceiling = active_env * _ENVELOPE_RAMP_RATIO
+        if current >= ramp_ceiling:
+            return 1.0
+        progress = (current - active_env) / max(ramp_ceiling - active_env, 1e-9)
+        return _SPARSE_ACTIVE_IN_FACTOR + ((1.0 - _SPARSE_ACTIVE_IN_FACTOR) * progress)
+
     def _context_score_multiplier(
         self,
         *,
@@ -259,15 +423,15 @@ class BOCPDDetector:
         current_row: dict[str, float],
         current_count: int,
     ) -> float:
-        """Apply bounded runtime-context adjustments to BOCPD anomaly score."""
+        """Apply bounded overactive context adjustments to BOCPD anomaly score."""
         expected = max(0.0, self.expected_rate(state))
         if expected <= 0.0:
             return 1.0
 
         deviation = float(current_count) - expected
-        gap_vs_median = max(
-            0.0, self._coerce_numeric(current_row.get("gap_vs_median"), 1.0)
-        )
+        if deviation <= 0.0:
+            return 1.0
+
         hour_ratio = max(
             0.0, self._coerce_numeric(current_row.get("hour_ratio_30d"), 1.0)
         )
@@ -280,27 +444,20 @@ class BOCPDDetector:
         )
 
         multiplier = 1.0
-        if deviation < 0.0:
-            gap_boost = min(
-                _GAP_BOOST_CAP,
-                _GAP_BOOST_SCALE * math.log1p(max(0.0, gap_vs_median - 1.0)),
-            )
-            multiplier *= 1.0 + gap_boost
-        elif deviation > 0.0:
-            hour_boost = min(
-                _HOUR_BOOST_CAP,
-                _HOUR_BOOST_SCALE * math.log1p(max(0.0, hour_ratio - 1.0)),
-            )
-            multiplier *= 1.0 + hour_boost
-            bucket_boost = min(
-                _BUCKET_BOOST_CAP,
-                _BUCKET_BOOST_SCALE * math.log1p(max(0.0, bucket_ratio - 1.0)),
-            )
-            multiplier *= 1.0 + bucket_boost
-            dampening = min(
-                _DAMPENING_CAP, _DAMPENING_SCALE * math.log1p(other_automations)
-            )
-            multiplier *= max(_DAMPENING_FLOOR, 1.0 - dampening)
+        hour_boost = min(
+            _HOUR_BOOST_CAP,
+            _HOUR_BOOST_SCALE * math.log1p(max(0.0, hour_ratio - 1.0)),
+        )
+        multiplier *= 1.0 + hour_boost
+        bucket_boost = min(
+            _BUCKET_BOOST_CAP,
+            _BUCKET_BOOST_SCALE * math.log1p(max(0.0, bucket_ratio - 1.0)),
+        )
+        multiplier *= 1.0 + bucket_boost
+        dampening = min(
+            _DAMPENING_CAP, _DAMPENING_SCALE * math.log1p(other_automations)
+        )
+        multiplier *= max(_DAMPENING_FLOOR, 1.0 - dampening)
 
         return max(_CONTEXT_MULTIPLIER_MIN, min(_CONTEXT_MULTIPLIER_MAX, multiplier))
 

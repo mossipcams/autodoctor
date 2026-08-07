@@ -78,6 +78,11 @@ _SENSITIVITY_THRESHOLDS: dict[str, float] = {
 _OVERACTIVE_PROMOTION_MARGIN = 0.5
 _OVERACTIVE_IMMEDIATE_MARGIN = 0.5
 
+# EMA recovery: snap hangover when raw score is clearly normal again.
+_EMA_RECOVERY_RAW_CEILING = 2.0
+_EMA_RECOVERY_PREV_FLOOR = 2.5
+_EMA_RECOVERY_RATIO = 0.5
+
 
 @dataclass(frozen=True)
 class _RuntimeHistoryFetchResult:
@@ -171,6 +176,7 @@ class RuntimeHealthMonitor:
         self._now_factory = now_factory or (lambda: datetime.now(UTC))
         self._started_at = self._now_factory()
         self._score_history: dict[str, list[float]] = {}
+        self._score_ema: dict[str, float] = {}
         self._last_run_stats: dict[str, int] = {}
         self._runtime_state: dict[str, Any] = {
             "schema_version": 2,
@@ -1300,9 +1306,18 @@ class RuntimeHealthMonitor:
                 len(recent_events),
             )
             score = self._score_current(automation_entity_id, train_rows)
+            detector_expected = getattr(self._detector, "last_expected_rate", 0.0)
+            if (
+                isinstance(detector_expected, (int, float))
+                and float(detector_expected) > 0.0
+            ):
+                # Prefer filtered-training BOCPD rate for alert copy / high-activity gate.
+                # Warmup and min_expected still use fmean(day_counts) above.
+                expected = float(detector_expected)
             prefetched_ema: float | None = None
             if (
-                not self._score_history.get(automation_entity_id)
+                automation_entity_id not in self._score_ema
+                and not self._score_history.get(automation_entity_id)
                 and self._runtime_event_store is not None
             ):
                 try:
@@ -1719,15 +1734,41 @@ class RuntimeHealthMonitor:
         persisted_ema: float | None = None,
     ) -> float:
         history = self._score_history.setdefault(automation_id, [])
-        if not history and persisted_ema is not None:
-            history.append(max(0.0, persisted_ema))
+        if automation_id not in self._score_ema:
+            if persisted_ema is not None:
+                self._score_ema[automation_id] = max(0.0, float(persisted_ema))
+                if not history:
+                    history.append(self._score_ema[automation_id])
+            elif history:
+                # Reconstruct once from any pre-seeded history (tests / legacy).
+                ema = history[0]
+                for value in history[1:]:
+                    ema = (self._score_ema_alpha * value) + (
+                        (1 - self._score_ema_alpha) * ema
+                    )
+                self._score_ema[automation_id] = ema
+
+        prev = self._score_ema.get(automation_id)
+        if (
+            prev is not None
+            and score < _EMA_RECOVERY_RAW_CEILING
+            and prev >= _EMA_RECOVERY_PREV_FLOOR
+            and score <= prev * _EMA_RECOVERY_RATIO
+        ):
+            history.clear()
+            history.append(score)
+            self._score_ema[automation_id] = score
+            return score
+
+        if prev is None:
+            ema = score
+        else:
+            ema = (self._score_ema_alpha * score) + ((1 - self._score_ema_alpha) * prev)
+
         history.append(score)
         if len(history) > self.score_ema_samples:
             del history[: -self.score_ema_samples]
-
-        ema = history[0]
-        for value in history[1:]:
-            ema = (self._score_ema_alpha * value) + ((1 - self._score_ema_alpha) * ema)
+        self._score_ema[automation_id] = ema
         return ema
 
     def _effective_warmup_samples(
@@ -2362,6 +2403,7 @@ class RuntimeHealthMonitor:
             "bucket_ratio_30d": bucket_ratio_30d,
             "gap_vs_median": gap_vs_median,
             "is_weekend": 1.0 if now.weekday() >= 5 else 0.0,
+            "weekday": float(now.weekday()),
             "other_automations_5m": other_5m,
         }
 
