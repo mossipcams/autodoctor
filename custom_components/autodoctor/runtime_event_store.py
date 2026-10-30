@@ -6,7 +6,8 @@ import asyncio
 import json
 import sqlite3
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,7 +65,7 @@ class RuntimeEventStore:
     def ensure_schema(self, target_version: int) -> int:
         """Apply forward-only schema migrations and return active schema version."""
         desired = max(1, int(target_version))
-        with self._lock:
+        with self._locked_write():
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS metadata (
@@ -100,6 +101,7 @@ class RuntimeEventStore:
                 )
                 return current_version
             except Exception as err:
+                self._rollback_quietly()
                 self._set_metadata_unlocked("migration:state", "failed")
                 self._set_metadata_unlocked("migration:last_error", str(err))
                 self._set_metadata_unlocked(
@@ -114,14 +116,14 @@ class RuntimeEventStore:
 
     def set_metadata(self, key: str, value: str) -> None:
         """Upsert metadata value for key."""
-        with self._lock:
+        with self._locked_write():
             self._set_metadata_unlocked(key, value)
 
     def set_metadata_batch(self, pairs: dict[str, str]) -> None:
         """Upsert multiple metadata key-value pairs in a single transaction."""
         if not pairs:
             return
-        with self._lock:
+        with self._locked_write():
             for key, value in pairs.items():
                 self._set_metadata_unlocked(key, value)
 
@@ -147,6 +149,21 @@ class RuntimeEventStore:
         )
         self._conn.commit()
 
+    @contextmanager
+    def _locked_write(self) -> Generator[None]:
+        """Hold the lock for a write; roll back the connection if the body raises."""
+        with self._lock:
+            try:
+                yield
+            except Exception:
+                self._rollback_quietly()
+                raise
+
+    def _rollback_quietly(self) -> None:
+        """Roll back any open transaction. Never masks the caller's original error."""
+        with suppress(sqlite3.Error):
+            self._conn.rollback()
+
     def close(self) -> None:
         """Close the SQLite connection."""
         with self._lock:
@@ -160,7 +177,7 @@ class RuntimeEventStore:
         bucket = self._classify_time_bucket(ts)
         weekday = ts.weekday()
         epoch = ts.timestamp()
-        with self._lock:
+        with self._locked_write():
             self._conn.execute(
                 """
                 INSERT OR IGNORE INTO trigger_events
@@ -188,7 +205,7 @@ class RuntimeEventStore:
                 )
             )
 
-        with self._lock:
+        with self._locked_write():
             before = self._conn.total_changes
             self._conn.executemany(
                 """
@@ -299,7 +316,7 @@ class RuntimeEventStore:
         retention = max(1, int(retention_days))
         current = self._to_utc(now or datetime.now(UTC))
         cutoff = (current.timestamp()) - float(retention * 24 * 60 * 60)
-        with self._lock:
+        with self._locked_write():
             before = self._conn.total_changes
             self._conn.execute(
                 "DELETE FROM trigger_events WHERE triggered_at < ?",
@@ -323,7 +340,7 @@ class RuntimeEventStore:
             return
         ts = self._to_utc(scored_at).timestamp()
         payload = json.dumps(features or {}, separators=(",", ":"), sort_keys=True)
-        with self._lock:
+        with self._locked_write():
             self._conn.execute(
                 """
                 INSERT OR REPLACE INTO score_history
@@ -422,7 +439,7 @@ class RuntimeEventStore:
         if not normalized_rows:
             return False
 
-        with self._lock:
+        with self._locked_write():
             self._conn.executemany(
                 """
                 INSERT OR REPLACE INTO score_history
@@ -469,7 +486,7 @@ class RuntimeEventStore:
         """Recompute daily rollup cache from trigger_events for one automation."""
         if not automation_id:
             return
-        with self._lock:
+        with self._locked_write():
             self._conn.execute(
                 "DELETE FROM daily_bucket_counts WHERE automation_id = ?",
                 (automation_id,),
